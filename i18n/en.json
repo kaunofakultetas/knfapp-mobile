@@ -1,0 +1,117 @@
+{
+  "tabs": {
+    "news": "News",
+    "messages": "Messages",
+    "schedule": "Schedule",
+    "map": "Map",
+    "id": "ID",
+    "settings": "Settings"
+  },
+  "navigation": {
+    "title": "Navigation",
+    "scrollHint360": "Scroll - full 360°",
+    "onTarget": "On target",
+    "turnLeft": "Turn left {{deg}}°",
+    "turnRight": "Turn right {{deg}}°"
+  },
+  "header": {
+    "openMenu": "Open menu"
+  },
+  "menu": {
+    "title": "Menu",
+    "subtitle": "Manage pinned tabs"
+  },
+  "common": {
+    "loading": "Loading...",
+    "loadingFonts": "Loading fonts...",
+    "send": "Send",
+    "tryAgain": "Try Again",
+    "reportIssue": "Report Issue",
+    "ok": "OK",
+    "back": "Back",
+    "next": "Next"
+  },
+  "login": {
+    "welcomeTitle": "Welcome!",
+    "subtitle": "Vilnius University Kaunas Faculty\napp on your phone.",
+    "continue": "Continue",
+    "title": "Login",
+    "usernameLabel": "Username",
+    "usernamePlaceholder": "Enter your username",
+    "passwordLabel": "Password",
+    "passwordPlaceholder": "Enter your password",
+    "forgotPassword": "Forgot password?",
+    "signIn": "Sign In",
+    "sso": "Sign in via SSO (placeholder)",
+    "ssoComingSoon": "SSO will be integrated later",
+    "errors": {
+      "usernameRequired": "Username is required",
+      "passwordRequired": "Password is required",
+      "passwordMin": "Password must be at least 6 characters"
+    },
+    "errorTitle": "Login error",
+    "errorMessage": "Invalid username or password"
+  },
+  "messages": {
+    "title": "Messages",
+    "searchPlaceholder": "Search rooms",
+    "noRoomsTitle": "No rooms created!",
+    "noRoomsSubtitle": "Click the icon above to create a Chat room",
+    "members": "{{count}} members",
+    "tapToStart": "Tap to start chatting",
+    "now": "now",
+    "pin": "Pin",
+    "unpin": "Unpin",
+    "delete": "Delete",
+    "newMessage": "New message",
+    "system": "System"
+  },
+  "news": {
+    "title": "News",
+    "pollTitle": "Poll - When are we barbecuing in the yard?"
+  },
+  "newsPost": {
+    "commentsTitle": "Comments",
+    "noComments": "No comments yet",
+    "inputPlaceholder": "Write a comment..."
+  },
+  "schedule": {
+    "title": "Schedule",
+    "noLectures": "No lectures",
+    "typeLecture": "Type: Lecture",
+    "group": "Group: {{group}}"
+  },
+  "id": {
+    "title": "Student ID",
+    "studentFallback": "Student"
+  },
+  "chat": {
+    "title": "Chat",
+    "inputPlaceholder": "Type a message..."
+  },
+  "newChat": {
+    "title": "New chat",
+    "namePlaceholder": "Chat name",
+    "create": "Create",
+    "errorTitle": "Error",
+    "errorMessage": "Failed to create room"
+  },
+  "settings": {
+    "title": "Settings",
+    "notifications": "Notifications",
+    "theme": "Theme",
+    "language": "Language",
+    "light": "Light",
+    "dark": "Dark",
+    "resetDefaults": "Reset to defaults"
+  },
+  "notFound": {
+    "oops": "Oops!",
+    "message": "This screen does not exist.",
+    "goHome": "Go to home screen!"
+  },
+  "error": {
+    "title": "Oops! Something went wrong",
+    "unexpected": "An unexpected error occurred"
+  }
+}

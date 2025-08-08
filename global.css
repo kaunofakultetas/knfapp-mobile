@@ -1,0 +1,50 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom component classes that maintain your design system */
+@layer components {
+  .btn-primary {
+    @apply bg-primary text-white font-raleway-medium px-lg py-3 rounded-md justify-center items-center;
+  }
+  
+  .btn-secondary {
+    @apply bg-gray-200 text-text-primary font-raleway-medium px-lg py-3 rounded-md justify-center items-center;
+  }
+  
+  .btn-outline {
+    @apply bg-transparent border border-primary text-primary font-raleway-medium px-lg py-3 rounded-md justify-center items-center;
+  }
+  
+  .input-field {
+    @apply border border-border-light bg-white px-md py-3 rounded-md font-raleway text-base text-text-primary;
+  }
+  
+  .input-field-focused {
+    @apply border-2 border-primary;
+  }
+  
+  .input-field-error {
+    @apply border-danger;
+  }
+  
+  .card-default {
+    @apply bg-background-card rounded-lg p-md;
+  }
+  
+  .card-elevated {
+    @apply bg-background-card rounded-lg p-md shadow-md;
+  }
+  
+  .text-heading {
+    @apply font-raleway-bold text-text-primary;
+  }
+  
+  .text-body {
+    @apply font-raleway text-text-primary;
+  }
+  
+  .text-caption {
+    @apply font-raleway text-sm text-text-secondary;
+  }
+}

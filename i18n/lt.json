@@ -1,0 +1,117 @@
+{
+  "tabs": {
+    "news": "Naujienos",
+    "messages": "Žinutės",
+    "schedule": "Tvarkaraštis",
+    "map": "Žemėlapis",
+    "id": "ID",
+    "settings": "Nustatymai"
+  },
+  "navigation": {
+    "title": "Navigacija",
+    "scrollHint360": "Slinkite - pilni 360°",
+    "onTarget": "Tiksliai",
+    "turnLeft": "Sukite kairėn {{deg}}°",
+    "turnRight": "Sukite dešinėn {{deg}}°"
+  },
+  "header": {
+    "openMenu": "Atidaryti meniu"
+  },
+  "menu": {
+    "title": "Meniu",
+    "subtitle": "Tvarkykite fiksuotas korteles"
+  },
+  "common": {
+    "loading": "Kraunama...",
+    "loadingFonts": "Įkeliami šriftai...",
+    "send": "Siųsti",
+    "tryAgain": "Bandyti dar kartą",
+    "reportIssue": "Pranešti apie klaidą",
+    "ok": "Gerai",
+    "back": "Atgal",
+    "next": "Toliau"
+  },
+  "login": {
+    "welcomeTitle": "Sveiki Atvykę!",
+    "subtitle": "Vilniaus universiteto Kauno fakulteto\nprogramėlė jūsų telefone.",
+    "continue": "Tęsti",
+    "title": "Prisijungimas",
+    "usernameLabel": "Vartotojo vardas",
+    "usernamePlaceholder": "Įveskite vartotojo vardą",
+    "passwordLabel": "Slaptažodis",
+    "passwordPlaceholder": "Įveskite slaptažodį",
+    "forgotPassword": "Pamiršote slaptažodį?",
+    "signIn": "Prisijungti",
+    "sso": "Prisijungti per SSO (vietoje)",
+    "ssoComingSoon": "SSO bus integruotas vėliau",
+    "errors": {
+      "usernameRequired": "Vartotojo vardas privalomas",
+      "passwordRequired": "Slaptažodis privalomas",
+      "passwordMin": "Slaptažodis turi būti bent 6 simbolių"
+    },
+    "errorTitle": "Prisijungimo klaida",
+    "errorMessage": "Neteisingas vartotojo vardas arba slaptažodis"
+  },
+  "messages": {
+    "title": "Žinutės",
+    "searchPlaceholder": "Paieška kambariuose",
+    "noRoomsTitle": "Kambarių nėra!",
+    "noRoomsSubtitle": "Spauskite ikoną viršuje ir sukurkite pokalbių kambarį",
+    "members": "{{count}} nariai",
+    "tapToStart": "Bakstelėkite norėdami pradėti pokalbį",
+    "now": "dabar",
+    "pin": "Prisegti",
+    "unpin": "Atsegti",
+    "delete": "Ištrinti",
+    "newMessage": "Nauja žinutė",
+    "system": "Sisteminis"
+  },
+  "news": {
+    "title": "Naujienos",
+    "pollTitle": "Balsavimas - Kada kepame šašlykus liepų kiemelyje?"
+  },
+  "newsPost": {
+    "commentsTitle": "Komentarai",
+    "noComments": "Dar nėra komentarų",
+    "inputPlaceholder": "Įrašykite komentarą..."
+  },
+  "schedule": {
+    "title": "Tvarkaraštis",
+    "noLectures": "Nėra paskaitų",
+    "typeLecture": "Tipas: Paskaita",
+    "group": "Grupė: {{group}}"
+  },
+  "id": {
+    "title": "Studento ID",
+    "studentFallback": "Studentas"
+  },
+  "settings": {
+    "title": "Nustatymai",
+    "notifications": "Pranešimai",
+    "theme": "Tema",
+    "language": "Kalba",
+    "light": "Šviesi",
+    "dark": "Tamsi",
+    "resetDefaults": "Atstatyti numatytuosius"
+  },
+  "chat": {
+    "title": "Pokalbis",
+    "inputPlaceholder": "Įrašykite žinutę..."
+  },
+  "newChat": {
+    "title": "Naujas pokalbis",
+    "namePlaceholder": "Pokalbio pavadinimas",
+    "create": "Sukurti",
+    "errorTitle": "Klaida",
+    "errorMessage": "Nepavyko sukurti kambario"
+  },
+  "notFound": {
+    "oops": "Oi!",
+    "message": "Šis ekranas neegzistuoja.",
+    "goHome": "Eiti į pradžios ekraną!"
+  },
+  "error": {
+    "title": "Oi! Kažkas negerai",
+    "unexpected": "Įvyko netikėta klaida"
+  }
+}

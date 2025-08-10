@@ -54,9 +54,9 @@
   },
   "messages": {
     "title": "Žinutės",
-    "searchPlaceholder": "Paieška kambariuose",
-    "noRoomsTitle": "Kambarių nėra!",
-    "noRoomsSubtitle": "Spauskite ikoną viršuje ir sukurkite pokalbių kambarį",
+    "searchPlaceholder": "Paieška",
+    "noRoomsTitle": "Dar nėra pokalbių",
+    "noRoomsSubtitle": "Bakstelėkite ikoną viršuje ir pradėkite pokalbį",
     "members": "{{count}} nariai",
     "tapToStart": "Bakstelėkite norėdami pradėti pokalbį",
     "now": "dabar",
@@ -64,7 +64,9 @@
     "unpin": "Atsegti",
     "delete": "Ištrinti",
     "newMessage": "Nauja žinutė",
-    "system": "Sisteminis"
+    "system": "Sisteminis",
+    "people": "Asmenys",
+    "groups": "Grupės"
   },
   "news": {
     "title": "Naujienos",
@@ -103,7 +105,10 @@
     "namePlaceholder": "Pokalbio pavadinimas",
     "create": "Sukurti",
     "errorTitle": "Klaida",
-    "errorMessage": "Nepavyko sukurti kambario"
+    "errorMessage": "Nepavyko sukurti pokalbio",
+    "selectPeople": "Pasirinkite žmones",
+    "groupName": "Grupės pavadinimas (nebūtina)",
+    "selectOneUser": "Pasirinkite vieną žmogų, kad pradėtumėte asmeninį pokalbį"
   },
   "notFound": {
     "oops": "Oi!",

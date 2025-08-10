@@ -1,4 +1,4 @@
-import { ChatRoom, NewsPost, Poll } from '@/types';
+import { ChatRoom, Conversation, ConversationParticipant, NewsPost, Poll } from '@/types';
 
 // Mock Chat Rooms Data
 export const MOCK_CHAT_ROOMS: ChatRoom[] = [
@@ -114,4 +114,52 @@ export const MOCK_POLL: Poll = {
 // Navigation Images (single panorama placeholder; more can be added later)
 export const NAVIGATION_IMAGES = [
   require('../assets/navigation/1.1.03.jpg'),
+];
+
+// Mock Users (for starting direct/group conversations in UI)
+export const MOCK_USERS: ConversationParticipant[] = [
+  { id: 'u-1', displayName: 'Eglė' },
+  { id: 'u-2', displayName: 'Tomas' },
+  { id: 'u-3', displayName: 'Monika' },
+  { id: 'u-4', displayName: 'Jonas' },
+  { id: 'u-5', displayName: 'Aistė' },
+];
+
+// Mock Conversations
+export const MOCK_CONVERSATIONS: Conversation[] = [
+  {
+    id: 'c-1',
+    type: 'direct',
+    title: 'Eglė',
+    participants: [
+      { id: 'self', displayName: 'Tu' },
+      { id: 'u-1', displayName: 'Eglė' },
+    ],
+    messages: [
+      { id: 'm-1', conversationId: 'c-1', senderId: 'u-1', senderName: 'Eglė', text: 'Labas! Kaip sekasi?', time: '09:02' },
+      { id: 'm-2', conversationId: 'c-1', senderId: 'self', senderName: 'Tu', text: 'Puikiai! 😊', time: '09:04', status: 'read' },
+    ],
+    unreadCount: 0,
+    lastUpdatedMs: Date.now() - 1000 * 60 * 30,
+  },
+  {
+    id: 'c-2',
+    type: 'group',
+    title: 'ISKS 2023',
+    avatarEmoji: '👥',
+    participants: [
+      { id: 'self', displayName: 'Tu' },
+      { id: 'u-1', displayName: 'Eglė' },
+      { id: 'u-2', displayName: 'Tomas' },
+      { id: 'u-3', displayName: 'Monika' },
+    ],
+    messages: [
+      { id: 'm-3', conversationId: 'c-2', senderId: 'u-2', senderName: 'Tomas', text: 'Welcome everyone!', time: '07:50' },
+      { id: 'm-4', conversationId: 'c-2', senderId: 'u-1', senderName: 'Eglė', text: 'Sveiki, Pirmakursiai!', time: '09:30' },
+      { id: 'm-5', conversationId: 'c-2', senderId: 'u-3', senderName: 'Monika', text: '', time: '09:40', imageUrl: 'https://picsum.photos/400/300', reactions: [{ emoji: '👍', byUserIds: ['u-1', 'u-2'] }] },
+    ],
+    unreadCount: 2,
+    lastUpdatedMs: Date.now() - 1000 * 60 * 5,
+    pinned: true,
+  },
 ];

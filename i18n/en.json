@@ -54,9 +54,9 @@
   },
   "messages": {
     "title": "Messages",
-    "searchPlaceholder": "Search rooms",
-    "noRoomsTitle": "No rooms created!",
-    "noRoomsSubtitle": "Click the icon above to create a Chat room",
+    "searchPlaceholder": "Search",
+    "noRoomsTitle": "No conversations yet",
+    "noRoomsSubtitle": "Tap the icon above to start a chat",
     "members": "{{count}} members",
     "tapToStart": "Tap to start chatting",
     "now": "now",
@@ -64,7 +64,9 @@
     "unpin": "Unpin",
     "delete": "Delete",
     "newMessage": "New message",
-    "system": "System"
+    "system": "System",
+    "people": "People",
+    "groups": "Groups"
   },
   "news": {
     "title": "News",
@@ -94,7 +96,10 @@
     "namePlaceholder": "Chat name",
     "create": "Create",
     "errorTitle": "Error",
-    "errorMessage": "Failed to create room"
+    "errorMessage": "Failed to create chat",
+    "selectPeople": "Select people",
+    "groupName": "Group name (optional)",
+    "selectOneUser": "Select one person to start a direct chat"
   },
   "settings": {
     "title": "Settings",

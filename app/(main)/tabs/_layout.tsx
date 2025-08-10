@@ -4,11 +4,27 @@ import { Platform } from 'react-native';
 
 import { HapticTab } from '@/components/HapticTab';
 import { IconSymbol } from '@/components/ui/IconSymbol';
-import TabBarBackground from '@/components/ui/TabBarBackground';
-import { Colors } from '@/constants/Colors';
+// Inlined TabBarBackground to avoid external small files
 import { useApp } from '@/context/AppContext';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useTranslation } from 'react-i18next';
+import { StyleSheet, View } from 'react-native';
+
+
+
+
+
+function TabBarBackground() {
+  return <View style={[StyleSheet.absoluteFill, { backgroundColor: '#FFFFFF' }]} /> as any;
+}
+
+export function useBottomTabOverflow() {
+  return useBottomTabBarHeight();
+}
+
+
+
 
 export default function MainTabsLayout() {
   const colorScheme = useColorScheme();
@@ -18,34 +34,50 @@ export default function MainTabsLayout() {
 
   return (
     <Tabs
-      screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
-        tabBarButton: HapticTab,
-        tabBarBackground: TabBarBackground,
-        tabBarItemStyle: { flex: 1, flexBasis: 0 },
-        tabBarStyle: Platform.select({ ios: { position: 'absolute' }, default: {} }),
+      screenOptions={({ route, navigation }) => {
+        const isFocused = navigation.getState().index === navigation.getState().routes.findIndex(r => r.name === route.name);
+        return {
+          headerShown: false,
+          tabBarActiveTintColor: '#7B003F',
+          tabBarInactiveTintColor: '#687076',
+          tabBarButton: HapticTab,
+          tabBarBackground: TabBarBackground as any,
+          tabBarItemStyle: { 
+            flex: 1, 
+            flexBasis: 0, 
+            alignItems: 'center', 
+            justifyContent: 'center',
+            borderTopWidth: 3,
+            borderTopColor: isFocused ? '#7B003F' : 'transparent',
+          },
+          tabBarStyle: Platform.select({
+            ios: { position: 'absolute', backgroundColor: '#FFFFFF', borderTopColor: '#FFFFFF', borderTopWidth: 2 },
+            default: { backgroundColor: '#FFFFFF', borderTopColor: '#FFFFFF', borderTopWidth: 2 },
+          }),
+          tabBarLabelStyle: { marginBottom: 6 },
+          animation: 'shift',
+        };
       }}
     >
       <Tabs.Screen
         name="news"
         options={{
           title: t('tabs.news'),
-          tabBarIcon: ({ color }) => <IconSymbol size={26} name="newspaper.fill" color={color} />,
+          tabBarIcon: ({ color, focused }) => <IconSymbol size={26} name={focused ? "newspaper.fill" : "newspaper"} color={color} />,
         }}
       />
       <Tabs.Screen
         name="messages"
         options={{
           title: t('tabs.messages'),
-          tabBarIcon: ({ color }) => <IconSymbol size={26} name="message.fill" color={color} />,
+          tabBarIcon: ({ color, focused }) => <IconSymbol size={26} name={focused ? "message.fill" : "message"} color={color} />,
         }}
       />
       <Tabs.Screen
         name="schedule"
         options={{
           title: t('tabs.schedule'),
-          tabBarIcon: ({ color }) => <IconSymbol size={26} name="calendar" color={color} />,
+          tabBarIcon: ({ color, focused }) => <IconSymbol size={26} name={focused ? "calendar" : "calendar"} color={color} />,
           href: show('schedule') ? undefined : null,
         }}
       />
@@ -53,7 +85,7 @@ export default function MainTabsLayout() {
         name="id"
         options={{
           title: t('tabs.id'),
-          tabBarIcon: ({ color }) => <IconSymbol size={26} name="person.crop.square" color={color} />,
+          tabBarIcon: ({ color, focused }) => <IconSymbol size={26} name={focused ? "person.fill" : "person"} color={color} />,
           href: show('id') ? undefined : null,
         }}
       />
@@ -61,7 +93,7 @@ export default function MainTabsLayout() {
         name="map"
         options={{
           title: t('tabs.map'),
-          tabBarIcon: ({ color }) => <IconSymbol size={26} name="map.fill" color={color} />,
+          tabBarIcon: ({ color, focused }) => <IconSymbol size={26} name={focused ? "map.fill" : "map"} color={color} />,
           href: show('map') ? undefined : null,
         }}
       />
@@ -69,7 +101,7 @@ export default function MainTabsLayout() {
         name="settings"
         options={{
           title: t('tabs.settings'),
-          tabBarIcon: ({ color }) => <IconSymbol size={26} name="gearshape.fill" color={color} />,
+          tabBarIcon: ({ color, focused }) => <IconSymbol size={26} name={focused ? "gearshape.fill" : "gearshape"} color={color} />,
           href: show('settings') ? undefined : null,
         }}
       />

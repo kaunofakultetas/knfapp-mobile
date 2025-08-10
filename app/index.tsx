@@ -13,13 +13,15 @@ export default function IndexScreen() {
   useEffect(() => {
     const redirect = async () => {
       const hasOnboarded = await AsyncStorage.getItem('onboarded');
-      if (isAuthenticated) {
-        router.replace('/(main)/tabs/news');
-      } else if (!hasOnboarded) {
-        router.replace('/login');
-      } else {
-        router.replace('/login');
-      }
+
+      router.replace('/(main)/tabs/news');
+      // if (isAuthenticated) {
+      //   router.replace('/(main)/tabs/news');
+      // } else if (!hasOnboarded) {
+      //   router.replace('/login');
+      // } else {
+      //   router.replace('/login');
+      // }
     };
     redirect();
   }, [router, isAuthenticated]);

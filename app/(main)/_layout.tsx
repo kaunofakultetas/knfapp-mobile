@@ -22,7 +22,7 @@ export default function MainLayout() {
       />
 
       <Stack.Screen 
-        name="new-chat" 
+        name="new-chat/index" 
         options={{ 
           title: t('newChat.title'),
           headerBackTitle: t('common.back'),
@@ -30,14 +30,22 @@ export default function MainLayout() {
       />
       
       <Stack.Screen 
-        name="news-post" 
+        name="news-comments/index" 
+        options={{ 
+          title: t('news.comments'),
+          headerBackTitle: t('common.back'),
+        }} 
+      />
+      
+      <Stack.Screen 
+        name="news-post/index" 
         options={{ 
           title: t('news.title'),
           headerBackTitle: t('common.back'),
         }} 
       />
       <Stack.Screen 
-        name="chat-room" 
+        name="chat-room/index" 
         options={{ 
           title: t('chat.title'),
           headerBackTitle: t('common.back'),

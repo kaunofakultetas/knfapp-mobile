@@ -25,6 +25,40 @@ export interface ChatRoom {
   avatarEmoji?: string;
 }
 
+// Next-gen Chats (supports direct and group conversations)
+export type ConversationType = 'direct' | 'group';
+
+export interface ConversationParticipant {
+  id: string;
+  displayName: string;
+  avatarUrl?: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  senderName: string;
+  text: string;
+  time: string; // formatted time string for display
+  status?: 'sent' | 'read';
+  liked?: boolean;
+  imageUrl?: string;
+  reactions?: { emoji: string; count?: number; bySelf?: boolean; byUserIds?: string[] }[];
+}
+
+export interface Conversation {
+  id: string;
+  type: ConversationType;
+  title: string; // for direct, derived from the other participant; for group, group name
+  participants: ConversationParticipant[];
+  messages: ChatMessage[]; // kept inline for now (can be paginated later)
+  unreadCount?: number;
+  lastUpdatedMs?: number;
+  pinned?: boolean;
+  avatarEmoji?: string; // for group avatar placeholder
+}
+
 // News Types
 export interface NewsPost {
   id: string;
@@ -128,7 +162,7 @@ export type MainRoutes = {
   // 'indoor-navigation': undefined; // removed
   'settings': undefined;
   'news-post': { postId: string };
-  'chat-room': { id: string; name: string };
+  'chat-room': { conversationId: string; title: string; type?: ConversationType };
 };
 
 export type TabRoutes = {

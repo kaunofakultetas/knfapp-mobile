@@ -1,2 +1,2 @@
-export { default } from '../../settings';
+export { default } from '../app/(main)/settings';
 

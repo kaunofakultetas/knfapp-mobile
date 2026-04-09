@@ -249,7 +249,9 @@
   "network": {
     "offline": "No internet connection",
     "offlineHint": "Some features may not work",
-    "online": "Back online"
+    "online": "Back online",
+    "cachedData": "Showing cached data",
+    "cachedAgo": "Updated {{time}}"
   },
   "toast": {
     "networkError": "Could not reach server",

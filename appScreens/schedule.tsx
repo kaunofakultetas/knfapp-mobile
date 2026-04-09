@@ -1,5 +1,7 @@
+import CachedBanner from '@/components/CachedBanner';
 import Header from '@/components/ui/Header';
-import { fetchSchedule, fetchScheduleFilters, ScheduleLesson } from '@/services/api';
+import { fetchSchedule, fetchScheduleFilters, ScheduleLesson, ScheduleResponse } from '@/services/api';
+import { cacheGet, cacheKeySchedule, cacheSet, SCHEDULE_CACHE_MAX_AGE } from '@/services/cache';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Feather } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -47,6 +49,7 @@ export default function ScheduleScreen() {
   const [selectedSemester, setSelectedSemester] = useState<string | null>(null);
   const [filterModalVisible, setFilterModalVisible] = useState(false);
   const [filtersLoaded, setFiltersLoaded] = useState(false);
+  const [cachedAt, setCachedAt] = useState<number | null>(null);
 
   // Load persisted preferences on mount
   useEffect(() => {
@@ -87,11 +90,22 @@ export default function ScheduleScreen() {
 
   const loadLessons = useCallback(
     async (day: number, group: string | null, semester: string | null) => {
+      const key = cacheKeySchedule(day, group, semester);
       try {
         const resp = await fetchSchedule(day, group ?? undefined, semester ?? undefined);
         setLessons(resp.lessons);
+        setCachedAt(null);
+        cacheSet(key, resp);
       } catch {
-        setLessons([]);
+        // Try offline cache
+        const cached = await cacheGet<ScheduleResponse>(key, SCHEDULE_CACHE_MAX_AGE);
+        if (cached) {
+          setLessons(cached.data.lessons);
+          setCachedAt(cached.cachedAt);
+        } else {
+          setLessons([]);
+          setCachedAt(null);
+        }
       }
     },
     [],
@@ -182,6 +196,7 @@ export default function ScheduleScreen() {
         ))}
       </View>
 
+      {cachedAt && <CachedBanner cachedAt={cachedAt} />}
       {loading ? (
         <View className="flex-1 items-center justify-center">
           <ActivityIndicator size="large" color="#7B003F" />

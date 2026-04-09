@@ -1,9 +1,11 @@
+import CachedBanner from '@/components/CachedBanner';
 import Header from '@/components/ui/Header';
 import PollWidget from '@/components/PollWidget';
 import { MOCK_NEWS_POSTS } from '@/constants/Data';
 import { useAuth } from '@/context/AuthContext';
 import { showToast } from '@/context/NetworkContext';
-import { fetchNewsFeed, getUploadUrl, toggleLikeApi } from '@/services/api';
+import { fetchNewsFeed, getUploadUrl, NewsFeedResponse, toggleLikeApi } from '@/services/api';
+import { cacheGet, cacheSet, CACHE_KEY_NEWS, NEWS_CACHE_MAX_AGE } from '@/services/cache';
 import type { NewsPost } from '@/types';
 import { FontAwesome, Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -86,46 +88,63 @@ export default function NewsScreen() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [likedById, setLikedById] = useState<Record<string, boolean>>({});
   const [likeCounts, setLikeCounts] = useState<Record<string, number>>({});
+  const [cachedAt, setCachedAt] = useState<number | null>(null);
+  const hasLiveData = useRef(false);
+
+  const applyPosts = useCallback((incoming: NewsPost[], append: boolean) => {
+    const likes: Record<string, boolean> = {};
+    const counts: Record<string, number> = {};
+    incoming.forEach((p) => {
+      if (p.liked !== undefined) likes[p.id] = p.liked;
+      counts[p.id] = p.likes;
+    });
+    if (append) {
+      setPosts((prev) => [...prev, ...incoming]);
+      setLikedById((prev) => ({ ...prev, ...likes }));
+      setLikeCounts((prev) => ({ ...prev, ...counts }));
+    } else {
+      setPosts(incoming);
+      setLikedById(likes);
+      setLikeCounts(counts);
+    }
+  }, []);
 
   const loadPosts = useCallback(
     async (pageNum = 1, append = false) => {
       try {
         const resp = await fetchNewsFeed(pageNum, 20);
-        const incoming = resp.posts;
-        // Seed like state from backend
-        const likes: Record<string, boolean> = {};
-        const counts: Record<string, number> = {};
-        incoming.forEach((p) => {
-          if (p.liked !== undefined) likes[p.id] = p.liked;
-          counts[p.id] = p.likes;
-        });
-
-        if (append) {
-          setPosts((prev) => [...prev, ...incoming]);
-          setLikedById((prev) => ({ ...prev, ...likes }));
-          setLikeCounts((prev) => ({ ...prev, ...counts }));
-        } else {
-          setPosts(incoming);
-          setLikedById(likes);
-          setLikeCounts(counts);
-        }
+        applyPosts(resp.posts, append);
         setPage(pageNum);
         setHasMore(resp.hasMore);
+        setCachedAt(null); // Live data — clear cached indicator
+        hasLiveData.current = true;
+
+        // Cache first page for offline use
+        if (pageNum === 1 && !append) {
+          cacheSet(CACHE_KEY_NEWS, resp);
+        }
       } catch {
-        // API unreachable — fall back to mock data on first load
+        // API unreachable — try offline cache, then mock data
         if (!append && pageNum === 1) {
-          if (posts.length === 0) {
-            // First load: use mock data silently
-            setPosts(MOCK_NEWS_POSTS);
+          if (!hasLiveData.current) {
+            // First load failed — try cached data, then fall back to mock
+            const cached = await cacheGet<NewsFeedResponse>(CACHE_KEY_NEWS, NEWS_CACHE_MAX_AGE);
+            if (cached) {
+              applyPosts(cached.data.posts, false);
+              setHasMore(false);
+              setCachedAt(cached.cachedAt);
+            } else {
+              setPosts(MOCK_NEWS_POSTS);
+              setHasMore(false);
+            }
           } else {
-            // Refresh failed: show toast
+            // Refresh failed — keep current data, show toast
             showToast('error', t('toast.networkError'), t('toast.networkErrorHint'));
           }
-          setHasMore(false);
         }
       }
     },
-    [],
+    [applyPosts],
   );
 
   useEffect(() => {
@@ -295,6 +314,7 @@ export default function NewsScreen() {
           }
         }}
       >
+        {cachedAt && <CachedBanner cachedAt={cachedAt} />}
         {loading ? (
           <View className="items-center py-20">
             <ActivityIndicator size="large" color="#7B003F" />

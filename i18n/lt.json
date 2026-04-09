@@ -250,7 +250,9 @@
   "network": {
     "offline": "Nėra interneto ryšio",
     "offlineHint": "Kai kurios funkcijos gali neveikti",
-    "online": "Ryšys atstatytas"
+    "online": "Ryšys atstatytas",
+    "cachedData": "Rodomi išsaugoti duomenys",
+    "cachedAgo": "Atnaujinta {{time}}"
   },
   "toast": {
     "networkError": "Nepavyko pasiekti serverio",

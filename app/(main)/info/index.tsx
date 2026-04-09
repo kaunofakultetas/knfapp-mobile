@@ -1,3 +1,4 @@
+import CachedBanner from '@/components/CachedBanner';
 import { useApp } from '@/context/AppContext';
 import {
   fetchFacultyInfo,
@@ -8,8 +9,9 @@ import {
   type InfoLink,
   type InfoProgram,
 } from '@/services/api';
+import { cacheGet, cacheKeyInfo, cacheSet, INFO_CACHE_MAX_AGE } from '@/services/cache';
 import { Ionicons } from '@expo/vector-icons';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ActivityIndicator,
@@ -170,13 +172,26 @@ export default function InfoScreen() {
   const [data, setData] = useState<FacultyInfoResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [cachedAt, setCachedAt] = useState<number | null>(null);
+  const hasLiveData = useRef(false);
 
   const load = useCallback(async () => {
+    const key = cacheKeyInfo(language);
     try {
       const info = await fetchFacultyInfo(language);
       setData(info);
+      setCachedAt(null);
+      hasLiveData.current = true;
+      cacheSet(key, info);
     } catch {
-      // keep stale data if refresh fails
+      // On failure: try cache only if we don't already have live data displayed
+      if (!hasLiveData.current) {
+        const cached = await cacheGet<FacultyInfoResponse>(key, INFO_CACHE_MAX_AGE);
+        if (cached) {
+          setData(cached.data);
+          setCachedAt(cached.cachedAt);
+        }
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -218,6 +233,8 @@ export default function InfoScreen() {
       contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#7B003F" />}
     >
+      {cachedAt && <CachedBanner cachedAt={cachedAt} />}
+
       {/* Faculty header */}
       <View className="items-center mb-2">
         <Text className="text-xl font-bold text-primary text-center">{t('info.facultyName')}</Text>

@@ -607,6 +607,22 @@ export async function fetchPoll(postId: string): Promise<PollResponse | null> {
   }
 }
 
+export async function createPollApi(
+  postId: string,
+  title: string,
+  options: string[],
+  endDate?: string,
+): Promise<PollResponse> {
+  try {
+    const body: Record<string, unknown> = { title, options };
+    if (endDate) body.end_date = endDate;
+    const { data } = await api.post<PollResponse>(API_ENDPOINTS.newsPoll(postId), body);
+    return data;
+  } catch (err) {
+    handleError(err);
+  }
+}
+
 export async function votePollApi(
   postId: string,
   optionId: string,

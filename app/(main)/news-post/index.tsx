@@ -1,3 +1,4 @@
+import PollWidget from '@/components/PollWidget';
 import { useAuth } from '@/context/AuthContext';
 import { addCommentApi, CommentResponse, fetchComments, fetchNewsPost } from '@/services/api';
 import type { NewsPost } from '@/types';
@@ -106,6 +107,8 @@ export default function NewsPostScreen() {
           <Text className="px-5 pb-2 text-sm text-gray-500">{post.author}</Text>
         ) : null}
         <Text className="text-base leading-6 text-gray-800 p-5 pt-0">{post.content}</Text>
+
+        {post.postType === 'poll' && <PollWidget postId={post.id} />}
 
         {post.sourceUrl ? (
           <Pressable className="px-5 pb-5" onPress={() => Linking.openURL(post.sourceUrl!)}>

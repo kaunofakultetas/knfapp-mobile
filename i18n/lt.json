@@ -218,7 +218,16 @@
     "submit": "Paskelbti",
     "success": "Įrašas paskelbtas!",
     "error": "Nepavyko paskelbti įrašo",
-    "contentRequired": "Turinys privalomas"
+    "contentRequired": "Turinys privalomas",
+    "addPoll": "Pridėti balsavimą",
+    "pollQuestion": "Balsavimo klausimas",
+    "pollQuestionPlaceholder": "Užduokite klausimą...",
+    "pollOptions": "Pasirinkimai",
+    "pollOptionPlaceholder": "Pasirinkimas {{n}}",
+    "pollAddOption": "Pridėti pasirinkimą",
+    "pollTitleRequired": "Balsavimo klausimas privalomas",
+    "pollMinOptions": "Reikia bent 2 pasirinkimų",
+    "pollError": "Įrašas sukurtas, bet balsavimo pridėti nepavyko"
   },
   "notFound": {
     "oops": "Oi!",

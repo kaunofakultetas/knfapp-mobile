@@ -217,7 +217,16 @@
     "submit": "Publish",
     "success": "Post published!",
     "error": "Failed to publish post",
-    "contentRequired": "Content is required"
+    "contentRequired": "Content is required",
+    "addPoll": "Add poll",
+    "pollQuestion": "Poll question",
+    "pollQuestionPlaceholder": "Ask a question...",
+    "pollOptions": "Options",
+    "pollOptionPlaceholder": "Option {{n}}",
+    "pollAddOption": "Add option",
+    "pollTitleRequired": "Poll question is required",
+    "pollMinOptions": "At least 2 options are required",
+    "pollError": "Post created but poll could not be added"
   },
   "notFound": {
     "oops": "Oops!",

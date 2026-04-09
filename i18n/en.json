@@ -57,9 +57,16 @@
   },
   "register": {
     "title": "Create Account",
-    "subtitle": "Enter your invitation code to register",
+    "subtitle": "Scan a QR code or enter your invitation code",
     "invitationLabel": "Invitation Code",
     "invitationPlaceholder": "Enter invitation code",
+    "scanQr": "Scan QR Code",
+    "scanQrHint": "Point your camera at the invitation QR code",
+    "orEnterManually": "or enter manually",
+    "cameraPermission": "Camera access is needed to scan QR codes",
+    "cameraPermissionButton": "Allow Camera",
+    "invalidQr": "Invalid QR code",
+    "codeScanned": "Code scanned: {{code}}",
     "usernameLabel": "Username",
     "usernamePlaceholder": "Choose a username",
     "displayNameLabel": "Full Name",
@@ -110,12 +117,20 @@
     "empty": "No news",
     "loadMore": "More news",
     "pollVotes_one": "{{count}} vote",
-    "pollVotes_other": "{{count}} votes"
+    "pollVotes_other": "{{count}} votes",
+    "sourceKnf": "KNF",
+    "sourceVu": "VU",
+    "sourceFaculty": "Faculty",
+    "sourceApp": "App",
+    "sourceUser": "User"
   },
   "newsPost": {
     "commentsTitle": "Comments",
     "noComments": "No comments yet",
-    "inputPlaceholder": "Write a comment..."
+    "inputPlaceholder": "Write a comment...",
+    "readMore": "Read more...",
+    "notFound": "Article not found",
+    "loginToComment": "Log in to comment"
   },
   "schedule": {
     "title": "Schedule",

@@ -22,17 +22,19 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 // ── Source badge ─────────────────────────────────────────────────────────────
 
 function SourceBadge({ source }: { source?: string }) {
+  const { t } = useTranslation();
   if (!source) return null;
-  const labels: Record<string, string> = {
-    'knf.vu.lt': 'KNF',
-    'vu.lt': 'VU',
-    faculty: 'Fakultetas',
-    app: 'Programa',
-    user: 'Vartotojas',
+  const labelKeys: Record<string, string> = {
+    'knf.vu.lt': 'news.sourceKnf',
+    'vu.lt': 'news.sourceVu',
+    faculty: 'news.sourceFaculty',
+    app: 'news.sourceApp',
+    user: 'news.sourceUser',
   };
+  const label = labelKeys[source] ? t(labelKeys[source]) : source;
   return (
     <View className="absolute top-2 right-2 bg-primary/80 px-2 py-0.5 rounded">
-      <Text className="text-white text-xs font-bold">{labels[source] ?? source}</Text>
+      <Text className="text-white text-xs font-bold">{label}</Text>
     </View>
   );
 }
@@ -321,7 +323,8 @@ export default function NewsScreen() {
           const y = currentOffsetYRef.current;
           if (y <= SNAP_TOP_THRESHOLD_PX && !snappingTopRef.current) {
             snappingTopRef.current = true;
-            scrollViewRef.current?.getNode?.().scrollTo({ y: 0, animated: false });
+            const sv = scrollViewRef.current?.getNode?.() ?? scrollViewRef.current;
+            sv?.scrollTo?.({ y: 0, animated: false });
             requestAnimationFrame(() => {
               try {
                 scrollY.setValue(0);
@@ -334,7 +337,8 @@ export default function NewsScreen() {
           const y = currentOffsetYRef.current;
           if (y <= SNAP_TOP_THRESHOLD_PX && !snappingTopRef.current) {
             snappingTopRef.current = true;
-            scrollViewRef.current?.getNode?.().scrollTo({ y: 0, animated: false });
+            const sv = scrollViewRef.current?.getNode?.() ?? scrollViewRef.current;
+            sv?.scrollTo?.({ y: 0, animated: false });
             requestAnimationFrame(() => {
               try {
                 scrollY.setValue(0);

@@ -35,6 +35,12 @@
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Camera access is needed to scan invitation QR codes."
+        }
       ]
     ],
     "experiments": {

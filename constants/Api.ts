@@ -15,6 +15,7 @@ export const API_ENDPOINTS = {
   // Auth
   login: "/auth/login",
   register: "/auth/register",
+  validateCode: "/auth/validate-code",
   me: "/auth/me",
   logout: "/auth/logout",
 

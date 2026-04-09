@@ -1,9 +1,13 @@
+import QrScanner from '@/components/QrScanner';
 import { Button, Input } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
+import { validateInvitationCode } from '@/services/api';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+  ActivityIndicator,
   Alert,
   Keyboard,
   KeyboardAvoidingView,
@@ -41,6 +45,12 @@ export default function RegisterScreen() {
     confirmPassword: '',
   });
   const [errors, setErrors] = useState<FormErrors>({});
+  const [scannerVisible, setScannerVisible] = useState(false);
+  const [codeValidation, setCodeValidation] = useState<{
+    valid?: boolean;
+    role?: string;
+    checking?: boolean;
+  }>({});
 
   const validate = (): boolean => {
     const e: FormErrors = {};
@@ -99,6 +109,24 @@ export default function RegisterScreen() {
     }
   };
 
+  const handleCodeScanned = async (code: string) => {
+    updateField('invitationCode', code);
+    setCodeValidation({ checking: true });
+
+    try {
+      const result = await validateInvitationCode(code);
+      setCodeValidation({ valid: result.valid, role: result.role });
+      if (!result.valid) {
+        setErrors((prev) => ({
+          ...prev,
+          invitationCode: result.error || t('register.invalidQr'),
+        }));
+      }
+    } catch {
+      setCodeValidation({});
+    }
+  };
+
   return (
     <KeyboardAvoidingView
       className="flex-1 bg-primary"
@@ -118,16 +146,51 @@ export default function RegisterScreen() {
               {t('register.subtitle')}
             </Text>
 
-            <Input
-              label={t('register.invitationLabel')}
-              placeholder={t('register.invitationPlaceholder')}
-              value={form.invitationCode}
-              onChangeText={(v) => updateField('invitationCode', v)}
-              error={errors.invitationCode}
-              autoCapitalize="characters"
-              autoCorrect={false}
-              containerClassName="w-full mb-md"
-            />
+            {/* QR Scanner Button */}
+            <Pressable
+              onPress={() => setScannerVisible(true)}
+              className="bg-white/15 border border-white/30 rounded-xl py-4 px-5 mb-md flex-row items-center justify-center"
+            >
+              <Ionicons name="qr-code" size={24} color="white" />
+              <Text className="text-white font-raleway-bold text-base ml-3">
+                {t('register.scanQr')}
+              </Text>
+            </Pressable>
+
+            <Text className="text-gray-400 text-center mb-md font-raleway text-sm">
+              {t('register.orEnterManually')}
+            </Text>
+
+            {/* Invitation code field with validation indicator */}
+            <View className="mb-md">
+              <Input
+                label={t('register.invitationLabel')}
+                placeholder={t('register.invitationPlaceholder')}
+                value={form.invitationCode}
+                onChangeText={(v) => {
+                  updateField('invitationCode', v);
+                  setCodeValidation({});
+                }}
+                error={errors.invitationCode}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                containerClassName="w-full"
+              />
+              {codeValidation.checking && (
+                <View className="flex-row items-center mt-1 ml-1">
+                  <ActivityIndicator size="small" color="#22c55e" />
+                  <Text className="text-gray-300 text-xs ml-2">Checking code...</Text>
+                </View>
+              )}
+              {codeValidation.valid && codeValidation.role && (
+                <View className="flex-row items-center mt-1 ml-1">
+                  <Ionicons name="checkmark-circle" size={16} color="#22c55e" />
+                  <Text className="text-green-400 text-xs ml-1">
+                    {t('register.codeScanned', { code: form.invitationCode })}
+                  </Text>
+                </View>
+              )}
+            </View>
 
             <Input
               label={t('register.usernameLabel')}
@@ -201,6 +264,12 @@ export default function RegisterScreen() {
           </ScrollView>
         </SafeAreaView>
       </TouchableWithoutFeedback>
+
+      <QrScanner
+        visible={scannerVisible}
+        onClose={() => setScannerVisible(false)}
+        onCodeScanned={handleCodeScanned}
+      />
     </KeyboardAvoidingView>
   );
 }

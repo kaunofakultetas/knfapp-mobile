@@ -135,6 +135,22 @@ export async function fetchMe(): Promise<User> {
   }
 }
 
+export interface ValidateCodeResponse {
+  valid: boolean;
+  error?: string;
+  role?: string;
+  remainingUses?: number;
+}
+
+export async function validateInvitationCode(code: string): Promise<ValidateCodeResponse> {
+  try {
+    const { data } = await api.post<ValidateCodeResponse>(API_ENDPOINTS.validateCode, { code });
+    return data;
+  } catch (err) {
+    handleError(err);
+  }
+}
+
 export async function logoutApi(): Promise<void> {
   try {
     await api.post(API_ENDPOINTS.logout);

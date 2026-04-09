@@ -4,7 +4,7 @@ import type { NewsPost } from '@/types';
 import { useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ActivityIndicator, Image, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Image, Linking, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
 function formatDate(iso: string): string {
   try {
@@ -80,7 +80,7 @@ export default function NewsPostScreen() {
   if (!post) {
     return (
       <View className="flex-1 bg-white items-center justify-center">
-        <Text className="text-gray-500 text-lg">{t('newsPost.notFound', 'Straipsnis nerastas')}</Text>
+        <Text className="text-gray-500 text-lg">{t('newsPost.notFound')}</Text>
       </View>
     );
   }
@@ -96,7 +96,7 @@ export default function NewsPostScreen() {
           <Text className="text-white text-sm">{formatDate(post.date)}</Text>
           {post.source ? (
             <Text className="text-white/80 text-xs">
-              {post.source === 'knf.vu.lt' ? 'KNF' : post.source === 'vu.lt' ? 'VU' : post.source}
+              {post.source === 'knf.vu.lt' ? t('news.sourceKnf') : post.source === 'vu.lt' ? t('news.sourceVu') : post.source === 'faculty' ? t('news.sourceFaculty') : post.source}
             </Text>
           ) : null}
         </View>
@@ -108,8 +108,8 @@ export default function NewsPostScreen() {
         <Text className="text-base leading-6 text-gray-800 p-5 pt-0">{post.content}</Text>
 
         {post.sourceUrl ? (
-          <Pressable className="px-5 pb-5">
-            <Text className="text-primary underline text-sm">{t('newsPost.readMore', 'Skaityti daugiau...')}</Text>
+          <Pressable className="px-5 pb-5" onPress={() => Linking.openURL(post.sourceUrl!)}>
+            <Text className="text-primary underline text-sm">{t('newsPost.readMore')}</Text>
           </Pressable>
         ) : null}
       </View>
@@ -150,7 +150,7 @@ export default function NewsPostScreen() {
           </View>
         ) : (
           <Text className="text-gray-400 text-sm mt-sm italic">
-            {t('newsPost.loginToComment', 'Prisijunkite, kad galėtumėte komentuoti')}
+            {t('newsPost.loginToComment')}
           </Text>
         )}
       </View>

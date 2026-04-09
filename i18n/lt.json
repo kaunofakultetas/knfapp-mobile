@@ -57,9 +57,16 @@
   },
   "register": {
     "title": "Sukurti paskyrą",
-    "subtitle": "Įveskite kvietimo kodą, kad užsiregistruotumėte",
+    "subtitle": "Nuskenuokite QR kodą arba įveskite kvietimo kodą",
     "invitationLabel": "Kvietimo kodas",
     "invitationPlaceholder": "Įveskite kvietimo kodą",
+    "scanQr": "Nuskenuoti QR kodą",
+    "scanQrHint": "Nukreipkite kamerą į kvietimo QR kodą",
+    "orEnterManually": "arba įveskite rankiniu būdu",
+    "cameraPermission": "Prieiga prie kameros reikalinga QR kodui nuskaityti",
+    "cameraPermissionButton": "Leisti kamerą",
+    "invalidQr": "Netinkamas QR kodas",
+    "codeScanned": "Kodas nuskaitytas: {{code}}",
     "usernameLabel": "Vartotojo vardas",
     "usernamePlaceholder": "Pasirinkite vartotojo vardą",
     "displayNameLabel": "Vardas ir pavardė",
@@ -111,12 +118,20 @@
     "loadMore": "Daugiau naujienų",
     "pollVotes_one": "{{count}} balsas",
     "pollVotes_few": "{{count}} balsai",
-    "pollVotes_other": "{{count}} balsų"
+    "pollVotes_other": "{{count}} balsų",
+    "sourceKnf": "KNF",
+    "sourceVu": "VU",
+    "sourceFaculty": "Fakultetas",
+    "sourceApp": "Programa",
+    "sourceUser": "Vartotojas"
   },
   "newsPost": {
     "commentsTitle": "Komentarai",
     "noComments": "Dar nėra komentarų",
-    "inputPlaceholder": "Įrašykite komentarą..."
+    "inputPlaceholder": "Įrašykite komentarą...",
+    "readMore": "Skaityti daugiau...",
+    "notFound": "Straipsnis nerastas",
+    "loginToComment": "Prisijunkite, kad galėtumėte komentuoti"
   },
   "schedule": {
     "title": "Tvarkaraštis",

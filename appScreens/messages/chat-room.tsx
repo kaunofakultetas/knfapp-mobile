@@ -33,6 +33,7 @@ export default function ChatRoomScreen() {
     imageViewerOpen,
     imageViewerIndex,
     imageUrls,
+    typingText,
     setNewMessage,
     setEmojiBarOpen,
     setReactionPickerOpen,
@@ -92,12 +93,18 @@ export default function ChatRoomScreen() {
             openImageViewer(uri);
           }}
         />
+        {/* Typing indicator */}
+        {typingText && (
+          <View className="px-4 py-1 bg-gray-100">
+            <Text className="text-xs text-gray-500 italic">{typingText}</Text>
+          </View>
+        )}
         {/* Emoji pick row (inline) */}
         {emojiBarOpen && (
           <View className="px-4 py-2 bg-white border-t border-gray-200">
             <View className="flex-row">
               {['😀','😂','😍','😮','😢','😡','👍','🙏'].map(e => (
-                <Pressable key={e} className="mr-2" onPress={() => setNewMessage(v => (v || '') + e)}>
+                <Pressable key={e} className="mr-2" onPress={() => setNewMessage(newMessage + e)}>
                   <Text style={{ fontSize: 22 }}>{e}</Text>
                 </Pressable>
               ))}

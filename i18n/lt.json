@@ -96,6 +96,8 @@
   },
   "messages": {
     "title": "Žinutės",
+    "loginRequired": "Prisijunkite, kad galėtumėte rašyti žinutes",
+    "loginHint": "Pokalbiai su draugais ir grupėmis bus prieinami prisijungus",
     "searchPlaceholder": "Paieška",
     "noRoomsTitle": "Dar nėra pokalbių",
     "noRoomsSubtitle": "Bakstelėkite ikoną viršuje ir pradėkite pokalbį",

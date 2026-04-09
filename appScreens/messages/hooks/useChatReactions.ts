@@ -1,7 +1,8 @@
 // Reaction UI state with optimistic updates and API persistence.
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ChatUIMessage } from '../components/types';
 import { reactToMessageApi, removeReactionApi } from '@/services/api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export function useChatReactions(
   conversationId: string,
@@ -9,6 +10,16 @@ export function useChatReactions(
   setMessages: React.Dispatch<React.SetStateAction<ChatUIMessage[]>>,
   participants: Record<string, string>,
 ) {
+  const myUserIdRef = useRef<string>('self');
+  useEffect(() => {
+    AsyncStorage.getItem('auth').then((raw) => {
+      if (raw) {
+        try {
+          myUserIdRef.current = JSON.parse(raw).user?.id ?? 'self';
+        } catch { /* ignore */ }
+      }
+    });
+  }, []);
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
   const [reactionTargetId, setReactionTargetId] = useState<string | null>(null);
   const [reactionViewerOpen, setReactionViewerOpen] = useState(false);
@@ -45,7 +56,7 @@ export function useChatReactions(
         let reactions = prevReactions
           .map((r) => ({
             ...r,
-            byUserIds: (r.byUserIds || []).filter((uid) => uid !== 'self'),
+            byUserIds: (r.byUserIds || []).filter((uid) => uid !== myUserIdRef.current),
           }))
           .filter((r) => (r.byUserIds?.length || 0) > 0);
         // Add to selected emoji
@@ -54,7 +65,7 @@ export function useChatReactions(
           const byUserIds = [...(reactions[idx].byUserIds || []), 'self'];
           reactions[idx] = { ...reactions[idx], byUserIds, count: byUserIds.length, bySelf: true };
         } else {
-          reactions.push({ emoji, byUserIds: ['self'], count: 1, bySelf: true });
+          reactions.push({ emoji, byUserIds: [myUserIdRef.current], count: 1, bySelf: true });
         }
         return { ...m, reactions };
       }),
@@ -78,7 +89,7 @@ export function useChatReactions(
         const reactions = (m.reactions || [])
           .map((r) => ({
             ...r,
-            byUserIds: (r.byUserIds || []).filter((uid) => uid !== 'self'),
+            byUserIds: (r.byUserIds || []).filter((uid) => uid !== myUserIdRef.current),
           }))
           .filter((r) => (r.byUserIds?.length || 0) > 0)
           .map((r) => ({ ...r, count: r.byUserIds?.length || 0, bySelf: false }));

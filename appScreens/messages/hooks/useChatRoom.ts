@@ -2,12 +2,14 @@ import { useChatComposer } from './useChatComposer';
 import { useChatMessages } from './useChatMessages';
 import { useChatReactions } from './useChatReactions';
 import { useChatViewer } from './useChatViewer';
+import { useTypingIndicator } from './useTypingIndicator';
 
 export function useChatRoom(conversationId: string) {
   const { messages, setMessages, participants } = useChatMessages(conversationId);
   const composer = useChatComposer(conversationId, setMessages);
   const reactions = useChatReactions(conversationId, messages, setMessages, participants);
   const viewer = useChatViewer(messages);
+  const typing = useTypingIndicator(conversationId);
 
   return {
     messages,
@@ -21,6 +23,7 @@ export function useChatRoom(conversationId: string) {
     imageViewerOpen: viewer.imageViewerOpen,
     imageViewerIndex: viewer.imageViewerIndex,
     imageUrls: viewer.imageUrls,
+    typingText: typing.typingText,
     setNewMessage: composer.setNewMessage,
     setEmojiBarOpen: composer.setEmojiBarOpen,
     setReactionPickerOpen: reactions.setReactionPickerOpen,

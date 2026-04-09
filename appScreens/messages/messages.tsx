@@ -5,10 +5,11 @@ import {
   togglePinApi,
 } from '@/services/api';
 import type { ApiConversation } from '@/services/api';
+import { connectSocket, onNewMessage, type SocketMessage } from '@/services/socket';
 import type { Conversation } from '@/types';
 import { Feather } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ActivityIndicator,
@@ -78,6 +79,23 @@ export default function MessagesScreen() {
       loadConversations();
     }, [loadConversations]),
   );
+
+  // Connect socket and listen for new messages to update conversation list
+  useEffect(() => {
+    let unsub: (() => void) | undefined;
+
+    (async () => {
+      const sock = await connectSocket();
+      if (!sock) return;
+
+      unsub = onNewMessage((_data: SocketMessage) => {
+        // Refresh conversation list when any new message arrives
+        loadConversations();
+      });
+    })();
+
+    return () => { unsub?.(); };
+  }, [loadConversations]);
 
   const onRefresh = async () => {
     setRefreshing(true);

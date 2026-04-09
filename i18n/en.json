@@ -96,6 +96,8 @@
   },
   "messages": {
     "title": "Messages",
+    "loginRequired": "Log in to send messages",
+    "loginHint": "Chat with friends and groups after logging in",
     "searchPlaceholder": "Search",
     "noRoomsTitle": "No conversations yet",
     "noRoomsSubtitle": "Tap the icon above to start a chat",

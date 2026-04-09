@@ -1,4 +1,5 @@
 import { ApiError, fetchMe, loginApi, logoutApi, registerApi } from '@/services/api';
+import { connectSocket, disconnectSocket } from '@/services/socket';
 import { AuthState, User } from '@/types';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, ReactNode, useContext, useEffect, useReducer } from 'react';
@@ -89,9 +90,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         try {
           const freshUser = await fetchMe();
           dispatch({ type: 'SET_USER', payload: freshUser });
+          // Connect socket for real-time features
+          connectSocket();
         } catch {
           // Session expired/invalid — log out
           await AsyncStorage.removeItem('auth');
+          disconnectSocket();
           dispatch({ type: 'LOGOUT' });
         }
       } catch {
@@ -108,6 +112,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const payload = { user, token };
       await AsyncStorage.setItem('auth', JSON.stringify(payload));
       dispatch({ type: 'LOGIN_SUCCESS', payload });
+      connectSocket();
     } catch (err) {
       const message =
         err instanceof ApiError ? err.message : 'Prisijungimo klaida';
@@ -139,6 +144,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const logout = async () => {
+    disconnectSocket();
     await logoutApi();
     await AsyncStorage.removeItem('auth');
     dispatch({ type: 'LOGOUT' });

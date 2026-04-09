@@ -41,6 +41,12 @@
         {
           "cameraPermission": "Camera access is needed to scan invitation QR codes."
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow KNFAPP to access your photos to share images in posts and messages."
+        }
       ]
     ],
     "experiments": {

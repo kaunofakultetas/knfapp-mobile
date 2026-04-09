@@ -1,12 +1,14 @@
 import { useAuth } from '@/context/AuthContext';
 import { showToast } from '@/context/NetworkContext';
-import { createPollApi, createPost } from '@/services/api';
+import { createPollApi, createPost, uploadImageApi, getUploadUrl } from '@/services/api';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -27,6 +29,10 @@ export default function CreatePostScreen() {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  // Image state
+  const [imageUri, setImageUri] = useState<string | null>(null);
+  const [imageAsset, setImageAsset] = useState<ImagePicker.ImagePickerAsset | null>(null);
 
   // Poll state
   const [showPoll, setShowPoll] = useState(false);
@@ -60,6 +66,23 @@ export default function CreatePostScreen() {
     setShowPoll(!showPoll);
   };
 
+  const pickImage = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      quality: 0.8,
+    });
+    if (!result.canceled && result.assets?.[0]) {
+      setImageUri(result.assets[0].uri);
+      setImageAsset(result.assets[0]);
+    }
+  };
+
+  const removeImage = () => {
+    setImageUri(null);
+    setImageAsset(null);
+  };
+
   const validPollOptions = pollOptions.filter((o) => o.trim().length > 0);
   const isPollValid = !showPoll || (pollTitle.trim().length > 0 && validPollOptions.length >= MIN_POLL_OPTIONS);
 
@@ -82,10 +105,28 @@ export default function CreatePostScreen() {
 
     setSubmitting(true);
     try {
-      // Create the post first
+      // Upload image first if selected
+      let imageUrl: string | undefined;
+      if (imageAsset) {
+        try {
+          const upload = await uploadImageApi(
+            imageAsset.uri,
+            imageAsset.fileName || undefined,
+            imageAsset.mimeType || undefined,
+          );
+          imageUrl = getUploadUrl(upload.url);
+        } catch {
+          showToast('error', t('createPost.imageUploadError'));
+          setSubmitting(false);
+          return;
+        }
+      }
+
+      // Create the post
       const post = await createPost({
         content: trimmedContent,
         title: title.trim() || undefined,
+        image_url: imageUrl,
       });
 
       // If poll is enabled, create poll on the new post
@@ -161,6 +202,29 @@ export default function CreatePostScreen() {
           textAlignVertical="top"
           maxLength={5000}
         />
+
+        {/* Image attachment */}
+        {imageUri ? (
+          <View className="mb-4 rounded-xl overflow-hidden border border-gray-200">
+            <Image source={{ uri: imageUri }} className="w-full h-48" resizeMode="cover" />
+            <Pressable
+              className="absolute top-2 right-2 bg-black/60 rounded-full p-1"
+              onPress={removeImage}
+            >
+              <Ionicons name="close" size={18} color="white" />
+            </Pressable>
+          </View>
+        ) : (
+          <Pressable
+            className="flex-row items-center py-3 px-4 mb-4 rounded-xl border border-gray-200"
+            onPress={pickImage}
+          >
+            <Ionicons name="image-outline" size={20} color="#6B7280" />
+            <Text className="ml-2 font-medium text-gray-600">
+              {t('createPost.addImage')}
+            </Text>
+          </Pressable>
+        )}
 
         {/* Poll toggle */}
         <Pressable

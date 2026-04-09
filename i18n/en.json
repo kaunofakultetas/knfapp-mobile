@@ -226,7 +226,9 @@
     "pollAddOption": "Add option",
     "pollTitleRequired": "Poll question is required",
     "pollMinOptions": "At least 2 options are required",
-    "pollError": "Post created but poll could not be added"
+    "pollError": "Post created but poll could not be added",
+    "addImage": "Add image",
+    "imageUploadError": "Failed to upload image"
   },
   "notFound": {
     "oops": "Oops!",

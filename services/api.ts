@@ -637,6 +637,51 @@ export async function votePollApi(
   }
 }
 
+// ── Uploads API ──────────────────────────────────────────────────────────────
+
+export interface UploadResponse {
+  url: string;
+  filename: string;
+}
+
+/**
+ * Upload an image file to the backend.
+ * Accepts a local file URI (from expo-image-picker) and uploads it as multipart/form-data.
+ * Returns the server URL path for the uploaded image.
+ */
+export async function uploadImageApi(uri: string, filename?: string, mimeType?: string): Promise<UploadResponse> {
+  try {
+    const formData = new FormData();
+    const name = filename || uri.split('/').pop() || 'photo.jpg';
+    const type = mimeType || (name.endsWith('.png') ? 'image/png' : 'image/jpeg');
+
+    // React Native FormData accepts this shape for file uploads
+    formData.append('file', {
+      uri,
+      name,
+      type,
+    } as unknown as Blob);
+
+    const { data } = await api.post<UploadResponse>(API_ENDPOINTS.upload, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 30_000, // larger timeout for file uploads
+    });
+    return data;
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+/**
+ * Convert a relative upload URL (/api/uploads/xxx.png) to a full URL.
+ */
+export function getUploadUrl(path: string): string {
+  if (path.startsWith('http')) return path;
+  // Strip /api prefix since API_BASE_URL already includes it
+  const cleanPath = path.startsWith('/api/') ? path.slice(4) : path;
+  return `${API_BASE_URL}${cleanPath}`;
+}
+
 // ── Health ───────────────────────────────────────────────────────────────────
 
 export async function checkHealth(): Promise<boolean> {

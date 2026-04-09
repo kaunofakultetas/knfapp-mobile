@@ -227,7 +227,9 @@
     "pollAddOption": "Pridėti pasirinkimą",
     "pollTitleRequired": "Balsavimo klausimas privalomas",
     "pollMinOptions": "Reikia bent 2 pasirinkimų",
-    "pollError": "Įrašas sukurtas, bet balsavimo pridėti nepavyko"
+    "pollError": "Įrašas sukurtas, bet balsavimo pridėti nepavyko",
+    "addImage": "Pridėti nuotrauką",
+    "imageUploadError": "Nepavyko įkelti nuotraukos"
   },
   "notFound": {
     "oops": "Oi!",

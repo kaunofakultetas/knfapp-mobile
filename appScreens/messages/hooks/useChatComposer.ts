@@ -1,8 +1,9 @@
 // Sends messages via the backend API with optimistic UI updates.
 // Emits typing indicators via Socket.IO.
 import { useCallback, useRef, useState } from 'react';
+import * as ImagePicker from 'expo-image-picker';
 import type { ChatUIMessage } from '../components/types';
-import { sendMessageApi } from '@/services/api';
+import { sendMessageApi, uploadImageApi, getUploadUrl } from '@/services/api';
 import { emitTyping, emitStopTyping } from '@/services/socket';
 
 export function useChatComposer(
@@ -96,9 +97,25 @@ export function useChatComposer(
   };
 
   const attachImage = async () => {
-    const id = Date.now().toString();
-    const imgUrl = `https://picsum.photos/seed/${id}/600/400`;
-    await sendText('', imgUrl);
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      quality: 0.8,
+    });
+
+    if (result.canceled || !result.assets?.[0]) return;
+
+    const asset = result.assets[0];
+    try {
+      const upload = await uploadImageApi(
+        asset.uri,
+        asset.fileName || undefined,
+        asset.mimeType || undefined,
+      );
+      await sendText('', getUploadUrl(upload.url));
+    } catch {
+      // Upload failed — show optimistic error or silently fail
+    }
   };
 
   return {

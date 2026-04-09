@@ -65,4 +65,8 @@ export const API_ENDPOINTS = {
   // Polls
   newsPoll: (postId: string) => `/news/${postId}/poll`,
   newsPollVote: (postId: string) => `/news/${postId}/poll/vote`,
+
+  // Uploads
+  upload: "/uploads",
+  uploadFile: (filename: string) => `/uploads/${filename}`,
 } as const;

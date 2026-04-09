@@ -47,7 +47,8 @@
         {
           "photosPermission": "Allow KNFAPP to access your photos to share images in posts and messages."
         }
-      ]
+      ],
+      "expo-font"
     ],
     "experiments": {
       "typedRoutes": true

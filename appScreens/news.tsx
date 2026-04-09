@@ -90,6 +90,8 @@ export default function NewsScreen() {
   const [likeCounts, setLikeCounts] = useState<Record<string, number>>({});
   const [cachedAt, setCachedAt] = useState<number | null>(null);
   const hasLiveData = useRef(false);
+  const likedByIdRef = useRef(likedById);
+  likedByIdRef.current = likedById;
 
   const applyPosts = useCallback((incoming: NewsPost[], append: boolean) => {
     const likes: Record<string, boolean> = {};
@@ -171,11 +173,12 @@ export default function NewsScreen() {
   const openPost = (id: string) => router.push(`/(main)/news-post?postId=${id}`);
 
   const toggleLike = useCallback(async (post: NewsPost) => {
+    const wasLiked = !!likedByIdRef.current[post.id];
     // Optimistic update
-    setLikedById((prev) => ({ ...prev, [post.id]: !prev[post.id] }));
+    setLikedById((prev) => ({ ...prev, [post.id]: !wasLiked }));
     setLikeCounts((prev) => ({
       ...prev,
-      [post.id]: (prev[post.id] ?? post.likes) + (likedById[post.id] ? -1 : 1),
+      [post.id]: (prev[post.id] ?? post.likes) + (wasLiked ? -1 : 1),
     }));
 
     try {
@@ -184,13 +187,13 @@ export default function NewsScreen() {
       setLikeCounts((prev) => ({ ...prev, [post.id]: resp.likes }));
     } catch {
       // Revert on failure
-      setLikedById((prev) => ({ ...prev, [post.id]: !prev[post.id] }));
+      setLikedById((prev) => ({ ...prev, [post.id]: wasLiked }));
       setLikeCounts((prev) => ({
         ...prev,
-        [post.id]: (prev[post.id] ?? post.likes) + (likedById[post.id] ? 1 : -1),
+        [post.id]: (prev[post.id] ?? post.likes) + (wasLiked ? 1 : -1),
       }));
     }
-  }, [likedById]);
+  }, []);
 
   const onShare = async (post: NewsPost) => {
     try {

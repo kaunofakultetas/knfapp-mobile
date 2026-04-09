@@ -682,6 +682,85 @@ export function getUploadUrl(path: string): string {
   return `${API_BASE_URL}${cleanPath}`;
 }
 
+// ── Admin API ──────────────────────────────────────────────────────────────
+
+export interface AdminInvitation {
+  id: string;
+  code: string;
+  role: string;
+  maxUses: number;
+  useCount: number;
+  expiresAt: string;
+  createdAt: string;
+  expired: boolean;
+  fullyUsed: boolean;
+}
+
+export interface AdminStats {
+  users: number;
+  posts: number;
+  scrapedArticles: number;
+  comments: number;
+  activeInvitations: number;
+}
+
+export interface AdminUser {
+  id: string;
+  username: string;
+  displayName: string;
+  email: string;
+  role: string;
+  createdAt: string;
+}
+
+export async function fetchAdminStats(): Promise<AdminStats> {
+  try {
+    const { data } = await api.get<AdminStats>(API_ENDPOINTS.adminStats);
+    return data;
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+export async function fetchAdminInvitations(): Promise<{ invitations: AdminInvitation[] }> {
+  try {
+    const { data } = await api.get<{ invitations: AdminInvitation[] }>(API_ENDPOINTS.adminInvitations);
+    return data;
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+export async function createInvitation(params: {
+  role?: string;
+  max_uses?: number;
+  expires_hours?: number;
+}): Promise<AdminInvitation> {
+  try {
+    const { data } = await api.post<AdminInvitation>(API_ENDPOINTS.adminInvitations, params);
+    return data;
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+export async function revokeInvitation(codeId: string): Promise<void> {
+  try {
+    await api.delete(`${API_ENDPOINTS.adminInvitations}/${codeId}`);
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+export async function fetchAdminUsers(): Promise<{ users: AdminUser[] }> {
+  try {
+    const { data } = await api.get<{ users: AdminUser[] }>(API_ENDPOINTS.adminUsers);
+    return data;
+  } catch (err) {
+    handleError(err);
+  }
+}
+
 // ── Health ───────────────────────────────────────────────────────────────────
 
 export async function checkHealth(): Promise<boolean> {

@@ -191,7 +191,9 @@
     "notFound": "Vartotojas nerastas",
     "recentPosts": "Paskutiniai įrašai",
     "noPosts": "Įrašų nėra",
-    "newPost": "Naujas įrašas"
+    "newPost": "Naujas įrašas",
+    "avatarUpdated": "Nuotrauka atnaujinta",
+    "avatarError": "Nepavyko atnaujinti nuotraukos"
   },
   "friends": {
     "title": "Draugai",
@@ -252,5 +254,35 @@
   "error": {
     "title": "Oi! Kažkas negerai",
     "unexpected": "Įvyko netikėta klaida"
+  },
+  "admin": {
+    "title": "Administravimas",
+    "noAccess": "Neturite prieigos",
+    "loadError": "Nepavyko užkrauti duomenų",
+    "users": "Vartotojai",
+    "posts": "Įrašai",
+    "articles": "Straipsniai",
+    "invites": "Kvietimai",
+    "createInvitation": "Naujas kvietimo kodas",
+    "role": "Rolė",
+    "roleStudent": "Studentas",
+    "roleTeacher": "Dėstytojas",
+    "roleCurator": "Kuratorius",
+    "roleAdmin": "Administratorius",
+    "maxUses": "Panaudojimų limitas",
+    "expires": "Galiojimo laikas",
+    "generate": "Generuoti kodą",
+    "codeCreated": "Kodas sukurtas: ",
+    "createError": "Nepavyko sukurti kodo",
+    "activeCodes": "Aktyvūs kvietimo kodai",
+    "noCodes": "Kvietimo kodų nėra",
+    "codeCopied": "Kodas nukopijuotas",
+    "revokeTitle": "Atšaukti kodą",
+    "revokeConfirm": "Ar tikrai norite atšaukti šį kvietimo kodą?",
+    "revoke": "Atšaukti kodą",
+    "codeRevoked": "Kodas atšauktas",
+    "revokeError": "Nepavyko atšaukti",
+    "fullyUsed": "Išnaudotas",
+    "expired": "Pasibaigęs"
   }
 }

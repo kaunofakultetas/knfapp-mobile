@@ -3,7 +3,7 @@ import PollWidget from '@/components/PollWidget';
 import { MOCK_NEWS_POSTS } from '@/constants/Data';
 import { useAuth } from '@/context/AuthContext';
 import { showToast } from '@/context/NetworkContext';
-import { fetchNewsFeed, toggleLikeApi } from '@/services/api';
+import { fetchNewsFeed, getUploadUrl, toggleLikeApi } from '@/services/api';
 import type { NewsPost } from '@/types';
 import { FontAwesome, Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -313,7 +313,7 @@ export default function NewsScreen() {
                   <View className="mx-2.5 my-5 bg-gray-300 pb-2.5">
                     {post.imageUrl ? (
                       <View>
-                        <Image className="w-full aspect-square" source={{ uri: post.imageUrl }} />
+                        <Image className="w-full aspect-square" source={{ uri: getUploadUrl(post.imageUrl) }} />
                         <SourceBadge source={post.source} />
                       </View>
                     ) : (

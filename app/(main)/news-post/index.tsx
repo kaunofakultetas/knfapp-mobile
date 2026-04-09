@@ -1,6 +1,6 @@
 import PollWidget from '@/components/PollWidget';
 import { useAuth } from '@/context/AuthContext';
-import { addCommentApi, CommentResponse, fetchComments, fetchNewsPost } from '@/services/api';
+import { addCommentApi, CommentResponse, fetchComments, fetchNewsPost, getUploadUrl } from '@/services/api';
 import type { NewsPost } from '@/types';
 import { useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
@@ -90,7 +90,7 @@ export default function NewsPostScreen() {
     <ScrollView className="flex-1 bg-white">
       <View>
         {post.imageUrl ? (
-          <Image source={{ uri: post.imageUrl }} className="w-full h-[250px]" resizeMode="cover" />
+          <Image source={{ uri: getUploadUrl(post.imageUrl) }} className="w-full h-[250px]" resizeMode="cover" />
         ) : null}
 
         <View className="bg-primary p-2.5 flex-row justify-between items-center">

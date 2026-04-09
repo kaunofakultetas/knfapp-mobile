@@ -79,6 +79,13 @@ export default function MainLayout() {
           headerBackTitle: t('common.back'),
         }}
       />
+      <Stack.Screen
+        name="admin/index"
+        options={{
+          title: t('admin.title', 'Administravimas'),
+          headerBackTitle: t('common.back'),
+        }}
+      />
     </Stack>
   );
 }

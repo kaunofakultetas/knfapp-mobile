@@ -2,10 +2,11 @@ import { Button } from '@/components/ui';
 import Header from '@/components/ui/Header';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { Alert, Switch, Text, View } from 'react-native';
+import { Alert, Pressable, Switch, Text, View } from 'react-native';
 
 export default function SettingsScreen() {
   const { language, theme, notifications, setLanguage, setTheme, toggleNotifications, resetSettings } = useApp();
@@ -75,6 +76,20 @@ export default function SettingsScreen() {
             <Button title="EN" variant={language === 'en' ? 'primary' : 'outline'} size="sm" onPress={() => setLanguage('en')} />
           </View>
         </View>
+
+        {/* Admin panel link (admin/curator only) */}
+        {isAuthenticated && (user?.role === 'admin' || user?.role === 'curator') && (
+          <Pressable
+            className="flex-row items-center justify-between bg-gray-50 rounded-lg p-3 mt-2"
+            onPress={() => router.push('/(main)/admin')}
+          >
+            <View className="flex-row items-center gap-2">
+              <Ionicons name="shield-checkmark" size={20} color="#7B003F" />
+              <Text className="text-base font-medium">{t('admin.title', 'Administravimas')}</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color="#999" />
+          </Pressable>
+        )}
 
         <View className="mt-xl">
           <Button title={t('settings.resetDefaults')} variant="outline" onPress={resetSettings} />

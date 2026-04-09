@@ -190,7 +190,9 @@
     "notFound": "User not found",
     "recentPosts": "Recent posts",
     "noPosts": "No posts yet",
-    "newPost": "New Post"
+    "newPost": "New Post",
+    "avatarUpdated": "Avatar updated",
+    "avatarError": "Failed to update avatar"
   },
   "friends": {
     "title": "Friends",
@@ -251,5 +253,35 @@
   "error": {
     "title": "Oops! Something went wrong",
     "unexpected": "An unexpected error occurred"
+  },
+  "admin": {
+    "title": "Administration",
+    "noAccess": "Access denied",
+    "loadError": "Failed to load data",
+    "users": "Users",
+    "posts": "Posts",
+    "articles": "Articles",
+    "invites": "Invitations",
+    "createInvitation": "New invitation code",
+    "role": "Role",
+    "roleStudent": "Student",
+    "roleTeacher": "Teacher",
+    "roleCurator": "Curator",
+    "roleAdmin": "Administrator",
+    "maxUses": "Usage limit",
+    "expires": "Expiration",
+    "generate": "Generate code",
+    "codeCreated": "Code created: ",
+    "createError": "Failed to create code",
+    "activeCodes": "Active invitation codes",
+    "noCodes": "No invitation codes",
+    "codeCopied": "Code copied",
+    "revokeTitle": "Revoke code",
+    "revokeConfirm": "Are you sure you want to revoke this invitation code?",
+    "revoke": "Revoke",
+    "codeRevoked": "Code revoked",
+    "revokeError": "Failed to revoke",
+    "fullyUsed": "Fully used",
+    "expired": "Expired"
   }
 }

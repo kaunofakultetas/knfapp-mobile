@@ -5,18 +5,23 @@ import {
   fetchFriendRequests,
   fetchUserPosts,
   fetchUserProfile,
+  getUploadUrl,
   sendFriendRequest,
   unfriendUser,
+  updateProfile,
+  uploadImageApi,
   type NewsFeedResponse,
   type UserProfile,
 } from '@/services/api';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ActivityIndicator,
   FlatList,
+  Image,
   Pressable,
   Text,
   View,
@@ -40,6 +45,7 @@ export default function ProfileScreen() {
   const [posts, setPosts] = useState<NewsFeedResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
+  const [avatarUploading, setAvatarUploading] = useState(false);
 
   const isOwnProfile = me?.id === userId;
 
@@ -92,6 +98,31 @@ export default function ProfileScreen() {
       showToast('error', t('profile.actionError'));
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const handleAvatarUpload = async () => {
+    if (!isOwnProfile || !isAuthenticated) return;
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+      if (result.canceled || !result.assets[0]) return;
+
+      setAvatarUploading(true);
+      const asset = result.assets[0];
+      const upload = await uploadImageApi(asset.uri, asset.fileName ?? undefined, asset.mimeType ?? undefined);
+      const fullUrl = getUploadUrl(upload.url);
+      await updateProfile({ avatar_url: fullUrl });
+      setProfile((p) => p ? { ...p, avatarUrl: fullUrl } : p);
+      showToast('success', t('profile.avatarUpdated', 'Nuotrauka atnaujinta'));
+    } catch {
+      showToast('error', t('profile.avatarError', 'Nepavyko atnaujinti nuotraukos'));
+    } finally {
+      setAvatarUploading(false);
     }
   };
 
@@ -157,11 +188,33 @@ export default function ProfileScreen() {
         ListHeaderComponent={
           <View className="items-center pt-8 pb-4 px-5">
             {/* Avatar */}
-            <View className="w-20 h-20 rounded-full bg-[#7B003F] items-center justify-center mb-3">
-              <Text className="text-3xl text-white font-bold">
-                {profile.displayName.charAt(0).toUpperCase()}
-              </Text>
-            </View>
+            <Pressable
+              onPress={isOwnProfile ? handleAvatarUpload : undefined}
+              disabled={avatarUploading}
+              className="mb-3"
+            >
+              {profile.avatarUrl ? (
+                <Image
+                  source={{ uri: getUploadUrl(profile.avatarUrl) }}
+                  className="w-20 h-20 rounded-full"
+                />
+              ) : (
+                <View className="w-20 h-20 rounded-full bg-[#7B003F] items-center justify-center">
+                  <Text className="text-3xl text-white font-bold">
+                    {profile.displayName.charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+              )}
+              {isOwnProfile && (
+                <View className="absolute bottom-0 right-0 w-7 h-7 rounded-full bg-white items-center justify-center shadow-sm border border-gray-200">
+                  {avatarUploading ? (
+                    <ActivityIndicator size="small" color="#7B003F" />
+                  ) : (
+                    <Ionicons name="camera" size={16} color="#7B003F" />
+                  )}
+                </View>
+              )}
+            </Pressable>
 
             <Text className="text-xl font-bold text-gray-900">
               {profile.displayName}

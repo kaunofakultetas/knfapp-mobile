@@ -253,6 +253,20 @@ export async function fetchSchedule(
   }
 }
 
+export interface ScheduleFiltersResponse {
+  groups: string[];
+  semesters: string[];
+}
+
+export async function fetchScheduleFilters(): Promise<ScheduleFiltersResponse> {
+  try {
+    const { data } = await api.get<ScheduleFiltersResponse>(API_ENDPOINTS.scheduleFilters);
+    return data;
+  } catch (err) {
+    handleError(err);
+  }
+}
+
 // ── Chat API ───────────────────────────────────────────────────────────────
 
 export interface ApiConversation {
@@ -755,6 +769,18 @@ export async function revokeInvitation(codeId: string): Promise<void> {
 export async function fetchAdminUsers(): Promise<{ users: AdminUser[] }> {
   try {
     const { data } = await api.get<{ users: AdminUser[] }>(API_ENDPOINTS.adminUsers);
+    return data;
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+export async function updateAdminUser(
+  userId: string,
+  updates: { role?: string; active?: boolean },
+): Promise<AdminUser> {
+  try {
+    const { data } = await api.patch<AdminUser>(`${API_ENDPOINTS.adminUsers}/${userId}`, updates);
     return data;
   } catch (err) {
     handleError(err);

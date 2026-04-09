@@ -27,6 +27,7 @@ export const API_ENDPOINTS = {
 
   // Schedule
   schedule: "/schedule",
+  scheduleFilters: "/schedule/filters",
 
   // Admin
   adminInvitations: "/admin/invitations",

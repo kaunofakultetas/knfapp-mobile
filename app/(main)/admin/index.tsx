@@ -10,6 +10,7 @@ import {
 } from '@/services/api';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
+import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -29,6 +30,7 @@ const ROLE_OPTIONS = ['student', 'teacher', 'curator', 'admin'] as const;
 export default function AdminScreen() {
   const { user } = useAuth();
   const { t } = useTranslation();
+  const router = useRouter();
 
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [invitations, setInvitations] = useState<AdminInvitation[]>([]);
@@ -177,6 +179,22 @@ export default function AdminScreen() {
                 <StatCard label={t('admin.articles', 'Straipsniai')} value={stats.scrapedArticles} icon="globe" />
                 <StatCard label={t('admin.invites', 'Kvietimai')} value={stats.activeInvitations} icon="ticket" />
               </View>
+            )}
+
+            {/* Manage users — admin only */}
+            {user?.role === 'admin' && (
+              <Pressable
+                className="mx-4 mt-4 bg-white rounded-xl py-3.5 px-5 flex-row items-center justify-between shadow-sm"
+                onPress={() => router.push('/admin-users')}
+              >
+                <View className="flex-row items-center">
+                  <Ionicons name="people" size={20} color="#7B003F" />
+                  <Text className="text-base font-semibold text-gray-900 ml-3">
+                    {t('admin.manageUsers', 'Valdyti vartotojus')}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="#999" />
+              </Pressable>
             )}
 
             {/* Create invitation */}

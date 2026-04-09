@@ -86,6 +86,13 @@ export default function MainLayout() {
           headerBackTitle: t('common.back'),
         }}
       />
+      <Stack.Screen
+        name="admin-users/index"
+        options={{
+          title: t('admin.userList', 'Vartotojai'),
+          headerBackTitle: t('common.back'),
+        }}
+      />
     </Stack>
   );
 }

@@ -141,7 +141,14 @@
     "title": "Tvarkaraštis",
     "noLectures": "Nėra paskaitų",
     "typeLecture": "Tipas: Paskaita",
-    "group": "Grupė: {{group}}"
+    "group": "Grupė: {{group}}",
+    "filterTitle": "Filtruoti tvarkaraštį",
+    "groupLabel": "Grupė",
+    "semesterLabel": "Semestras",
+    "allGroups": "Visos grupės",
+    "allSemesters": "Visi semestrai",
+    "clearFilters": "Valyti",
+    "applyFilters": "Taikyti"
   },
   "id": {
     "title": "Studento ID",
@@ -289,6 +296,16 @@
     "showQr": "Rodyti QR kodą",
     "qrTitle": "Kvietimo QR kodas",
     "qrHint": "Leiskite studentui nuskenuoti šį kodą registracijai",
-    "qrClose": "Uždaryti"
+    "qrClose": "Uždaryti",
+    "manageUsers": "Valdyti vartotojus",
+    "userList": "Vartotojai",
+    "changeRole": "Keisti rolę",
+    "deactivate": "Deaktyvuoti",
+    "activate": "Aktyvuoti",
+    "deactivateConfirm": "Ar tikrai norite deaktyvuoti šį vartotoją? Jis bus atjungtas.",
+    "userUpdated": "Vartotojas atnaujintas",
+    "userUpdateError": "Nepavyko atnaujinti vartotojo",
+    "cannotDeactivateSelf": "Negalima deaktyvuoti savo paskyros",
+    "search": "Ieškoti vartotojų..."
   }
 }

@@ -140,7 +140,14 @@
     "title": "Schedule",
     "noLectures": "No lectures",
     "typeLecture": "Type: Lecture",
-    "group": "Group: {{group}}"
+    "group": "Group: {{group}}",
+    "filterTitle": "Filter schedule",
+    "groupLabel": "Group",
+    "semesterLabel": "Semester",
+    "allGroups": "All groups",
+    "allSemesters": "All semesters",
+    "clearFilters": "Clear",
+    "applyFilters": "Done"
   },
   "id": {
     "title": "Student ID",
@@ -288,6 +295,16 @@
     "showQr": "Show QR Code",
     "qrTitle": "Invitation QR Code",
     "qrHint": "Let the student scan this code to register",
-    "qrClose": "Close"
+    "qrClose": "Close",
+    "manageUsers": "Manage users",
+    "userList": "Users",
+    "changeRole": "Change role",
+    "deactivate": "Deactivate",
+    "activate": "Activate",
+    "deactivateConfirm": "Are you sure you want to deactivate this user? They will be logged out.",
+    "userUpdated": "User updated",
+    "userUpdateError": "Failed to update user",
+    "cannotDeactivateSelf": "Cannot deactivate your own account",
+    "search": "Search users..."
   }
 }

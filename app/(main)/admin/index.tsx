@@ -16,11 +16,13 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Modal,
   Pressable,
   RefreshControl,
   Text,
   View,
 } from 'react-native';
+import QRCode from 'react-native-qrcode-svg';
 
 const ROLE_OPTIONS = ['student', 'teacher', 'curator', 'admin'] as const;
 
@@ -39,6 +41,9 @@ export default function AdminScreen() {
   const [newRole, setNewRole] = useState<string>('student');
   const [newMaxUses, setNewMaxUses] = useState(1);
   const [newExpiresHours, setNewExpiresHours] = useState(24);
+
+  // QR code modal state
+  const [qrInvitation, setQrInvitation] = useState<AdminInvitation | null>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -284,11 +289,18 @@ export default function AdminScreen() {
                   </Text>
                   <Ionicons name="copy-outline" size={16} color={isExpired ? '#999' : '#7B003F'} style={{ marginLeft: 8 }} />
                 </Pressable>
-                {!isExpired && user?.role === 'admin' && (
-                  <Pressable onPress={() => handleRevoke(item)} hitSlop={8}>
-                    <Ionicons name="trash-outline" size={18} color="#dc2626" />
-                  </Pressable>
-                )}
+                <View className="flex-row items-center gap-3">
+                  {!isExpired && (
+                    <Pressable onPress={() => setQrInvitation(item)} hitSlop={8}>
+                      <Ionicons name="qr-code-outline" size={18} color="#7B003F" />
+                    </Pressable>
+                  )}
+                  {!isExpired && user?.role === 'admin' && (
+                    <Pressable onPress={() => handleRevoke(item)} hitSlop={8}>
+                      <Ionicons name="trash-outline" size={18} color="#dc2626" />
+                    </Pressable>
+                  )}
+                </View>
               </View>
               <View className="flex-row mt-2 gap-3">
                 <View className="flex-row items-center">
@@ -325,6 +337,77 @@ export default function AdminScreen() {
           </View>
         }
       />
+
+      {/* QR Code Modal */}
+      <Modal
+        visible={!!qrInvitation}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setQrInvitation(null)}
+      >
+        <Pressable
+          className="flex-1 bg-black/60 items-center justify-center"
+          onPress={() => setQrInvitation(null)}
+        >
+          <Pressable
+            className="bg-white rounded-2xl mx-6 p-6 items-center w-[85%] max-w-[360px]"
+            onPress={() => {}}
+          >
+            <Text className="text-lg font-bold text-gray-900 mb-1">
+              {t('admin.qrTitle', 'Kvietimo QR kodas')}
+            </Text>
+            <Text className="text-sm text-gray-500 mb-5 text-center">
+              {t('admin.qrHint', 'Leiskite studentui nuskenuoti šį kodą registracijai')}
+            </Text>
+
+            {qrInvitation && (
+              <View className="bg-white p-4 rounded-xl border border-gray-100">
+                <QRCode
+                  value={`knfapp://register?code=${qrInvitation.code}`}
+                  size={200}
+                  color="#7B003F"
+                  backgroundColor="white"
+                />
+              </View>
+            )}
+
+            <Text className="text-base font-mono font-bold text-[#7B003F] mt-4">
+              {qrInvitation?.code}
+            </Text>
+
+            {qrInvitation && (
+              <View className="flex-row items-center mt-2 gap-2">
+                <View className="bg-gray-100 rounded-full px-3 py-1">
+                  <Text className="text-xs text-gray-600">{roleLabel(qrInvitation.role)}</Text>
+                </View>
+                <View className="bg-gray-100 rounded-full px-3 py-1">
+                  <Text className="text-xs text-gray-600">
+                    {qrInvitation.useCount}/{qrInvitation.maxUses}
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            <View className="flex-row mt-5 gap-3">
+              <Pressable
+                className="flex-row items-center bg-gray-100 rounded-xl px-4 py-2.5"
+                onPress={() => {
+                  if (qrInvitation) copyCode(qrInvitation.code);
+                }}
+              >
+                <Ionicons name="copy-outline" size={16} color="#666" />
+                <Text className="text-sm text-gray-700 ml-1.5">{t('admin.codeCopied', 'Kopijuoti')}</Text>
+              </Pressable>
+              <Pressable
+                className="flex-row items-center bg-[#7B003F] rounded-xl px-4 py-2.5"
+                onPress={() => setQrInvitation(null)}
+              >
+                <Text className="text-sm text-white font-medium">{t('admin.qrClose', 'Uždaryti')}</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }

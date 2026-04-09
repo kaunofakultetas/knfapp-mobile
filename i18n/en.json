@@ -110,7 +110,9 @@
     "newMessage": "New message",
     "system": "System",
     "people": "People",
-    "groups": "Groups"
+    "groups": "Groups",
+    "reconnecting": "Connecting...",
+    "disconnected": "Disconnected — tap to reconnect"
   },
   "news": {
     "title": "News",
@@ -282,6 +284,10 @@
     "codeRevoked": "Code revoked",
     "revokeError": "Failed to revoke",
     "fullyUsed": "Fully used",
-    "expired": "Expired"
+    "expired": "Expired",
+    "showQr": "Show QR Code",
+    "qrTitle": "Invitation QR Code",
+    "qrHint": "Let the student scan this code to register",
+    "qrClose": "Close"
   }
 }

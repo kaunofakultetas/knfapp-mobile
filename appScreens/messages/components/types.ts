@@ -11,7 +11,7 @@ export interface ChatUIMessage {
   time: string;
   user: string;
   isOwn?: boolean;
-  status?: 'sent' | 'read';
+  status?: 'sent' | 'read' | 'failed';
   liked?: boolean;
   imageUrl?: string;
   reactions?: ChatUIReaction[];

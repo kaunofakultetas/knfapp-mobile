@@ -18,6 +18,27 @@ const SOCKET_URL = API_BASE_URL.replace(/\/api\/?$/, '');
 let socket: Socket | null = null;
 let currentToken: string | null = null;
 
+// Connection state tracking
+export type SocketStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
+type StatusListener = (status: SocketStatus) => void;
+
+let _status: SocketStatus = 'disconnected';
+const _statusListeners = new Set<StatusListener>();
+
+function setStatus(s: SocketStatus) {
+  _status = s;
+  _statusListeners.forEach((fn) => fn(s));
+}
+
+export function getSocketStatus(): SocketStatus {
+  return _status;
+}
+
+export function onSocketStatusChange(listener: StatusListener): () => void {
+  _statusListeners.add(listener);
+  return () => { _statusListeners.delete(listener); };
+}
+
 export interface SocketMessage {
   id: string;
   conversationId: string;
@@ -76,15 +97,23 @@ export async function connectSocket(): Promise<Socket | null> {
     disconnectSocket();
 
     currentToken = token;
+    setStatus('connecting');
     socket = io(SOCKET_URL, {
       query: { token },
       transports: ['websocket', 'polling'],
       reconnection: true,
-      reconnectionAttempts: 10,
+      reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
-      reconnectionDelayMax: 10000,
+      reconnectionDelayMax: 15000,
       timeout: 15000,
     });
+
+    socket.on('connect', () => setStatus('connected'));
+    socket.on('disconnect', () => setStatus('disconnected'));
+    socket.on('reconnecting', () => setStatus('reconnecting'));
+    socket.on('reconnect_attempt', () => setStatus('reconnecting'));
+    socket.on('reconnect', () => setStatus('connected'));
+    socket.on('reconnect_failed', () => setStatus('disconnected'));
 
     return socket;
   } catch {
@@ -109,6 +138,7 @@ export function disconnectSocket(): void {
     socket = null;
     currentToken = null;
   }
+  setStatus('disconnected');
 }
 
 /**

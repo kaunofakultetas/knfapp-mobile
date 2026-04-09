@@ -5,6 +5,7 @@ import * as ImagePicker from 'expo-image-picker';
 import type { ChatUIMessage } from '../components/types';
 import { sendMessageApi, uploadImageApi, getUploadUrl } from '@/services/api';
 import { emitTyping, emitStopTyping } from '@/services/socket';
+import { showToast } from '@/context/NetworkContext';
 
 export function useChatComposer(
   conversationId: string,
@@ -77,10 +78,11 @@ export function useChatComposer(
         ),
       );
     } catch {
-      // Mark as failed but keep in UI
+      // Mark as failed and show toast
       setMessages((prev) =>
-        prev.map((m) => (m.id === tempId ? { ...m, status: 'sent' } : m)),
+        prev.map((m) => (m.id === tempId ? { ...m, status: 'failed' } : m)),
       );
+      showToast('error', 'Nepavyko išsiųsti žinutės');
     }
   };
 
@@ -114,7 +116,7 @@ export function useChatComposer(
       );
       await sendText('', getUploadUrl(upload.url));
     } catch {
-      // Upload failed — show optimistic error or silently fail
+      showToast('error', 'Nepavyko įkelti nuotraukos');
     }
   };
 

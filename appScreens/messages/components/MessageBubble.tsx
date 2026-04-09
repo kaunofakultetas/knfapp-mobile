@@ -60,7 +60,10 @@ export default function MessageBubble({
       )}
       <View className={`flex-row items-center mt-1 ${item.isOwn ? 'self-end' : ''}`}>
         <Text className={`text-xs ${item.isOwn ? 'text-white/70' : 'text-gray-500'}`}>{item.time}</Text>
-        {item.isOwn && (
+        {item.isOwn && item.status === 'failed' && (
+          <Ionicons name="alert-circle" size={14} color="#fca5a5" style={{ marginLeft: 6 }} />
+        )}
+        {item.isOwn && item.status !== 'failed' && (
           <Ionicons name={item.status === 'read' ? 'checkmark-done' : 'checkmark'} size={14} color={'white'} style={{ marginLeft: 6 }} />
         )}
       </View>

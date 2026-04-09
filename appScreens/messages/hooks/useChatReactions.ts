@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChatUIMessage } from '../components/types';
 import { reactToMessageApi, removeReactionApi } from '@/services/api';
+import { showToast } from '@/context/NetworkContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export function useChatReactions(
@@ -75,7 +76,9 @@ export function useChatReactions(
     setReactionTargetId(null);
 
     // Persist to API
-    reactToMessageApi(conversationId, mid, emoji).catch(() => {});
+    reactToMessageApi(conversationId, mid, emoji).catch(() => {
+      showToast('error', 'Nepavyko pridėti reakcijos');
+    });
   };
 
   const clearReaction = async () => {
@@ -101,7 +104,9 @@ export function useChatReactions(
     setReactionTargetId(null);
 
     // Persist to API
-    removeReactionApi(conversationId, mid).catch(() => {});
+    removeReactionApi(conversationId, mid).catch(() => {
+      showToast('error', 'Nepavyko pašalinti reakcijos');
+    });
   };
 
   return {

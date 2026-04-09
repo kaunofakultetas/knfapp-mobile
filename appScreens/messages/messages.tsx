@@ -1,4 +1,5 @@
 import Header from '@/components/ui/Header';
+import { useSocketStatus } from '@/hooks/useSocketStatus';
 import {
   deleteConversationApi,
   fetchConversations,
@@ -57,6 +58,7 @@ export default function MessagesScreen() {
   const router = useRouter();
   const { t } = useTranslation();
 
+  const socketStatus = useSocketStatus();
   const [query, setQuery] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -152,6 +154,25 @@ export default function MessagesScreen() {
   return (
     <View className="bg-white flex-1 relative">
       <Header title={t('messages.title')} />
+      {(socketStatus === 'reconnecting' || socketStatus === 'connecting') && (
+        <View className="bg-amber-50 px-4 py-2 flex-row items-center justify-center border-b border-amber-200">
+          <ActivityIndicator size="small" color="#d97706" />
+          <Text className="text-amber-700 text-xs ml-2 font-medium">
+            {t('messages.reconnecting', 'Jungiamasi...')}
+          </Text>
+        </View>
+      )}
+      {socketStatus === 'disconnected' && (
+        <Pressable
+          className="bg-red-50 px-4 py-2 flex-row items-center justify-center border-b border-red-200"
+          onPress={() => connectSocket()}
+        >
+          <Feather name="wifi-off" size={14} color="#dc2626" />
+          <Text className="text-red-700 text-xs ml-2 font-medium">
+            {t('messages.disconnected', 'Atsijungta — bakstelėkite jungti iš naujo')}
+          </Text>
+        </Pressable>
+      )}
       <View className="px-lg py-md">
         <View className="flex-row items-center">
           <TextInput

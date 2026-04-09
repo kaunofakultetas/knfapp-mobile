@@ -110,7 +110,9 @@
     "newMessage": "Nauja žinutė",
     "system": "Sisteminis",
     "people": "Asmenys",
-    "groups": "Grupės"
+    "groups": "Grupės",
+    "reconnecting": "Jungiamasi...",
+    "disconnected": "Atsijungta — bakstelėkite jungti iš naujo"
   },
   "news": {
     "title": "Naujienos",
@@ -283,6 +285,10 @@
     "codeRevoked": "Kodas atšauktas",
     "revokeError": "Nepavyko atšaukti",
     "fullyUsed": "Išnaudotas",
-    "expired": "Pasibaigęs"
+    "expired": "Pasibaigęs",
+    "showQr": "Rodyti QR kodą",
+    "qrTitle": "Kvietimo QR kodas",
+    "qrHint": "Leiskite studentui nuskenuoti šį kodą registracijai",
+    "qrClose": "Uždaryti"
   }
 }

@@ -52,7 +52,8 @@
     "errorTitle": "Login error",
     "errorMessage": "Invalid username or password",
     "noAccount": "Don't have an account?",
-    "register": "Register"
+    "register": "Register",
+    "continueAsGuest": "Continue as guest"
   },
   "register": {
     "title": "Create Account",
@@ -107,7 +108,9 @@
     "comments": "Comments",
     "pollTitle": "Poll - When are we barbecuing in the yard?",
     "empty": "No news",
-    "loadMore": "More news"
+    "loadMore": "More news",
+    "pollVotes_one": "{{count}} vote",
+    "pollVotes_other": "{{count}} votes"
   },
   "newsPost": {
     "commentsTitle": "Comments",

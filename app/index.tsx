@@ -14,14 +14,13 @@ export default function IndexScreen() {
     const redirect = async () => {
       const hasOnboarded = await AsyncStorage.getItem('onboarded');
 
-      router.replace('/(main)/tabs/news');
-      // if (isAuthenticated) {
-      //   router.replace('/(main)/tabs/news');
-      // } else if (!hasOnboarded) {
-      //   router.replace('/login');
-      // } else {
-      //   router.replace('/login');
-      // }
+      if (isAuthenticated || hasOnboarded) {
+        // Authenticated users and returning guests go straight to the app
+        router.replace('/(main)/tabs/news');
+      } else {
+        // First-time users see the onboarding/login screen
+        router.replace('/login');
+      }
     };
     redirect();
   }, [router, isAuthenticated]);

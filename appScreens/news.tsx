@@ -41,6 +41,7 @@ function SourceBadge({ source }: { source?: string }) {
 
 function PollWidget({ postId }: { postId: string }) {
   const { isAuthenticated } = useAuth();
+  const { t } = useTranslation();
   const [poll, setPoll] = useState<PollResponse | null>(null);
   const [voting, setVoting] = useState(false);
 
@@ -108,7 +109,7 @@ function PollWidget({ postId }: { postId: string }) {
         );
       })}
       <Text className="text-xs text-gray-500 mt-1">
-        {poll.totalVotes} {poll.totalVotes === 1 ? 'vote' : 'votes'}
+        {t('news.pollVotes', { count: poll.totalVotes })}
       </Text>
     </View>
   );

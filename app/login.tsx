@@ -13,6 +13,13 @@ interface WelcomePageProps {}
 
 function WelcomePage({}: WelcomePageProps) {
   const { t } = useTranslation();
+  const router = useRouter();
+
+  const handleContinueAsGuest = async () => {
+    await AsyncStorage.setItem('onboarded', '1');
+    router.replace('/(main)/tabs/news');
+  };
+
   return (
     <View className="flex-1 justify-center items-center bg-primary">
       <View className="flex-1 pt-[50px]">
@@ -22,26 +29,32 @@ function WelcomePage({}: WelcomePageProps) {
           className="self-center"
         />
       </View>
-      
+
       <View className="absolute bottom-0 left-0 right-0 justify-center items-center mb-[15%] px-lg">
         <Text className="text-white font-raleway-bold text-2xl">
           {t('login.welcomeTitle')}
         </Text>
-        
+
         <Text className="text-gray-300 text-base mt-lg text-center leading-base font-raleway">
           {t('login.subtitle')}
         </Text>
-        
+
         <Button
           title={t('login.continue')}
           variant="primary"
           size="lg"
           fullWidth
-          className="bg-info shadow-lg my-2xl rounded-full"
+          className="bg-info shadow-lg mt-2xl rounded-full"
           onPress={async () => {
             await AsyncStorage.setItem('onboarded', '1');
           }}
         />
+
+        <Pressable onPress={handleContinueAsGuest} className="mt-md">
+          <Text className="text-gray-300 font-raleway text-base underline">
+            {t('login.continueAsGuest')}
+          </Text>
+        </Pressable>
       </View>
     </View>
   );
@@ -155,6 +168,18 @@ function LoginPage({}: LoginPageProps) {
           <Text className="text-white font-raleway text-center">
             {t('login.noAccount')}{' '}
             <Text className="font-raleway-bold underline">{t('login.register')}</Text>
+          </Text>
+        </Pressable>
+
+        <Pressable
+          onPress={async () => {
+            await AsyncStorage.setItem('onboarded', '1');
+            router.replace('/(main)/tabs/news');
+          }}
+          className="mt-md"
+        >
+          <Text className="text-gray-300 font-raleway text-center underline">
+            {t('login.continueAsGuest')}
           </Text>
         </Pressable>
       </View>

@@ -52,7 +52,8 @@
     "errorTitle": "Prisijungimo klaida",
     "errorMessage": "Neteisingas vartotojo vardas arba slaptažodis",
     "noAccount": "Neturite paskyros?",
-    "register": "Registruotis"
+    "register": "Registruotis",
+    "continueAsGuest": "Tęsti be paskyros"
   },
   "register": {
     "title": "Sukurti paskyrą",
@@ -107,7 +108,10 @@
     "comments": "Komentarai",
     "pollTitle": "Balsavimas - Kada kepame šašlykus liepų kiemelyje?",
     "empty": "Naujienų nėra",
-    "loadMore": "Daugiau naujienų"
+    "loadMore": "Daugiau naujienų",
+    "pollVotes_one": "{{count}} balsas",
+    "pollVotes_few": "{{count}} balsai",
+    "pollVotes_other": "{{count}} balsų"
   },
   "newsPost": {
     "commentsTitle": "Komentarai",

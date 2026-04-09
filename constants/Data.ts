@@ -100,6 +100,7 @@ VU Kauno fakultetas ruošia specialistus, kurie gali atsakyti į šiuos iššūk
 // Mock Poll Data
 export const MOCK_POLL: Poll = {
   id: 'poll-1',
+  postId: 'mock-poll-post-1',
   title: 'Kada kepame šašlykus liepų kiemelyje?',
   totalVotes: 156,
   endDate: '2023-08-15',

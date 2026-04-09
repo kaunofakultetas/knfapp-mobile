@@ -172,6 +172,22 @@
     "noPosts": "Įrašų nėra",
     "newPost": "Naujas įrašas"
   },
+  "friends": {
+    "title": "Draugai",
+    "loginRequired": "Prisijunkite, kad matytumėte draugus",
+    "empty": "Draugų dar nėra",
+    "emptyHint": "Aplankykite profilius ir siųskite draugystės užklausas",
+    "pendingRequests": "{{count}} laukianti(-čios) užklausa(-os)"
+  },
+  "friendRequests": {
+    "title": "Draugystės užklausos",
+    "accept": "Priimti",
+    "reject": "Atmesti",
+    "empty": "Nėra laukiančių užklausų",
+    "errorTitle": "Klaida",
+    "acceptError": "Nepavyko priimti užklausos",
+    "rejectError": "Nepavyko atmesti užklausos"
+  },
   "createPost": {
     "title": "Naujas įrašas",
     "titleLabel": "Pavadinimas (nebūtina)",

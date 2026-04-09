@@ -88,10 +88,13 @@ export interface PollOption {
 
 export interface Poll {
   id: string;
+  postId: string;
   title: string;
   options: PollOption[];
   totalVotes: number;
   endDate?: string;
+  createdAt?: string;
+  userVote?: string | null;
 }
 
 // User Types

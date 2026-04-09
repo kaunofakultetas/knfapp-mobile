@@ -172,6 +172,22 @@
     "noPosts": "No posts yet",
     "newPost": "New Post"
   },
+  "friends": {
+    "title": "Friends",
+    "loginRequired": "Log in to see your friends",
+    "empty": "No friends yet",
+    "emptyHint": "Visit profiles and send friend requests to connect with classmates",
+    "pendingRequests": "{{count}} pending request(s)"
+  },
+  "friendRequests": {
+    "title": "Friend Requests",
+    "accept": "Accept",
+    "reject": "Decline",
+    "empty": "No pending requests",
+    "errorTitle": "Error",
+    "acceptError": "Failed to accept request",
+    "rejectError": "Failed to decline request"
+  },
   "createPost": {
     "title": "New Post",
     "titleLabel": "Title (optional)",

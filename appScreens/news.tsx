@@ -1,7 +1,7 @@
 import Header from '@/components/ui/Header';
-import { MOCK_NEWS_POSTS, MOCK_POLL } from '@/constants/Data';
+import { MOCK_NEWS_POSTS } from '@/constants/Data';
 import { useAuth } from '@/context/AuthContext';
-import { fetchNewsFeed, toggleLikeApi } from '@/services/api';
+import { fetchNewsFeed, fetchPoll, toggleLikeApi, votePollApi, type PollResponse } from '@/services/api';
 import type { NewsPost } from '@/types';
 import { FontAwesome, Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -37,60 +37,82 @@ function SourceBadge({ source }: { source?: string }) {
   );
 }
 
-// ── Poll widget (static demo for now) ───────────────────────────────────────
+// ── Poll widget (connected to real API) ─────────────────────────────────────
 
-const ExamplePoll = () => {
-  const { t } = useTranslation();
+function PollWidget({ postId }: { postId: string }) {
+  const { isAuthenticated } = useAuth();
+  const [poll, setPoll] = useState<PollResponse | null>(null);
+  const [voting, setVoting] = useState(false);
+
+  useEffect(() => {
+    fetchPoll(postId).then(setPoll);
+  }, [postId]);
+
+  if (!poll) return null;
+
+  const handleVote = async (optionId: string) => {
+    if (!isAuthenticated || voting) return;
+    setVoting(true);
+    try {
+      const updated = await votePollApi(postId, optionId);
+      setPoll(updated);
+    } catch {
+      // ignore
+    } finally {
+      setVoting(false);
+    }
+  };
+
+  const hasVoted = !!poll.userVote;
+  const total = poll.totalVotes || 1; // avoid div by zero
+
   return (
-    <View className="mx-2.5 my-5 bg-gray-300 pb-2.5">
-      <View className="w-full pb-5">
-        {MOCK_POLL.options.map((option) => (
-          <View
+    <View className="mt-1 mx-2.5 mb-2">
+      <Text className="font-semibold text-base mb-2 px-0.5">{poll.title}</Text>
+      {poll.options.map((option) => {
+        const isSelected = poll.userVote === option.id;
+        const pct = hasVoted ? Math.round((option.votes / total) * 100) : 0;
+        return (
+          <Pressable
             key={option.id}
-            className={`h-10 m-5 mb-0 rounded-lg border-2 border-solid flex-row items-center ${
-              option.isSelected ? 'w-[90%] bg-accent border-primary' : 'bg-gray-400 border-gray-400'
+            className={`h-10 mb-2 rounded-lg border-2 flex-row items-center overflow-hidden ${
+              isSelected
+                ? 'border-[#7B003F] bg-[#7B003F]/10'
+                : hasVoted
+                  ? 'border-gray-300 bg-gray-100'
+                  : 'border-gray-400 bg-gray-200'
             }`}
-            style={{
-              width: `${Math.max(10, Math.round((option.votes / MOCK_POLL.totalVotes) * 100))}%`,
-            }}
+            onPress={() => handleVote(option.id)}
+            disabled={voting}
           >
-            <View className="flex-1 justify-center">
-              <Text className="text-lg font-bold pl-2.5">{option.text}</Text>
-            </View>
-            {option.isSelected && (
-              <View className="justify-center mr-5">
-                <Ionicons name="checkmark-circle-outline" size={24} />
-              </View>
+            {hasVoted && (
+              <View
+                className={`absolute left-0 top-0 bottom-0 ${isSelected ? 'bg-[#7B003F]/20' : 'bg-gray-200'}`}
+                style={{ width: `${pct}%` }}
+              />
             )}
-          </View>
-        ))}
-      </View>
-
-      <View className="bg-primary">
-        <Text className="m-1.5 ml-2.5 text-white">2023 m. liepos 31 d.</Text>
-      </View>
-
-      <Text className="pt-2.5 px-2.5 text-xl">{t('news.pollTitle')}</Text>
-
-      <View className="flex-1 flex-row pb-1 mt-2.5">
-        <View className="flex-1 flex-row content-center ml-7">
-          <FontAwesome name="heart-o" size={24} className="mr-2.5 self-center" />
-          <Text className="mt-1.5 text-lg">86</Text>
-        </View>
-
-        <View className="flex-1 flex-row content-center ml-7">
-          <FontAwesome name="comment-o" size={24} className="mr-2.5 self-center" />
-          <Text className="mt-1.5 text-lg">4</Text>
-        </View>
-
-        <View className="flex-1 flex-row content-center ml-7">
-          <FontAwesome name="share-square-o" size={24} className="mr-2.5 self-center" />
-          <Text className="mt-1.5 text-lg">2</Text>
-        </View>
-      </View>
+            <View className="flex-1 flex-row items-center justify-between px-3 z-10">
+              <Text className={`font-medium ${isSelected ? 'text-[#7B003F]' : 'text-gray-800'}`}>
+                {option.text}
+              </Text>
+              {hasVoted && (
+                <View className="flex-row items-center gap-1">
+                  <Text className={`text-sm ${isSelected ? 'font-bold text-[#7B003F]' : 'text-gray-500'}`}>
+                    {pct}%
+                  </Text>
+                  {isSelected && <Ionicons name="checkmark-circle" size={16} color="#7B003F" />}
+                </View>
+              )}
+            </View>
+          </Pressable>
+        );
+      })}
+      <Text className="text-xs text-gray-500 mt-1">
+        {poll.totalVotes} {poll.totalVotes === 1 ? 'vote' : 'votes'}
+      </Text>
     </View>
   );
-};
+}
 
 // ── Format ISO date to Lithuanian display ───────────────────────────────────
 
@@ -348,7 +370,6 @@ export default function NewsScreen() {
           </View>
         ) : (
           <>
-            <ExamplePoll />
             {posts.map((post) => {
               const isLiked = !!likedById[post.id];
               const likeCount = likeCounts[post.id] ?? post.likes;
@@ -382,6 +403,7 @@ export default function NewsScreen() {
                         </Text>
                       </Pressable>
                     ) : null}
+                    {post.postType === 'poll' && <PollWidget postId={post.id} />}
                     <View className="flex-1 flex-row justify-between px-7 pb-2 mt-2.5">
                       <Pressable
                         className="justify-center items-center"

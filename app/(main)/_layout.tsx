@@ -65,6 +65,20 @@ export default function MainLayout() {
           headerBackTitle: t('common.back'),
         }}
       />
+      <Stack.Screen
+        name="friends/index"
+        options={{
+          title: t('friends.title'),
+          headerBackTitle: t('common.back'),
+        }}
+      />
+      <Stack.Screen
+        name="friend-requests/index"
+        options={{
+          title: t('friendRequests.title'),
+          headerBackTitle: t('common.back'),
+        }}
+      />
     </Stack>
   );
 }

@@ -184,14 +184,21 @@ export default function ProfileScreen() {
                 </Text>
               </View>
               <View className="w-px bg-gray-200" />
-              <View className="items-center px-6">
+              <Pressable
+                className="items-center px-6"
+                onPress={() => {
+                  if (isOwnProfile) {
+                    router.push('/(main)/friends');
+                  }
+                }}
+              >
                 <Text className="text-lg font-bold text-gray-900">
                   {profile.friendCount}
                 </Text>
                 <Text className="text-xs text-gray-500">
                   {t('profile.friends')}
                 </Text>
-              </View>
+              </Pressable>
             </View>
 
             {/* Friend action button */}

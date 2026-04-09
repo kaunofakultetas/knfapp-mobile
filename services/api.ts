@@ -569,6 +569,42 @@ export async function deletePost(postId: string): Promise<void> {
   }
 }
 
+// ── Poll API ──────────────────────────────────────────────────────────────────
+
+export interface PollResponse {
+  id: string;
+  postId: string;
+  title: string;
+  endDate: string | null;
+  totalVotes: number;
+  createdAt: string;
+  userVote: string | null;
+  options: { id: string; text: string; votes: number }[];
+}
+
+export async function fetchPoll(postId: string): Promise<PollResponse | null> {
+  try {
+    const { data } = await api.get<PollResponse>(API_ENDPOINTS.newsPoll(postId));
+    return data;
+  } catch {
+    return null; // No poll or error
+  }
+}
+
+export async function votePollApi(
+  postId: string,
+  optionId: string,
+): Promise<PollResponse> {
+  try {
+    const { data } = await api.post<PollResponse>(API_ENDPOINTS.newsPollVote(postId), {
+      option_id: optionId,
+    });
+    return data;
+  } catch (err) {
+    handleError(err);
+  }
+}
+
 // ── Health ───────────────────────────────────────────────────────────────────
 
 export async function checkHealth(): Promise<boolean> {

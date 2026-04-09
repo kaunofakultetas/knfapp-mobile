@@ -60,4 +60,8 @@ export const API_ENDPOINTS = {
 
   // News (create)
   newsCreate: "/news",
+
+  // Polls
+  newsPoll: (postId: string) => `/news/${postId}/poll`,
+  newsPollVote: (postId: string) => `/news/${postId}/poll/vote`,
 } as const;

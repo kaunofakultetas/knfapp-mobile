@@ -412,6 +412,163 @@ export async function searchUsersApi(q: string): Promise<{ users: SearchUserResu
   }
 }
 
+// ── Social API ─────────────────────────────────────────────────────────────
+
+export interface UserProfile {
+  id: string;
+  username: string;
+  displayName: string;
+  avatarUrl?: string;
+  role: string;
+  createdAt: string;
+  postCount: number;
+  friendCount: number;
+  friendshipStatus: 'none' | 'friends' | 'request_sent' | 'request_received';
+}
+
+export interface FriendRequest {
+  id: string;
+  userId: string;
+  displayName: string;
+  username: string;
+  avatarUrl?: string;
+  role: string;
+  createdAt: string;
+}
+
+export interface Friend {
+  id: string;
+  username: string;
+  displayName: string;
+  avatarUrl?: string;
+  role: string;
+  friendsSince: string;
+}
+
+export async function fetchUserProfile(userId: string): Promise<UserProfile> {
+  try {
+    const { data } = await api.get<UserProfile>(API_ENDPOINTS.socialProfile(userId));
+    return data;
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+export async function updateProfile(params: {
+  display_name?: string;
+  avatar_url?: string;
+}): Promise<User> {
+  try {
+    const { data } = await api.put<User>(API_ENDPOINTS.socialProfileUpdate, params);
+    return data;
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+export async function sendFriendRequest(userId: string): Promise<{ id: string; status: string }> {
+  try {
+    const { data } = await api.post<{ id: string; status: string }>(
+      API_ENDPOINTS.socialFriendRequest,
+      { user_id: userId },
+    );
+    return data;
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+export async function fetchFriendRequests(
+  direction: 'received' | 'sent' = 'received',
+): Promise<{ requests: FriendRequest[] }> {
+  try {
+    const { data } = await api.get<{ requests: FriendRequest[] }>(
+      API_ENDPOINTS.socialFriendRequests,
+      { params: { direction } },
+    );
+    return data;
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+export async function acceptFriendRequest(requestId: string): Promise<{ status: string }> {
+  try {
+    const { data } = await api.post<{ status: string }>(
+      API_ENDPOINTS.socialFriendAccept(requestId),
+    );
+    return data;
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+export async function rejectFriendRequest(requestId: string): Promise<{ status: string }> {
+  try {
+    const { data } = await api.post<{ status: string }>(
+      API_ENDPOINTS.socialFriendReject(requestId),
+    );
+    return data;
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+export async function fetchFriends(): Promise<{ friends: Friend[] }> {
+  try {
+    const { data } = await api.get<{ friends: Friend[] }>(API_ENDPOINTS.socialFriends);
+    return data;
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+export async function unfriendUser(userId: string): Promise<{ status: string }> {
+  try {
+    const { data } = await api.delete<{ status: string }>(API_ENDPOINTS.socialUnfriend(userId));
+    return data;
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+export async function createPost(params: {
+  content: string;
+  title?: string;
+  image_url?: string;
+  is_public?: boolean;
+}): Promise<NewsPost> {
+  try {
+    const { data } = await api.post<NewsPost>(API_ENDPOINTS.socialPosts, params);
+    return data;
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+export async function fetchUserPosts(
+  userId: string,
+  page = 1,
+  perPage = 20,
+): Promise<NewsFeedResponse> {
+  try {
+    const { data } = await api.get<NewsFeedResponse>(API_ENDPOINTS.socialPosts, {
+      params: { user_id: userId, page, per_page: perPage },
+    });
+    return data;
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+export async function deletePost(postId: string): Promise<void> {
+  try {
+    await api.delete(API_ENDPOINTS.socialPostDelete(postId));
+  } catch (err) {
+    handleError(err);
+  }
+}
+
 // ── Health ───────────────────────────────────────────────────────────────────
 
 export async function checkHealth(): Promise<boolean> {

@@ -44,4 +44,20 @@ export const API_ENDPOINTS = {
   chatRead: (convId: string) => `/chat/conversations/${convId}/read`,
   chatDelete: (convId: string) => `/chat/conversations/${convId}`,
   chatUserSearch: "/chat/users/search",
+
+  // Social
+  socialProfile: (userId: string) => `/social/profile/${userId}`,
+  socialProfileUpdate: "/social/profile",
+  socialFriendRequest: "/social/friends/request",
+  socialFriendRequests: "/social/friends/requests",
+  socialFriendAccept: (requestId: string) => `/social/friends/requests/${requestId}/accept`,
+  socialFriendReject: (requestId: string) => `/social/friends/requests/${requestId}/reject`,
+  socialFriends: "/social/friends",
+  socialUnfriend: (userId: string) => `/social/friends/${userId}`,
+  socialPosts: "/social/posts",
+  socialPostUpdate: (postId: string) => `/social/posts/${postId}`,
+  socialPostDelete: (postId: string) => `/social/posts/${postId}`,
+
+  // News (create)
+  newsCreate: "/news",
 } as const;

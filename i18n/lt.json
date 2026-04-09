@@ -50,7 +50,41 @@
       "passwordMin": "Slaptažodis turi būti bent 6 simbolių"
     },
     "errorTitle": "Prisijungimo klaida",
-    "errorMessage": "Neteisingas vartotojo vardas arba slaptažodis"
+    "errorMessage": "Neteisingas vartotojo vardas arba slaptažodis",
+    "noAccount": "Neturite paskyros?",
+    "register": "Registruotis"
+  },
+  "register": {
+    "title": "Sukurti paskyrą",
+    "subtitle": "Įveskite kvietimo kodą, kad užsiregistruotumėte",
+    "invitationLabel": "Kvietimo kodas",
+    "invitationPlaceholder": "Įveskite kvietimo kodą",
+    "usernameLabel": "Vartotojo vardas",
+    "usernamePlaceholder": "Pasirinkite vartotojo vardą",
+    "displayNameLabel": "Vardas ir pavardė",
+    "displayNamePlaceholder": "Jūsų vardas ir pavardė",
+    "emailLabel": "El. paštas",
+    "emailPlaceholder": "jusu@elpastas.lt",
+    "passwordLabel": "Slaptažodis",
+    "passwordPlaceholder": "Bent 6 simboliai",
+    "confirmPasswordLabel": "Pakartokite slaptažodį",
+    "confirmPasswordPlaceholder": "Pakartokite slaptažodį",
+    "submit": "Registruotis",
+    "alreadyHaveAccount": "Jau turite paskyrą?",
+    "signIn": "Prisijungti",
+    "errorTitle": "Registracijos klaida",
+    "errorMessage": "Registracija nepavyko. Bandykite dar kartą.",
+    "errors": {
+      "invitationRequired": "Kvietimo kodas privalomas",
+      "usernameRequired": "Vartotojo vardas privalomas",
+      "usernameMin": "Vartotojo vardas turi būti bent 3 simbolių",
+      "displayNameRequired": "Vardas ir pavardė privalomi",
+      "emailRequired": "El. paštas privalomas",
+      "emailInvalid": "Įveskite tinkamą el. pašto adresą",
+      "passwordRequired": "Slaptažodis privalomas",
+      "passwordMin": "Slaptažodis turi būti bent 6 simbolių",
+      "passwordMismatch": "Slaptažodžiai nesutampa"
+    }
   },
   "messages": {
     "title": "Žinutės",

@@ -150,6 +150,13 @@ function LoginPage({}: LoginPageProps) {
             onPress={() => Alert.alert('SSO', t('login.ssoComingSoon'))}
           />
         </View>
+
+        <Pressable onPress={() => router.push('/register')} className="mt-lg">
+          <Text className="text-white font-raleway text-center">
+            {t('login.noAccount')}{' '}
+            <Text className="font-raleway-bold underline">{t('login.register')}</Text>
+          </Text>
+        </Pressable>
       </View>
     </View>
   );

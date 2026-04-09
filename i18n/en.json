@@ -50,7 +50,41 @@
       "passwordMin": "Password must be at least 6 characters"
     },
     "errorTitle": "Login error",
-    "errorMessage": "Invalid username or password"
+    "errorMessage": "Invalid username or password",
+    "noAccount": "Don't have an account?",
+    "register": "Register"
+  },
+  "register": {
+    "title": "Create Account",
+    "subtitle": "Enter your invitation code to register",
+    "invitationLabel": "Invitation Code",
+    "invitationPlaceholder": "Enter invitation code",
+    "usernameLabel": "Username",
+    "usernamePlaceholder": "Choose a username",
+    "displayNameLabel": "Full Name",
+    "displayNamePlaceholder": "Your full name",
+    "emailLabel": "Email",
+    "emailPlaceholder": "your@email.com",
+    "passwordLabel": "Password",
+    "passwordPlaceholder": "At least 6 characters",
+    "confirmPasswordLabel": "Confirm Password",
+    "confirmPasswordPlaceholder": "Repeat your password",
+    "submit": "Register",
+    "alreadyHaveAccount": "Already have an account?",
+    "signIn": "Sign in",
+    "errorTitle": "Registration Error",
+    "errorMessage": "Registration failed. Please try again.",
+    "errors": {
+      "invitationRequired": "Invitation code is required",
+      "usernameRequired": "Username is required",
+      "usernameMin": "Username must be at least 3 characters",
+      "displayNameRequired": "Full name is required",
+      "emailRequired": "Email is required",
+      "emailInvalid": "Enter a valid email address",
+      "passwordRequired": "Password is required",
+      "passwordMin": "Password must be at least 6 characters",
+      "passwordMismatch": "Passwords do not match"
+    }
   },
   "messages": {
     "title": "Messages",

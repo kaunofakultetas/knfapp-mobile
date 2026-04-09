@@ -263,6 +263,17 @@
     "title": "Oops! Something went wrong",
     "unexpected": "An unexpected error occurred"
   },
+  "info": {
+    "title": "Faculty Info",
+    "facultyName": "Vilnius University Kaunas Faculty",
+    "address": "Muitinės g. 8, LT-44280 Kaunas",
+    "contacts": "Contacts",
+    "links": "Useful Links",
+    "hours": "Building Hours",
+    "programs": "Study Programs",
+    "faq": "FAQ",
+    "loadError": "Could not load faculty information"
+  },
   "admin": {
     "title": "Administration",
     "noAccess": "Access denied",

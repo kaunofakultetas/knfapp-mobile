@@ -93,6 +93,13 @@ export default function MainLayout() {
           headerBackTitle: t('common.back'),
         }}
       />
+      <Stack.Screen
+        name="info/index"
+        options={{
+          title: t('info.title', 'Informacija'),
+          headerBackTitle: t('common.back'),
+        }}
+      />
     </Stack>
   );
 }

@@ -264,6 +264,17 @@
     "title": "Oi! Kažkas negerai",
     "unexpected": "Įvyko netikėta klaida"
   },
+  "info": {
+    "title": "Informacija",
+    "facultyName": "Vilniaus universiteto Kauno fakultetas",
+    "address": "Muitinės g. 8, LT-44280 Kaunas",
+    "contacts": "Kontaktai",
+    "links": "Naudingos nuorodos",
+    "hours": "Darbo laikas",
+    "programs": "Studijų programos",
+    "faq": "DUK",
+    "loadError": "Nepavyko užkrauti fakulteto informacijos"
+  },
   "admin": {
     "title": "Administravimas",
     "noAccess": "Neturite prieigos",

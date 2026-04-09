@@ -787,6 +787,63 @@ export async function updateAdminUser(
   }
 }
 
+// ── Info API ──────────────────────────────────────────────────────────────────
+
+export interface InfoContact {
+  name: string;
+  phone?: string;
+  email?: string;
+  room?: string;
+}
+
+export interface InfoContactCategory {
+  category: string;
+  items: InfoContact[];
+}
+
+export interface InfoLink {
+  title: string;
+  url: string;
+  icon: string;
+}
+
+export interface InfoHours {
+  place: string;
+  address: string;
+  schedule: string;
+  note: string;
+}
+
+export interface InfoProgram {
+  name: string;
+  degree: string;
+  duration: string;
+}
+
+export interface InfoFaq {
+  q: string;
+  a: string;
+}
+
+export interface FacultyInfoResponse {
+  contacts: InfoContactCategory[];
+  links: InfoLink[];
+  hours: InfoHours[];
+  programs: InfoProgram[];
+  faq: InfoFaq[];
+}
+
+export async function fetchFacultyInfo(lang: string = 'lt'): Promise<FacultyInfoResponse> {
+  try {
+    const { data } = await api.get<FacultyInfoResponse>(API_ENDPOINTS.info, {
+      params: { lang },
+    });
+    return data;
+  } catch (err) {
+    handleError(err);
+  }
+}
+
 // ── Health ───────────────────────────────────────────────────────────────────
 
 export async function checkHealth(): Promise<boolean> {

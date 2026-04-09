@@ -70,4 +70,7 @@ export const API_ENDPOINTS = {
   // Uploads
   upload: "/uploads",
   uploadFile: (filename: string) => `/uploads/${filename}`,
+
+  // Info
+  info: "/info",
 } as const;

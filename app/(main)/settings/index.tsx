@@ -77,6 +77,18 @@ export default function SettingsScreen() {
           </View>
         </View>
 
+        {/* Faculty info link (visible to everyone) */}
+        <Pressable
+          className="flex-row items-center justify-between bg-gray-50 rounded-lg p-3 mt-2"
+          onPress={() => router.push('/(main)/info')}
+        >
+          <View className="flex-row items-center gap-2">
+            <Ionicons name="information-circle" size={20} color="#7B003F" />
+            <Text className="text-base font-medium">{t('info.title', 'Informacija')}</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color="#999" />
+        </Pressable>
+
         {/* Admin panel link (admin/curator only) */}
         {isAuthenticated && (user?.role === 'admin' || user?.role === 'curator') && (
           <Pressable

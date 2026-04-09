@@ -1,74 +1,164 @@
-import { MOCK_USERS } from '@/constants/Data';
-import type { Conversation, ConversationParticipant } from '@/types';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { createConversation, searchUsersApi } from '@/services/api';
+import type { SearchUserResult } from '@/services/api';
 import { useRouter } from 'expo-router';
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Alert, FlatList, Pressable, Text, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Pressable,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 
 export default function NewChatScreen() {
   const [name, setName] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [users, setUsers] = useState<SearchUserResult[]>([]);
+  const [searching, setSearching] = useState(false);
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+  const [creating, setCreating] = useState(false);
   const router = useRouter();
   const { t } = useTranslation();
 
-  const selectedUsers = useMemo(() => MOCK_USERS.filter(u => selectedUserIds.includes(u.id)), [selectedUserIds]);
+  // Debounced user search
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (q.length < 1) {
+      setUsers([]);
+      return;
+    }
+    setSearching(true);
+    const timer = setTimeout(async () => {
+      try {
+        const resp = await searchUsersApi(q);
+        setUsers(resp.users);
+      } catch {
+        setUsers([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
-  const toggleUser = (id: string) => {
-    setSelectedUserIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
-  };
+  const selectedUsers = users.filter((u) => selectedUserIds.includes(u.id));
+
+  const toggleUser = useCallback((id: string) => {
+    setSelectedUserIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  }, []);
 
   const createChat = async () => {
     const title = name.trim();
-    const isGroup = selectedUserIds.length > 1 || (title.length > 0 && selectedUserIds.length >= 1);
+    const isGroup =
+      selectedUserIds.length > 1 ||
+      (title.length > 0 && selectedUserIds.length >= 1);
     if (!isGroup && selectedUserIds.length !== 1) {
-      Alert.alert(t('newChat.errorTitle'), t('newChat.selectOneUser') || 'Select one person to start a direct chat');
+      Alert.alert(
+        t('newChat.errorTitle'),
+        t('newChat.selectOneUser') || 'Select one person to start a direct chat',
+      );
       return;
     }
+
+    setCreating(true);
     try {
-      const raw = await AsyncStorage.getItem('conversations');
-      const list: Conversation[] = raw ? JSON.parse(raw) : [];
-      const now = Date.now();
-      const participants: ConversationParticipant[] = [
-        { id: 'self', displayName: 'Tu' },
-        ...MOCK_USERS.filter(u => selectedUserIds.includes(u.id)),
-      ];
-      const conv: Conversation = {
-        id: `c-${now}`,
+      const groupEmojis = ['💬', '👥', '📚', '🧑‍🏫', '🧪', '🖥️', '🧠'];
+      await createConversation({
+        participantIds: selectedUserIds,
         type: isGroup ? 'group' : 'direct',
-        title: isGroup ? (title || participants.filter(p => p.id !== 'self').map(p => p.displayName).slice(0, 3).join(', ')) : (participants.find(p => p.id !== 'self')?.displayName || 'Direct'),
-        participants,
-        messages: [],
-        unreadCount: 0,
-        lastUpdatedMs: now,
-        pinned: false,
-        avatarEmoji: isGroup ? ['💬','👥','📚','🧑‍🏫','🧪','🖥️','🧠'][Math.floor(Math.random()*7)] : undefined,
-      };
-      const next = [conv, ...list];
-      await AsyncStorage.setItem('conversations', JSON.stringify(next));
+        title: isGroup
+          ? title ||
+            selectedUsers
+              .map((u) => u.displayName)
+              .slice(0, 3)
+              .join(', ')
+          : undefined,
+        avatarEmoji: isGroup
+          ? groupEmojis[Math.floor(Math.random() * groupEmojis.length)]
+          : undefined,
+      });
       router.back();
-    } catch (e) {
+    } catch {
       Alert.alert(t('newChat.errorTitle'), t('newChat.errorMessage'));
+    } finally {
+      setCreating(false);
     }
   };
 
   return (
     <View className="flex-1 bg-white p-lg">
-      <Text className="text-2xl font-raleway-bold text-primary mb-md">{t('newChat.title')}</Text>
-      <Text className="text-gray-800 mb-sm">{t('newChat.selectPeople') || 'Select people'}</Text>
+      <Text className="text-2xl font-raleway-bold text-primary mb-md">
+        {t('newChat.title')}
+      </Text>
+
+      <Text className="text-gray-800 mb-xs">
+        {t('newChat.searchUsers') || 'Search users'}
+      </Text>
+      <TextInput
+        className="border border-gray-300 rounded-md px-md py-sm mb-sm"
+        placeholder={t('newChat.searchPlaceholder') || 'Type a name...'}
+        value={searchQuery}
+        onChangeText={setSearchQuery}
+        autoCapitalize="none"
+      />
+
+      {selectedUserIds.length > 0 && (
+        <View className="flex-row flex-wrap mb-sm">
+          {selectedUsers.map((u) => (
+            <Pressable
+              key={u.id}
+              onPress={() => toggleUser(u.id)}
+              className="bg-primary/10 rounded-full px-3 py-1 mr-2 mb-1 flex-row items-center"
+            >
+              <Text className="text-primary text-sm">{u.displayName}</Text>
+              <Text className="text-primary ml-1">×</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+
+      {searching && <ActivityIndicator size="small" color="#7B003F" />}
+
       <FlatList
-        data={MOCK_USERS}
+        data={users}
         keyExtractor={(i) => i.id}
         renderItem={({ item }) => (
-          <Pressable className="flex-row items-center py-2" onPress={() => toggleUser(item.id)}>
-            <View className={`w-5 h-5 mr-3 rounded-sm border ${selectedUserIds.includes(item.id) ? 'bg-primary border-primary' : 'border-gray-400'}`} />
-            <Text className="text-base">{item.displayName}</Text>
+          <Pressable
+            className="flex-row items-center py-2"
+            onPress={() => toggleUser(item.id)}
+          >
+            <View
+              className={`w-5 h-5 mr-3 rounded-sm border ${
+                selectedUserIds.includes(item.id)
+                  ? 'bg-primary border-primary'
+                  : 'border-gray-400'
+              }`}
+            />
+            <View>
+              <Text className="text-base">{item.displayName}</Text>
+              <Text className="text-xs text-gray-500">@{item.username}</Text>
+            </View>
           </Pressable>
         )}
         ItemSeparatorComponent={() => <View className="h-px bg-gray-200" />}
         style={{ maxHeight: 220 }}
+        ListEmptyComponent={
+          searchQuery.length >= 1 && !searching ? (
+            <Text className="text-gray-500 text-center py-4">
+              {t('newChat.noResults') || 'No users found'}
+            </Text>
+          ) : null
+        }
       />
-      <Text className="text-gray-800 mt-md mb-xs">{t('newChat.groupName') || 'Group name (optional)'}</Text>
+
+      <Text className="text-gray-800 mt-md mb-xs">
+        {t('newChat.groupName') || 'Group name (optional)'}
+      </Text>
       <TextInput
         className="border border-gray-300 rounded-md px-md py-sm"
         placeholder={t('newChat.namePlaceholder')}
@@ -76,10 +166,20 @@ export default function NewChatScreen() {
         onChangeText={setName}
         maxLength={60}
       />
-      <Pressable className={`mt-lg px-lg py-sm rounded-md ${(selectedUserIds.length >= 1) ? 'bg-primary' : 'bg-gray-300'}`} disabled={selectedUserIds.length < 1} onPress={createChat}>
-        <Text className="text-white text-center">{t('newChat.create')}</Text>
+
+      <Pressable
+        className={`mt-lg px-lg py-sm rounded-md ${
+          selectedUserIds.length >= 1 && !creating ? 'bg-primary' : 'bg-gray-300'
+        }`}
+        disabled={selectedUserIds.length < 1 || creating}
+        onPress={createChat}
+      >
+        {creating ? (
+          <ActivityIndicator size="small" color="#fff" />
+        ) : (
+          <Text className="text-white text-center">{t('newChat.create')}</Text>
+        )}
       </Pressable>
     </View>
   );
 }
-

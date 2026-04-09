@@ -102,7 +102,10 @@
     "errorMessage": "Failed to create chat",
     "selectPeople": "Select people",
     "groupName": "Group name (optional)",
-    "selectOneUser": "Select one person to start a direct chat"
+    "selectOneUser": "Select one person to start a direct chat",
+    "searchUsers": "Search users",
+    "searchPlaceholder": "Type a name...",
+    "noResults": "No users found"
   },
   "settings": {
     "title": "Settings",

@@ -35,4 +35,13 @@ export const API_ENDPOINTS = {
   // Scraper
   scraperStatus: "/scraper/status",
   scraperTrigger: "/scraper/trigger",
+
+  // Chat
+  chatConversations: "/chat/conversations",
+  chatMessages: (convId: string) => `/chat/conversations/${convId}/messages`,
+  chatReact: (convId: string, msgId: string) => `/chat/conversations/${convId}/messages/${msgId}/react`,
+  chatPin: (convId: string) => `/chat/conversations/${convId}/pin`,
+  chatRead: (convId: string) => `/chat/conversations/${convId}/read`,
+  chatDelete: (convId: string) => `/chat/conversations/${convId}`,
+  chatUserSearch: "/chat/users/search",
 } as const;

@@ -116,7 +116,10 @@
     "errorMessage": "Nepavyko sukurti pokalbio",
     "selectPeople": "Pasirinkite žmones",
     "groupName": "Grupės pavadinimas (nebūtina)",
-    "selectOneUser": "Pasirinkite vieną žmogų, kad pradėtumėte asmeninį pokalbį"
+    "selectOneUser": "Pasirinkite vieną žmogų, kad pradėtumėte asmeninį pokalbį",
+    "searchUsers": "Ieškoti vartotojų",
+    "searchPlaceholder": "Įveskite vardą...",
+    "noResults": "Vartotojų nerasta"
   },
   "notFound": {
     "oops": "Oi!",

@@ -1,119 +1,106 @@
 import Header from '@/components/ui/Header';
-import { MOCK_CONVERSATIONS } from '@/constants/Data';
+import {
+  deleteConversationApi,
+  fetchConversations,
+  togglePinApi,
+} from '@/services/api';
+import type { ApiConversation } from '@/services/api';
 import type { Conversation } from '@/types';
 import { Feather } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useRouter } from 'expo-router';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FlatList, Pressable, RefreshControl, Text, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  FlatList,
+  Pressable,
+  RefreshControl,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 
 import ConversationRow from './components/ConversationRow';
+
+// Adapt ApiConversation to the Conversation shape ConversationRow expects
+function toRowItem(c: ApiConversation): Conversation {
+  return {
+    id: c.id,
+    type: c.type,
+    title: c.title,
+    participants: c.participants.map((p) => ({
+      id: p.id,
+      displayName: p.displayName,
+      avatarUrl: p.avatarUrl,
+    })),
+    messages: c.lastMessage
+      ? [
+          {
+            id: c.lastMessage.id,
+            conversationId: c.id,
+            senderId: c.lastMessage.senderId,
+            senderName: c.lastMessage.senderName,
+            text: c.lastMessage.text,
+            time: c.lastMessage.time,
+          },
+        ]
+      : [],
+    unreadCount: c.unreadCount,
+    lastUpdatedMs: c.lastUpdatedMs,
+    pinned: c.pinned,
+    avatarEmoji: c.avatarEmoji,
+  };
+}
 
 export default function MessagesScreen() {
   const router = useRouter();
   const { t } = useTranslation();
-  
+
   const [query, setQuery] = useState('');
   const [refreshing, setRefreshing] = useState(false);
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  // unified list (no segments)
+  const [loading, setLoading] = useState(true);
+  const [conversations, setConversations] = useState<ApiConversation[]>([]);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const raw = await AsyncStorage.getItem('conversations');
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed) && parsed.length === 0) {
-            setConversations(MOCK_CONVERSATIONS);
-            await AsyncStorage.setItem('conversations', JSON.stringify(MOCK_CONVERSATIONS));
-          } else {
-            setConversations(parsed);
-          }
-        } else {
-          setConversations(MOCK_CONVERSATIONS);
-          await AsyncStorage.setItem('conversations', JSON.stringify(MOCK_CONVERSATIONS));
-        }
-      } catch {
-        setConversations(MOCK_CONVERSATIONS);
-        await AsyncStorage.setItem('conversations', JSON.stringify(MOCK_CONVERSATIONS)).catch(() => {});
-      }
-    })();
+  const loadConversations = useCallback(async () => {
+    try {
+      const resp = await fetchConversations();
+      setConversations(resp.conversations);
+    } catch {
+      // API unavailable — keep current state
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
+  // Reload on screen focus
   useFocusEffect(
-    React.useCallback(() => {
-      let mounted = true;
-      (async () => {
-        try {
-          const raw = await AsyncStorage.getItem('conversations');
-          if (raw && mounted) {
-            const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed) && parsed.length === 0) {
-              setConversations(MOCK_CONVERSATIONS);
-              await AsyncStorage.setItem('conversations', JSON.stringify(MOCK_CONVERSATIONS));
-            } else {
-              setConversations(parsed);
-            }
-          }
-        } catch {}
-      })();
-      return () => { mounted = false };
-    }, [])
+    useCallback(() => {
+      loadConversations();
+    }, [loadConversations]),
   );
-
-  // Simulate incoming messages occasionally
-  useEffect(() => {
-    const timer = setInterval(async () => {
-      try {
-        const raw = await AsyncStorage.getItem('conversations');
-        const list: Conversation[] = raw ? JSON.parse(raw) : conversations;
-        if (list.length === 0) return;
-        const idx = Math.floor(Math.random() * list.length);
-        const room = list[idx];
-        const incoming = {
-          id: Date.now().toString(),
-          conversationId: room.id,
-          senderId: 'u-system',
-          senderName: t('messages.system'),
-          text: t('messages.newMessage'),
-          time: new Date().toLocaleTimeString('lt-LT', { hour: '2-digit', minute: '2-digit' }),
-        };
-        const updated: Conversation = {
-          ...room,
-          messages: [...room.messages, incoming],
-          unreadCount: (room.unreadCount || 0) + 1,
-          lastUpdatedMs: Date.now(),
-        };
-        const next = list.map((r, i) => (i === idx ? updated : r));
-        await AsyncStorage.setItem('conversations', JSON.stringify(next));
-        setConversations(next);
-      } catch {}
-    }, 20000);
-    return () => clearInterval(timer);
-  }, [conversations, t]);
 
   const onRefresh = async () => {
     setRefreshing(true);
-    // Simulate refresh
-    setTimeout(() => setRefreshing(false), 700);
+    await loadConversations();
+    setRefreshing(false);
   };
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    let base = [...conversations].sort((a, b) => {
+    const base = [...conversations].sort((a, b) => {
       const ap = a.pinned ? 1 : 0;
       const bp = b.pinned ? 1 : 0;
       if (ap !== bp) return bp - ap;
       return (b.lastUpdatedMs || 0) - (a.lastUpdatedMs || 0);
     });
-    // unified: no filter by type
     if (!q) return base;
     return base.filter((r) => r.title.toLowerCase().includes(q));
   }, [conversations, query]);
 
-  const handleChatPress = (conv: Conversation) => {
-    router.push(`/(main)/chat-room?conversationId=${conv.id}&title=${encodeURIComponent(conv.title)}&type=${conv.type}`);
+  const handleChatPress = (conv: ApiConversation) => {
+    router.push(
+      `/(main)/chat-room?conversationId=${conv.id}&title=${encodeURIComponent(conv.title)}&type=${conv.type}`,
+    );
   };
 
   const handleNewChatPress = () => {
@@ -121,10 +108,28 @@ export default function MessagesScreen() {
   };
 
   const togglePin = async (id: string) => {
-    const next = conversations.map(r => r.id === id ? { ...r, pinned: !r.pinned } : r);
-    setConversations(next);
-    await AsyncStorage.setItem('conversations', JSON.stringify(next)).catch(() => {});
+    // Optimistic
+    setConversations((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, pinned: !c.pinned } : c)),
+    );
+    togglePinApi(id).catch(() => {});
   };
+
+  const deleteConv = async (id: string) => {
+    setConversations((prev) => prev.filter((c) => c.id !== id));
+    deleteConversationApi(id).catch(() => {});
+  };
+
+  if (loading) {
+    return (
+      <View className="bg-white flex-1">
+        <Header title={t('messages.title')} />
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator size="large" color="#7B003F" />
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View className="bg-white flex-1 relative">
@@ -139,10 +144,9 @@ export default function MessagesScreen() {
             onChangeText={setQuery}
           />
           <Pressable className="ml-md" onPress={handleNewChatPress}>
-            <Feather name='edit' size={24} color='#7B003F' />
+            <Feather name="edit" size={24} color="#7B003F" />
           </Pressable>
         </View>
-        {/* unified list (no segmented control) */}
       </View>
 
       <View className="px-2.5 flex-1">
@@ -151,28 +155,24 @@ export default function MessagesScreen() {
             <FlatList
               data={filtered}
               renderItem={({ item }) => (
-                <ConversationRow 
-                  item={item} 
-                  onPress={() => handleChatPress(item)} 
-                  onLongPress={async () => {
-                    const next = conversations.filter(r => r.id !== item.id);
-                    setConversations(next);
-                    await AsyncStorage.setItem('conversations', JSON.stringify(next)).catch(() => {});
-                  }}
+                <ConversationRow
+                  item={toRowItem(item)}
+                  onPress={() => handleChatPress(item)}
+                  onLongPress={() => deleteConv(item.id)}
                   onTogglePin={() => togglePin(item.id)}
-                  onDelete={async () => {
-                    const next = conversations.filter(r => r.id !== item.id);
-                    setConversations(next);
-                    await AsyncStorage.setItem('conversations', JSON.stringify(next)).catch(() => {});
-                  }}
+                  onDelete={() => deleteConv(item.id)}
                 />
               )}
               keyExtractor={(item) => item.id}
-              refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+              refreshControl={
+                <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+              }
             />
           ) : (
             <View className="items-center justify-center flex-1">
-              <Text className="font-bold text-2xl pb-7">{t('messages.noRoomsTitle')}</Text>
+              <Text className="font-bold text-2xl pb-7">
+                {t('messages.noRoomsTitle')}
+              </Text>
               <Text>{t('messages.noRoomsSubtitle')}</Text>
             </View>
           )}
@@ -181,4 +181,3 @@ export default function MessagesScreen() {
     </View>
   );
 }
-

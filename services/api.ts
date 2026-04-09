@@ -6,7 +6,7 @@
  */
 
 import { API_BASE_URL, API_ENDPOINTS } from '@/constants/Api';
-import type { NewsPost, User } from '@/types';
+import type { Conversation, NewsPost, User } from '@/types';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios, { AxiosError } from 'axios';
 
@@ -231,6 +231,181 @@ export async function fetchSchedule(
     if (group) params.group = group;
     if (semester) params.semester = semester;
     const { data } = await api.get<ScheduleResponse>(API_ENDPOINTS.schedule, { params });
+    return data;
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+// ── Chat API ───────────────────────────────────────────────────────────────
+
+export interface ApiConversation {
+  id: string;
+  type: 'direct' | 'group';
+  title: string;
+  avatarEmoji?: string;
+  pinned: boolean;
+  unreadCount: number;
+  lastUpdatedMs: number;
+  participants: { id: string; displayName: string; avatarUrl?: string }[];
+  lastMessage?: {
+    id: string;
+    text: string;
+    imageUrl?: string;
+    time: string;
+    senderId: string;
+    senderName: string;
+  };
+}
+
+export interface ApiMessage {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  senderName: string;
+  senderAvatar?: string;
+  text: string;
+  imageUrl?: string;
+  time: string;
+  createdAt: string;
+  isOwn: boolean;
+  reactions: {
+    emoji: string;
+    count: number;
+    bySelf: boolean;
+    byUserIds: string[];
+  }[];
+}
+
+export interface ConversationsResponse {
+  conversations: ApiConversation[];
+}
+
+export interface MessagesResponse {
+  messages: ApiMessage[];
+  hasMore: boolean;
+}
+
+export interface SearchUserResult {
+  id: string;
+  username: string;
+  displayName: string;
+  avatarUrl?: string;
+  role: string;
+}
+
+export async function fetchConversations(): Promise<ConversationsResponse> {
+  try {
+    const { data } = await api.get<ConversationsResponse>(API_ENDPOINTS.chatConversations);
+    return data;
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+export async function createConversation(params: {
+  participantIds: string[];
+  type: 'direct' | 'group';
+  title?: string;
+  avatarEmoji?: string;
+}): Promise<{ conversationId: string }> {
+  try {
+    const { data } = await api.post<{ conversationId: string }>(
+      API_ENDPOINTS.chatConversations,
+      params,
+    );
+    return data;
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+export async function fetchMessages(
+  convId: string,
+  before?: string,
+  limit = 50,
+): Promise<MessagesResponse> {
+  try {
+    const params: Record<string, string | number> = { limit };
+    if (before) params.before = before;
+    const { data } = await api.get<MessagesResponse>(API_ENDPOINTS.chatMessages(convId), {
+      params,
+    });
+    return data;
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+export async function sendMessageApi(
+  convId: string,
+  text: string,
+  imageUrl?: string,
+): Promise<{ message: ApiMessage }> {
+  try {
+    const body: Record<string, string> = {};
+    if (text) body.text = text;
+    if (imageUrl) body.imageUrl = imageUrl;
+    const { data } = await api.post<{ message: ApiMessage }>(
+      API_ENDPOINTS.chatMessages(convId),
+      body,
+    );
+    return data;
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+export async function reactToMessageApi(
+  convId: string,
+  msgId: string,
+  emoji: string,
+): Promise<void> {
+  try {
+    await api.post(API_ENDPOINTS.chatReact(convId, msgId), { emoji });
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+export async function removeReactionApi(convId: string, msgId: string): Promise<void> {
+  try {
+    await api.delete(API_ENDPOINTS.chatReact(convId, msgId));
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+export async function togglePinApi(convId: string): Promise<{ pinned: boolean }> {
+  try {
+    const { data } = await api.put<{ pinned: boolean }>(API_ENDPOINTS.chatPin(convId));
+    return data;
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+export async function markConversationRead(convId: string): Promise<void> {
+  try {
+    await api.put(API_ENDPOINTS.chatRead(convId));
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+export async function deleteConversationApi(convId: string): Promise<void> {
+  try {
+    await api.delete(API_ENDPOINTS.chatDelete(convId));
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+export async function searchUsersApi(q: string): Promise<{ users: SearchUserResult[] }> {
+  try {
+    const { data } = await api.get<{ users: SearchUserResult[] }>(API_ENDPOINTS.chatUserSearch, {
+      params: { q },
+    });
     return data;
   } catch (err) {
     handleError(err);

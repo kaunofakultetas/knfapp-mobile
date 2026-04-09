@@ -1,4 +1,5 @@
 import { useAuth } from '@/context/AuthContext';
+import { showToast } from '@/context/NetworkContext';
 import { createPollApi, createPost } from '@/services/api';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -6,7 +7,6 @@ import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -66,17 +66,17 @@ export default function CreatePostScreen() {
   const handleSubmit = async () => {
     const trimmedContent = content.trim();
     if (!trimmedContent) {
-      Alert.alert(t('createPost.contentRequired'));
+      showToast('error', t('createPost.contentRequired'));
       return;
     }
 
     if (showPoll && !pollTitle.trim()) {
-      Alert.alert(t('createPost.pollTitleRequired'));
+      showToast('error', t('createPost.pollTitleRequired'));
       return;
     }
 
     if (showPoll && validPollOptions.length < MIN_POLL_OPTIONS) {
-      Alert.alert(t('createPost.pollMinOptions'));
+      showToast('error', t('createPost.pollMinOptions'));
       return;
     }
 
@@ -98,16 +98,16 @@ export default function CreatePostScreen() {
           );
         } catch {
           // Post was created but poll failed — still navigate back
-          Alert.alert(t('createPost.pollError'));
+          showToast('info', t('createPost.pollError'));
           router.back();
           return;
         }
       }
 
-      Alert.alert(t('createPost.success'));
+      showToast('success', t('createPost.success'));
       router.back();
     } catch {
-      Alert.alert(t('createPost.error'));
+      showToast('error', t('createPost.error'));
     } finally {
       setSubmitting(false);
     }

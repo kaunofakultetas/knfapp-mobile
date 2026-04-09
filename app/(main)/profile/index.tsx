@@ -1,4 +1,5 @@
 import { useAuth } from '@/context/AuthContext';
+import { showToast } from '@/context/NetworkContext';
 import {
   acceptFriendRequest,
   fetchFriendRequests,
@@ -15,7 +16,6 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   Pressable,
   Text,
@@ -73,7 +73,7 @@ export default function ProfileScreen() {
         setProfile((p) => p ? { ...p, friendshipStatus: 'none', friendCount: p.friendCount - 1 } : p);
       } else if (profile.friendshipStatus === 'request_sent') {
         // Already sent, nothing to do
-        Alert.alert(t('profile.requestAlreadySent'));
+        showToast('info', t('profile.requestAlreadySent'));
       } else if (profile.friendshipStatus === 'request_received') {
         // Accept their request
         const requests = await fetchFriendRequests('received');
@@ -89,7 +89,7 @@ export default function ProfileScreen() {
         setProfile((p) => p ? { ...p, friendshipStatus: 'request_sent' } : p);
       }
     } catch {
-      Alert.alert(t('profile.actionError'));
+      showToast('error', t('profile.actionError'));
     } finally {
       setActionLoading(false);
     }

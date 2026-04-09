@@ -1,11 +1,12 @@
 import { Button, Input } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
+import { showToast } from '@/context/NetworkContext';
 import { LoginForm } from '@/types';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Alert, Keyboard, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, Text, TouchableWithoutFeedback, View } from 'react-native';
+import { Keyboard, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, Text, TouchableWithoutFeedback, View } from 'react-native';
 import Swiper from 'react-native-swiper';
 import LogoKnF from '../components/logoknf.svg';
 
@@ -96,11 +97,7 @@ function LoginPage({}: LoginPageProps) {
       await login(formData.username, formData.password);
       router.replace('/(main)/tabs/news');
     } catch (error) {
-      Alert.alert(
-        t('login.errorTitle'),
-        t('login.errorMessage'),
-        [{ text: t('common.ok') }]
-      );
+      showToast('error', t('login.errorTitle'), t('login.errorMessage'));
     }
   };
 
@@ -142,7 +139,7 @@ function LoginPage({}: LoginPageProps) {
           onSubmitEditing={handleLogin}
           containerClassName="w-full mb-md"
         />
-        <Pressable onPress={() => Alert.alert(t('login.forgotPassword'), t('login.ssoComingSoon'))}
+        <Pressable onPress={() => showToast('info', t('login.forgotPassword'), t('login.ssoComingSoon'))}
           className="self-end mb-md">
           <Text className="text-white">{t('login.forgotPassword')}</Text>
         </Pressable>
@@ -160,7 +157,7 @@ function LoginPage({}: LoginPageProps) {
           <Button
             title={t('login.sso')}
             variant="outline"
-            onPress={() => Alert.alert('SSO', t('login.ssoComingSoon'))}
+            onPress={() => showToast('info', 'SSO', t('login.ssoComingSoon'))}
           />
         </View>
 

@@ -233,6 +233,19 @@
     "message": "This screen does not exist.",
     "goHome": "Go to home screen!"
   },
+  "network": {
+    "offline": "No internet connection",
+    "offlineHint": "Some features may not work",
+    "online": "Back online"
+  },
+  "toast": {
+    "networkError": "Could not reach server",
+    "networkErrorHint": "Check your connection and try again",
+    "timeout": "Request timed out",
+    "timeoutHint": "The server is taking too long to respond",
+    "genericError": "Something went wrong",
+    "retry": "Tap to retry"
+  },
   "error": {
     "title": "Oops! Something went wrong",
     "unexpected": "An unexpected error occurred"

@@ -2,6 +2,7 @@ import Header from '@/components/ui/Header';
 import PollWidget from '@/components/PollWidget';
 import { MOCK_NEWS_POSTS } from '@/constants/Data';
 import { useAuth } from '@/context/AuthContext';
+import { showToast } from '@/context/NetworkContext';
 import { fetchNewsFeed, toggleLikeApi } from '@/services/api';
 import type { NewsPost } from '@/types';
 import { FontAwesome, Ionicons } from '@expo/vector-icons';
@@ -113,7 +114,13 @@ export default function NewsScreen() {
       } catch {
         // API unreachable — fall back to mock data on first load
         if (!append && pageNum === 1) {
-          setPosts(MOCK_NEWS_POSTS);
+          if (posts.length === 0) {
+            // First load: use mock data silently
+            setPosts(MOCK_NEWS_POSTS);
+          } else {
+            // Refresh failed: show toast
+            showToast('error', t('toast.networkError'), t('toast.networkErrorHint'));
+          }
           setHasMore(false);
         }
       }

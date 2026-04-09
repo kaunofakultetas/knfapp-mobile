@@ -6,12 +6,14 @@ import { ErrorBoundary } from 'react-error-boundary';
 import 'react-native-gesture-handler';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
+import Toast from 'react-native-toast-message';
 import '../global.css';
 
 import { ErrorFallback } from '@/components/ErrorFallback';
 import { LoadingSpinner } from '@/components/ui';
 import { AppProvider, useApp } from '@/context/AppContext';
 import { AuthProvider } from '@/context/AuthContext';
+import { NetworkProvider } from '@/context/NetworkContext';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useTranslation } from 'react-i18next';
 
@@ -53,7 +55,10 @@ export default function RootLayout() {
       <GestureHandlerRootView style={{ flex: 1 }}>
         <AppProvider>
           <AuthProvider>
-            <AppNavigation />
+            <NetworkProvider>
+              <AppNavigation />
+              <Toast />
+            </NetworkProvider>
           </AuthProvider>
         </AppProvider>
       </GestureHandlerRootView>

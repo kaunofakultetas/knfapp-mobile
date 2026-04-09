@@ -1,6 +1,7 @@
 import QrScanner from '@/components/QrScanner';
 import { Button, Input } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
+import { showToast } from '@/context/NetworkContext';
 import { validateInvitationCode } from '@/services/api';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -8,7 +9,6 @@ import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ActivityIndicator,
-  Alert,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -98,7 +98,7 @@ export default function RegisterScreen() {
       router.replace('/(main)/tabs/news');
     } catch (error: any) {
       const message = error?.message || t('register.errorMessage');
-      Alert.alert(t('register.errorTitle'), message, [{ text: t('common.ok') }]);
+      showToast('error', t('register.errorTitle'), message);
     }
   };
 

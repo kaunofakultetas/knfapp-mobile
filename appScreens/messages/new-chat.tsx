@@ -1,3 +1,4 @@
+import { showToast } from '@/context/NetworkContext';
 import { createConversation, searchUsersApi } from '@/services/api';
 import type { SearchUserResult } from '@/services/api';
 import { useRouter } from 'expo-router';
@@ -5,7 +6,6 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   Pressable,
   Text,
@@ -58,10 +58,7 @@ export default function NewChatScreen() {
       selectedUserIds.length > 1 ||
       (title.length > 0 && selectedUserIds.length >= 1);
     if (!isGroup && selectedUserIds.length !== 1) {
-      Alert.alert(
-        t('newChat.errorTitle'),
-        t('newChat.selectOneUser') || 'Select one person to start a direct chat',
-      );
+      showToast('error', t('newChat.selectOneUser'));
       return;
     }
 
@@ -84,7 +81,7 @@ export default function NewChatScreen() {
       });
       router.back();
     } catch {
-      Alert.alert(t('newChat.errorTitle'), t('newChat.errorMessage'));
+      showToast('error', t('newChat.errorMessage'));
     } finally {
       setCreating(false);
     }

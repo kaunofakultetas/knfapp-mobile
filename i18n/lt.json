@@ -234,6 +234,19 @@
     "message": "Šis ekranas neegzistuoja.",
     "goHome": "Eiti į pradžios ekraną!"
   },
+  "network": {
+    "offline": "Nėra interneto ryšio",
+    "offlineHint": "Kai kurios funkcijos gali neveikti",
+    "online": "Ryšys atstatytas"
+  },
+  "toast": {
+    "networkError": "Nepavyko pasiekti serverio",
+    "networkErrorHint": "Patikrinkite ryšį ir bandykite dar kartą",
+    "timeout": "Užklausa per ilga",
+    "timeoutHint": "Serveris per ilgai neatsako",
+    "genericError": "Kažkas nutiko",
+    "retry": "Bakstelėkite, kad bandytumėte dar kartą"
+  },
   "error": {
     "title": "Oi! Kažkas negerai",
     "unexpected": "Įvyko netikėta klaida"

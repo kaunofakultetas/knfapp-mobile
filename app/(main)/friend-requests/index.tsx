@@ -1,4 +1,5 @@
 import { useAuth } from '@/context/AuthContext';
+import { showToast } from '@/context/NetworkContext';
 import {
   acceptFriendRequest,
   fetchFriendRequests,
@@ -11,7 +12,6 @@ import React, { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   Pressable,
   Text,
@@ -55,7 +55,7 @@ export default function FriendRequestsScreen() {
       await acceptFriendRequest(requestId);
       setRequests((prev) => prev.filter((r) => r.id !== requestId));
     } catch {
-      Alert.alert(t('friendRequests.errorTitle'), t('friendRequests.acceptError'));
+      showToast('error', t('friendRequests.acceptError'));
     } finally {
       setActionLoading(null);
     }
@@ -67,7 +67,7 @@ export default function FriendRequestsScreen() {
       await rejectFriendRequest(requestId);
       setRequests((prev) => prev.filter((r) => r.id !== requestId));
     } catch {
-      Alert.alert(t('friendRequests.errorTitle'), t('friendRequests.rejectError'));
+      showToast('error', t('friendRequests.rejectError'));
     } finally {
       setActionLoading(null);
     }

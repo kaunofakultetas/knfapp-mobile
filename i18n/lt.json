@@ -70,7 +70,10 @@
   },
   "news": {
     "title": "Naujienos",
-    "pollTitle": "Balsavimas - Kada kepame šašlykus liepų kiemelyje?"
+    "comments": "Komentarai",
+    "pollTitle": "Balsavimas - Kada kepame šašlykus liepų kiemelyje?",
+    "empty": "Naujienų nėra",
+    "loadMore": "Daugiau naujienų"
   },
   "newsPost": {
     "commentsTitle": "Komentarai",
@@ -94,7 +97,12 @@
     "language": "Kalba",
     "light": "Šviesi",
     "dark": "Tamsi",
-    "resetDefaults": "Atstatyti numatytuosius"
+    "resetDefaults": "Atstatyti numatytuosius",
+    "account": "Paskyra",
+    "loggedInAs": "Prisijungta kaip {{name}}",
+    "login": "Prisijungti",
+    "logout": "Atsijungti",
+    "guestMessage": "Prisijunkite, kad galėtumėte naudotis pokalbiais, studento ID ir kt."
   },
   "chat": {
     "title": "Pokalbis",

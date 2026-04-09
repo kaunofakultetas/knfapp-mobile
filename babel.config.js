@@ -15,6 +15,7 @@ module.exports = function (api) {
             '@/context': './context',
             '@/hooks': './hooks',
             '@/types': './types',
+            '@/services': './services',
             '@/utils': './utils',
           },
           extensions: ['.ios.js', '.android.js', '.js', '.ts', '.tsx', '.json'],

@@ -129,7 +129,7 @@ function LoginPage({}: LoginPageProps) {
           onSubmitEditing={handleLogin}
           containerClassName="w-full mb-md"
         />
-        <Pressable onPress={() => Alert.alert(t('login.forgotPassword'), 'SSO bus integruotas vėliau')}
+        <Pressable onPress={() => Alert.alert(t('login.forgotPassword'), t('login.ssoComingSoon'))}
           className="self-end mb-md">
           <Text className="text-white">{t('login.forgotPassword')}</Text>
         </Pressable>

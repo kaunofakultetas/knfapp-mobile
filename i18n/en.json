@@ -70,7 +70,10 @@
   },
   "news": {
     "title": "News",
-    "pollTitle": "Poll - When are we barbecuing in the yard?"
+    "comments": "Comments",
+    "pollTitle": "Poll - When are we barbecuing in the yard?",
+    "empty": "No news",
+    "loadMore": "More news"
   },
   "newsPost": {
     "commentsTitle": "Comments",
@@ -108,7 +111,12 @@
     "language": "Language",
     "light": "Light",
     "dark": "Dark",
-    "resetDefaults": "Reset to defaults"
+    "resetDefaults": "Reset to defaults",
+    "account": "Account",
+    "loggedInAs": "Logged in as {{name}}",
+    "login": "Log in",
+    "logout": "Log out",
+    "guestMessage": "Log in for chat, student ID, and more"
   },
   "notFound": {
     "oops": "Oops!",

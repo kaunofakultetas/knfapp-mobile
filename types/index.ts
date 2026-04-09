@@ -67,6 +67,13 @@ export interface NewsPost {
   date: string;
   imageUrl?: string;
   author?: string;
+  authorId?: string;
+  source?: 'knf.vu.lt' | 'vu.lt' | 'faculty' | 'user' | 'app';
+  sourceUrl?: string;
+  summary?: string;
+  postType?: string;
+  isPublic?: boolean;
+  liked?: boolean;
   likes: number;
   comments: number;
   shares: number;
@@ -94,7 +101,7 @@ export interface User {
   email: string;
   displayName: string;
   avatarUrl?: string;
-  role: 'student' | 'teacher' | 'admin';
+  role: 'student' | 'teacher' | 'admin' | 'curator';
 }
 
 // Auth Types
@@ -103,6 +110,7 @@ export interface AuthState {
   user: User | null;
   token: string | null;
   loading: boolean;
+  error?: string | null;
 }
 
 // App State Types

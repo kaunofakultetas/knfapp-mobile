@@ -122,7 +122,9 @@
   },
   "id": {
     "title": "Studento ID",
-    "studentFallback": "Studentas"
+    "studentFallback": "Studentas",
+    "loginRequired": "Prisijunkite, kad matytumėte savo ID",
+    "loginHint": "Jūsų studento kortelė su QR kodu bus rodoma čia"
   },
   "settings": {
     "title": "Nustatymai",
@@ -154,6 +156,32 @@
     "searchUsers": "Ieškoti vartotojų",
     "searchPlaceholder": "Įveskite vardą...",
     "noResults": "Vartotojų nerasta"
+  },
+  "profile": {
+    "title": "Profilis",
+    "posts": "Įrašai",
+    "friends": "Draugai",
+    "addFriend": "Pridėti draugą",
+    "unfriend": "Pašalinti draugą",
+    "requestSent": "Užklausa išsiųsta",
+    "acceptRequest": "Priimti užklausą",
+    "requestAlreadySent": "Draugystės užklausa jau išsiųsta",
+    "actionError": "Nepavyko atlikti veiksmo",
+    "notFound": "Vartotojas nerastas",
+    "recentPosts": "Paskutiniai įrašai",
+    "noPosts": "Įrašų nėra",
+    "newPost": "Naujas įrašas"
+  },
+  "createPost": {
+    "title": "Naujas įrašas",
+    "titleLabel": "Pavadinimas (nebūtina)",
+    "titlePlaceholder": "Įrašo pavadinimas",
+    "contentLabel": "Turinys",
+    "contentPlaceholder": "Ką norite pasakyti?",
+    "submit": "Paskelbti",
+    "success": "Įrašas paskelbtas!",
+    "error": "Nepavyko paskelbti įrašo",
+    "contentRequired": "Turinys privalomas"
   },
   "notFound": {
     "oops": "Oi!",

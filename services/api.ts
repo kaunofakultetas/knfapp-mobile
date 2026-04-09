@@ -539,7 +539,7 @@ export async function createPost(params: {
   is_public?: boolean;
 }): Promise<NewsPost> {
   try {
-    const { data } = await api.post<NewsPost>(API_ENDPOINTS.socialPosts, params);
+    const { data } = await api.post<NewsPost>(API_ENDPOINTS.newsCreate, params);
     return data;
   } catch (err) {
     handleError(err);

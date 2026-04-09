@@ -1,5 +1,6 @@
 import Header from '@/components/ui/Header';
 import { MOCK_NEWS_POSTS, MOCK_POLL } from '@/constants/Data';
+import { useAuth } from '@/context/AuthContext';
 import { fetchNewsFeed, toggleLikeApi } from '@/services/api';
 import type { NewsPost } from '@/types';
 import { FontAwesome, Ionicons } from '@expo/vector-icons';
@@ -108,6 +109,7 @@ function formatDate(iso: string): string {
 export default function NewsScreen() {
   const router = useRouter();
   const { t } = useTranslation();
+  const { isAuthenticated } = useAuth();
   const defaultHeaderHeight = 56;
   const insets = useSafeAreaInsets();
   const scrollY = useRef(new Animated.Value(0)).current;
@@ -366,7 +368,19 @@ export default function NewsScreen() {
                     </View>
                     <Text className="pt-2.5 px-2.5 text-xl">{post.title}</Text>
                     {post.author ? (
-                      <Text className="px-2.5 pt-1 text-sm text-gray-600">{post.author}</Text>
+                      <Pressable
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          if (post.authorId && post.source !== 'knf.vu.lt' && post.source !== 'vu.lt') {
+                            router.push(`/(main)/profile?userId=${post.authorId}`);
+                          }
+                        }}
+                        disabled={!post.authorId || post.source === 'knf.vu.lt' || post.source === 'vu.lt'}
+                      >
+                        <Text className={`px-2.5 pt-1 text-sm ${post.authorId && post.source !== 'knf.vu.lt' && post.source !== 'vu.lt' ? 'text-[#7B003F] font-medium' : 'text-gray-600'}`}>
+                          {post.author}
+                        </Text>
+                      </Pressable>
                     ) : null}
                     <View className="flex-1 flex-row justify-between px-7 pb-2 mt-2.5">
                       <Pressable
@@ -420,6 +434,17 @@ export default function NewsScreen() {
           </>
         )}
       </Animated.ScrollView>
+
+      {/* FAB: Create Post (auth only) */}
+      {isAuthenticated && (
+        <Pressable
+          className="absolute bottom-6 right-5 w-14 h-14 rounded-full bg-[#7B003F] items-center justify-center shadow-lg"
+          style={{ elevation: 6, zIndex: 10 }}
+          onPress={() => router.push('/(main)/create-post')}
+        >
+          <Ionicons name="add" size={28} color="white" />
+        </Pressable>
+      )}
     </View>
   );
 }

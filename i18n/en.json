@@ -122,7 +122,9 @@
   },
   "id": {
     "title": "Student ID",
-    "studentFallback": "Student"
+    "studentFallback": "Student",
+    "loginRequired": "Log in to see your ID",
+    "loginHint": "Your student card with QR code will appear here"
   },
   "chat": {
     "title": "Chat",
@@ -154,6 +156,32 @@
     "login": "Log in",
     "logout": "Log out",
     "guestMessage": "Log in for chat, student ID, and more"
+  },
+  "profile": {
+    "title": "Profile",
+    "posts": "Posts",
+    "friends": "Friends",
+    "addFriend": "Add Friend",
+    "unfriend": "Remove Friend",
+    "requestSent": "Request Sent",
+    "acceptRequest": "Accept Request",
+    "requestAlreadySent": "Friend request already sent",
+    "actionError": "Action failed",
+    "notFound": "User not found",
+    "recentPosts": "Recent posts",
+    "noPosts": "No posts yet",
+    "newPost": "New Post"
+  },
+  "createPost": {
+    "title": "New Post",
+    "titleLabel": "Title (optional)",
+    "titlePlaceholder": "Post title",
+    "contentLabel": "Content",
+    "contentPlaceholder": "What's on your mind?",
+    "submit": "Publish",
+    "success": "Post published!",
+    "error": "Failed to publish post",
+    "contentRequired": "Content is required"
   },
   "notFound": {
     "oops": "Oops!",

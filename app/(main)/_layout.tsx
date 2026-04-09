@@ -44,12 +44,26 @@ export default function MainLayout() {
           headerBackTitle: t('common.back'),
         }} 
       />
-      <Stack.Screen 
-        name="chat-room/index" 
-        options={{ 
+      <Stack.Screen
+        name="chat-room/index"
+        options={{
           title: t('chat.title'),
           headerBackTitle: t('common.back'),
-        }} 
+        }}
+      />
+      <Stack.Screen
+        name="profile/index"
+        options={{
+          title: t('profile.title'),
+          headerBackTitle: t('common.back'),
+        }}
+      />
+      <Stack.Screen
+        name="create-post/index"
+        options={{
+          title: t('profile.newPost'),
+          headerBackTitle: t('common.back'),
+        }}
       />
     </Stack>
   );

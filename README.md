@@ -5,7 +5,7 @@
 ## Testing 
 1. Install Expo Go app on your phone
 
-2. Scan the QR code with the Expo Go app to open the project
+2. Scan the QR code with your phone camera to open the project
 <img src="_DOCS/images/qr-code.png" alt="Expo Go QR Code" width="200"/>
 
 

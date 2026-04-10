@@ -150,33 +150,42 @@ export default function PanoramaNavigator({
 
       {/* Hint */}
       {showHint && (
-        <View className="absolute top-[16px] left-4 right-4 flex-row justify-center">
-          <View className="bg-black/60 px-4 py-2 rounded-full">
-            <Text className="text-white text-sm font-raleway-medium text-center">{t('navigation.scrollHint360')}</Text>
+        <View className="absolute top-[12px] left-4 right-4 flex-row justify-center" style={{ zIndex: 10 }}>
+          <View className="bg-black/70 px-4 py-2 rounded-full">
+            <Text className="text-white/90 text-sm font-raleway-medium text-center">{t('navigation.scrollHint360')}</Text>
           </View>
         </View>
       )}
 
       {/* Room / Direction Card */}
       <BlurView
-        intensity={40}
+        intensity={45}
         tint="dark"
-        style={{ position: 'absolute', left: 16, right: 16, bottom: 48, borderRadius: 16, overflow: 'hidden' }}
+        style={{
+          position: 'absolute',
+          left: 16,
+          right: 16,
+          bottom: 48,
+          borderRadius: 16,
+          overflow: 'hidden',
+          borderWidth: 1,
+          borderColor: 'rgba(255,255,255,0.1)',
+        }}
       >
-        <View className="px-4 py-3.5" style={{ rowGap: 4 }}>
+        <View className="px-4 py-4" style={{ rowGap: 5 }}>
           {room?.name ? (
-            <Text className="text-white font-raleway-bold" style={{ fontSize: 18 }}>
+            <Text className="text-white font-raleway-bold" style={{ fontSize: 18, letterSpacing: 0.2 }}>
               {room.name}
             </Text>
           ) : null}
           {(room?.floor || room?.distanceMeters != null) ? (
-            <Text className="text-white/70 font-raleway" style={{ fontSize: 13 }}>
+            <Text className="text-white/60 font-raleway" style={{ fontSize: 13 }}>
               {room?.floor ? `${room.floor}` : ''}
               {room?.floor && room?.distanceMeters != null ? ' \u00B7 ' : ''}
               {room?.distanceMeters != null ? `${room.distanceMeters} m` : ''}
             </Text>
           ) : null}
-          <View className="flex-row items-center justify-between mt-1.5 pt-2 border-t border-white/20">
+          <View className="flex-row items-center justify-between mt-1.5 pt-2.5 border-t border-white/15">
             <Text className="text-white font-raleway-medium" style={{ fontSize: 14 }}>
               {directionText}
             </Text>

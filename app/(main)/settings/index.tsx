@@ -110,7 +110,7 @@ export default function SettingsScreen() {
   return (
     <View className="flex-1 bg-background-secondary">
       <Header title={t('settings.title')} />
-      <ScrollView className="flex-1" contentContainerStyle={{ padding: 16, gap: 12 }}>
+      <ScrollView className="flex-1" contentContainerStyle={{ padding: 16, paddingBottom: 32, gap: 12 }}>
 
         {/* Account section */}
         <Text className="text-xs font-raleway-bold text-text-secondary uppercase tracking-widest mb-2">{t('settings.account')}</Text>
@@ -141,7 +141,7 @@ export default function SettingsScreen() {
         )}
 
         {/* Preferences section */}
-        <Text className="text-xs font-raleway-bold text-text-secondary uppercase tracking-widest mb-2 mt-md">{t('settings.preferences', 'Nustatymai')}</Text>
+        <Text className="text-xs font-raleway-bold text-text-secondary uppercase tracking-widest mb-2 mt-lg">{t('settings.preferences', 'Nustatymai')}</Text>
         <View className="bg-white rounded-xl overflow-hidden" style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 }}>
           <View className="flex-row items-center justify-between px-4 py-4 border-b border-gray-100">
             <View className="flex-1 flex-row items-center gap-2.5">
@@ -185,7 +185,7 @@ export default function SettingsScreen() {
         {/* Notification channels section (visible when authenticated and notifications enabled) */}
         {isAuthenticated && notifications && (
           <>
-            <Text className="text-xs font-raleway-bold text-text-secondary uppercase tracking-widest mb-2 mt-md">
+            <Text className="text-xs font-raleway-bold text-text-secondary uppercase tracking-widest mb-2 mt-lg">
               {t('settings.notificationChannels')}
             </Text>
             <View
@@ -195,12 +195,12 @@ export default function SettingsScreen() {
               {CHANNEL_META.map((ch, idx) => (
                 <View
                   key={ch.key}
-                  className={`flex-row items-center justify-between px-4 py-3.5 ${idx < CHANNEL_META.length - 1 ? 'border-b border-gray-100' : ''}`}
+                  className={`flex-row items-center justify-between px-4 py-4 ${idx < CHANNEL_META.length - 1 ? 'border-b border-gray-100' : ''}`}
                 >
                   <View className="flex-1 flex-row items-center gap-2.5">
-                    <Ionicons name={ch.icon} size={18} color="#7B003F" />
+                    <Ionicons name={ch.icon} size={20} color="#7B003F" />
                     <View className="flex-1 mr-3">
-                      <Text className="text-sm font-raleway-medium">{t(ch.labelKey)}</Text>
+                      <Text className="text-base font-raleway-medium">{t(ch.labelKey)}</Text>
                       <Text className="text-xs text-text-secondary font-raleway mt-0.5 leading-4">
                         {t(ch.descKey)}
                       </Text>
@@ -220,7 +220,7 @@ export default function SettingsScreen() {
         )}
 
         {/* Links section */}
-        <Text className="text-xs font-raleway-bold text-text-secondary uppercase tracking-widest mb-2 mt-md">{t('settings.other', 'Kita')}</Text>
+        <Text className="text-xs font-raleway-bold text-text-secondary uppercase tracking-widest mb-2 mt-lg">{t('settings.other', 'Kita')}</Text>
         <View className="bg-white rounded-xl overflow-hidden" style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 }}>
           <Pressable
             className="flex-row items-center justify-between px-4 py-3.5 border-b border-gray-100"

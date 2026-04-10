@@ -17,6 +17,9 @@ import PanoramaNavigator from './components/PanoramaNavigator';
 
 const { height, width: screenWidth } = Dimensions.get('window');
 
+/** Estimated header height (SafeAreaView top + header row). Adjusted per platform. */
+const HEADER_HEIGHT = Platform.OS === 'ios' ? 100 : Platform.OS === 'web' ? 56 : 80;
+
 // Demo panorama steps (add more as needed)
 const PANO_STEP_0 = require('@/assets/navigation/1.1.03.jpg'); // Vies rysiai
 const PANO_STEP_2 = require('@/assets/navigation/1.2.01.jpg'); // 1aud
@@ -171,40 +174,42 @@ export default function MapTab() {
               flexDirection: 'row',
               alignItems: 'center',
               paddingHorizontal: 16,
-              paddingVertical: 12,
+              paddingVertical: 14,
               borderBottomWidth: 1,
-              borderBottomColor: 'rgba(255,255,255,0.08)',
+              borderBottomColor: 'rgba(255,255,255,0.06)',
               backgroundColor: pressed
                 ? 'rgba(123,0,63,0.25)'
                 : isActive
-                  ? 'rgba(123,0,63,0.15)'
+                  ? 'rgba(123,0,63,0.18)'
                   : 'transparent',
+              borderLeftWidth: isActive ? 3 : 0,
+              borderLeftColor: '#7B003F',
             },
           ]}
         >
           <View
             style={{
-              width: 36,
-              height: 36,
-              borderRadius: 18,
-              backgroundColor: isActive ? '#7B003F' : 'rgba(255,255,255,0.12)',
+              width: 38,
+              height: 38,
+              borderRadius: 19,
+              backgroundColor: isActive ? '#7B003F' : 'rgba(255,255,255,0.1)',
               alignItems: 'center',
               justifyContent: 'center',
-              marginRight: 12,
+              marginRight: 14,
             }}
           >
             <Ionicons
               name={isActive ? 'location' : 'location-outline'}
               size={18}
-              color={isActive ? '#FFF' : 'rgba(255,255,255,0.7)'}
+              color={isActive ? '#FFF' : 'rgba(255,255,255,0.6)'}
             />
           </View>
           <View style={{ flex: 1 }}>
             <Text
               style={{
-                color: '#FFF',
+                color: isActive ? '#FFF' : 'rgba(255,255,255,0.9)',
                 fontSize: 15,
-                fontFamily: 'Raleway-SemiBold',
+                fontFamily: isActive ? 'Raleway-Bold' : 'Raleway-SemiBold',
               }}
               numberOfLines={1}
             >
@@ -213,10 +218,10 @@ export default function MapTab() {
             {item.step.room.floor ? (
               <Text
                 style={{
-                  color: 'rgba(255,255,255,0.55)',
+                  color: 'rgba(255,255,255,0.5)',
                   fontSize: 12,
                   fontFamily: 'Raleway-Regular',
-                  marginTop: 2,
+                  marginTop: 3,
                 }}
                 numberOfLines={1}
               >
@@ -227,7 +232,7 @@ export default function MapTab() {
               </Text>
             ) : null}
           </View>
-          <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.3)" />
+          <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.25)" />
         </Pressable>
       );
     },
@@ -246,6 +251,7 @@ export default function MapTab() {
           borderRadius: 10,
           alignItems: 'center',
           justifyContent: 'center',
+          backgroundColor: searchOpen ? 'rgba(255,255,255,0.15)' : 'transparent',
         },
         pressed && { opacity: 0.7 },
       ]}
@@ -263,12 +269,12 @@ export default function MapTab() {
         <View
           style={{
             position: 'absolute',
-            top: Platform.OS === 'ios' ? 100 : 80,
+            top: HEADER_HEIGHT,
             left: 0,
             right: 0,
             bottom: 0,
             zIndex: 50,
-            backgroundColor: 'rgba(0,0,0,0.92)',
+            backgroundColor: 'rgba(0,0,0,0.94)',
           }}
         >
           {/* Search input */}
@@ -277,11 +283,13 @@ export default function MapTab() {
               flexDirection: 'row',
               alignItems: 'center',
               marginHorizontal: 16,
-              marginTop: 8,
-              marginBottom: 4,
+              marginTop: 12,
+              marginBottom: 6,
               backgroundColor: 'rgba(255,255,255,0.1)',
               borderRadius: 12,
-              paddingHorizontal: 12,
+              paddingHorizontal: 14,
+              borderWidth: 1,
+              borderColor: 'rgba(255,255,255,0.08)',
             }}
           >
             <Ionicons name="search" size={18} color="rgba(255,255,255,0.5)" />
@@ -311,12 +319,13 @@ export default function MapTab() {
           </View>
 
           {/* Results count */}
-          <View style={{ paddingHorizontal: 16, paddingVertical: 6 }}>
+          <View style={{ paddingHorizontal: 16, paddingVertical: 8 }}>
             <Text
               style={{
-                color: 'rgba(255,255,255,0.45)',
+                color: 'rgba(255,255,255,0.55)',
                 fontSize: 12,
                 fontFamily: 'Raleway-Medium',
+                letterSpacing: 0.3,
               }}
             >
               {filteredSteps.length === steps.length
@@ -333,14 +342,25 @@ export default function MapTab() {
             keyboardShouldPersistTaps="handled"
             style={{ flex: 1 }}
             ListEmptyComponent={
-              <View style={{ alignItems: 'center', paddingTop: 48 }}>
-                <Ionicons name="search-outline" size={40} color="rgba(255,255,255,0.2)" />
+              <View style={{ alignItems: 'center', paddingTop: 56 }}>
+                <View
+                  style={{
+                    width: 64,
+                    height: 64,
+                    borderRadius: 32,
+                    backgroundColor: 'rgba(255,255,255,0.06)',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginBottom: 16,
+                  }}
+                >
+                  <Ionicons name="search-outline" size={28} color="rgba(255,255,255,0.25)" />
+                </View>
                 <Text
                   style={{
-                    color: 'rgba(255,255,255,0.4)',
-                    fontSize: 14,
+                    color: 'rgba(255,255,255,0.45)',
+                    fontSize: 15,
                     fontFamily: 'Raleway-Medium',
-                    marginTop: 12,
                   }}
                 >
                   {t('navigation.noResults')}

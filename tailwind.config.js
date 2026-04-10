@@ -22,7 +22,15 @@ module.exports = {
         // Status Colors
         success: '#4CAF50',
         warning: '#FF9800',
-        danger: '#F44336',
+        danger: {
+          DEFAULT: '#C62828',
+          50: '#FFF5F5',
+          100: '#FDE8E8',
+          200: '#F5C6C6',
+          500: '#C62828',
+          600: '#B71C1C',
+          700: '#8E1518',
+        },
         info: '#2196F3',
         
         // Custom grays (matching your theme)

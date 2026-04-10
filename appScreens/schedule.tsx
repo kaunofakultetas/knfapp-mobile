@@ -220,9 +220,11 @@ export default function ScheduleScreen() {
 
       {cachedAt && <CachedBanner cachedAt={cachedAt} />}
       {!loading && conflictIds.size > 0 && (
-        <View className="mx-4 mt-3 flex-row items-center bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-          <Ionicons name="alert-circle" size={16} color="#dc2626" />
-          <Text className="text-xs text-red-700 font-raleway-medium ml-2 flex-1">
+        <View className="mx-4 mt-3 flex-row items-center bg-danger-50 border border-danger-200 rounded-xl px-3.5 py-2.5">
+          <View className="w-7 h-7 rounded-full bg-danger-100 items-center justify-center mr-2.5">
+            <Ionicons name="alert-circle" size={16} color="#C62828" />
+          </View>
+          <Text className="text-xs text-danger-700 font-raleway-bold flex-1">
             {t('schedule.conflictBanner', {
               count: conflictIds.size,
               defaultValue: '{{count}} pamokos persidengia laiku',
@@ -260,14 +262,14 @@ export default function ScheduleScreen() {
           renderItem={({ item }) => {
             const hasConflict = conflictIds.has(item.id);
             return (
-              <View className={`rounded-xl overflow-hidden ${hasConflict ? 'bg-red-50' : 'bg-white'}`} style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2 }}>
+              <View className={`rounded-xl overflow-hidden ${hasConflict ? 'bg-danger-50' : 'bg-white'}`} style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2 }}>
                 <View className="flex-row">
-                  <View className={`w-1 rounded-l-xl ${hasConflict ? 'bg-red-500' : 'bg-primary'}`} />
+                  <View className={`w-1 rounded-l-xl ${hasConflict ? 'bg-danger-500' : 'bg-primary'}`} />
                   <View className="flex-1 p-4">
                     {hasConflict && (
-                      <View className="flex-row items-center mb-2 bg-red-100 rounded-lg px-2.5 py-1.5 self-start">
-                        <Ionicons name="alert-circle" size={14} color="#dc2626" />
-                        <Text className="text-xs text-red-700 font-raleway-bold ml-1.5">
+                      <View className="flex-row items-center mb-2 bg-danger-100 rounded-lg px-2.5 py-1.5 self-start">
+                        <Ionicons name="alert-circle" size={14} color="#C62828" />
+                        <Text className="text-xs text-danger-700 font-raleway-bold ml-1.5">
                           {t('schedule.conflict', 'Persidengimas')}
                         </Text>
                       </View>
@@ -281,10 +283,10 @@ export default function ScheduleScreen() {
                         <Text className="text-primary font-raleway-bold text-xs" numberOfLines={1}>{item.room}</Text>
                       </View>
                     </View>
-                    <View className={`flex-row justify-between items-center mt-3.5 pt-3 border-t ${hasConflict ? 'border-red-200' : 'border-gray-100'}`}>
+                    <View className={`flex-row justify-between items-center mt-3.5 pt-3 border-t ${hasConflict ? 'border-danger-200' : 'border-gray-100'}`}>
                       <View className="flex-row items-center gap-2">
-                        <Ionicons name="time-outline" size={14} color={hasConflict ? '#dc2626' : '#7B003F'} />
-                        <Text className={`text-sm font-raleway-bold ${hasConflict ? 'text-red-600' : 'text-primary'}`}>
+                        <Ionicons name="time-outline" size={14} color={hasConflict ? '#C62828' : '#7B003F'} />
+                        <Text className={`text-sm font-raleway-bold ${hasConflict ? 'text-danger-600' : 'text-primary'}`}>
                           {item.timeStart} {'\u2013'} {item.timeEnd}
                         </Text>
                       </View>

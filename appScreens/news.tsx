@@ -19,6 +19,7 @@ import {
   Image,
   Pressable,
   RefreshControl,
+  ScrollView,
   Share,
   Text,
   View,
@@ -313,12 +314,16 @@ export default function NewsScreen() {
         </View>
         {/* Source filter chips — only in 'all' mode */}
         {feedMode === 'all' && (
-          <View className="bg-white border-b border-gray-100 px-md py-2">
-            <View className="flex-row flex-wrap gap-2">
+          <View className="bg-white border-b border-gray-100">
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 10, gap: 8 }}
+            >
               {SOURCE_FILTERS.map((sf) => (
                 <Pressable
                   key={sf.key}
-                  className={`px-3 py-1.5 rounded-full border ${
+                  className={`px-4 py-2 rounded-full border ${
                     sourceFilter === sf.key
                       ? 'bg-primary border-primary'
                       : 'bg-gray-50 border-gray-200'
@@ -326,7 +331,7 @@ export default function NewsScreen() {
                   onPress={() => switchSourceFilter(sf.key)}
                 >
                   <Text
-                    className={`text-xs font-raleway-bold ${
+                    className={`text-sm font-raleway-bold ${
                       sourceFilter === sf.key ? 'text-white' : 'text-text-secondary'
                     }`}
                   >
@@ -334,7 +339,7 @@ export default function NewsScreen() {
                   </Text>
                 </Pressable>
               ))}
-            </View>
+            </ScrollView>
           </View>
         )}
       </Animated.View>

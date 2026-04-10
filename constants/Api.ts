@@ -47,8 +47,10 @@ export const API_ENDPOINTS = {
   chatDelete: (convId: string) => `/chat/conversations/${convId}`,
   chatUnreadCount: "/chat/unread-count",
   chatUserSearch: "/chat/users/search",
+  chatMessageSearch: (convId: string) => `/chat/conversations/${convId}/messages/search`,
 
   // Social
+  socialFeed: "/social/feed",
   socialProfile: (userId: string) => `/social/profile/${userId}`,
   socialProfileUpdate: "/social/profile",
   socialFriendRequest: "/social/friends/request",

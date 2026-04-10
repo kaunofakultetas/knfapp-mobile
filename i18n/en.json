@@ -127,6 +127,13 @@
     "loadMore": "More news",
     "pollVotes_one": "{{count}} vote",
     "pollVotes_other": "{{count}} votes",
+    "feedAll": "All",
+    "feedCommunity": "Community",
+    "emptyCommunity": "No community posts yet",
+    "emptyCommunityHint": "Create a post or add friends to see their updates",
+    "searchMessages": "Search messages...",
+    "searchResults": "Found: {{count}}",
+    "noSearchResults": "No results found",
     "sourceKnf": "KNF",
     "sourceVu": "VU",
     "sourceFaculty": "Faculty",
@@ -185,7 +192,11 @@
     "typingMultiple": "{{names}} are typing...",
     "sent": "Sent",
     "delivered": "Delivered",
-    "read": "Read"
+    "read": "Read",
+    "searchPlaceholder": "Search messages...",
+    "searchResults": "Found: {{count}}",
+    "noSearchResults": "No results found",
+    "closeSearch": "Close search"
   },
   "newChat": {
     "title": "New chat",

@@ -48,6 +48,9 @@ export async function cacheGet<T>(key: string, maxAgeMs?: number): Promise<{ dat
 /** News feed first page cache key. */
 export const CACHE_KEY_NEWS = 'news:feed';
 
+/** Social feed first page cache key. */
+export const CACHE_KEY_SOCIAL_FEED = 'social:feed';
+
 /** Schedule cache key for a specific day/group/semester combination. */
 export function cacheKeySchedule(day: number, group?: string | null, semester?: string | null): string {
   return `schedule:${day}:${group || '*'}:${semester || '*'}`;

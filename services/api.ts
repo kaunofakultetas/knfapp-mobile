@@ -442,6 +442,35 @@ export async function deleteConversationApi(convId: string): Promise<void> {
   }
 }
 
+export interface MessageSearchResult {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  senderName: string;
+  senderAvatar?: string;
+  text: string;
+  imageUrl?: string;
+  time: string;
+  createdAt: string;
+  isOwn: boolean;
+}
+
+export async function searchMessagesApi(
+  convId: string,
+  q: string,
+  limit = 20,
+): Promise<{ messages: MessageSearchResult[]; total: number }> {
+  try {
+    const { data } = await api.get<{ messages: MessageSearchResult[]; total: number }>(
+      API_ENDPOINTS.chatMessageSearch(convId),
+      { params: { q, limit } },
+    );
+    return data;
+  } catch (err) {
+    handleError(err);
+  }
+}
+
 export async function searchUsersApi(q: string): Promise<{ users: SearchUserResult[] }> {
   try {
     const { data } = await api.get<{ users: SearchUserResult[] }>(API_ENDPOINTS.chatUserSearch, {
@@ -570,6 +599,32 @@ export async function fetchFriends(): Promise<{ friends: Friend[] }> {
 export async function unfriendUser(userId: string): Promise<{ status: string }> {
   try {
     const { data } = await api.delete<{ status: string }>(API_ENDPOINTS.socialUnfriend(userId));
+    return data;
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+export interface SocialFeedPost extends NewsPost {
+  authorAvatar?: string;
+}
+
+export interface SocialFeedResponse {
+  posts: SocialFeedPost[];
+  page: number;
+  perPage: number;
+  total: number;
+  hasMore: boolean;
+}
+
+export async function fetchSocialFeed(
+  page = 1,
+  perPage = 20,
+): Promise<SocialFeedResponse> {
+  try {
+    const { data } = await api.get<SocialFeedResponse>(API_ENDPOINTS.socialFeed, {
+      params: { page, per_page: perPage },
+    });
     return data;
   } catch (err) {
     handleError(err);

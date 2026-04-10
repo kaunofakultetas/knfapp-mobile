@@ -5,7 +5,7 @@ import { MOCK_NEWS_POSTS } from '@/constants/Data';
 import { useAuth } from '@/context/AuthContext';
 import { showToast } from '@/context/NetworkContext';
 import { useNetworkRestore } from '@/hooks/useNetworkRestore';
-import { fetchNewsFeed, getUploadUrl, NewsFeedResponse, toggleLikeApi } from '@/services/api';
+import { fetchNewsFeed, fetchSocialFeed, getUploadUrl, NewsFeedResponse, SocialFeedResponse, toggleLikeApi } from '@/services/api';
 import { cacheGet, cacheSet, CACHE_KEY_NEWS, NEWS_CACHE_MAX_AGE } from '@/services/cache';
 import { decodeHtmlEntities } from '@/services/htmlDecode';
 import type { NewsPost } from '@/types';
@@ -24,6 +24,10 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+// ── Feed mode (All news vs Community social posts) ─────────────────────────
+
+type FeedMode = 'all' | 'community';
 
 // ── Source badge ─────────────────────────────────────────────────────────────
 
@@ -81,6 +85,11 @@ export default function NewsScreen() {
     outputRange: [0, -measuredHeaderHeight],
   });
 
+  // ── Feed mode toggle ────────────────────────────────────────────────────
+  const [feedMode, setFeedMode] = useState<FeedMode>('all');
+  const feedModeRef = useRef(feedMode);
+  feedModeRef.current = feedMode;
+
   // ── State: posts from API (or fallback mock) ──────────────────────────────
   const [posts, setPosts] = useState<NewsPost[]>([]);
   const [loading, setLoading] = useState(true);
@@ -114,24 +123,29 @@ export default function NewsScreen() {
   }, []);
 
   const loadPosts = useCallback(
-    async (pageNum = 1, append = false) => {
+    async (pageNum = 1, append = false, mode?: FeedMode) => {
+      const currentMode = mode ?? feedModeRef.current;
       try {
-        const resp = await fetchNewsFeed(pageNum, 20);
+        let resp: NewsFeedResponse | SocialFeedResponse;
+        if (currentMode === 'community') {
+          resp = await fetchSocialFeed(pageNum, 20);
+        } else {
+          resp = await fetchNewsFeed(pageNum, 20);
+        }
         applyPosts(resp.posts, append);
         setPage(pageNum);
         setHasMore(resp.hasMore);
-        setCachedAt(null); // Live data — clear cached indicator
+        setCachedAt(null);
         hasLiveData.current = true;
 
-        // Cache first page for offline use
-        if (pageNum === 1 && !append) {
+        // Cache first page for offline use (all feed only)
+        if (pageNum === 1 && !append && currentMode === 'all') {
           cacheSet(CACHE_KEY_NEWS, resp);
         }
       } catch {
-        // API unreachable — try offline cache, then mock data
+        // API unreachable -- try offline cache, then mock data
         if (!append && pageNum === 1) {
           if (!hasLiveData.current) {
-            // First load failed — try cached data, then fall back to mock
             const cached = await cacheGet<NewsFeedResponse>(CACHE_KEY_NEWS, NEWS_CACHE_MAX_AGE);
             if (cached) {
               applyPosts(cached.data.posts, false);
@@ -142,7 +156,6 @@ export default function NewsScreen() {
               setHasMore(false);
             }
           } else {
-            // Refresh failed — keep current data, show toast
             showToast('error', t('toast.networkError'), t('toast.networkErrorHint'));
           }
         }
@@ -154,10 +167,19 @@ export default function NewsScreen() {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      await loadPosts(1);
+      await loadPosts(1, false, feedMode);
       setLoading(false);
     })();
-  }, [loadPosts]);
+  }, [feedMode]);
+
+  const switchFeedMode = useCallback((mode: FeedMode) => {
+    if (mode === feedModeRef.current) return;
+    setFeedMode(mode);
+    // Scroll to top on mode switch
+    const sv = scrollViewRef.current?.getNode?.() ?? scrollViewRef.current;
+    sv?.scrollTo?.({ y: 0, animated: false });
+    try { scrollY.setValue(0); } catch {}
+  }, [scrollY]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -244,6 +266,27 @@ export default function NewsScreen() {
         }}
       >
         <Header title={t('news.title')} />
+        {/* Feed mode toggle: All / Community */}
+        <View className="bg-white border-b border-gray-100 px-md">
+          <View className="flex-row">
+            <Pressable
+              className={`flex-1 items-center py-2.5 border-b-2 ${feedMode === 'all' ? 'border-primary' : 'border-transparent'}`}
+              onPress={() => switchFeedMode('all')}
+            >
+              <Text className={`font-raleway-bold text-sm ${feedMode === 'all' ? 'text-primary' : 'text-text-secondary'}`}>
+                {t('news.feedAll')}
+              </Text>
+            </Pressable>
+            <Pressable
+              className={`flex-1 items-center py-2.5 border-b-2 ${feedMode === 'community' ? 'border-primary' : 'border-transparent'}`}
+              onPress={() => switchFeedMode('community')}
+            >
+              <Text className={`font-raleway-bold text-sm ${feedMode === 'community' ? 'text-primary' : 'text-text-secondary'}`}>
+                {t('news.feedCommunity')}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
       </Animated.View>
       <Animated.ScrollView
         className="w-full bg-background-secondary"
@@ -330,9 +373,16 @@ export default function NewsScreen() {
         ) : posts.length === 0 ? (
           <View className="items-center justify-center py-20 px-lg">
             <View className="w-20 h-20 rounded-full bg-gray-100 items-center justify-center mb-md">
-              <Ionicons name="newspaper-outline" size={36} color="#BDBDBD" />
+              <Ionicons name={feedMode === 'community' ? 'people-outline' : 'newspaper-outline'} size={36} color="#BDBDBD" />
             </View>
-            <Text className="text-text-secondary text-lg mt-sm font-raleway-medium text-center">{t('news.empty', 'Naujienų nėra')}</Text>
+            <Text className="text-text-secondary text-lg mt-sm font-raleway-medium text-center">
+              {feedMode === 'community' ? t('news.emptyCommunity') : t('news.empty')}
+            </Text>
+            {feedMode === 'community' && (
+              <Text className="text-text-disabled text-sm mt-xs font-raleway text-center px-lg">
+                {t('news.emptyCommunityHint')}
+              </Text>
+            )}
           </View>
         ) : (
           <>
@@ -355,6 +405,7 @@ export default function NewsScreen() {
                     <Text className="px-lg pt-2 text-lg font-raleway-bold text-text-primary leading-6" numberOfLines={3}>{decodeHtmlEntities(post.title)}</Text>
                     {post.author ? (
                       <Pressable
+                        className="flex-row items-center px-lg pt-1.5"
                         onPress={(e) => {
                           e.stopPropagation();
                           if (post.authorId && post.source !== 'knf.vu.lt' && post.source !== 'vu.lt') {
@@ -363,7 +414,21 @@ export default function NewsScreen() {
                         }}
                         disabled={!post.authorId || post.source === 'knf.vu.lt' || post.source === 'vu.lt'}
                       >
-                        <Text className={`px-lg pt-1 text-sm font-raleway ${post.authorId && post.source !== 'knf.vu.lt' && post.source !== 'vu.lt' ? 'text-primary font-raleway-medium' : 'text-text-secondary'}`}>
+                        {feedMode === 'community' && post.source === 'user' && (
+                          <View className="w-6 h-6 rounded-full bg-primary items-center justify-center mr-1.5">
+                            {(post as any).authorAvatar ? (
+                              <Image
+                                source={{ uri: getUploadUrl((post as any).authorAvatar) }}
+                                className="w-6 h-6 rounded-full"
+                              />
+                            ) : (
+                              <Text className="text-xs text-white font-raleway-bold">
+                                {post.author.charAt(0).toUpperCase()}
+                              </Text>
+                            )}
+                          </View>
+                        )}
+                        <Text className={`text-sm font-raleway ${post.authorId && post.source !== 'knf.vu.lt' && post.source !== 'vu.lt' ? 'text-primary font-raleway-medium' : 'text-text-secondary'}`}>
                           {decodeHtmlEntities(post.author!)}
                         </Text>
                       </Pressable>

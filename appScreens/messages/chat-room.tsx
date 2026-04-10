@@ -95,8 +95,8 @@ export default function ChatRoomScreen() {
         />
         {/* Typing indicator */}
         {typingText && (
-          <View className="px-4 py-1 bg-gray-100">
-            <Text className="text-xs text-gray-500 italic">{typingText}</Text>
+          <View className="px-4 py-1.5 bg-gray-50 border-t border-gray-100">
+            <Text className="text-xs text-text-secondary italic font-raleway">{typingText}</Text>
           </View>
         )}
         {/* Emoji pick row (inline) */}

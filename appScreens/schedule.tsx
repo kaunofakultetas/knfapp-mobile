@@ -3,7 +3,7 @@ import Header from '@/components/ui/Header';
 import { fetchSchedule, fetchScheduleFilters, ScheduleLesson, ScheduleResponse } from '@/services/api';
 import { cacheGet, cacheKeySchedule, cacheSet, SCHEDULE_CACHE_MAX_AGE } from '@/services/cache';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Feather } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -146,13 +146,13 @@ export default function ScheduleScreen() {
         right={
           <View className="flex-row items-center">
             <Pressable onPress={() => changeDay(-1)} hitSlop={8}>
-              <Feather name="chevron-left" size={20} color="white" />
+              <Ionicons name="chevron-back" size={20} color="white" />
             </Pressable>
             <Text className="text-white text-base font-raleway-bold mx-2">
               {dayNames[selectedDay]}
             </Text>
             <Pressable onPress={() => changeDay(1)} hitSlop={8}>
-              <Feather name="chevron-right" size={20} color="white" />
+              <Ionicons name="chevron-forward" size={20} color="white" />
             </Pressable>
           </View>
         }
@@ -165,7 +165,7 @@ export default function ScheduleScreen() {
         style={({ pressed }) => [pressed && { backgroundColor: '#F5F5F5' }]}
       >
         <View className="flex-row items-center flex-1">
-          <Feather name="filter" size={16} color="#7B003F" />
+          <Ionicons name="filter-outline" size={16} color="#7B003F" />
           <Text className="text-sm text-text-primary font-raleway-medium ml-2" numberOfLines={1}>
             {selectedGroup
               ? `${selectedGroup}${selectedSemester ? ` · ${selectedSemester}` : ''}`
@@ -177,7 +177,7 @@ export default function ScheduleScreen() {
             <Text className="text-white text-xs font-raleway-bold">{activeFilterCount}</Text>
           </View>
         )}
-        <Feather name="chevron-down" size={16} color="#9E9E9E" style={{ marginLeft: 8 }} />
+        <Ionicons name="chevron-down" size={16} color="#9E9E9E" style={{ marginLeft: 8 }} />
       </Pressable>
 
       {/* Quick day tabs */}
@@ -205,7 +205,7 @@ export default function ScheduleScreen() {
       ) : lessons.length === 0 ? (
         <View className="flex-1 items-center justify-center px-lg">
           <View className="w-20 h-20 rounded-full bg-gray-100 items-center justify-center mb-md">
-            <Feather name="calendar" size={36} color="#BDBDBD" />
+            <Ionicons name="calendar-outline" size={36} color="#BDBDBD" />
           </View>
           <Text className="text-text-secondary text-lg mt-sm text-center font-raleway-medium">
             {t('schedule.noLectures', 'Šią dieną paskaitų nėra')}

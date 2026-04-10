@@ -126,6 +126,7 @@ function LoginPage({}: LoginPageProps) {
           returnKeyType="next"
           onSubmitEditing={() => {}}
           containerClassName="w-full mb-md"
+          labelClassName="text-sm font-raleway-medium text-white/90 mb-xs"
         />
 
         <Input
@@ -138,6 +139,7 @@ function LoginPage({}: LoginPageProps) {
           returnKeyType="done"
           onSubmitEditing={handleLogin}
           containerClassName="w-full mb-md"
+          labelClassName="text-sm font-raleway-medium text-white/90 mb-xs"
         />
         <Pressable onPress={() => showToast('info', t('login.forgotPassword'), t('login.ssoComingSoon'))}
           className="self-end mb-md">

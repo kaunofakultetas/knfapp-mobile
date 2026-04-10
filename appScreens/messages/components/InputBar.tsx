@@ -33,7 +33,7 @@ export default function InputBar({
         <Ionicons name="happy" size={20} color={'#7B003F'} />
       </TouchableOpacity>
       <TextInput
-        className="flex-1 border border-gray-200 rounded-full px-4 py-2.5 mr-2.5 max-h-20 text-base"
+        className="flex-1 border border-gray-200 rounded-full px-4 py-2.5 mr-2.5 max-h-20 text-base font-raleway"
         value={value}
         onChangeText={onChange}
         placeholder={placeholder}

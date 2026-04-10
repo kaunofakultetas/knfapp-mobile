@@ -17,6 +17,7 @@ interface InputProps extends TextInputProps {
   onRightIconPress?: () => void;
   containerClassName?: string;
   inputClassName?: string;
+  labelClassName?: string;
   variant?: 'default' | 'filled' | 'outline';
   size?: 'sm' | 'md' | 'lg';
 }
@@ -30,6 +31,7 @@ export const Input: React.FC<InputProps> = ({
   onRightIconPress,
   containerClassName,
   inputClassName,
+  labelClassName,
   variant = 'outline',
   size = 'md',
   secureTextEntry,
@@ -80,7 +82,7 @@ export const Input: React.FC<InputProps> = ({
   return (
     <View className={containerClasses}>
       {label && (
-        <Text className="text-sm font-raleway-medium text-text-primary mb-xs">
+        <Text className={labelClassName || "text-sm font-raleway-medium text-text-primary mb-xs"}>
           {label}
         </Text>
       )}

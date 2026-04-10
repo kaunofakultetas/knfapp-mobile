@@ -162,9 +162,9 @@ export default function RegisterScreen() {
             {/* QR Scanner Button */}
             <Pressable
               onPress={() => setScannerVisible(true)}
-              className="bg-white/15 border border-white/30 rounded-xl py-4 px-5 mb-md flex-row items-center justify-center"
+              className="bg-white/20 border border-white/40 rounded-xl py-4 px-5 mb-md flex-row items-center justify-center"
             >
-              <Ionicons name="qr-code" size={24} color="white" />
+              <Ionicons name="qr-code" size={22} color="white" />
               <Text className="text-white font-raleway-bold text-base ml-3">
                 {t('register.scanQr')}
               </Text>
@@ -188,17 +188,18 @@ export default function RegisterScreen() {
                 autoCapitalize="characters"
                 autoCorrect={false}
                 containerClassName="w-full"
+                labelClassName="text-sm font-raleway-medium text-white/90 mb-xs"
               />
               {codeValidation.checking && (
-                <View className="flex-row items-center mt-1 ml-1">
-                  <ActivityIndicator size="small" color="#22c55e" />
-                  <Text className="text-gray-300 text-xs ml-2">Checking code...</Text>
+                <View className="flex-row items-center mt-1.5 ml-1">
+                  <ActivityIndicator size="small" color="#4CAF50" />
+                  <Text className="text-white/70 text-xs ml-2 font-raleway">{t('register.checkingCode', 'Tikrinamas kodas...')}</Text>
                 </View>
               )}
               {codeValidation.valid && codeValidation.role && (
-                <View className="flex-row items-center mt-1 ml-1">
-                  <Ionicons name="checkmark-circle" size={16} color="#22c55e" />
-                  <Text className="text-green-400 text-xs ml-1">
+                <View className="flex-row items-center mt-1.5 ml-1">
+                  <Ionicons name="checkmark-circle" size={16} color="#4CAF50" />
+                  <Text className="text-green-400 text-xs ml-1 font-raleway">
                     {t('register.codeScanned', { code: form.invitationCode })}
                   </Text>
                 </View>
@@ -214,6 +215,7 @@ export default function RegisterScreen() {
               autoCapitalize="none"
               autoCorrect={false}
               containerClassName="w-full mb-md"
+              labelClassName="text-sm font-raleway-medium text-white/90 mb-xs"
             />
 
             <Input
@@ -223,6 +225,7 @@ export default function RegisterScreen() {
               onChangeText={(v) => updateField('displayName', v)}
               error={errors.displayName}
               containerClassName="w-full mb-md"
+              labelClassName="text-sm font-raleway-medium text-white/90 mb-xs"
             />
 
             <Input
@@ -235,6 +238,7 @@ export default function RegisterScreen() {
               autoCapitalize="none"
               autoCorrect={false}
               containerClassName="w-full mb-md"
+              labelClassName="text-sm font-raleway-medium text-white/90 mb-xs"
             />
 
             <Input
@@ -245,6 +249,7 @@ export default function RegisterScreen() {
               error={errors.password}
               secureTextEntry
               containerClassName="w-full mb-md"
+              labelClassName="text-sm font-raleway-medium text-white/90 mb-xs"
             />
 
             <Input
@@ -257,6 +262,7 @@ export default function RegisterScreen() {
               returnKeyType="done"
               onSubmitEditing={handleRegister}
               containerClassName="w-full mb-lg"
+              labelClassName="text-sm font-raleway-medium text-white/90 mb-xs"
             />
 
             <Button

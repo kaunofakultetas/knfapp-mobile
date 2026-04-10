@@ -19,9 +19,9 @@ export default function MessageBubble({
   const isImage = !!item.imageUrl;
   const bubbleBase = `${item.isOwn ? 'self-end bg-primary' : 'self-start bg-white border border-gray-200'}`;
   return (
-    <TouchableOpacity activeOpacity={0.9} onLongPress={onLongPress} className={`my-1 p-2.5 rounded-lg max-w-[80%] ${bubbleBase}`}>
+    <TouchableOpacity activeOpacity={0.9} onLongPress={onLongPress} className={`my-1 px-3 py-2.5 rounded-xl max-w-[80%] ${bubbleBase}`}>
       {!item.isOwn && (
-        <Text className="text-xs font-bold text-primary mb-1">{item.user}</Text>
+        <Text className="text-xs font-raleway-bold text-primary mb-1">{item.user}</Text>
       )}
       {isImage ? (
         <View>
@@ -44,7 +44,7 @@ export default function MessageBubble({
         </View>
       ) : (
         <View>
-          <Text className={`text-base ${item.isOwn ? 'text-white' : 'text-black'}`}>
+          <Text className={`text-base font-raleway ${item.isOwn ? 'text-white' : 'text-text-primary'}`}>
             {item.text} {item.liked ? '❤️' : ''}
           </Text>
           {!!item.reactions?.length && (
@@ -59,18 +59,18 @@ export default function MessageBubble({
         </View>
       )}
       <View className={`flex-row items-center mt-1 ${item.isOwn ? 'self-end' : ''}`}>
-        <Text className={`text-xs ${item.isOwn ? 'text-white/70' : 'text-gray-500'}`}>{item.time}</Text>
+        <Text className={`text-xs ${item.isOwn ? 'text-white/70' : 'text-gray-500'} font-raleway`}>{item.time}</Text>
         {item.isOwn && item.status === 'failed' && (
-          <Ionicons name="alert-circle" size={14} color="#fca5a5" style={{ marginLeft: 6 }} />
+          <Ionicons name="alert-circle" size={14} color="#fca5a5" style={{ marginLeft: 4 }} />
         )}
         {item.isOwn && item.status === 'read' && (
-          <Ionicons name="checkmark-done" size={14} color="#93c5fd" style={{ marginLeft: 6 }} />
+          <Ionicons name="checkmark-done" size={14} color="#60a5fa" style={{ marginLeft: 4 }} />
         )}
         {item.isOwn && item.status === 'delivered' && (
-          <Ionicons name="checkmark-done" size={14} color="white" style={{ marginLeft: 6 }} />
+          <Ionicons name="checkmark-done" size={14} color="rgba(255,255,255,0.8)" style={{ marginLeft: 4 }} />
         )}
         {item.isOwn && item.status === 'sent' && (
-          <Ionicons name="checkmark" size={14} color="white" style={{ marginLeft: 6 }} />
+          <Ionicons name="checkmark" size={14} color="rgba(255,255,255,0.8)" style={{ marginLeft: 4 }} />
         )}
       </View>
     </TouchableOpacity>

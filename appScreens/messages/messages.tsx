@@ -8,7 +8,7 @@ import {
 import type { ApiConversation } from '@/services/api';
 import { connectSocket, onNewMessage, type SocketMessage } from '@/services/socket';
 import type { Conversation } from '@/types';
-import { Feather } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -167,7 +167,7 @@ export default function MessagesScreen() {
           className="bg-red-50 px-4 py-2 flex-row items-center justify-center border-b border-red-200"
           onPress={() => connectSocket()}
         >
-          <Feather name="wifi-off" size={14} color="#dc2626" />
+          <Ionicons name="cloud-offline-outline" size={14} color="#dc2626" />
           <Text className="text-red-700 text-xs ml-2 font-medium">
             {t('messages.disconnected', 'Atsijungta — bakstelėkite jungti iš naujo')}
           </Text>
@@ -176,7 +176,7 @@ export default function MessagesScreen() {
       <View className="px-md py-md bg-white border-b border-gray-100">
         <View className="flex-row items-center">
           <View className="flex-1 flex-row items-center bg-gray-50 rounded-lg px-3 py-2">
-            <Feather name="search" size={18} color="#9E9E9E" />
+            <Ionicons name="search" size={18} color="#9E9E9E" />
             <TextInput
               className="flex-1 text-text-primary font-raleway text-base ml-2"
               placeholder={t('messages.searchPlaceholder')}
@@ -189,7 +189,7 @@ export default function MessagesScreen() {
             className="ml-md w-10 h-10 rounded-full bg-primary/10 items-center justify-center"
             onPress={handleNewChatPress}
           >
-            <Feather name="edit" size={20} color="#7B003F" />
+            <Ionicons name="create-outline" size={20} color="#7B003F" />
           </Pressable>
         </View>
       </View>
@@ -215,7 +215,7 @@ export default function MessagesScreen() {
             />
           ) : (
             <View className="items-center justify-center flex-1 py-20">
-              <Feather name="message-circle" size={48} color="#BDBDBD" />
+              <Ionicons name="chatbubble-outline" size={48} color="#BDBDBD" />
               <Text className="font-raleway-bold text-xl text-text-primary mt-md">
                 {t('messages.noRoomsTitle')}
               </Text>

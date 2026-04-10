@@ -91,8 +91,31 @@ export default function StudentIdTab() {
       <View className="flex-1 bg-background-secondary">
         <Header title={t('id.title')} />
         <View className="flex-1 items-center justify-center px-lg">
-          <View className="w-24 h-24 rounded-full bg-primary/10 items-center justify-center mb-lg">
-            <Ionicons name="id-card-outline" size={44} color="#7B003F" />
+          {/* Decorative card silhouette */}
+          <View
+            className="w-56 rounded-2xl bg-white overflow-hidden mb-xl"
+            style={{
+              shadowColor: '#7B003F',
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.1,
+              shadowRadius: 16,
+              elevation: 4,
+            }}
+          >
+            <View className="bg-primary px-4 py-3">
+              <View className="w-20 h-1.5 bg-white/30 rounded-full" />
+              <View className="w-12 h-1.5 bg-white/20 rounded-full mt-1.5" />
+            </View>
+            <View className="px-4 py-4 items-center">
+              <View className="w-14 h-14 rounded-full bg-primary/10 items-center justify-center mb-3">
+                <Ionicons name="id-card-outline" size={28} color="#7B003F" />
+              </View>
+              <View className="w-24 h-2 bg-gray-200 rounded-full mb-2" />
+              <View className="w-16 h-2 bg-gray-100 rounded-full" />
+            </View>
+            <View className="items-center pb-4 px-4">
+              <View className="w-16 h-16 bg-gray-100 rounded-lg" />
+            </View>
           </View>
           <Text className="text-xl font-raleway-bold text-text-primary mb-sm text-center">
             {t('id.loginRequired')}

@@ -271,7 +271,8 @@ export default function RegisterScreen() {
               loading={loading}
               disabled={loading}
               fullWidth
-              className="bg-success mt-md"
+              className="bg-white mt-md rounded-full"
+              textClassName="text-primary font-raleway-bold"
             />
 
             <Pressable onPress={() => router.back()} className="mt-lg self-center">

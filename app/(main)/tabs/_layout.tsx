@@ -81,7 +81,7 @@ export default function MainTabsLayout() {
         name="schedule"
         options={{
           title: t('tabs.schedule'),
-          tabBarIcon: ({ color, focused }) => <IconSymbol size={26} name={focused ? "calendar" : "calendar"} color={color} />,
+          tabBarIcon: ({ color, focused }) => <IconSymbol size={26} name="calendar" color={color} />,
           href: show('schedule') ? undefined : null,
         }}
       />
@@ -89,7 +89,7 @@ export default function MainTabsLayout() {
         name="id"
         options={{
           title: t('tabs.id'),
-          tabBarIcon: ({ color, focused }) => <IconSymbol size={26} name={focused ? "person.fill" : "person"} color={color} />,
+          tabBarIcon: ({ color, focused }) => <IconSymbol size={26} name={focused ? "person.crop.square" : "person.crop.square"} color={color} />,
           href: show('id') ? undefined : null,
         }}
       />

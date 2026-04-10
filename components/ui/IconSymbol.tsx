@@ -5,7 +5,9 @@ import { SymbolViewProps, SymbolWeight } from 'expo-symbols';
 import { ComponentProps } from 'react';
 import { OpaqueColorValue, type StyleProp, type TextStyle } from 'react-native';
 
-type IconMapping = Record<SymbolViewProps['name'], ComponentProps<typeof MaterialIcons>['name']>;
+type MaterialIconName = ComponentProps<typeof MaterialIcons>['name'];
+type SFSymbolName = SymbolViewProps['name'];
+type IconMapping = Partial<Record<SFSymbolName, MaterialIconName>>;
 export type IconSymbolName = keyof typeof MAPPING;
 
 /**
@@ -18,14 +20,19 @@ const MAPPING = {
   'paperplane.fill': 'send',
   'chevron.left.forwardslash.chevron.right': 'code',
   'chevron.right': 'chevron-right',
-  // New mappings used across the app
+  // Tab bar icons — focused (filled) variants
   'newspaper.fill': 'article',
   'message.fill': 'message',
-  'calendar': 'calendar-today',
   'map.fill': 'map',
   'gearshape.fill': 'settings',
   'person.crop.square': 'badge',
-} as IconMapping;
+  // Tab bar icons — unfocused (outline) variants
+  'newspaper': 'article',
+  'message': 'chat-bubble-outline',
+  'calendar': 'calendar-today',
+  'map': 'map',
+  'gearshape': 'settings',
+} satisfies IconMapping;
 
 /**
  * An icon component that uses native SF Symbols on iOS, and Material Icons on Android and web.

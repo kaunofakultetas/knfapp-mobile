@@ -76,12 +76,14 @@ export default function SettingsScreen() {
         {/* Preferences section */}
         <Text className="text-xs font-raleway-bold text-text-secondary uppercase tracking-widest mb-2 mt-md">{t('settings.preferences', 'Nustatymai')}</Text>
         <View className="bg-white rounded-xl overflow-hidden" style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 }}>
-          <View className="flex-row items-center justify-between px-4 py-3.5 border-b border-gray-100">
-            <View className="flex-1 flex-row items-center gap-2.5">
-              <Ionicons name="notifications-outline" size={20} color="#7B003F" />
-              <View className="flex-1">
-                <Text className="text-base font-raleway">{t('settings.notifications')}</Text>
-                <Text className="text-xs text-text-secondary font-raleway mt-0.5">{t('settings.pushNotificationsDesc')}</Text>
+          <View className="flex-row items-center justify-between px-4 py-4 border-b border-gray-100">
+            <View className="flex-1 flex-row items-start gap-2.5">
+              <View className="mt-0.5">
+                <Ionicons name="notifications-outline" size={20} color="#7B003F" />
+              </View>
+              <View className="flex-1 mr-3">
+                <Text className="text-base font-raleway-medium">{t('settings.notifications')}</Text>
+                <Text className="text-xs text-text-secondary font-raleway mt-1 leading-4">{t('settings.pushNotificationsDesc')}</Text>
               </View>
             </View>
             <Switch

@@ -100,7 +100,7 @@ export default function MapTab() {
     }
   };
   return (
-    <View className="flex-1 bg-white">
+    <View className="flex-1 bg-black">
       <Header title={t('navigation.title')} />
       <View className="flex-1 bg-black" style={{ overflow: 'hidden' }}>
         <PanoramaNavigator

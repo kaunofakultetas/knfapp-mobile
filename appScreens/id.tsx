@@ -24,18 +24,18 @@ export default function StudentIdTab() {
     return (
       <View className="flex-1 bg-background-secondary">
         <Header title={t('id.title')} />
-        <View className="flex-1 items-center justify-center p-lg">
-          <View className="w-20 h-20 rounded-full bg-primary/10 items-center justify-center mb-lg">
-            <Ionicons name="id-card-outline" size={40} color="#7B003F" />
+        <View className="flex-1 items-center justify-center px-lg">
+          <View className="w-24 h-24 rounded-full bg-primary/10 items-center justify-center mb-lg">
+            <Ionicons name="id-card-outline" size={44} color="#7B003F" />
           </View>
           <Text className="text-xl font-raleway-bold text-text-primary mb-sm text-center">
             {t('id.loginRequired')}
           </Text>
-          <Text className="text-sm text-text-secondary mb-xl text-center font-raleway leading-5">
+          <Text className="text-sm text-text-secondary mb-xl text-center font-raleway leading-5 px-lg">
             {t('id.loginHint')}
           </Text>
           <Pressable
-            className="bg-primary px-xl py-3.5 rounded-xl"
+            className="bg-primary py-4 rounded-xl w-full max-w-[220px] items-center"
             style={({ pressed }) => [pressed && { opacity: 0.85 }]}
             onPress={() => router.push('/login')}
           >
@@ -83,9 +83,13 @@ export default function StudentIdTab() {
             <Text className="text-xl font-raleway-bold text-text-primary">
               {user.displayName}
             </Text>
-            <Text className="text-sm text-primary font-raleway-semibold mt-1">
-              {roleLabel}
-            </Text>
+            <View className="flex-row items-center gap-2 mt-1">
+              <View className="bg-primary/10 rounded-md px-2.5 py-0.5">
+                <Text className="text-sm text-primary font-raleway-bold">
+                  {roleLabel}
+                </Text>
+              </View>
+            </View>
             <View className="mt-3 pt-3 border-t border-gray-100">
               <Text className="text-xs text-text-secondary font-raleway">@{user.username}</Text>
               <Text className="text-xs text-text-secondary font-raleway mt-0.5">{user.email}</Text>

@@ -35,7 +35,7 @@ export default function SettingsScreen() {
       <View className="p-lg gap-md">
 
         {/* Account section */}
-        <Text className="text-lg font-raleway-bold text-primary mb-1">{t('settings.account')}</Text>
+        <Text className="text-xs font-raleway-bold text-text-secondary uppercase tracking-widest mb-2">{t('settings.account')}</Text>
         {isAuthenticated && user ? (
           <View className="flex-row items-center justify-between bg-white rounded-xl p-4" style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 }}>
             <View className="flex-1">
@@ -57,7 +57,8 @@ export default function SettingsScreen() {
         )}
 
         {/* Preferences section */}
-        <View className="bg-white rounded-xl overflow-hidden mt-sm" style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 }}>
+        <Text className="text-xs font-raleway-bold text-text-secondary uppercase tracking-widest mb-2 mt-md">{t('settings.preferences', 'Nustatymai')}</Text>
+        <View className="bg-white rounded-xl overflow-hidden" style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 }}>
           <View className="flex-row items-center justify-between px-4 py-3.5 border-b border-gray-100">
             <View className="flex-row items-center gap-2.5">
               <Ionicons name="notifications-outline" size={20} color="#7B003F" />
@@ -95,7 +96,8 @@ export default function SettingsScreen() {
         </View>
 
         {/* Links section */}
-        <View className="bg-white rounded-xl overflow-hidden mt-sm" style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 }}>
+        <Text className="text-xs font-raleway-bold text-text-secondary uppercase tracking-widest mb-2 mt-md">{t('settings.other', 'Kita')}</Text>
+        <View className="bg-white rounded-xl overflow-hidden" style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 }}>
           <Pressable
             className="flex-row items-center justify-between px-4 py-3.5 border-b border-gray-100"
             style={({ pressed }) => [pressed && { backgroundColor: '#F5F5F5' }]}

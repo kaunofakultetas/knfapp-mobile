@@ -42,10 +42,11 @@ function WelcomePage({}: WelcomePageProps) {
 
         <Button
           title={t('login.continue')}
-          variant="primary"
+          variant="outline"
           size="lg"
           fullWidth
-          className="bg-info shadow-lg mt-2xl rounded-full"
+          className="bg-white border-white shadow-lg mt-2xl rounded-full"
+          textClassName="text-primary font-raleway-bold"
           onPress={async () => {
             await AsyncStorage.setItem('onboarded', '1');
           }}
@@ -152,7 +153,8 @@ function LoginPage({}: LoginPageProps) {
           loading={loading}
           disabled={!formData.username || !formData.password}
           fullWidth
-          className="mt-lg bg-success"
+          className="mt-lg bg-white rounded-full"
+          textClassName="text-primary font-raleway-bold"
         />
 
         <View className="mt-md">

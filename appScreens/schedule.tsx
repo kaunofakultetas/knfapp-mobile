@@ -186,13 +186,16 @@ export default function ScheduleScreen() {
           <Pressable
             key={day}
             onPress={() => setSelectedDay(day)}
-            className={`flex-1 py-3 items-center ${selectedDay === day ? 'border-b-2 border-primary' : ''}`}
+            className="flex-1 items-center"
+            style={({ pressed }) => [pressed && { opacity: 0.7 }]}
           >
-            <Text
-              className={`text-sm font-raleway-bold ${selectedDay === day ? 'text-primary' : 'text-text-secondary'}`}
-            >
-              {dayNames[day].substring(0, 3)}
-            </Text>
+            <View className={`py-3 items-center border-b-2 ${selectedDay === day ? 'border-primary' : 'border-transparent'}`}>
+              <Text
+                className={`text-sm font-raleway-bold ${selectedDay === day ? 'text-primary' : 'text-text-secondary'}`}
+              >
+                {dayNames[day].substring(0, 3)}
+              </Text>
+            </View>
           </Pressable>
         ))}
       </View>
@@ -207,12 +210,12 @@ export default function ScheduleScreen() {
           <View className="w-20 h-20 rounded-full bg-gray-100 items-center justify-center mb-md">
             <Ionicons name="calendar-outline" size={36} color="#BDBDBD" />
           </View>
-          <Text className="text-text-secondary text-lg mt-sm text-center font-raleway-medium">
+          <Text className="text-text-secondary text-base mt-sm text-center font-raleway-medium">
             {t('schedule.noLectures', 'Šią dieną paskaitų nėra')}
           </Text>
           {selectedGroup && (
-            <Text className="text-text-secondary text-sm mt-1 text-center font-raleway">
-              {selectedGroup}{selectedSemester ? ` · ${selectedSemester}` : ''}
+            <Text className="text-text-secondary text-sm mt-2 text-center font-raleway">
+              {selectedGroup}{selectedSemester ? ` \u00B7 ${selectedSemester}` : ''}
             </Text>
           )}
         </View>
@@ -226,21 +229,29 @@ export default function ScheduleScreen() {
           }
           ItemSeparatorComponent={() => <View className="h-3" />}
           renderItem={({ item }) => (
-            <View className="bg-white rounded-xl p-4" style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2 }}>
-              <View className="flex-row justify-between items-start">
-                <View className="flex-1 mr-3">
-                  <Text className="text-base font-raleway-bold text-primary">{item.title}</Text>
-                  <Text className="text-sm text-text-secondary font-raleway mt-1">{item.teacher}</Text>
+            <View className="bg-white rounded-xl overflow-hidden" style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2 }}>
+              <View className="flex-row">
+                <View className="w-1 bg-primary rounded-l-xl" />
+                <View className="flex-1 p-4">
+                  <View className="flex-row justify-between items-start">
+                    <View className="flex-1 mr-3">
+                      <Text className="text-base font-raleway-bold text-text-primary">{item.title}</Text>
+                      <Text className="text-sm text-text-secondary font-raleway mt-1">{item.teacher}</Text>
+                    </View>
+                    <View className="bg-primary/10 rounded-lg px-3 py-1.5">
+                      <Text className="text-primary font-raleway-bold text-xs">{item.room}</Text>
+                    </View>
+                  </View>
+                  <View className="flex-row justify-between items-center mt-3 pt-3 border-t border-gray-100">
+                    <View className="flex-row items-center gap-1.5">
+                      <Ionicons name="time-outline" size={14} color="#7B003F" />
+                      <Text className="text-sm text-primary font-raleway-bold">
+                        {item.timeStart} \u2013 {item.timeEnd}
+                      </Text>
+                    </View>
+                    <Text className="text-xs text-text-secondary font-raleway">{item.group} \u00B7 {item.semester}</Text>
+                  </View>
                 </View>
-                <View className="bg-primary/10 rounded-lg px-3 py-1.5">
-                  <Text className="text-primary font-raleway-bold text-sm">{item.room}</Text>
-                </View>
-              </View>
-              <View className="flex-row justify-between mt-3 pt-3 border-t border-gray-100">
-                <Text className="text-sm text-text-primary font-raleway-medium">
-                  {item.timeStart} – {item.timeEnd}
-                </Text>
-                <Text className="text-xs text-text-secondary font-raleway">{item.group} · {item.semester}</Text>
               </View>
             </View>
           )}
@@ -269,14 +280,14 @@ export default function ScheduleScreen() {
 
             <ScrollView className="max-h-96 px-5">
               {/* Group selector */}
-              <Text className="text-sm font-bold text-gray-500 uppercase mt-4 mb-2">
+              <Text className="text-xs font-raleway-bold text-text-secondary uppercase tracking-widest mt-4 mb-2">
                 {t('schedule.groupLabel')}
               </Text>
               <Pressable
                 onPress={() => setSelectedGroup(null)}
                 className={`py-3 px-4 rounded-lg mb-1 ${selectedGroup === null ? 'bg-primary/10' : ''}`}
               >
-                <Text className={`text-base ${selectedGroup === null ? 'text-primary font-bold' : 'text-gray-700'}`}>
+                <Text className={`text-base font-raleway ${selectedGroup === null ? 'text-primary font-raleway-bold' : 'text-text-primary'}`}>
                   {t('schedule.allGroups')}
                 </Text>
               </Pressable>
@@ -286,21 +297,21 @@ export default function ScheduleScreen() {
                   onPress={() => setSelectedGroup(g)}
                   className={`py-3 px-4 rounded-lg mb-1 ${selectedGroup === g ? 'bg-primary/10' : ''}`}
                 >
-                  <Text className={`text-base ${selectedGroup === g ? 'text-primary font-bold' : 'text-gray-700'}`}>
+                  <Text className={`text-base font-raleway ${selectedGroup === g ? 'text-primary font-raleway-bold' : 'text-text-primary'}`}>
                     {g}
                   </Text>
                 </Pressable>
               ))}
 
               {/* Semester selector */}
-              <Text className="text-sm font-bold text-gray-500 uppercase mt-6 mb-2">
+              <Text className="text-xs font-raleway-bold text-text-secondary uppercase tracking-widest mt-6 mb-2">
                 {t('schedule.semesterLabel')}
               </Text>
               <Pressable
                 onPress={() => setSelectedSemester(null)}
                 className={`py-3 px-4 rounded-lg mb-1 ${selectedSemester === null ? 'bg-primary/10' : ''}`}
               >
-                <Text className={`text-base ${selectedSemester === null ? 'text-primary font-bold' : 'text-gray-700'}`}>
+                <Text className={`text-base font-raleway ${selectedSemester === null ? 'text-primary font-raleway-bold' : 'text-text-primary'}`}>
                   {t('schedule.allSemesters')}
                 </Text>
               </Pressable>
@@ -310,7 +321,7 @@ export default function ScheduleScreen() {
                   onPress={() => setSelectedSemester(s)}
                   className={`py-3 px-4 rounded-lg mb-1 ${selectedSemester === s ? 'bg-primary/10' : ''}`}
                 >
-                  <Text className={`text-base ${selectedSemester === s ? 'text-primary font-bold' : 'text-gray-700'}`}>
+                  <Text className={`text-base font-raleway ${selectedSemester === s ? 'text-primary font-raleway-bold' : 'text-text-primary'}`}>
                     {s}
                   </Text>
                 </Pressable>
@@ -324,15 +335,17 @@ export default function ScheduleScreen() {
                   setSelectedGroup(null);
                   setSelectedSemester(null);
                 }}
-                className="flex-1 py-3 rounded-xl border border-gray-300 items-center"
+                className="flex-1 py-3.5 rounded-xl border border-gray-200 items-center"
+                style={({ pressed }) => [pressed && { opacity: 0.85 }]}
               >
-                <Text className="text-gray-700 font-bold">{t('schedule.clearFilters')}</Text>
+                <Text className="text-text-primary font-raleway-bold">{t('schedule.clearFilters')}</Text>
               </Pressable>
               <Pressable
                 onPress={() => setFilterModalVisible(false)}
-                className="flex-1 py-3 rounded-xl bg-primary items-center"
+                className="flex-1 py-3.5 rounded-xl bg-primary items-center"
+                style={({ pressed }) => [pressed && { opacity: 0.85 }]}
               >
-                <Text className="text-white font-bold">{t('schedule.applyFilters')}</Text>
+                <Text className="text-white font-raleway-bold">{t('schedule.applyFilters')}</Text>
               </Pressable>
             </View>
           </Pressable>

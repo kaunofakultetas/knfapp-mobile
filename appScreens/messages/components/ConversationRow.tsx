@@ -22,11 +22,13 @@ export default function ConversationRow({
   const lastMessage = item.messages[item.messages.length - 1];
   const renderRightActions = () => (
     <View className="flex-row h-full">
-      <Pressable className="bg-gray-200 w-[70px] items-center justify-center" onPress={onTogglePin}>
-        <Text>{item.pinned ? t('messages.unpin') : t('messages.pin')}</Text>
+      <Pressable className="bg-gray-100 w-[70px] items-center justify-center" onPress={onTogglePin}>
+        <Ionicons name={item.pinned ? 'pin-outline' : 'pin'} size={18} color="#757575" />
+        <Text className="text-xs text-text-secondary font-raleway mt-1">{item.pinned ? t('messages.unpin') : t('messages.pin')}</Text>
       </Pressable>
-      <Pressable className="bg-danger w-[70px] items-center justify-center" onPress={onDelete}>
-        <Text className="text-white">{t('messages.delete')}</Text>
+      <Pressable className="bg-danger w-[70px] items-center justify-center rounded-r-xl" onPress={onDelete}>
+        <Ionicons name="trash-outline" size={18} color="white" />
+        <Text className="text-xs text-white font-raleway mt-1">{t('messages.delete')}</Text>
       </Pressable>
     </View>
   );
@@ -57,15 +59,15 @@ export default function ConversationRow({
               <Text className="text-xs text-text-secondary font-raleway mt-0.5">{t('messages.members', { count: item.participants.length })}</Text>
             )}
           </View>
-          <View className="items-end">
+          <View className="items-end ml-2">
             <Text className="text-text-secondary text-xs font-raleway">
               {lastMessage?.time ? lastMessage.time : t('messages.now')}
             </Text>
             {item.pinned && (
-              <Ionicons name="pin" size={12} color="#7B003F" style={{ marginTop: 4 }} />
+              <Ionicons name="pin" size={11} color="#7B003F" style={{ marginTop: 4 }} />
             )}
             {item.unreadCount ? (
-              <View className="bg-primary rounded-full mt-1.5 self-end px-2 py-0.5 min-w-[20px] items-center">
+              <View className="bg-primary rounded-full mt-1.5 self-end min-w-[22px] h-[22px] px-1.5 items-center justify-center">
                 <Text className="text-white text-xs font-raleway-bold">{item.unreadCount}</Text>
               </View>
             ) : null}

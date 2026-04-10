@@ -39,24 +39,27 @@ export default function Sidebar({ visible, onClose }: { visible: boolean; onClos
     <Modal transparent animationType="fade" visible={visible}>
       <Pressable className="flex-1 bg-black/50" onPress={onClose}>
         <Pressable className="absolute left-0 top-0 bottom-0 w-[300px] bg-white" onPress={(e) => e.stopPropagation()}>
-          <View className="bg-primary px-lg py-xl pt-2xl">
-            <Text className="text-white text-2xl font-raleway-bold">{t('menu.title')}</Text>
-            <Text className="text-white/70 font-raleway mt-1">{t('menu.subtitle')}</Text>
+          <View className="bg-primary px-lg py-xl pt-2xl pb-lg">
+            <Text className="text-white text-xs tracking-widest uppercase font-raleway-medium">Vilniaus universitetas</Text>
+            <Text className="text-white text-2xl font-raleway-bold mt-1">{t('menu.title')}</Text>
+            <Text className="text-white/60 font-raleway text-sm mt-1">{t('menu.subtitle')}</Text>
           </View>
-          <View className="p-lg">
+          <View className="p-md pt-lg">
             {ALL_ITEMS.map((it) => (
               <Pressable
                 key={it.key}
-                className="flex-row items-center justify-between py-md border-b border-gray-100"
+                className="flex-row items-center justify-between py-3.5 border-b border-gray-50"
                 onPress={() => go(it.route)}
                 hitSlop={8}
                 accessibilityRole="button"
                 accessibilityLabel={t(`tabs.${it.key}`)}
-                style={({ pressed }) => [pressed && { opacity: 0.85 }]}
+                style={({ pressed }) => [pressed && { opacity: 0.85, backgroundColor: '#F7F7F7' }]}
               >
                 <View className="flex-row items-center">
-                  <Ionicons name={it.icon as any} size={22} color="#7B003F" />
-                  <Text className="text-text-primary font-raleway-medium ml-md">{t(`tabs.${it.key}`)}</Text>
+                  <View className="w-8 h-8 rounded-lg bg-primary/10 items-center justify-center">
+                    <Ionicons name={it.icon as any} size={20} color="#7B003F" />
+                  </View>
+                  <Text className="text-text-primary font-raleway-medium ml-3 text-base">{t(`tabs.${it.key}`)}</Text>
                 </View>
                 {hardPinned.has(it.key) ? null : (
                   <Pressable

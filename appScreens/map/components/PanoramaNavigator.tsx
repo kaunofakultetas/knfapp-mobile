@@ -142,16 +142,18 @@ export default function PanoramaNavigator({
           onPress={onBack}
           style={{ position: 'absolute', top: 16, right: 16, zIndex: 30 }}
         >
-          <BlurView intensity={45} tint="dark" style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999 }}>
-            <Text className="text-white" style={{ fontSize: 14, fontWeight: '600' }}>{t('common.back')}</Text>
+          <BlurView intensity={45} tint="dark" style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999 }}>
+            <Text className="text-white font-raleway-bold" style={{ fontSize: 13 }}>{t('common.back')}</Text>
           </BlurView>
         </TouchableOpacity>
       )}
 
       {/* Hint */}
       {showHint && (
-        <View className="absolute top-[20px] left-5 bg-black/70 px-3 py-1.5 rounded-full">
-          <Text className="text-white">{t('navigation.scrollHint360')}</Text>
+        <View className="absolute top-[16px] left-4 right-4 flex-row justify-center">
+          <View className="bg-black/60 px-4 py-2 rounded-full">
+            <Text className="text-white text-sm font-raleway-medium text-center">{t('navigation.scrollHint360')}</Text>
+          </View>
         </View>
       )}
 
@@ -161,24 +163,24 @@ export default function PanoramaNavigator({
         tint="dark"
         style={{ position: 'absolute', left: 16, right: 16, bottom: 48, borderRadius: 16, overflow: 'hidden' }}
       >
-        <View className="px-4 py-3" style={{ rowGap: 4 }}>
+        <View className="px-4 py-3.5" style={{ rowGap: 4 }}>
           {room?.name ? (
-            <Text className="text-white" style={{ fontSize: 18, fontWeight: '700' }}>
+            <Text className="text-white font-raleway-bold" style={{ fontSize: 18 }}>
               {room.name}
             </Text>
           ) : null}
           {(room?.floor || room?.distanceMeters != null) ? (
-            <Text className="text-white/80" style={{ fontSize: 13 }}>
+            <Text className="text-white/70 font-raleway" style={{ fontSize: 13 }}>
               {room?.floor ? `${room.floor}` : ''}
-              {room?.floor && room?.distanceMeters != null ? ' • ' : ''}
+              {room?.floor && room?.distanceMeters != null ? ' \u00B7 ' : ''}
               {room?.distanceMeters != null ? `${room.distanceMeters} m` : ''}
             </Text>
           ) : null}
-          <View className="flex-row items-center justify-between mt-1">
-            <Text className="text-white" style={{ fontSize: 15 }}>
+          <View className="flex-row items-center justify-between mt-1.5 pt-2 border-t border-white/20">
+            <Text className="text-white font-raleway-medium" style={{ fontSize: 14 }}>
               {directionText}
             </Text>
-            <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: aligned ? '#10B981' : '#EF4444' }} />
+            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: aligned ? '#10B981' : '#EF4444' }} />
           </View>
         </View>
       </BlurView>
@@ -259,7 +261,7 @@ export default function PanoramaNavigator({
               style={{ borderRadius: 999, overflow: 'hidden' }}
             >
               <View style={{ paddingVertical: 10, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center' }}>
-                <Text className="text-white" style={{ fontSize: 14, fontWeight: '700' }}>{nextLabel || t('common.next')}</Text>
+                <Text className="text-white font-raleway-bold" style={{ fontSize: 13 }}>{nextLabel || t('common.next')}</Text>
               </View>
             </BlurView>
           </TouchableOpacity>

@@ -1,5 +1,6 @@
 # KNF APP
 
+<br/>
 
 ## Testing 
 1. Install Expo Go app on your phone
@@ -8,6 +9,9 @@
 <img src="_DOCS/images/qr-code.png" alt="Expo Go QR Code" width="200"/>
 
 
+<br/>
+
+## Older versions of the app
 
 
 📹 [Screen Recording 1](https://rinkis.knf.vu.lt/static-knf/files/KNFAPP/ScreenRecording_08-09-202514-22-26_1.MP4)

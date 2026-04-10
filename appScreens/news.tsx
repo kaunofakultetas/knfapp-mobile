@@ -6,6 +6,7 @@ import { useAuth } from '@/context/AuthContext';
 import { showToast } from '@/context/NetworkContext';
 import { fetchNewsFeed, getUploadUrl, NewsFeedResponse, toggleLikeApi } from '@/services/api';
 import { cacheGet, cacheSet, CACHE_KEY_NEWS, NEWS_CACHE_MAX_AGE } from '@/services/cache';
+import { decodeHtmlEntities } from '@/services/htmlDecode';
 import type { NewsPost } from '@/types';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -348,7 +349,7 @@ export default function NewsScreen() {
                     <View className="px-md pt-3">
                       <Text className="text-xs text-primary font-raleway-semibold uppercase tracking-wide">{formatDate(post.date)}</Text>
                     </View>
-                    <Text className="px-md pt-1.5 text-lg font-raleway-bold text-text-primary leading-6">{post.title}</Text>
+                    <Text className="px-md pt-1.5 text-lg font-raleway-bold text-text-primary leading-6">{decodeHtmlEntities(post.title)}</Text>
                     {post.author ? (
                       <Pressable
                         onPress={(e) => {
@@ -360,7 +361,7 @@ export default function NewsScreen() {
                         disabled={!post.authorId || post.source === 'knf.vu.lt' || post.source === 'vu.lt'}
                       >
                         <Text className={`px-md pt-1 text-sm font-raleway ${post.authorId && post.source !== 'knf.vu.lt' && post.source !== 'vu.lt' ? 'text-primary font-raleway-medium' : 'text-text-secondary'}`}>
-                          {post.author}
+                          {decodeHtmlEntities(post.author!)}
                         </Text>
                       </Pressable>
                     ) : null}

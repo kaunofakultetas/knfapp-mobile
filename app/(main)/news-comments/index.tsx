@@ -1,5 +1,6 @@
 import { useAuth } from '@/context/AuthContext';
 import { addCommentApi, CommentResponse, fetchComments } from '@/services/api';
+import { decodeHtmlEntities } from '@/services/htmlDecode';
 import { useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -69,8 +70,8 @@ export default function NewsCommentsScreen() {
                 </Text>
               </View>
               <View className="flex-1 bg-gray-100 rounded-md p-sm">
-                <Text className="text-xs text-primary font-bold mb-0.5">{item.userName}</Text>
-                <Text className="text-sm text-gray-800">{item.text}</Text>
+                <Text className="text-xs text-primary font-bold mb-0.5">{decodeHtmlEntities(item.userName)}</Text>
+                <Text className="text-sm text-gray-800">{decodeHtmlEntities(item.text)}</Text>
                 <Text className="text-xs text-gray-500 mt-1">{item.time}</Text>
               </View>
             </View>

@@ -1,6 +1,7 @@
 import PollWidget from '@/components/PollWidget';
 import { useAuth } from '@/context/AuthContext';
 import { addCommentApi, CommentResponse, fetchComments, fetchNewsPost, getUploadUrl } from '@/services/api';
+import { decodeHtmlEntities } from '@/services/htmlDecode';
 import type { NewsPost } from '@/types';
 import { useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
@@ -102,11 +103,11 @@ export default function NewsPostScreen() {
           ) : null}
         </View>
 
-        <Text className="text-2xl font-raleway-bold text-text-primary p-5 pb-2.5">{post.title}</Text>
+        <Text className="text-2xl font-raleway-bold text-text-primary p-5 pb-2.5">{decodeHtmlEntities(post.title)}</Text>
         {post.author ? (
-          <Text className="px-5 pb-2 text-sm text-text-secondary font-raleway">{post.author}</Text>
+          <Text className="px-5 pb-2 text-sm text-text-secondary font-raleway">{decodeHtmlEntities(post.author)}</Text>
         ) : null}
-        <Text className="text-base leading-6 text-text-primary font-raleway p-5 pt-0">{post.content}</Text>
+        <Text className="text-base leading-6 text-text-primary font-raleway p-5 pt-0">{decodeHtmlEntities(post.content)}</Text>
 
         {post.postType === 'poll' && <PollWidget postId={post.id} />}
 
@@ -124,8 +125,8 @@ export default function NewsPostScreen() {
         ) : (
           comments.map((c) => (
             <View key={c.id} className="bg-gray-50 rounded-lg p-3 mb-2">
-              <Text className="text-xs text-primary font-raleway-bold mb-0.5">{c.userName}</Text>
-              <Text className="text-sm text-text-primary font-raleway">{c.text}</Text>
+              <Text className="text-xs text-primary font-raleway-bold mb-0.5">{decodeHtmlEntities(c.userName)}</Text>
+              <Text className="text-sm text-text-primary font-raleway">{decodeHtmlEntities(c.text)}</Text>
               <Text className="text-xs text-text-secondary font-raleway mt-1">{c.time}</Text>
             </View>
           ))

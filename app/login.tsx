@@ -4,9 +4,9 @@ import { showToast } from '@/context/NetworkContext';
 import { LoginForm } from '@/types';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Keyboard, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, Text, TouchableWithoutFeedback, View } from 'react-native';
+import { ActivityIndicator, Keyboard, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, Text, TouchableWithoutFeedback, View } from 'react-native';
 import Swiper from 'react-native-swiper';
 import LogoKnF from '../components/logoknf.svg';
 
@@ -189,11 +189,30 @@ function LoginPage({}: LoginPageProps) {
 }
 
 export default function LoginScreen() {
+  const [initialIndex, setInitialIndex] = useState<number | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      const hasOnboarded = await AsyncStorage.getItem('onboarded');
+      // If user already onboarded, skip welcome and show login form directly
+      setInitialIndex(hasOnboarded ? 1 : 0);
+    })();
+  }, []);
+
+  // Wait until we know which page to show
+  if (initialIndex === null) {
+    return (
+      <View className="flex-1 bg-primary items-center justify-center">
+        <ActivityIndicator size="large" color="#FFFFFF" />
+      </View>
+    );
+  }
+
   return (
     <KeyboardAvoidingView className="flex-1 bg-primary" behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={80}>
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <SafeAreaView className="flex-1 items-center justify-center p-lg w-full">
-          <Swiper loop={false} showsPagination>
+          <Swiper loop={false} showsPagination index={initialIndex}>
             <WelcomePage />
             <LoginPage />
           </Swiper>

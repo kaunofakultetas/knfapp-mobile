@@ -25,7 +25,7 @@ const initialState: AppSettings = {
   language: 'lt',
   theme: 'light',
   notifications: true,
-  pinnedTabs: ['news', 'messages', 'schedule'],
+  pinnedTabs: ['news', 'messages', 'schedule', 'id'],
 };
 
 // App Reducer

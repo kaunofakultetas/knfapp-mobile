@@ -805,6 +805,7 @@ export interface InfoContact {
   phone?: string;
   email?: string;
   room?: string;
+  position?: string;
 }
 
 export interface InfoContactCategory {
@@ -836,12 +837,19 @@ export interface InfoFaq {
   a: string;
 }
 
+export interface InfoGeneralContact {
+  address: string;
+  phone: string;
+  email: string;
+}
+
 export interface FacultyInfoResponse {
   contacts: InfoContactCategory[];
   links: InfoLink[];
   hours: InfoHours[];
   programs: InfoProgram[];
   faq: InfoFaq[];
+  general_contact?: InfoGeneralContact;
 }
 
 export async function fetchFacultyInfo(lang: string = 'lt'): Promise<FacultyInfoResponse> {

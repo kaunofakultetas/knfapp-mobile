@@ -5,6 +5,7 @@ import {
   type FacultyInfoResponse,
   type InfoContactCategory,
   type InfoFaq,
+  type InfoGeneralContact,
   type InfoHours,
   type InfoLink,
   type InfoProgram,
@@ -56,6 +57,9 @@ function ContactsSection({ contacts }: { contacts: InfoContactCategory[] }) {
           {cat.items.map((c) => (
             <View key={c.name} className="bg-gray-50 rounded-lg p-3 mb-2">
               <Text className="text-base font-semibold">{c.name}</Text>
+              {c.position && (
+                <Text className="text-xs text-gray-500 mt-0.5">{c.position}</Text>
+              )}
               {c.room && (
                 <View className="flex-row items-center gap-1 mt-1">
                   <Ionicons name="location-outline" size={14} color="#666" />
@@ -238,7 +242,31 @@ export default function InfoScreen() {
       {/* Faculty header */}
       <View className="items-center mb-2">
         <Text className="text-xl font-bold text-primary text-center">{t('info.facultyName')}</Text>
-        <Text className="text-sm text-gray-500 mt-1">{t('info.address')}</Text>
+        <Text className="text-sm text-gray-500 mt-1">
+          {data.general_contact?.address || t('info.address')}
+        </Text>
+        {data.general_contact && (
+          <View className="flex-row items-center gap-4 mt-2">
+            {data.general_contact.phone && (
+              <Pressable
+                className="flex-row items-center gap-1"
+                onPress={() => Linking.openURL(`tel:${data.general_contact!.phone}`)}
+              >
+                <Ionicons name="call-outline" size={14} color="#7B003F" />
+                <Text className="text-sm text-primary">{data.general_contact.phone}</Text>
+              </Pressable>
+            )}
+            {data.general_contact.email && (
+              <Pressable
+                className="flex-row items-center gap-1"
+                onPress={() => Linking.openURL(`mailto:${data.general_contact!.email}`)}
+              >
+                <Ionicons name="mail-outline" size={14} color="#7B003F" />
+                <Text className="text-sm text-primary">{data.general_contact.email}</Text>
+              </Pressable>
+            )}
+          </View>
+        )}
       </View>
 
       {/* Contacts */}

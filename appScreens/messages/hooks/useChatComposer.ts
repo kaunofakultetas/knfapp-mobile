@@ -60,7 +60,7 @@ export function useChatComposer(
 
     try {
       const resp = await sendMessageApi(conversationId, text, imageUrl);
-      // Replace temp message with real one
+      // Replace temp message with real one — use server status or default to 'sent'
       setMessages((prev) =>
         prev.map((m) =>
           m.id === tempId
@@ -70,7 +70,7 @@ export function useChatComposer(
                 time: resp.message.time,
                 user: resp.message.senderName,
                 isOwn: true,
-                status: 'read',
+                status: resp.message.status || 'sent',
                 imageUrl: resp.message.imageUrl || undefined,
                 reactions: [],
               }

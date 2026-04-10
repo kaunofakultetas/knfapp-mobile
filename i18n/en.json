@@ -158,7 +158,12 @@
   },
   "chat": {
     "title": "Chat",
-    "inputPlaceholder": "Type a message..."
+    "inputPlaceholder": "Type a message...",
+    "typing": "{{name}} is typing...",
+    "typingMultiple": "{{names}} are typing...",
+    "sent": "Sent",
+    "delivered": "Delivered",
+    "read": "Read"
   },
   "newChat": {
     "title": "New chat",

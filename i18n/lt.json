@@ -173,7 +173,12 @@
   },
   "chat": {
     "title": "Pokalbis",
-    "inputPlaceholder": "Įrašykite žinutę..."
+    "inputPlaceholder": "Įrašykite žinutę...",
+    "typing": "{{name}} rašo...",
+    "typingMultiple": "{{names}} rašo...",
+    "sent": "Išsiųsta",
+    "delivered": "Pristatyta",
+    "read": "Perskaityta"
   },
   "newChat": {
     "title": "Naujas pokalbis",

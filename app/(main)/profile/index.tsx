@@ -1,3 +1,4 @@
+import { decodeHtmlEntities } from '@/services/htmlDecode';
 import { useAuth } from '@/context/AuthContext';
 import { showToast } from '@/context/NetworkContext';
 import {
@@ -307,7 +308,7 @@ export default function ProfileScreen() {
           >
             {item.title && (
               <Text className="font-semibold text-gray-900 mb-1" numberOfLines={1}>
-                {item.title}
+                {decodeHtmlEntities(item.title)}
               </Text>
             )}
             <Text className="text-sm text-gray-600" numberOfLines={3}>

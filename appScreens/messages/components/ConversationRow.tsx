@@ -52,7 +52,7 @@ export default function ConversationRow({
 
         <View className="flex-row justify-between flex-1">
           <View className="flex-1 mr-3">
-            <Text className="text-text-primary text-base font-raleway-bold" numberOfLines={1}>{item.title}</Text>
+            <Text className="text-text-primary text-base font-raleway-bold" numberOfLines={1}>{decodeHtmlEntities(item.title)}</Text>
             <Text className="text-text-secondary text-sm font-raleway mt-1" numberOfLines={1}>
               {lastMessage?.text ? decodeHtmlEntities(lastMessage.text) : t('messages.tapToStart')}
             </Text>

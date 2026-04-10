@@ -1,4 +1,5 @@
 import CachedBanner from '@/components/CachedBanner';
+import { decodeHtmlEntities } from '@/services/htmlDecode';
 import Header from '@/components/ui/Header';
 import { fetchSchedule, fetchScheduleFilters, ScheduleLesson, ScheduleResponse } from '@/services/api';
 import { cacheGet, cacheKeySchedule, cacheSet, SCHEDULE_CACHE_MAX_AGE } from '@/services/cache';
@@ -235,7 +236,7 @@ export default function ScheduleScreen() {
                 <View className="flex-1 p-4">
                   <View className="flex-row justify-between items-start">
                     <View className="flex-1 mr-3">
-                      <Text className="text-base font-raleway-bold text-text-primary" numberOfLines={2}>{item.title}</Text>
+                      <Text className="text-base font-raleway-bold text-text-primary" numberOfLines={2}>{decodeHtmlEntities(item.title)}</Text>
                       <Text className="text-sm text-text-secondary font-raleway mt-1" numberOfLines={1}>{item.teacher}</Text>
                     </View>
                     <View className="bg-primary/10 rounded-lg px-3 py-1.5" style={{ maxWidth: 120 }}>
@@ -246,10 +247,10 @@ export default function ScheduleScreen() {
                     <View className="flex-row items-center gap-1.5">
                       <Ionicons name="time-outline" size={14} color="#7B003F" />
                       <Text className="text-sm text-primary font-raleway-bold">
-                        {item.timeStart} \u2013 {item.timeEnd}
+                        {item.timeStart} {'\u2013'} {item.timeEnd}
                       </Text>
                     </View>
-                    <Text className="text-xs text-text-secondary font-raleway">{item.group} \u00B7 {item.semester}</Text>
+                    <Text className="text-xs text-text-secondary font-raleway">{item.group} {'\u00B7'} {item.semester}</Text>
                   </View>
                 </View>
               </View>

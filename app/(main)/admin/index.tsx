@@ -146,23 +146,25 @@ export default function AdminScreen() {
 
   if (user?.role !== 'admin' && user?.role !== 'curator') {
     return (
-      <View className="flex-1 items-center justify-center bg-white">
-        <Ionicons name="lock-closed" size={48} color="#ccc" />
-        <Text className="text-gray-400 mt-4">{t('admin.noAccess', 'Neturite prieigos')}</Text>
+      <View className="flex-1 items-center justify-center bg-background-secondary">
+        <View className="w-20 h-20 rounded-full bg-gray-100 items-center justify-center mb-md">
+          <Ionicons name="lock-closed" size={36} color="#BDBDBD" />
+        </View>
+        <Text className="text-text-secondary mt-4 font-raleway-medium">{t('admin.noAccess', 'Neturite prieigos')}</Text>
       </View>
     );
   }
 
   if (loading) {
     return (
-      <View className="flex-1 items-center justify-center bg-white">
+      <View className="flex-1 items-center justify-center bg-background-secondary">
         <ActivityIndicator size="large" color="#7B003F" />
       </View>
     );
   }
 
   return (
-    <View className="flex-1 bg-gray-50">
+    <View className="flex-1 bg-background-secondary">
       <FlatList
         data={invitations}
         keyExtractor={(item) => item.id}
@@ -184,27 +186,28 @@ export default function AdminScreen() {
             {/* Manage users — admin only */}
             {user?.role === 'admin' && (
               <Pressable
-                className="mx-4 mt-4 bg-white rounded-xl py-3.5 px-5 flex-row items-center justify-between shadow-sm"
+                className="mx-4 mt-4 bg-white rounded-xl py-3.5 px-5 flex-row items-center justify-between"
+                style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 }}
                 onPress={() => router.push('/admin-users')}
               >
                 <View className="flex-row items-center">
                   <Ionicons name="people" size={20} color="#7B003F" />
-                  <Text className="text-base font-semibold text-gray-900 ml-3">
+                  <Text className="text-base font-raleway-bold text-text-primary ml-3">
                     {t('admin.manageUsers', 'Valdyti vartotojus')}
                   </Text>
                 </View>
-                <Ionicons name="chevron-forward" size={18} color="#999" />
+                <Ionicons name="chevron-forward" size={18} color="#BDBDBD" />
               </Pressable>
             )}
 
             {/* Create invitation */}
             <View className="mx-4 mt-4">
               <Pressable
-                className="bg-[#7B003F] rounded-xl py-3 px-5 flex-row items-center justify-center"
+                className="bg-primary rounded-xl py-3 px-5 flex-row items-center justify-center"
                 onPress={() => setShowForm(!showForm)}
               >
                 <Ionicons name={showForm ? 'close' : 'add'} size={20} color="white" />
-                <Text className="text-white font-semibold ml-2">
+                <Text className="text-white font-raleway-bold ml-2">
                   {showForm
                     ? t('common.cancel', 'Atšaukti')
                     : t('admin.createInvitation', 'Naujas kvietimo kodas')}
@@ -212,19 +215,19 @@ export default function AdminScreen() {
               </Pressable>
 
               {showForm && (
-                <View className="bg-white rounded-xl mt-3 p-4 shadow-sm">
+                <View className="bg-white rounded-xl mt-3 p-4" style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 }}>
                   {/* Role picker */}
-                  <Text className="text-sm font-medium text-gray-700 mb-2">
+                  <Text className="text-sm font-raleway-medium text-text-secondary mb-2">
                     {t('admin.role', 'Rolė')}
                   </Text>
                   <View className="flex-row flex-wrap gap-2 mb-4">
                     {ROLE_OPTIONS.map((role) => (
                       <Pressable
                         key={role}
-                        className={`px-3 py-1.5 rounded-full ${newRole === role ? 'bg-[#7B003F]' : 'bg-gray-100'}`}
+                        className={`px-3 py-1.5 rounded-full ${newRole === role ? 'bg-primary' : 'bg-gray-100'}`}
                         onPress={() => setNewRole(role)}
                       >
-                        <Text className={`text-sm ${newRole === role ? 'text-white font-medium' : 'text-gray-700'}`}>
+                        <Text className={`text-sm font-raleway ${newRole === role ? 'text-white font-raleway-medium' : 'text-text-primary'}`}>
                           {roleLabel(role)}
                         </Text>
                       </Pressable>
@@ -232,17 +235,17 @@ export default function AdminScreen() {
                   </View>
 
                   {/* Max uses picker */}
-                  <Text className="text-sm font-medium text-gray-700 mb-2">
+                  <Text className="text-sm font-raleway-medium text-text-secondary mb-2">
                     {t('admin.maxUses', 'Panaudojimų limitas')}
                   </Text>
                   <View className="flex-row gap-2 mb-4">
                     {[1, 5, 10, 25, 100].map((n) => (
                       <Pressable
                         key={n}
-                        className={`px-3 py-1.5 rounded-full ${newMaxUses === n ? 'bg-[#7B003F]' : 'bg-gray-100'}`}
+                        className={`px-3 py-1.5 rounded-full ${newMaxUses === n ? 'bg-primary' : 'bg-gray-100'}`}
                         onPress={() => setNewMaxUses(n)}
                       >
-                        <Text className={`text-sm ${newMaxUses === n ? 'text-white font-medium' : 'text-gray-700'}`}>
+                        <Text className={`text-sm font-raleway ${newMaxUses === n ? 'text-white font-raleway-medium' : 'text-text-primary'}`}>
                           {n}
                         </Text>
                       </Pressable>
@@ -250,7 +253,7 @@ export default function AdminScreen() {
                   </View>
 
                   {/* Expiry picker */}
-                  <Text className="text-sm font-medium text-gray-700 mb-2">
+                  <Text className="text-sm font-raleway-medium text-text-secondary mb-2">
                     {t('admin.expires', 'Galiojimo laikas')}
                   </Text>
                   <View className="flex-row gap-2 mb-4">
@@ -263,10 +266,10 @@ export default function AdminScreen() {
                     ].map(({ h, label }) => (
                       <Pressable
                         key={h}
-                        className={`px-3 py-1.5 rounded-full ${newExpiresHours === h ? 'bg-[#7B003F]' : 'bg-gray-100'}`}
+                        className={`px-3 py-1.5 rounded-full ${newExpiresHours === h ? 'bg-primary' : 'bg-gray-100'}`}
                         onPress={() => setNewExpiresHours(h)}
                       >
-                        <Text className={`text-sm ${newExpiresHours === h ? 'text-white font-medium' : 'text-gray-700'}`}>
+                        <Text className={`text-sm font-raleway ${newExpiresHours === h ? 'text-white font-raleway-medium' : 'text-text-primary'}`}>
                           {label}
                         </Text>
                       </Pressable>
@@ -274,14 +277,14 @@ export default function AdminScreen() {
                   </View>
 
                   <Pressable
-                    className="bg-[#7B003F] rounded-xl py-3 items-center"
+                    className="bg-primary rounded-xl py-3 items-center"
                     onPress={handleCreate}
                     disabled={creating}
                   >
                     {creating ? (
                       <ActivityIndicator size="small" color="white" />
                     ) : (
-                      <Text className="text-white font-semibold">
+                      <Text className="text-white font-raleway-bold">
                         {t('admin.generate', 'Generuoti kodą')}
                       </Text>
                     )}
@@ -291,7 +294,7 @@ export default function AdminScreen() {
             </View>
 
             {/* Section header */}
-            <Text className="text-sm font-semibold text-gray-500 px-4 mt-5 mb-2">
+            <Text className="text-xs font-raleway-bold text-text-secondary uppercase tracking-widest px-4 mt-5 mb-2">
               {t('admin.activeCodes', 'Aktyvūs kvietimo kodai')}
             </Text>
           </View>
@@ -299,10 +302,10 @@ export default function AdminScreen() {
         renderItem={({ item }) => {
           const isExpired = item.expired || item.fullyUsed;
           return (
-            <View className={`mx-4 mb-2 p-4 rounded-xl ${isExpired ? 'bg-gray-100' : 'bg-white'} shadow-sm`}>
+            <View className={`mx-4 mb-2 p-4 rounded-xl ${isExpired ? 'bg-gray-100' : 'bg-white'}`} style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 }}>
               <View className="flex-row items-center justify-between">
                 <Pressable onPress={() => copyCode(item.code)} className="flex-row items-center flex-1">
-                  <Text className={`text-lg font-mono font-bold ${isExpired ? 'text-gray-400' : 'text-[#7B003F]'}`}>
+                  <Text className={`text-lg font-mono font-raleway-bold ${isExpired ? 'text-text-disabled' : 'text-primary'}`}>
                     {item.code}
                   </Text>
                   <Ionicons name="copy-outline" size={16} color={isExpired ? '#999' : '#7B003F'} style={{ marginLeft: 8 }} />
@@ -350,8 +353,10 @@ export default function AdminScreen() {
         }}
         ListEmptyComponent={
           <View className="items-center py-12">
-            <Ionicons name="ticket-outline" size={48} color="#ccc" />
-            <Text className="text-gray-400 mt-3">{t('admin.noCodes', 'Kvietimo kodų nėra')}</Text>
+            <View className="w-20 h-20 rounded-full bg-gray-100 items-center justify-center mb-md">
+              <Ionicons name="ticket-outline" size={36} color="#BDBDBD" />
+            </View>
+            <Text className="text-text-secondary mt-3 font-raleway-medium">{t('admin.noCodes', 'Kvietimo kodų nėra')}</Text>
           </View>
         }
       />
@@ -371,10 +376,10 @@ export default function AdminScreen() {
             className="bg-white rounded-2xl mx-6 p-6 items-center w-[85%] max-w-[360px]"
             onPress={() => {}}
           >
-            <Text className="text-lg font-bold text-gray-900 mb-1">
+            <Text className="text-lg font-raleway-bold text-text-primary mb-1">
               {t('admin.qrTitle', 'Kvietimo QR kodas')}
             </Text>
-            <Text className="text-sm text-gray-500 mb-5 text-center">
+            <Text className="text-sm text-text-secondary mb-5 text-center font-raleway">
               {t('admin.qrHint', 'Leiskite studentui nuskenuoti šį kodą registracijai')}
             </Text>
 
@@ -389,7 +394,7 @@ export default function AdminScreen() {
               </View>
             )}
 
-            <Text className="text-base font-mono font-bold text-[#7B003F] mt-4">
+            <Text className="text-base font-mono font-raleway-bold text-primary mt-4">
               {qrInvitation?.code}
             </Text>
 
@@ -414,13 +419,13 @@ export default function AdminScreen() {
                 }}
               >
                 <Ionicons name="copy-outline" size={16} color="#666" />
-                <Text className="text-sm text-gray-700 ml-1.5">{t('admin.codeCopied', 'Kopijuoti')}</Text>
+                <Text className="text-sm text-text-primary ml-1.5 font-raleway">{t('admin.codeCopied', 'Kopijuoti')}</Text>
               </Pressable>
               <Pressable
-                className="flex-row items-center bg-[#7B003F] rounded-xl px-4 py-2.5"
+                className="flex-row items-center bg-primary rounded-xl px-4 py-2.5"
                 onPress={() => setQrInvitation(null)}
               >
-                <Text className="text-sm text-white font-medium">{t('admin.qrClose', 'Uždaryti')}</Text>
+                <Text className="text-sm text-white font-raleway-medium">{t('admin.qrClose', 'Uždaryti')}</Text>
               </Pressable>
             </View>
           </Pressable>
@@ -432,12 +437,12 @@ export default function AdminScreen() {
 
 function StatCard({ label, value, icon }: { label: string; value: number; icon: string }) {
   return (
-    <View className="bg-white rounded-xl p-3 shadow-sm flex-1 min-w-[45%]">
+    <View className="bg-white rounded-xl p-3 flex-1 min-w-[45%]" style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 }}>
       <View className="flex-row items-center gap-2">
         <Ionicons name={icon as any} size={18} color="#7B003F" />
-        <Text className="text-2xl font-bold text-gray-900">{value}</Text>
+        <Text className="text-2xl font-raleway-bold text-text-primary">{value}</Text>
       </View>
-      <Text className="text-xs text-gray-500 mt-1">{label}</Text>
+      <Text className="text-xs text-text-secondary mt-1 font-raleway">{label}</Text>
     </View>
   );
 }

@@ -418,7 +418,7 @@ export default function NewsScreen() {
             )}
             {hasMore && !loadingMore && (
               <Pressable onPress={onEndReached} className="items-center py-5">
-                <Text className="text-primary font-bold">
+                <Text className="text-primary font-raleway-bold">
                   {t('news.loadMore', 'Daugiau naujienų')}
                 </Text>
               </Pressable>
@@ -430,7 +430,7 @@ export default function NewsScreen() {
       {/* FAB: Create Post (auth only) */}
       {isAuthenticated && (
         <Pressable
-          className="absolute bottom-6 right-5 w-14 h-14 rounded-full bg-[#7B003F] items-center justify-center shadow-lg"
+          className="absolute bottom-6 right-5 w-14 h-14 rounded-full bg-primary items-center justify-center shadow-lg"
           style={{ elevation: 6, zIndex: 10 }}
           onPress={() => router.push('/(main)/create-post')}
         >

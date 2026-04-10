@@ -162,25 +162,25 @@ export default function CreatePostScreen() {
       <ScrollView className="flex-1 p-5" keyboardShouldPersistTaps="handled">
         {/* Author info */}
         <View className="flex-row items-center mb-5">
-          <View className="w-10 h-10 rounded-full bg-[#7B003F] items-center justify-center mr-3">
-            <Text className="text-lg text-white font-bold">
+          <View className="w-10 h-10 rounded-full bg-primary items-center justify-center mr-3">
+            <Text className="text-lg text-white font-raleway-bold">
               {user?.displayName?.charAt(0)?.toUpperCase() || '?'}
             </Text>
           </View>
           <View>
-            <Text className="font-semibold text-gray-900">{user?.displayName}</Text>
-            <Text className="text-xs text-gray-500">
+            <Text className="font-raleway-bold text-text-primary">{user?.displayName}</Text>
+            <Text className="text-xs text-text-secondary font-raleway">
               {isStaff ? 'Faculty' : '@' + user?.username}
             </Text>
           </View>
         </View>
 
         {/* Title input */}
-        <Text className="text-sm font-medium text-gray-700 mb-1">
+        <Text className="text-sm font-raleway-medium text-text-secondary mb-1">
           {t('createPost.titleLabel')}
         </Text>
         <TextInput
-          className="border border-gray-200 rounded-xl px-4 py-3 mb-4 text-base text-gray-900"
+          className="border border-border-light rounded-xl px-4 py-3 mb-4 text-base text-text-primary font-raleway"
           placeholder={t('createPost.titlePlaceholder')}
           placeholderTextColor="#9CA3AF"
           value={title}
@@ -189,11 +189,11 @@ export default function CreatePostScreen() {
         />
 
         {/* Content input */}
-        <Text className="text-sm font-medium text-gray-700 mb-1">
+        <Text className="text-sm font-raleway-medium text-text-secondary mb-1">
           {t('createPost.contentLabel')}
         </Text>
         <TextInput
-          className="border border-gray-200 rounded-xl px-4 py-3 mb-4 text-base text-gray-900 min-h-[120px]"
+          className="border border-border-light rounded-xl px-4 py-3 mb-4 text-base text-text-primary font-raleway min-h-[120px]"
           placeholder={t('createPost.contentPlaceholder')}
           placeholderTextColor="#9CA3AF"
           value={content}
@@ -205,7 +205,7 @@ export default function CreatePostScreen() {
 
         {/* Image attachment */}
         {imageUri ? (
-          <View className="mb-4 rounded-xl overflow-hidden border border-gray-200">
+          <View className="mb-4 rounded-xl overflow-hidden border border-border-light">
             <Image source={{ uri: imageUri }} className="w-full h-48" resizeMode="cover" />
             <Pressable
               className="absolute top-2 right-2 bg-black/60 rounded-full p-1"
@@ -216,11 +216,11 @@ export default function CreatePostScreen() {
           </View>
         ) : (
           <Pressable
-            className="flex-row items-center py-3 px-4 mb-4 rounded-xl border border-gray-200"
+            className="flex-row items-center py-3 px-4 mb-4 rounded-xl border border-border-light"
             onPress={pickImage}
           >
-            <Ionicons name="image-outline" size={20} color="#6B7280" />
-            <Text className="ml-2 font-medium text-gray-600">
+            <Ionicons name="image-outline" size={20} color="#757575" />
+            <Text className="ml-2 font-raleway-medium text-text-secondary">
               {t('createPost.addImage')}
             </Text>
           </Pressable>
@@ -228,15 +228,15 @@ export default function CreatePostScreen() {
 
         {/* Poll toggle */}
         <Pressable
-          className={`flex-row items-center py-3 px-4 mb-4 rounded-xl border ${showPoll ? 'border-[#7B003F] bg-[#7B003F]/5' : 'border-gray-200'}`}
+          className={`flex-row items-center py-3 px-4 mb-4 rounded-xl border ${showPoll ? 'border-primary bg-primary/5' : 'border-border-light'}`}
           onPress={togglePoll}
         >
           <Ionicons
             name={showPoll ? 'stats-chart' : 'stats-chart-outline'}
             size={20}
-            color={showPoll ? '#7B003F' : '#6B7280'}
+            color={showPoll ? '#7B003F' : '#757575'}
           />
-          <Text className={`ml-2 font-medium ${showPoll ? 'text-[#7B003F]' : 'text-gray-600'}`}>
+          <Text className={`ml-2 font-raleway-medium ${showPoll ? 'text-primary' : 'text-text-secondary'}`}>
             {t('createPost.addPoll')}
           </Text>
           {showPoll && (
@@ -246,12 +246,12 @@ export default function CreatePostScreen() {
 
         {/* Poll form */}
         {showPoll && (
-          <View className="mb-4 border border-gray-200 rounded-xl p-4 bg-gray-50">
-            <Text className="text-sm font-medium text-gray-700 mb-1">
+          <View className="mb-4 border border-border-light rounded-xl p-4 bg-background-secondary">
+            <Text className="text-sm font-raleway-medium text-text-secondary mb-1">
               {t('createPost.pollQuestion')}
             </Text>
             <TextInput
-              className="border border-gray-200 rounded-lg px-4 py-2.5 mb-3 text-base text-gray-900 bg-white"
+              className="border border-border-light rounded-lg px-4 py-2.5 mb-3 text-base text-text-primary bg-white font-raleway"
               placeholder={t('createPost.pollQuestionPlaceholder')}
               placeholderTextColor="#9CA3AF"
               value={pollTitle}
@@ -259,7 +259,7 @@ export default function CreatePostScreen() {
               maxLength={200}
             />
 
-            <Text className="text-sm font-medium text-gray-700 mb-2">
+            <Text className="text-sm font-raleway-medium text-text-secondary mb-2">
               {t('createPost.pollOptions')}
             </Text>
             {pollOptions.map((option, index) => (
@@ -268,7 +268,7 @@ export default function CreatePostScreen() {
                   <Text className="text-xs text-gray-400">{index + 1}</Text>
                 </View>
                 <TextInput
-                  className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-base text-gray-900 bg-white"
+                  className="flex-1 border border-border-light rounded-lg px-3 py-2 text-base text-text-primary bg-white font-raleway"
                   placeholder={t('createPost.pollOptionPlaceholder', { n: index + 1 })}
                   placeholderTextColor="#9CA3AF"
                   value={option}
@@ -289,7 +289,7 @@ export default function CreatePostScreen() {
                 onPress={addPollOption}
               >
                 <Ionicons name="add-circle-outline" size={20} color="#7B003F" />
-                <Text className="ml-1.5 text-[#7B003F] font-medium text-sm">
+                <Text className="ml-1.5 text-primary font-raleway-medium text-sm">
                   {t('createPost.pollAddOption')}
                 </Text>
               </Pressable>
@@ -299,14 +299,14 @@ export default function CreatePostScreen() {
 
         {/* Submit */}
         <Pressable
-          className={`py-3.5 rounded-xl items-center ${submitting || !content.trim() || !isPollValid ? 'bg-gray-300' : 'bg-[#7B003F]'}`}
+          className={`py-3.5 rounded-xl items-center ${submitting || !content.trim() || !isPollValid ? 'bg-gray-300' : 'bg-primary'}`}
           onPress={handleSubmit}
           disabled={submitting || !content.trim() || !isPollValid}
         >
           {submitting ? (
             <ActivityIndicator color="white" />
           ) : (
-            <Text className="text-white font-semibold text-base">
+            <Text className="text-white font-raleway-bold text-base">
               {t('createPost.submit')}
             </Text>
           )}

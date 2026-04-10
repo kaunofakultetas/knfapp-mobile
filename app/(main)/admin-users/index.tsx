@@ -120,31 +120,33 @@ export default function AdminUsersScreen() {
 
   if (currentUser?.role !== 'admin') {
     return (
-      <View className="flex-1 items-center justify-center bg-white">
-        <Ionicons name="lock-closed" size={48} color="#ccc" />
-        <Text className="text-gray-400 mt-4">{t('admin.noAccess')}</Text>
+      <View className="flex-1 items-center justify-center bg-background-secondary">
+        <View className="w-20 h-20 rounded-full bg-gray-100 items-center justify-center mb-md">
+          <Ionicons name="lock-closed" size={36} color="#BDBDBD" />
+        </View>
+        <Text className="text-text-secondary mt-4 font-raleway-medium">{t('admin.noAccess')}</Text>
       </View>
     );
   }
 
   if (loading) {
     return (
-      <View className="flex-1 items-center justify-center bg-white">
+      <View className="flex-1 items-center justify-center bg-background-secondary">
         <ActivityIndicator size="large" color="#7B003F" />
       </View>
     );
   }
 
   return (
-    <View className="flex-1 bg-gray-50">
+    <View className="flex-1 bg-background-secondary">
       {/* Search bar */}
       <View className="px-4 pt-3 pb-2 bg-white border-b border-gray-200">
         <View className="flex-row items-center bg-gray-100 rounded-lg px-3 py-2">
           <Ionicons name="search" size={18} color="#999" />
           <TextInput
-            className="flex-1 ml-2 text-base text-gray-900"
+            className="flex-1 ml-2 text-base text-text-primary font-raleway"
             placeholder={t('admin.search')}
-            placeholderTextColor="#999"
+            placeholderTextColor="#9E9E9E"
             value={search}
             onChangeText={setSearch}
             autoCapitalize="none"
@@ -155,7 +157,7 @@ export default function AdminUsersScreen() {
             </Pressable>
           )}
         </View>
-        <Text className="text-xs text-gray-400 mt-1.5">
+        <Text className="text-xs text-text-secondary mt-1.5 font-raleway">
           {filteredUsers.length} {t('admin.users').toLowerCase()}
         </Text>
       </View>
@@ -171,23 +173,23 @@ export default function AdminUsersScreen() {
         renderItem={({ item }) => {
           const isSelf = item.id === currentUser?.id;
           return (
-            <View className="bg-white rounded-xl p-4 shadow-sm">
+            <View className="bg-white rounded-xl p-4" style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 }}>
               <View className="flex-row items-center justify-between">
                 <View className="flex-1 mr-3">
-                  <Text className="text-base font-bold text-gray-900">
+                  <Text className="text-base font-raleway-bold text-text-primary">
                     {item.displayName}
                     {isSelf && (
-                      <Text className="text-sm text-gray-400"> (you)</Text>
+                      <Text className="text-sm text-text-disabled font-raleway"> (you)</Text>
                     )}
                   </Text>
-                  <Text className="text-sm text-gray-500 mt-0.5">@{item.username}</Text>
-                  <Text className="text-xs text-gray-400 mt-0.5">{item.email}</Text>
+                  <Text className="text-sm text-text-secondary mt-0.5 font-raleway">@{item.username}</Text>
+                  <Text className="text-xs text-text-disabled mt-0.5 font-raleway">{item.email}</Text>
                 </View>
                 <View
                   style={{ backgroundColor: `${roleColor(item.role)}15` }}
                   className="rounded-full px-3 py-1"
                 >
-                  <Text style={{ color: roleColor(item.role) }} className="text-xs font-bold">
+                  <Text style={{ color: roleColor(item.role) }} className="text-xs font-raleway-bold">
                     {roleLabel(item.role)}
                   </Text>
                 </View>
@@ -216,8 +218,10 @@ export default function AdminUsersScreen() {
         }}
         ListEmptyComponent={
           <View className="items-center py-12">
-            <Ionicons name="people-outline" size={48} color="#ccc" />
-            <Text className="text-gray-400 mt-3">{t('admin.userList')}</Text>
+            <View className="w-20 h-20 rounded-full bg-gray-100 items-center justify-center mb-md">
+              <Ionicons name="people-outline" size={36} color="#BDBDBD" />
+            </View>
+            <Text className="text-text-secondary mt-3 font-raleway-medium">{t('admin.userList')}</Text>
           </View>
         }
       />
@@ -234,10 +238,10 @@ export default function AdminUsersScreen() {
           onPress={() => setEditingUser(null)}
         >
           <Pressable className="bg-white rounded-2xl mx-6 p-5 w-[85%] max-w-[360px]" onPress={() => {}}>
-            <Text className="text-lg font-bold text-gray-900 mb-1">
+            <Text className="text-lg font-raleway-bold text-text-primary mb-1">
               {t('admin.changeRole')}
             </Text>
-            <Text className="text-sm text-gray-500 mb-4">
+            <Text className="text-sm text-text-secondary mb-4 font-raleway">
               {editingUser?.displayName} (@{editingUser?.username})
             </Text>
 
@@ -252,7 +256,7 @@ export default function AdminUsersScreen() {
                 }`}
               >
                 <Text
-                  className={`text-base ${editingUser?.role === role ? 'text-primary font-bold' : 'text-gray-700'}`}
+                  className={`text-base font-raleway ${editingUser?.role === role ? 'text-primary font-raleway-bold' : 'text-text-primary'}`}
                 >
                   {roleLabel(role)}
                 </Text>
@@ -266,7 +270,7 @@ export default function AdminUsersScreen() {
               onPress={() => setEditingUser(null)}
               className="mt-3 py-3 rounded-xl bg-gray-100 items-center"
             >
-              <Text className="text-gray-700 font-bold">{t('common.back')}</Text>
+              <Text className="text-text-primary font-raleway-bold">{t('common.back')}</Text>
             </Pressable>
           </Pressable>
         </Pressable>

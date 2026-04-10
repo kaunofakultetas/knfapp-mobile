@@ -157,7 +157,7 @@ export default function MessagesScreen() {
       {(socketStatus === 'reconnecting' || socketStatus === 'connecting') && (
         <View className="bg-amber-50 px-4 py-2 flex-row items-center justify-center border-b border-amber-200">
           <ActivityIndicator size="small" color="#d97706" />
-          <Text className="text-amber-700 text-xs ml-2 font-medium">
+          <Text className="text-amber-700 text-xs ml-2 font-raleway-medium">
             {t('messages.reconnecting', 'Jungiamasi...')}
           </Text>
         </View>
@@ -168,7 +168,7 @@ export default function MessagesScreen() {
           onPress={() => connectSocket()}
         >
           <Ionicons name="cloud-offline-outline" size={14} color="#dc2626" />
-          <Text className="text-red-700 text-xs ml-2 font-medium">
+          <Text className="text-red-700 text-xs ml-2 font-raleway-medium">
             {t('messages.disconnected', 'Atsijungta — bakstelėkite jungti iš naujo')}
           </Text>
         </Pressable>

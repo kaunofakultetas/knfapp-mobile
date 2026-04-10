@@ -26,7 +26,7 @@ export default function CachedBanner({ cachedAt }: { cachedAt: number }) {
   return (
     <View className="flex-row items-center justify-center bg-amber-100 px-3 py-1.5 gap-1.5">
       <Ionicons name="cloud-offline-outline" size={14} color="#92400e" />
-      <Text className="text-xs text-amber-800 font-medium">
+      <Text className="text-xs text-amber-800 font-raleway-medium">
         {t('network.cachedData')} · {t('network.cachedAgo', { time: timeStr })}
       </Text>
     </View>

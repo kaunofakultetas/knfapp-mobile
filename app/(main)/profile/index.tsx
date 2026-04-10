@@ -142,30 +142,30 @@ export default function ProfileScreen() {
   };
 
   const friendButtonStyle = () => {
-    if (!profile) return 'bg-[#7B003F]';
+    if (!profile) return 'bg-primary';
     switch (profile.friendshipStatus) {
       case 'friends':
         return 'bg-gray-200';
       case 'request_sent':
         return 'bg-gray-300';
       case 'request_received':
-        return 'bg-green-600';
+        return 'bg-success';
       default:
-        return 'bg-[#7B003F]';
+        return 'bg-primary';
     }
   };
 
   const friendTextStyle = () => {
     if (!profile) return 'text-white';
     if (profile.friendshipStatus === 'friends' || profile.friendshipStatus === 'request_sent') {
-      return 'text-gray-700';
+      return 'text-text-primary';
     }
     return 'text-white';
   };
 
   if (loading) {
     return (
-      <View className="flex-1 items-center justify-center bg-white">
+      <View className="flex-1 items-center justify-center bg-background-secondary">
         <ActivityIndicator size="large" color="#7B003F" />
       </View>
     );
@@ -173,8 +173,8 @@ export default function ProfileScreen() {
 
   if (!profile) {
     return (
-      <View className="flex-1 items-center justify-center bg-white">
-        <Text className="text-gray-500">{t('profile.notFound')}</Text>
+      <View className="flex-1 items-center justify-center bg-background-secondary">
+        <Text className="text-text-secondary font-raleway">{t('profile.notFound')}</Text>
       </View>
     );
   }
@@ -200,8 +200,8 @@ export default function ProfileScreen() {
                   className="w-20 h-20 rounded-full"
                 />
               ) : (
-                <View className="w-20 h-20 rounded-full bg-[#7B003F] items-center justify-center">
-                  <Text className="text-3xl text-white font-bold">
+                <View className="w-20 h-20 rounded-full bg-primary items-center justify-center">
+                  <Text className="text-3xl text-white font-raleway-bold">
                     {profile.displayName.charAt(0).toUpperCase()}
                   </Text>
                 </View>
@@ -217,23 +217,23 @@ export default function ProfileScreen() {
               )}
             </Pressable>
 
-            <Text className="text-xl font-bold text-gray-900">
+            <Text className="text-xl font-raleway-bold text-text-primary">
               {profile.displayName}
             </Text>
-            <Text className="text-sm text-[#7B003F] font-medium">
+            <Text className="text-sm text-primary font-raleway-medium">
               {roleLabel}
             </Text>
-            <Text className="text-xs text-gray-500 mt-1">
+            <Text className="text-xs text-text-secondary mt-1 font-raleway">
               @{profile.username}
             </Text>
 
             {/* Stats */}
             <View className="flex-row mt-5 mb-4">
               <View className="items-center px-6">
-                <Text className="text-lg font-bold text-gray-900">
+                <Text className="text-lg font-raleway-bold text-text-primary">
                   {profile.postCount}
                 </Text>
-                <Text className="text-xs text-gray-500">
+                <Text className="text-xs text-text-secondary font-raleway">
                   {t('profile.posts')}
                 </Text>
               </View>
@@ -246,10 +246,10 @@ export default function ProfileScreen() {
                   }
                 }}
               >
-                <Text className="text-lg font-bold text-gray-900">
+                <Text className="text-lg font-raleway-bold text-text-primary">
                   {profile.friendCount}
                 </Text>
-                <Text className="text-xs text-gray-500">
+                <Text className="text-xs text-text-secondary font-raleway">
                   {t('profile.friends')}
                 </Text>
               </Pressable>
@@ -266,7 +266,7 @@ export default function ProfileScreen() {
                   {actionLoading ? (
                     <ActivityIndicator size="small" color="#7B003F" />
                   ) : (
-                    <Text className={`font-semibold ${friendTextStyle()}`}>
+                    <Text className={`font-raleway-bold ${friendTextStyle()}`}>
                       {friendButtonLabel()}
                     </Text>
                   )}
@@ -289,7 +289,7 @@ export default function ProfileScreen() {
             {/* Posts header */}
             {(posts?.total ?? 0) > 0 && (
               <View className="w-full border-t border-gray-100 pt-3 mt-1">
-                <Text className="text-sm font-semibold text-gray-700">
+                <Text className="text-sm font-raleway-bold text-text-secondary">
                   {t('profile.recentPosts')}
                 </Text>
               </View>
@@ -307,21 +307,21 @@ export default function ProfileScreen() {
             }
           >
             {item.title && (
-              <Text className="font-semibold text-gray-900 mb-1" numberOfLines={1}>
+              <Text className="font-raleway-bold text-text-primary mb-1" numberOfLines={1}>
                 {decodeHtmlEntities(item.title)}
               </Text>
             )}
-            <Text className="text-sm text-gray-600" numberOfLines={3}>
+            <Text className="text-sm text-text-secondary font-raleway" numberOfLines={3}>
               {item.content || item.summary}
             </Text>
             <View className="flex-row mt-2 gap-4">
               <View className="flex-row items-center gap-1">
-                <Ionicons name="heart-outline" size={14} color="#999" />
-                <Text className="text-xs text-gray-500">{item.likes}</Text>
+                <Ionicons name="heart-outline" size={14} color="#757575" />
+                <Text className="text-xs text-text-secondary font-raleway">{item.likes}</Text>
               </View>
               <View className="flex-row items-center gap-1">
-                <Ionicons name="chatbubble-outline" size={14} color="#999" />
-                <Text className="text-xs text-gray-500">{item.comments}</Text>
+                <Ionicons name="chatbubble-outline" size={14} color="#757575" />
+                <Text className="text-xs text-text-secondary font-raleway">{item.comments}</Text>
               </View>
             </View>
           </Pressable>
@@ -329,7 +329,7 @@ export default function ProfileScreen() {
         ListEmptyComponent={
           !loading ? (
             <View className="items-center py-8">
-              <Text className="text-gray-400">{t('profile.noPosts')}</Text>
+              <Text className="text-text-disabled font-raleway">{t('profile.noPosts')}</Text>
             </View>
           ) : null
         }

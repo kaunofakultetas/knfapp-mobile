@@ -53,9 +53,11 @@ export default function FriendsScreen() {
 
   if (!isAuthenticated) {
     return (
-      <View className="flex-1 items-center justify-center bg-white px-6">
-        <Ionicons name="people-outline" size={48} color="#ccc" />
-        <Text className="text-gray-500 mt-3 text-center">
+      <View className="flex-1 items-center justify-center bg-background-secondary px-6">
+        <View className="w-20 h-20 rounded-full bg-primary/10 items-center justify-center mb-md">
+          <Ionicons name="people-outline" size={36} color="#7B003F" />
+        </View>
+        <Text className="text-text-secondary mt-3 text-center font-raleway-medium">
           {t('friends.loginRequired')}
         </Text>
       </View>
@@ -64,23 +66,23 @@ export default function FriendsScreen() {
 
   if (loading) {
     return (
-      <View className="flex-1 items-center justify-center bg-white">
+      <View className="flex-1 items-center justify-center bg-background-secondary">
         <ActivityIndicator size="large" color="#7B003F" />
       </View>
     );
   }
 
   return (
-    <View className="flex-1 bg-white">
+    <View className="flex-1 bg-background-secondary">
       {/* Pending requests banner */}
       {pendingCount > 0 && (
         <Pressable
-          className="mx-4 mt-4 p-4 bg-[#7B003F] rounded-xl flex-row items-center justify-between"
+          className="mx-4 mt-4 p-4 bg-primary rounded-xl flex-row items-center justify-between"
           onPress={() => router.push('/(main)/friend-requests')}
         >
           <View className="flex-row items-center gap-3">
             <Ionicons name="person-add" size={20} color="white" />
-            <Text className="text-white font-semibold">
+            <Text className="text-white font-raleway-bold">
               {t('friends.pendingRequests', { count: pendingCount })}
             </Text>
           </View>
@@ -102,16 +104,16 @@ export default function FriendsScreen() {
               })
             }
           >
-            <View className="w-12 h-12 rounded-full bg-[#7B003F] items-center justify-center">
-              <Text className="text-lg text-white font-bold">
+            <View className="w-12 h-12 rounded-full bg-primary items-center justify-center">
+              <Text className="text-lg text-white font-raleway-bold">
                 {item.displayName.charAt(0).toUpperCase()}
               </Text>
             </View>
             <View className="ml-3 flex-1">
-              <Text className="font-semibold text-gray-900">
+              <Text className="font-raleway-bold text-text-primary">
                 {item.displayName}
               </Text>
-              <Text className="text-xs text-gray-500">@{item.username}</Text>
+              <Text className="text-xs text-text-secondary font-raleway">@{item.username}</Text>
             </View>
             <Pressable
               className="px-3 py-1.5 rounded-lg bg-gray-100"
@@ -128,11 +130,13 @@ export default function FriendsScreen() {
         )}
         ListEmptyComponent={
           <View className="items-center py-16">
-            <Ionicons name="people-outline" size={48} color="#ddd" />
-            <Text className="text-gray-400 mt-3">
+            <View className="w-20 h-20 rounded-full bg-gray-100 items-center justify-center mb-md">
+              <Ionicons name="people-outline" size={36} color="#BDBDBD" />
+            </View>
+            <Text className="text-text-secondary mt-3 font-raleway-medium">
               {t('friends.empty')}
             </Text>
-            <Text className="text-gray-400 text-xs mt-1 text-center px-8">
+            <Text className="text-text-secondary text-xs mt-1 text-center px-8 font-raleway">
               {t('friends.emptyHint')}
             </Text>
           </View>

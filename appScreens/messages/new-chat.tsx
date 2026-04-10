@@ -93,11 +93,11 @@ export default function NewChatScreen() {
         {t('newChat.title')}
       </Text>
 
-      <Text className="text-gray-800 mb-xs">
+      <Text className="text-text-primary mb-xs font-raleway-medium">
         {t('newChat.searchUsers') || 'Search users'}
       </Text>
       <TextInput
-        className="border border-gray-300 rounded-md px-md py-sm mb-sm"
+        className="border border-border-light rounded-md px-md py-sm mb-sm font-raleway"
         placeholder={t('newChat.searchPlaceholder') || 'Type a name...'}
         value={searchQuery}
         onChangeText={setSearchQuery}
@@ -112,8 +112,8 @@ export default function NewChatScreen() {
               onPress={() => toggleUser(u.id)}
               className="bg-primary/10 rounded-full px-3 py-1 mr-2 mb-1 flex-row items-center"
             >
-              <Text className="text-primary text-sm">{u.displayName}</Text>
-              <Text className="text-primary ml-1">×</Text>
+              <Text className="text-primary text-sm font-raleway">{u.displayName}</Text>
+              <Text className="text-primary ml-1 font-raleway">×</Text>
             </Pressable>
           ))}
         </View>
@@ -137,8 +137,8 @@ export default function NewChatScreen() {
               }`}
             />
             <View>
-              <Text className="text-base">{item.displayName}</Text>
-              <Text className="text-xs text-gray-500">@{item.username}</Text>
+              <Text className="text-base font-raleway-medium text-text-primary">{item.displayName}</Text>
+              <Text className="text-xs text-text-secondary font-raleway">@{item.username}</Text>
             </View>
           </Pressable>
         )}
@@ -146,18 +146,18 @@ export default function NewChatScreen() {
         style={{ maxHeight: 220 }}
         ListEmptyComponent={
           searchQuery.length >= 1 && !searching ? (
-            <Text className="text-gray-500 text-center py-4">
+            <Text className="text-text-secondary text-center py-4 font-raleway">
               {t('newChat.noResults') || 'No users found'}
             </Text>
           ) : null
         }
       />
 
-      <Text className="text-gray-800 mt-md mb-xs">
+      <Text className="text-text-primary mt-md mb-xs font-raleway-medium">
         {t('newChat.groupName') || 'Group name (optional)'}
       </Text>
       <TextInput
-        className="border border-gray-300 rounded-md px-md py-sm"
+        className="border border-border-light rounded-md px-md py-sm font-raleway"
         placeholder={t('newChat.namePlaceholder')}
         value={name}
         onChangeText={setName}
@@ -174,7 +174,7 @@ export default function NewChatScreen() {
         {creating ? (
           <ActivityIndicator size="small" color="#fff" />
         ) : (
-          <Text className="text-white text-center">{t('newChat.create')}</Text>
+          <Text className="text-white text-center font-raleway-bold">{t('newChat.create')}</Text>
         )}
       </Pressable>
     </View>

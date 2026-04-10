@@ -78,7 +78,7 @@ export default function QrScanner({ visible, onClose, onCodeScanned }: QrScanner
           <Pressable onPress={handleClose} hitSlop={16}>
             <Ionicons name="close" size={28} color="white" />
           </Pressable>
-          <Text className="text-white text-lg font-bold">{t('register.scanQr')}</Text>
+          <Text className="text-white text-lg font-raleway-bold">{t('register.scanQr')}</Text>
           <View style={{ width: 28 }} />
         </View>
 
@@ -89,10 +89,10 @@ export default function QrScanner({ visible, onClose, onCodeScanned }: QrScanner
               {t('register.cameraPermission')}
             </Text>
             <Pressable
-              className="bg-[#7B003F] px-8 py-3 rounded-full"
+              className="bg-primary px-8 py-3 rounded-full"
               onPress={requestPermission}
             >
-              <Text className="text-white font-bold text-base">
+              <Text className="text-white font-raleway-bold text-base">
                 {t('register.cameraPermissionButton')}
               </Text>
             </Pressable>

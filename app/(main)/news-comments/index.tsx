@@ -64,20 +64,20 @@ export default function NewsCommentsScreen() {
           keyExtractor={(i) => i.id}
           renderItem={({ item }) => (
             <View className="flex-row items-start mb-md">
-              <View className="w-10 h-10 rounded-full bg-gray-300 mr-md items-center justify-center">
-                <Text className="text-gray-600 font-bold">
+              <View className="w-10 h-10 rounded-full bg-primary/10 mr-md items-center justify-center">
+                <Text className="text-primary font-raleway-bold">
                   {(item.userName || '?')[0].toUpperCase()}
                 </Text>
               </View>
-              <View className="flex-1 bg-gray-100 rounded-md p-sm">
-                <Text className="text-xs text-primary font-bold mb-0.5">{decodeHtmlEntities(item.userName)}</Text>
-                <Text className="text-sm text-gray-800">{decodeHtmlEntities(item.text)}</Text>
-                <Text className="text-xs text-gray-500 mt-1">{item.time}</Text>
+              <View className="flex-1 bg-background-secondary rounded-lg p-sm">
+                <Text className="text-xs text-primary font-raleway-bold mb-0.5">{decodeHtmlEntities(item.userName)}</Text>
+                <Text className="text-sm text-text-primary font-raleway">{decodeHtmlEntities(item.text)}</Text>
+                <Text className="text-xs text-text-secondary font-raleway mt-1">{item.time}</Text>
               </View>
             </View>
           )}
           ListEmptyComponent={
-            <Text className="text-center text-gray-600 mt-lg">
+            <Text className="text-center text-text-secondary mt-lg font-raleway">
               {t('newsPost.noComments', 'Dar nėra komentarų')}
             </Text>
           }
@@ -86,8 +86,9 @@ export default function NewsCommentsScreen() {
       {isAuthenticated ? (
         <View className="flex-row items-center p-lg border-t border-gray-200">
           <TextInput
-            className="flex-1 border border-gray-300 rounded-md px-sm py-xs mr-sm"
+            className="flex-1 border border-border-light rounded-lg px-sm py-xs mr-sm font-raleway"
             placeholder={t('newsPost.inputPlaceholder', 'Įrašykite komentarą...')}
+            placeholderTextColor="#9E9E9E"
             value={newComment}
             onChangeText={setNewComment}
             maxLength={300}
@@ -106,7 +107,7 @@ export default function NewsCommentsScreen() {
         </View>
       ) : (
         <View className="p-lg border-t border-gray-200">
-          <Text className="text-gray-400 text-sm text-center italic">
+          <Text className="text-text-disabled text-sm text-center italic font-raleway">
             {t('newsPost.loginToComment', 'Prisijunkite, kad galėtumėte komentuoti')}
           </Text>
         </View>

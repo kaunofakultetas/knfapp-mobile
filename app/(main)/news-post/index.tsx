@@ -134,8 +134,9 @@ export default function NewsPostScreen() {
         {isAuthenticated ? (
           <View className="flex-row items-center mt-sm">
             <TextInput
-              className="flex-1 border border-gray-300 rounded-md px-sm py-xs mr-sm"
+              className="flex-1 border border-border-light rounded-lg px-sm py-xs mr-sm font-raleway"
               placeholder={t('newsPost.inputPlaceholder')}
+              placeholderTextColor="#9E9E9E"
               value={newComment}
               onChangeText={setNewComment}
               maxLength={300}
@@ -153,7 +154,7 @@ export default function NewsPostScreen() {
             </Pressable>
           </View>
         ) : (
-          <Text className="text-gray-400 text-sm mt-sm italic">
+          <Text className="text-text-disabled text-sm mt-sm italic font-raleway">
             {t('newsPost.loginToComment')}
           </Text>
         )}

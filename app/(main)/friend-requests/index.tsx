@@ -75,14 +75,14 @@ export default function FriendRequestsScreen() {
 
   if (loading) {
     return (
-      <View className="flex-1 items-center justify-center bg-white">
+      <View className="flex-1 items-center justify-center bg-background-secondary">
         <ActivityIndicator size="large" color="#7B003F" />
       </View>
     );
   }
 
   return (
-    <View className="flex-1 bg-white">
+    <View className="flex-1 bg-background-secondary">
       <FlatList
         data={requests}
         keyExtractor={(item) => item.id}
@@ -100,16 +100,16 @@ export default function FriendRequestsScreen() {
                   })
                 }
               >
-                <View className="w-12 h-12 rounded-full bg-[#7B003F] items-center justify-center">
-                  <Text className="text-lg text-white font-bold">
+                <View className="w-12 h-12 rounded-full bg-primary items-center justify-center">
+                  <Text className="text-lg text-white font-raleway-bold">
                     {item.displayName.charAt(0).toUpperCase()}
                   </Text>
                 </View>
                 <View className="ml-3 flex-1">
-                  <Text className="font-semibold text-gray-900">
+                  <Text className="font-raleway-bold text-text-primary">
                     {item.displayName}
                   </Text>
-                  <Text className="text-xs text-gray-500">
+                  <Text className="text-xs text-text-secondary font-raleway">
                     @{item.username}
                   </Text>
                 </View>
@@ -117,14 +117,14 @@ export default function FriendRequestsScreen() {
 
               <View className="flex-row gap-2">
                 <Pressable
-                  className="px-4 py-2 rounded-xl bg-[#7B003F]"
+                  className="px-4 py-2 rounded-xl bg-primary"
                   onPress={() => handleAccept(item.id)}
                   disabled={isProcessing}
                 >
                   {isProcessing ? (
                     <ActivityIndicator size="small" color="white" />
                   ) : (
-                    <Text className="text-white font-semibold text-sm">
+                    <Text className="text-white font-raleway-bold text-sm">
                       {t('friendRequests.accept')}
                     </Text>
                   )}
@@ -134,7 +134,7 @@ export default function FriendRequestsScreen() {
                   onPress={() => handleReject(item.id)}
                   disabled={isProcessing}
                 >
-                  <Text className="text-gray-700 font-semibold text-sm">
+                  <Text className="text-text-primary font-raleway-bold text-sm">
                     {t('friendRequests.reject')}
                   </Text>
                 </Pressable>
@@ -144,8 +144,10 @@ export default function FriendRequestsScreen() {
         }}
         ListEmptyComponent={
           <View className="items-center py-16">
-            <Ionicons name="checkmark-circle-outline" size={48} color="#ddd" />
-            <Text className="text-gray-400 mt-3">
+            <View className="w-20 h-20 rounded-full bg-gray-100 items-center justify-center mb-md">
+              <Ionicons name="checkmark-circle-outline" size={36} color="#BDBDBD" />
+            </View>
+            <Text className="text-text-secondary mt-3 font-raleway-medium">
               {t('friendRequests.empty')}
             </Text>
           </View>

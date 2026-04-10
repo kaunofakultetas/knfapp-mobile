@@ -150,8 +150,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     dispatch({ type: 'LOGOUT' });
   };
 
-  const setUser = (user: User) => {
+  const setUser = async (user: User) => {
     dispatch({ type: 'SET_USER', payload: user });
+    // Persist updated user data so student fields survive restarts
+    try {
+      const raw = await AsyncStorage.getItem('auth');
+      if (raw) {
+        const auth = JSON.parse(raw);
+        auth.user = user;
+        await AsyncStorage.setItem('auth', JSON.stringify(auth));
+      }
+    } catch {
+      // ignore persistence errors
+    }
   };
 
   const value: AuthContextType = {

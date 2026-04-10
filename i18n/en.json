@@ -154,7 +154,19 @@
     "title": "Student ID",
     "studentFallback": "Student",
     "loginRequired": "Log in to see your ID",
-    "loginHint": "Your student card with QR code will appear here"
+    "loginHint": "Your student card with QR code will appear here",
+    "studentNumber": "Student No.",
+    "studyGroup": "Group",
+    "studyProgram": "Study program",
+    "edit": "Edit",
+    "save": "Save",
+    "cancel": "Cancel",
+    "noNumber": "Not set",
+    "noGroup": "Not set",
+    "noProgram": "Not set",
+    "saved": "Card updated",
+    "faculty": "Kaunas Faculty",
+    "university": "Vilnius University"
   },
   "chat": {
     "title": "Chat",

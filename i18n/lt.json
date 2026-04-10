@@ -155,7 +155,19 @@
     "title": "Studento ID",
     "studentFallback": "Studentas",
     "loginRequired": "Prisijunkite, kad matytumėte savo ID",
-    "loginHint": "Jūsų studento kortelė su QR kodu bus rodoma čia"
+    "loginHint": "Jūsų studento kortelė su QR kodu bus rodoma čia",
+    "studentNumber": "Studento nr.",
+    "studyGroup": "Grupė",
+    "studyProgram": "Studijų programa",
+    "edit": "Redaguoti",
+    "save": "Išsaugoti",
+    "cancel": "Atšaukti",
+    "noNumber": "Nenurodyta",
+    "noGroup": "Nenurodyta",
+    "noProgram": "Nenurodyta",
+    "saved": "Kortelė atnaujinta",
+    "faculty": "Kauno fakultetas",
+    "university": "Vilniaus universitetas"
   },
   "settings": {
     "title": "Nustatymai",

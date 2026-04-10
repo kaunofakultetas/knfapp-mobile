@@ -106,6 +106,9 @@ export interface User {
   avatarUrl?: string;
   role: 'student' | 'teacher' | 'admin' | 'curator';
   invited?: boolean;
+  studentNumber?: string | null;
+  studyGroup?: string | null;
+  studyProgram?: string | null;
 }
 
 // Auth Types

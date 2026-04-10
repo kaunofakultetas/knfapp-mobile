@@ -498,6 +498,9 @@ export async function fetchUserProfile(userId: string): Promise<UserProfile> {
 export async function updateProfile(params: {
   display_name?: string;
   avatar_url?: string;
+  student_number?: string | null;
+  study_group?: string | null;
+  study_program?: string | null;
 }): Promise<User> {
   try {
     const { data } = await api.put<User>(API_ENDPOINTS.socialProfileUpdate, params);

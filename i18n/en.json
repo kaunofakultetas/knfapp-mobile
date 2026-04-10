@@ -134,6 +134,7 @@
     "searchMessages": "Search messages...",
     "searchResults": "Found: {{count}}",
     "noSearchResults": "No results found",
+    "filterAll": "All",
     "sourceKnf": "KNF",
     "sourceVu": "VU",
     "sourceFaculty": "Faculty",

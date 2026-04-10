@@ -90,6 +90,19 @@ export default function NewsScreen() {
   const feedModeRef = useRef(feedMode);
   feedModeRef.current = feedMode;
 
+  // ── Source filter (only active in 'all' mode) ──────────────────────────
+  type SourceFilter = '' | 'knf.vu.lt' | 'vu.lt' | 'faculty' | 'user';
+  const SOURCE_FILTERS: { key: SourceFilter; labelKey: string }[] = [
+    { key: '', labelKey: 'news.filterAll' },
+    { key: 'knf.vu.lt', labelKey: 'news.sourceKnf' },
+    { key: 'vu.lt', labelKey: 'news.sourceVu' },
+    { key: 'faculty', labelKey: 'news.sourceFaculty' },
+    { key: 'user', labelKey: 'news.sourceUser' },
+  ];
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>('');
+  const sourceFilterRef = useRef(sourceFilter);
+  sourceFilterRef.current = sourceFilter;
+
   // ── State: posts from API (or fallback mock) ──────────────────────────────
   const [posts, setPosts] = useState<NewsPost[]>([]);
   const [loading, setLoading] = useState(true);
@@ -123,14 +136,15 @@ export default function NewsScreen() {
   }, []);
 
   const loadPosts = useCallback(
-    async (pageNum = 1, append = false, mode?: FeedMode) => {
+    async (pageNum = 1, append = false, mode?: FeedMode, source?: SourceFilter) => {
       const currentMode = mode ?? feedModeRef.current;
+      const currentSource = source ?? sourceFilterRef.current;
       try {
         let resp: NewsFeedResponse | SocialFeedResponse;
         if (currentMode === 'community') {
           resp = await fetchSocialFeed(pageNum, 20);
         } else {
-          resp = await fetchNewsFeed(pageNum, 20);
+          resp = await fetchNewsFeed(pageNum, 20, currentSource || undefined);
         }
         applyPosts(resp.posts, append);
         setPage(pageNum);
@@ -167,15 +181,25 @@ export default function NewsScreen() {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      await loadPosts(1, false, feedMode);
+      await loadPosts(1, false, feedMode, sourceFilter);
       setLoading(false);
     })();
-  }, [feedMode]);
+  }, [feedMode, sourceFilter]);
 
   const switchFeedMode = useCallback((mode: FeedMode) => {
     if (mode === feedModeRef.current) return;
     setFeedMode(mode);
+    setSourceFilter('');
     // Scroll to top on mode switch
+    const sv = scrollViewRef.current?.getNode?.() ?? scrollViewRef.current;
+    sv?.scrollTo?.({ y: 0, animated: false });
+    try { scrollY.setValue(0); } catch {}
+  }, [scrollY]);
+
+  const switchSourceFilter = useCallback((source: SourceFilter) => {
+    if (source === sourceFilterRef.current) return;
+    setSourceFilter(source);
+    // Scroll to top on filter switch
     const sv = scrollViewRef.current?.getNode?.() ?? scrollViewRef.current;
     sv?.scrollTo?.({ y: 0, animated: false });
     try { scrollY.setValue(0); } catch {}
@@ -287,6 +311,32 @@ export default function NewsScreen() {
             </Pressable>
           </View>
         </View>
+        {/* Source filter chips — only in 'all' mode */}
+        {feedMode === 'all' && (
+          <View className="bg-white border-b border-gray-100 px-md py-2">
+            <View className="flex-row flex-wrap gap-2">
+              {SOURCE_FILTERS.map((sf) => (
+                <Pressable
+                  key={sf.key}
+                  className={`px-3 py-1.5 rounded-full border ${
+                    sourceFilter === sf.key
+                      ? 'bg-primary border-primary'
+                      : 'bg-gray-50 border-gray-200'
+                  }`}
+                  onPress={() => switchSourceFilter(sf.key)}
+                >
+                  <Text
+                    className={`text-xs font-raleway-bold ${
+                      sourceFilter === sf.key ? 'text-white' : 'text-text-secondary'
+                    }`}
+                  >
+                    {t(sf.labelKey)}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        )}
       </Animated.View>
       <Animated.ScrollView
         className="w-full bg-background-secondary"

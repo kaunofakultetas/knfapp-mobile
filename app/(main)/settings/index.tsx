@@ -2,9 +2,13 @@ import { Button } from '@/components/ui';
 import Header from '@/components/ui/Header';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
+import {
+  registerForPushNotifications,
+  unregisterPushNotifications,
+} from '@/services/notifications';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React from 'react';
+import React, { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert, Pressable, Switch, Text, View } from 'react-native';
 
@@ -13,6 +17,19 @@ export default function SettingsScreen() {
   const { isAuthenticated, user, logout } = useAuth();
   const { t } = useTranslation();
   const router = useRouter();
+
+  const handleToggleNotifications = useCallback(() => {
+    if (notifications) {
+      // Turning OFF -- unregister token from backend
+      unregisterPushNotifications().catch(() => {});
+    } else {
+      // Turning ON -- register token with backend
+      if (isAuthenticated) {
+        registerForPushNotifications().catch(() => {});
+      }
+    }
+    toggleNotifications();
+  }, [notifications, isAuthenticated, toggleNotifications]);
 
   const handleLogout = () => {
     Alert.alert(
@@ -60,13 +77,16 @@ export default function SettingsScreen() {
         <Text className="text-xs font-raleway-bold text-text-secondary uppercase tracking-widest mb-2 mt-md">{t('settings.preferences', 'Nustatymai')}</Text>
         <View className="bg-white rounded-xl overflow-hidden" style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 }}>
           <View className="flex-row items-center justify-between px-4 py-3.5 border-b border-gray-100">
-            <View className="flex-row items-center gap-2.5">
+            <View className="flex-1 flex-row items-center gap-2.5">
               <Ionicons name="notifications-outline" size={20} color="#7B003F" />
-              <Text className="text-base font-raleway">{t('settings.notifications')}</Text>
+              <View className="flex-1">
+                <Text className="text-base font-raleway">{t('settings.notifications')}</Text>
+                <Text className="text-xs text-text-secondary font-raleway mt-0.5">{t('settings.pushNotificationsDesc')}</Text>
+              </View>
             </View>
             <Switch
               value={notifications}
-              onValueChange={toggleNotifications}
+              onValueChange={handleToggleNotifications}
               trackColor={{ false: '#E0E0E0', true: '#C4607F' }}
               thumbColor={notifications ? '#7B003F' : '#FAFAFA'}
             />

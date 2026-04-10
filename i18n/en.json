@@ -202,6 +202,8 @@
     "loggedInAs": "Logged in as {{name}}",
     "login": "Log in",
     "logout": "Log out",
+    "pushNotifications": "Push notifications",
+    "pushNotificationsDesc": "Get notified about new messages and news",
     "guestMessage": "Log in for chat, student ID, and more"
   },
   "profile": {

@@ -181,6 +181,8 @@
     "loggedInAs": "Prisijungta kaip {{name}}",
     "login": "Prisijungti",
     "logout": "Atsijungti",
+    "pushNotifications": "Tiesioginiai prane\u0161imai",
+    "pushNotificationsDesc": "Gaukite prane\u0161imus apie naujas \u017einutes ir naujienas",
     "guestMessage": "Prisijunkite, kad galėtumėte naudotis pokalbiais, studento ID ir kt."
   },
   "chat": {

@@ -866,6 +866,31 @@ export async function fetchFacultyInfo(lang: string = 'lt'): Promise<FacultyInfo
   }
 }
 
+// ── Push Notifications API ──────────────────────────────────────────────────
+
+export async function registerPushToken(
+  token: string,
+  platform: 'ios' | 'android' | 'web' | 'unknown' = 'unknown',
+): Promise<{ registered: boolean; tokenId: string }> {
+  try {
+    const { data } = await api.post<{ registered: boolean; tokenId: string }>(
+      API_ENDPOINTS.notificationsRegister,
+      { token, platform },
+    );
+    return data;
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+export async function unregisterPushToken(token: string): Promise<void> {
+  try {
+    await api.delete(API_ENDPOINTS.notificationsRegister, { data: { token } });
+  } catch {
+    // Best-effort — don't throw if server rejects
+  }
+}
+
 // ── Health ───────────────────────────────────────────────────────────────────
 
 export async function checkHealth(): Promise<boolean> {

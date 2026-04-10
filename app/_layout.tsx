@@ -1,7 +1,8 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import React, { useEffect, useRef } from 'react';
 import { ErrorBoundary } from 'react-error-boundary';
 import 'react-native-gesture-handler';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -15,12 +16,47 @@ import { AppProvider, useApp } from '@/context/AppContext';
 import { AuthProvider } from '@/context/AuthContext';
 import { NetworkProvider } from '@/context/NetworkContext';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import {
+  getNotificationData,
+  setupNotificationChannel,
+} from '@/services/notifications';
+import * as Notifications from 'expo-notifications';
 import { useTranslation } from 'react-i18next';
 
 function AppNavigation() {
   const { theme } = useApp();
   const navTheme = theme === 'dark' ? DarkTheme : DefaultTheme;
   const { t } = useTranslation();
+  const router = useRouter();
+  const responseListenerRef = useRef<ReturnType<typeof Notifications.addNotificationResponseReceivedListener> | null>(null);
+
+  // Set up notification channel and response listener
+  useEffect(() => {
+    setupNotificationChannel();
+
+    // Handle notification taps (user tapped a notification)
+    responseListenerRef.current = Notifications.addNotificationResponseReceivedListener(
+      (response) => {
+        const data = getNotificationData(response.notification);
+        if (!data) return;
+
+        if (data.type === 'chat_message' && data.conversationId) {
+          router.push({
+            pathname: '/(main)/chat-room',
+            params: { conversationId: data.conversationId, title: '' },
+          });
+        } else if (data.type === 'news' || data.type === 'admin_announcement') {
+          // Navigate to news tab
+          router.push('/(main)/tabs/news');
+        }
+      },
+    );
+
+    return () => {
+      responseListenerRef.current?.remove();
+    };
+  }, [router]);
+
   return (
     <ThemeProvider value={navTheme}>
       <Stack>

@@ -13,5 +13,5 @@ ENV EXPO_NO_TELEMETRY=1 \
 
 
 
-EXPOSE 8081 8083 19000 19001 19002
+EXPOSE 8081
 CMD ["sh", "-c", "npm install && npx expo start --port 8081 --host lan"]

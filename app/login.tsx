@@ -22,21 +22,21 @@ function WelcomePage({}: WelcomePageProps) {
   };
 
   return (
-    <View className="flex-1 justify-center items-center bg-primary">
-      <View className="flex-1 pt-[50px]">
+    <View className="flex-1 justify-between items-center bg-primary px-lg" style={{ paddingTop: 48, paddingBottom: 40 }}>
+      <View className="items-center" style={{ marginTop: 20 }}>
         <LogoKnF
-          width={200}
-          height={300}
+          width={180}
+          height={260}
           className="self-center"
         />
       </View>
 
-      <View className="absolute bottom-0 left-0 right-0 justify-center items-center mb-[15%] px-lg">
-        <Text className="text-white font-raleway-bold text-2xl">
+      <View className="items-center w-full">
+        <Text className="text-white font-raleway-bold text-2xl text-center">
           {t('login.welcomeTitle')}
         </Text>
 
-        <Text className="text-gray-300 text-base mt-lg text-center leading-base font-raleway">
+        <Text className="text-gray-300 text-base mt-md text-center leading-base font-raleway">
           {t('login.subtitle')}
         </Text>
 
@@ -45,7 +45,7 @@ function WelcomePage({}: WelcomePageProps) {
           variant="outline"
           size="lg"
           fullWidth
-          className="bg-white border-white shadow-lg mt-2xl rounded-full"
+          className="bg-white border-white shadow-lg mt-xl rounded-full"
           textClassName="text-primary font-raleway-bold"
           onPress={async () => {
             await AsyncStorage.setItem('onboarded', '1');

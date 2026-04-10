@@ -235,11 +235,11 @@ export default function ScheduleScreen() {
                 <View className="flex-1 p-4">
                   <View className="flex-row justify-between items-start">
                     <View className="flex-1 mr-3">
-                      <Text className="text-base font-raleway-bold text-text-primary">{item.title}</Text>
-                      <Text className="text-sm text-text-secondary font-raleway mt-1">{item.teacher}</Text>
+                      <Text className="text-base font-raleway-bold text-text-primary" numberOfLines={2}>{item.title}</Text>
+                      <Text className="text-sm text-text-secondary font-raleway mt-1" numberOfLines={1}>{item.teacher}</Text>
                     </View>
-                    <View className="bg-primary/10 rounded-lg px-3 py-1.5">
-                      <Text className="text-primary font-raleway-bold text-xs">{item.room}</Text>
+                    <View className="bg-primary/10 rounded-lg px-3 py-1.5" style={{ maxWidth: 120 }}>
+                      <Text className="text-primary font-raleway-bold text-xs" numberOfLines={1}>{item.room}</Text>
                     </View>
                   </View>
                   <View className="flex-row justify-between items-center mt-3 pt-3 border-t border-gray-100">

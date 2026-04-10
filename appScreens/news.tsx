@@ -26,7 +26,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // ── Source badge ─────────────────────────────────────────────────────────────
 
-function SourceBadge({ source }: { source?: string }) {
+function SourceBadge({ source, inline }: { source?: string; inline?: boolean }) {
   const { t } = useTranslation();
   if (!source) return null;
   const labelKeys: Record<string, string> = {
@@ -38,7 +38,7 @@ function SourceBadge({ source }: { source?: string }) {
   };
   const label = labelKeys[source] ? t(labelKeys[source]) : source;
   return (
-    <View className="absolute top-2.5 right-2.5 bg-primary/85 px-2.5 py-1 rounded-md">
+    <View className={`${inline ? '' : 'absolute top-2.5 right-2.5 '}bg-primary/85 px-2.5 py-1 rounded-md`}>
       <Text className="text-white text-xs font-raleway-bold">{label}</Text>
     </View>
   );
@@ -341,15 +341,12 @@ export default function NewsScreen() {
                         <Image className="w-full aspect-video" source={{ uri: getUploadUrl(post.imageUrl) }} resizeMode="cover" />
                         <SourceBadge source={post.source} />
                       </View>
-                    ) : (
-                      <View className="px-md pt-md">
-                        <SourceBadge source={post.source} />
-                      </View>
-                    )}
-                    <View className="px-md pt-3">
+                    ) : null}
+                    <View className="px-md pt-3 flex-row items-center justify-between">
                       <Text className="text-xs text-primary font-raleway-semibold uppercase tracking-wide">{formatDate(post.date)}</Text>
+                      {!post.imageUrl && post.source ? <SourceBadge source={post.source} inline /> : null}
                     </View>
-                    <Text className="px-md pt-1.5 text-lg font-raleway-bold text-text-primary leading-6">{decodeHtmlEntities(post.title)}</Text>
+                    <Text className="px-md pt-1.5 text-lg font-raleway-bold text-text-primary leading-6" numberOfLines={3}>{decodeHtmlEntities(post.title)}</Text>
                     {post.author ? (
                       <Pressable
                         onPress={(e) => {
@@ -370,7 +367,7 @@ export default function NewsScreen() {
                       if (snippet && post.postType !== 'poll') {
                         const truncated = snippet.length > 150 ? snippet.slice(0, 150).trimEnd() + '...' : snippet;
                         return (
-                          <Text className="px-md pt-2 text-sm text-text-secondary font-raleway leading-5" numberOfLines={3}>
+                          <Text className="px-md pt-2.5 text-sm text-text-secondary font-raleway leading-5" numberOfLines={3}>
                             {decodeHtmlEntities(truncated)}
                           </Text>
                         );
@@ -378,7 +375,7 @@ export default function NewsScreen() {
                       return null;
                     })()}
                     {post.postType === 'poll' && <PollWidget postId={post.id} />}
-                    <View className="flex-row items-center justify-between px-md py-3 mt-2 border-t border-gray-100">
+                    <View className="flex-row items-center justify-between px-md py-3 mt-3 border-t border-gray-100">
                       <Pressable
                         className="flex-row items-center gap-1.5"
                         onPress={() => toggleLike(post)}

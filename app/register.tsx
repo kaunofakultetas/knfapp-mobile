@@ -149,20 +149,21 @@ export default function RegisterScreen() {
             contentContainerClassName="flex-grow justify-center px-lg py-xl"
             keyboardShouldPersistTaps="handled"
           >
-            <Text className="text-3xl mb-md text-white font-raleway-bold text-center">
+            <Text className="text-3xl mb-sm text-white font-raleway-bold text-center">
               {t('register.title')}
             </Text>
-            <Text className="text-gray-300 text-center mb-lg font-raleway">
+            <Text className="text-white/70 text-center mb-md font-raleway text-base leading-6">
               {t('register.subtitle')}
             </Text>
-            <Text className="text-gray-400 text-center mb-xl font-raleway text-xs">
+            <Text className="text-white/50 text-center mb-xl font-raleway text-xs leading-4">
               {t('register.guestHint')}
             </Text>
 
             {/* QR Scanner Button */}
             <Pressable
               onPress={() => setScannerVisible(true)}
-              className="bg-white/20 border border-white/40 rounded-xl py-4 px-5 mb-md flex-row items-center justify-center"
+              className="bg-white/15 border border-white/30 rounded-xl py-4 px-5 mb-lg flex-row items-center justify-center"
+              style={({ pressed }) => [pressed && { opacity: 0.8 }]}
             >
               <Ionicons name="qr-code" size={22} color="white" />
               <Text className="text-white font-raleway-bold text-base ml-3">
@@ -170,7 +171,7 @@ export default function RegisterScreen() {
               </Text>
             </Pressable>
 
-            <Text className="text-gray-400 text-center mb-md font-raleway text-sm">
+            <Text className="text-white/40 text-center mb-lg font-raleway text-sm">
               {t('register.orEnterManually')}
             </Text>
 

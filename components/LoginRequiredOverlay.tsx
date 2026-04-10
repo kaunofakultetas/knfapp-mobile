@@ -54,18 +54,21 @@ export default function LoginRequiredOverlay({
     <View className="flex-1 bg-background-secondary">
       <Header title={headerTitle} />
       <View className="flex-1 items-center justify-center px-lg">
-        <View className="w-24 h-24 rounded-full bg-primary/10 items-center justify-center mb-lg">
+        <View className="w-24 h-24 rounded-full bg-primary/10 items-center justify-center mb-lg" style={{ shadowColor: '#7B003F', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 8 }}>
           <Ionicons name={ionIconName} size={44} color="#7B003F" />
         </View>
-        <Text className="text-xl font-raleway-bold text-text-primary mb-sm text-center">
+        <Text className="text-xl font-raleway-bold text-text-primary mb-sm text-center leading-7">
           {message}
         </Text>
-        <Text className="text-sm text-text-secondary mb-xl text-center font-raleway leading-5 px-lg">
+        <Text className="text-base text-text-secondary mb-xl text-center font-raleway leading-6 px-lg">
           {hint}
         </Text>
         <Pressable
-          className="bg-primary py-4 rounded-xl w-full max-w-[220px] items-center"
-          style={({ pressed }) => [pressed && { opacity: 0.85 }]}
+          className="bg-primary py-4 rounded-xl w-full max-w-[240px] items-center"
+          style={({ pressed }) => [
+            { shadowColor: '#7B003F', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.2, shadowRadius: 6, elevation: 3 },
+            pressed && { opacity: 0.85 },
+          ]}
           onPress={() => router.push('/login')}
         >
           <Text className="text-white font-raleway-bold text-base">{t('settings.login')}</Text>

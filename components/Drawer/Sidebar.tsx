@@ -44,11 +44,11 @@ export default function Sidebar({ visible, onClose }: { visible: boolean; onClos
             <Text className="text-white text-2xl font-raleway-bold mt-1">{t('menu.title')}</Text>
             <Text className="text-white/60 font-raleway text-sm mt-1">{t('menu.subtitle')}</Text>
           </View>
-          <View className="p-md pt-lg">
+          <View className="px-lg pt-lg pb-md">
             {ALL_ITEMS.map((it) => (
               <Pressable
                 key={it.key}
-                className="flex-row items-center justify-between py-3.5 border-b border-gray-50"
+                className="flex-row items-center justify-between py-3.5 border-b border-gray-100"
                 onPress={() => go(it.route)}
                 hitSlop={8}
                 accessibilityRole="button"

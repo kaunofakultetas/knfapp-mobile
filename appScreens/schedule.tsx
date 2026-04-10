@@ -236,15 +236,15 @@ export default function ScheduleScreen() {
                 <View className="flex-1 p-4">
                   <View className="flex-row justify-between items-start">
                     <View className="flex-1 mr-3">
-                      <Text className="text-base font-raleway-bold text-text-primary" numberOfLines={2}>{decodeHtmlEntities(item.title)}</Text>
-                      <Text className="text-sm text-text-secondary font-raleway mt-1" numberOfLines={1}>{item.teacher}</Text>
+                      <Text className="text-base font-raleway-bold text-text-primary leading-6" numberOfLines={2}>{decodeHtmlEntities(item.title)}</Text>
+                      <Text className="text-sm text-text-secondary font-raleway mt-1.5" numberOfLines={1}>{item.teacher}</Text>
                     </View>
-                    <View className="bg-primary/10 rounded-lg px-3 py-1.5" style={{ maxWidth: 120 }}>
+                    <View className="bg-primary/10 rounded-lg px-3.5 py-2" style={{ maxWidth: 130 }}>
                       <Text className="text-primary font-raleway-bold text-xs" numberOfLines={1}>{item.room}</Text>
                     </View>
                   </View>
-                  <View className="flex-row justify-between items-center mt-3 pt-3 border-t border-gray-100">
-                    <View className="flex-row items-center gap-1.5">
+                  <View className="flex-row justify-between items-center mt-3.5 pt-3 border-t border-gray-100">
+                    <View className="flex-row items-center gap-2">
                       <Ionicons name="time-outline" size={14} color="#7B003F" />
                       <Text className="text-sm text-primary font-raleway-bold">
                         {item.timeStart} {'\u2013'} {item.timeEnd}

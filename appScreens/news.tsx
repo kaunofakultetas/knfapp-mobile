@@ -325,8 +325,10 @@ export default function NewsScreen() {
           </View>
         ) : posts.length === 0 ? (
           <View className="items-center justify-center py-20 px-lg">
-            <Ionicons name="newspaper-outline" size={48} color="#BDBDBD" />
-            <Text className="text-text-secondary text-lg mt-md font-raleway-medium text-center">{t('news.empty', 'Naujienų nėra')}</Text>
+            <View className="w-20 h-20 rounded-full bg-gray-100 items-center justify-center mb-md">
+              <Ionicons name="newspaper-outline" size={36} color="#BDBDBD" />
+            </View>
+            <Text className="text-text-secondary text-lg mt-sm font-raleway-medium text-center">{t('news.empty', 'Naujienų nėra')}</Text>
           </View>
         ) : (
           <>
@@ -342,11 +344,11 @@ export default function NewsScreen() {
                         <SourceBadge source={post.source} />
                       </View>
                     ) : null}
-                    <View className="px-md pt-3 flex-row items-center justify-between">
-                      <Text className="text-xs text-primary font-raleway-semibold uppercase tracking-wide">{formatDate(post.date)}</Text>
+                    <View className="px-lg pt-3.5 flex-row items-center justify-between">
+                      <Text className="text-xs text-primary font-raleway-semibold tracking-wide">{formatDate(post.date)}</Text>
                       {!post.imageUrl && post.source ? <SourceBadge source={post.source} inline /> : null}
                     </View>
-                    <Text className="px-md pt-1.5 text-lg font-raleway-bold text-text-primary leading-6" numberOfLines={3}>{decodeHtmlEntities(post.title)}</Text>
+                    <Text className="px-lg pt-2 text-lg font-raleway-bold text-text-primary leading-6" numberOfLines={3}>{decodeHtmlEntities(post.title)}</Text>
                     {post.author ? (
                       <Pressable
                         onPress={(e) => {
@@ -357,7 +359,7 @@ export default function NewsScreen() {
                         }}
                         disabled={!post.authorId || post.source === 'knf.vu.lt' || post.source === 'vu.lt'}
                       >
-                        <Text className={`px-md pt-1 text-sm font-raleway ${post.authorId && post.source !== 'knf.vu.lt' && post.source !== 'vu.lt' ? 'text-primary font-raleway-medium' : 'text-text-secondary'}`}>
+                        <Text className={`px-lg pt-1 text-sm font-raleway ${post.authorId && post.source !== 'knf.vu.lt' && post.source !== 'vu.lt' ? 'text-primary font-raleway-medium' : 'text-text-secondary'}`}>
                           {decodeHtmlEntities(post.author!)}
                         </Text>
                       </Pressable>
@@ -367,7 +369,7 @@ export default function NewsScreen() {
                       if (snippet && post.postType !== 'poll') {
                         const truncated = snippet.length > 150 ? snippet.slice(0, 150).trimEnd() + '...' : snippet;
                         return (
-                          <Text className="px-md pt-2.5 text-sm text-text-secondary font-raleway leading-5" numberOfLines={3}>
+                          <Text className="px-lg pt-2.5 pb-1 text-sm text-text-secondary font-raleway leading-5" numberOfLines={3}>
                             {decodeHtmlEntities(truncated)}
                           </Text>
                         );
@@ -375,9 +377,9 @@ export default function NewsScreen() {
                       return null;
                     })()}
                     {post.postType === 'poll' && <PollWidget postId={post.id} />}
-                    <View className="flex-row items-center justify-between px-md py-3 mt-3 border-t border-gray-100">
+                    <View className="flex-row items-center justify-between px-lg py-3.5 mt-2 border-t border-gray-100">
                       <Pressable
-                        className="flex-row items-center gap-1.5"
+                        className="flex-row items-center gap-2"
                         onPress={() => toggleLike(post)}
                         hitSlop={8}
                       >
@@ -389,7 +391,7 @@ export default function NewsScreen() {
                         <Text className={`text-sm font-raleway-medium ${isLiked ? 'text-accent' : 'text-text-secondary'}`}>{likeCount}</Text>
                       </Pressable>
                       <Pressable
-                        className="flex-row items-center gap-1.5"
+                        className="flex-row items-center gap-2"
                         onPress={() =>
                           router.push(`/(main)/news-comments?postId=${post.id}`)
                         }
@@ -399,7 +401,7 @@ export default function NewsScreen() {
                         <Text className="text-sm text-text-secondary font-raleway-medium">{post.comments}</Text>
                       </Pressable>
                       <Pressable
-                        className="flex-row items-center gap-1.5"
+                        className="flex-row items-center gap-2"
                         onPress={() => onShare(post)}
                         hitSlop={8}
                       >

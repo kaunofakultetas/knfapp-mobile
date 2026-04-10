@@ -56,7 +56,7 @@ export default function MainTabsLayout() {
             ios: { position: 'absolute', backgroundColor: '#FFFFFF', borderTopColor: '#E0E0E0', borderTopWidth: 0.5, height: 60 },
             default: { backgroundColor: '#FFFFFF', borderTopColor: '#E0E0E0', borderTopWidth: 0.5, height: 60 },
           }),
-          tabBarLabelStyle: { marginBottom: 6, fontFamily: 'Raleway-Medium', fontSize: 11 },
+          tabBarLabelStyle: { marginBottom: 6, fontFamily: 'Raleway-Medium', fontSize: 12 },
           animation: 'shift',
         };
       }}

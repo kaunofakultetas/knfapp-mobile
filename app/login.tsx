@@ -143,8 +143,8 @@ function LoginPage({}: LoginPageProps) {
           labelClassName="text-sm font-raleway-medium text-white/90 mb-xs"
         />
         <Pressable onPress={() => showToast('info', t('login.forgotPassword'), t('login.ssoComingSoon'))}
-          className="self-end mb-md">
-          <Text className="text-white">{t('login.forgotPassword')}</Text>
+          className="self-end mb-lg">
+          <Text className="text-white/70 text-sm font-raleway">{t('login.forgotPassword')}</Text>
         </Pressable>
 
         <Button

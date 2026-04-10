@@ -1,3 +1,4 @@
+import { decodeHtmlEntities } from '@/services/htmlDecode';
 import type { Conversation } from '@/types';
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
@@ -53,7 +54,7 @@ export default function ConversationRow({
           <View className="flex-1 mr-3">
             <Text className="text-text-primary text-base font-raleway-bold" numberOfLines={1}>{item.title}</Text>
             <Text className="text-text-secondary text-sm font-raleway mt-1" numberOfLines={1}>
-              {lastMessage?.text ? lastMessage.text : t('messages.tapToStart')}
+              {lastMessage?.text ? decodeHtmlEntities(lastMessage.text) : t('messages.tapToStart')}
             </Text>
             {item.type === 'group' && (
               <Text className="text-xs text-text-secondary font-raleway mt-0.5">{t('messages.members', { count: item.participants.length })}</Text>

@@ -365,6 +365,18 @@ export default function NewsScreen() {
                         </Text>
                       </Pressable>
                     ) : null}
+                    {(() => {
+                      const snippet = post.summary || post.content;
+                      if (snippet && post.postType !== 'poll') {
+                        const truncated = snippet.length > 150 ? snippet.slice(0, 150).trimEnd() + '...' : snippet;
+                        return (
+                          <Text className="px-md pt-2 text-sm text-text-secondary font-raleway leading-5" numberOfLines={3}>
+                            {decodeHtmlEntities(truncated)}
+                          </Text>
+                        );
+                      }
+                      return null;
+                    })()}
                     {post.postType === 'poll' && <PollWidget postId={post.id} />}
                     <View className="flex-row items-center justify-between px-md py-3 mt-2 border-t border-gray-100">
                       <Pressable

@@ -3,6 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 // Keeps presentation concerns decoupled from data flow.
 import React from 'react';
 import { Image, Pressable, Text, TouchableOpacity, View } from 'react-native';
+import { decodeHtmlEntities } from '@/services/htmlDecode';
 import type { ChatUIMessage } from './types';
 
 export default function MessageBubble({
@@ -45,7 +46,7 @@ export default function MessageBubble({
       ) : (
         <View>
           <Text className={`text-base font-raleway ${item.isOwn ? 'text-white' : 'text-text-primary'}`}>
-            {item.text} {item.liked ? '❤️' : ''}
+            {decodeHtmlEntities(item.text)} {item.liked ? '❤️' : ''}
           </Text>
           {!!item.reactions?.length && (
             <Pressable onPress={onPressReactions} className={`self-${item.isOwn ? 'end' : 'start'} mt-1 bg-white/90 px-1.5 py-0.5 rounded-full border border-gray-200 flex-row items-center`}>

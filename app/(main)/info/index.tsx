@@ -11,6 +11,7 @@ import {
   type InfoProgram,
 } from '@/services/api';
 import { cacheGet, cacheKeyInfo, cacheSet, INFO_CACHE_MAX_AGE } from '@/services/cache';
+import { decodeHtmlEntities } from '@/services/htmlDecode';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -173,13 +174,13 @@ function FaqSection({ faq }: { faq: InfoFaq[] }) {
           onPress={() => toggle(idx)}
         >
           <View className="flex-row items-center justify-between">
-            <Text className="text-base font-raleway-bold text-text-primary flex-1 pr-2">{item.q}</Text>
+            <Text className="text-base font-raleway-bold text-text-primary flex-1 pr-2">{decodeHtmlEntities(item.q)}</Text>
             <View className="w-7 h-7 rounded-full bg-gray-100 items-center justify-center">
               <Ionicons name={expanded.has(idx) ? 'chevron-up' : 'chevron-down'} size={16} color="#757575" />
             </View>
           </View>
           {expanded.has(idx) && (
-            <Text className="text-sm text-text-secondary font-raleway mt-3 pt-3 border-t border-gray-100 leading-5">{item.a}</Text>
+            <Text className="text-sm text-text-secondary font-raleway mt-3 pt-3 border-t border-gray-100 leading-5">{decodeHtmlEntities(item.a)}</Text>
           )}
         </Pressable>
       ))}

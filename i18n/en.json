@@ -166,7 +166,10 @@
     "noProgram": "Not set",
     "saved": "Card updated",
     "faculty": "Kaunas Faculty",
-    "university": "Vilnius University"
+    "university": "Vilnius University",
+    "changePhoto": "Change photo",
+    "photoUpdated": "Photo updated",
+    "photoError": "Failed to upload photo"
   },
   "chat": {
     "title": "Chat",

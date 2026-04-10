@@ -167,7 +167,10 @@
     "noProgram": "Nenurodyta",
     "saved": "Kortelė atnaujinta",
     "faculty": "Kauno fakultetas",
-    "university": "Vilniaus universitetas"
+    "university": "Vilniaus universitetas",
+    "changePhoto": "Keisti nuotrauk\u0105",
+    "photoUpdated": "Nuotrauka atnaujinta",
+    "photoError": "Nepavyko \u012fkelti nuotraukos"
   },
   "settings": {
     "title": "Nustatymai",

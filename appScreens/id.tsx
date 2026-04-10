@@ -1,10 +1,11 @@
 import Header from '@/components/ui/Header';
 import { useAuth } from '@/context/AuthContext';
 import { showToast } from '@/context/NetworkContext';
-import { updateProfile } from '@/services/api';
+import { getUploadUrl, updateProfile, uploadImageApi } from '@/services/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -35,6 +36,7 @@ export default function StudentIdTab() {
 
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [avatarUploading, setAvatarUploading] = useState(false);
   const [editNumber, setEditNumber] = useState('');
   const [editGroup, setEditGroup] = useState('');
   const [editProgram, setEditProgram] = useState('');
@@ -85,6 +87,31 @@ export default function StudentIdTab() {
       setSaving(false);
     }
   }, [user, editNumber, editGroup, editProgram, setUser, t]);
+
+  const handlePhotoUpload = useCallback(async () => {
+    if (!user) return;
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+      if (result.canceled || !result.assets[0]) return;
+
+      setAvatarUploading(true);
+      const asset = result.assets[0];
+      const upload = await uploadImageApi(asset.uri, asset.fileName ?? undefined, asset.mimeType ?? undefined);
+      const fullUrl = getUploadUrl(upload.url);
+      await updateProfile({ avatar_url: fullUrl });
+      setUser({ ...user, avatarUrl: fullUrl });
+      showToast('success', t('id.photoUpdated'));
+    } catch {
+      showToast('error', t('id.photoError'));
+    } finally {
+      setAvatarUploading(false);
+    }
+  }, [user, setUser, t]);
 
   if (!isAuthenticated || !user) {
     return (
@@ -186,16 +213,27 @@ export default function StudentIdTab() {
 
           {/* Photo + name row */}
           <View className="flex-row items-center px-5 pt-5 pb-3">
-            {user.avatarUrl ? (
-              <Image
-                source={{ uri: user.avatarUrl }}
-                className="w-16 h-16 rounded-full bg-gray-200"
-              />
-            ) : (
-              <View className="w-16 h-16 rounded-full bg-primary/10 items-center justify-center">
-                <Ionicons name="person" size={28} color="#7B003F" />
+            <Pressable onPress={handlePhotoUpload} disabled={avatarUploading}>
+              {user.avatarUrl ? (
+                <Image
+                  source={{ uri: getUploadUrl(user.avatarUrl) }}
+                  className="w-16 h-16 rounded-full bg-gray-200"
+                />
+              ) : (
+                <View className="w-16 h-16 rounded-full bg-primary/10 items-center justify-center">
+                  <Ionicons name="person" size={28} color="#7B003F" />
+                </View>
+              )}
+              <View className="absolute bottom-0 right-0 w-6 h-6 rounded-full bg-white items-center justify-center border border-gray-200"
+                style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: 2 }}
+              >
+                {avatarUploading ? (
+                  <ActivityIndicator size="small" color="#7B003F" />
+                ) : (
+                  <Ionicons name="camera" size={13} color="#7B003F" />
+                )}
               </View>
-            )}
+            </Pressable>
             <View className="flex-1 ml-4">
               <Text className="text-lg font-raleway-bold text-text-primary" numberOfLines={1}>
                 {user.displayName}

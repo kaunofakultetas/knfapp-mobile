@@ -152,7 +152,10 @@
     "allGroups": "All groups",
     "allSemesters": "All semesters",
     "clearFilters": "Clear",
-    "applyFilters": "Done"
+    "applyFilters": "Done",
+    "conflict": "Overlap",
+    "conflictBanner_one": "{{count}} lesson has a time overlap",
+    "conflictBanner_other": "{{count}} lessons have time overlaps"
   },
   "id": {
     "title": "Student ID",

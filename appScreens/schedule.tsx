@@ -4,6 +4,7 @@ import Header from '@/components/ui/Header';
 import { fetchSchedule, fetchScheduleFilters, ScheduleLesson, ScheduleResponse } from '@/services/api';
 import { cacheGet, cacheKeySchedule, cacheSet, SCHEDULE_CACHE_MAX_AGE } from '@/services/cache';
 import { useNetworkRestore } from '@/hooks/useNetworkRestore';
+import { useScheduleConflicts } from './schedule/useScheduleConflicts';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -52,6 +53,9 @@ export default function ScheduleScreen() {
   const [filterModalVisible, setFilterModalVisible] = useState(false);
   const [filtersLoaded, setFiltersLoaded] = useState(false);
   const [cachedAt, setCachedAt] = useState<number | null>(null);
+
+  // Detect time conflicts among displayed lessons
+  const conflictIds = useScheduleConflicts(lessons);
 
   // Load persisted preferences on mount
   useEffect(() => {
@@ -215,6 +219,17 @@ export default function ScheduleScreen() {
       </View>
 
       {cachedAt && <CachedBanner cachedAt={cachedAt} />}
+      {!loading && conflictIds.size > 0 && (
+        <View className="mx-4 mt-3 flex-row items-center bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+          <Ionicons name="alert-circle" size={16} color="#dc2626" />
+          <Text className="text-xs text-red-700 font-raleway-medium ml-2 flex-1">
+            {t('schedule.conflictBanner', {
+              count: conflictIds.size,
+              defaultValue: '{{count}} pamokos persidengia laiku',
+            })}
+          </Text>
+        </View>
+      )}
       {loading ? (
         <View className="flex-1 items-center justify-center">
           <ActivityIndicator size="large" color="#7B003F" />
@@ -242,33 +257,44 @@ export default function ScheduleScreen() {
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#7B003F" colors={['#7B003F']} />
           }
           ItemSeparatorComponent={() => <View className="h-3" />}
-          renderItem={({ item }) => (
-            <View className="bg-white rounded-xl overflow-hidden" style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2 }}>
-              <View className="flex-row">
-                <View className="w-1 bg-primary rounded-l-xl" />
-                <View className="flex-1 p-4">
-                  <View className="flex-row justify-between items-start">
-                    <View className="flex-1 mr-3">
-                      <Text className="text-base font-raleway-bold text-text-primary leading-6" numberOfLines={2}>{decodeHtmlEntities(item.title)}</Text>
-                      <Text className="text-sm text-text-secondary font-raleway mt-1.5" numberOfLines={1}>{item.teacher}</Text>
+          renderItem={({ item }) => {
+            const hasConflict = conflictIds.has(item.id);
+            return (
+              <View className={`rounded-xl overflow-hidden ${hasConflict ? 'bg-red-50' : 'bg-white'}`} style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2 }}>
+                <View className="flex-row">
+                  <View className={`w-1 rounded-l-xl ${hasConflict ? 'bg-red-500' : 'bg-primary'}`} />
+                  <View className="flex-1 p-4">
+                    {hasConflict && (
+                      <View className="flex-row items-center mb-2 bg-red-100 rounded-lg px-2.5 py-1.5 self-start">
+                        <Ionicons name="alert-circle" size={14} color="#dc2626" />
+                        <Text className="text-xs text-red-700 font-raleway-bold ml-1.5">
+                          {t('schedule.conflict', 'Persidengimas')}
+                        </Text>
+                      </View>
+                    )}
+                    <View className="flex-row justify-between items-start">
+                      <View className="flex-1 mr-3">
+                        <Text className="text-base font-raleway-bold text-text-primary leading-6" numberOfLines={2}>{decodeHtmlEntities(item.title)}</Text>
+                        <Text className="text-sm text-text-secondary font-raleway mt-1.5" numberOfLines={1}>{item.teacher}</Text>
+                      </View>
+                      <View className="bg-primary/10 rounded-lg px-3.5 py-2" style={{ maxWidth: 130 }}>
+                        <Text className="text-primary font-raleway-bold text-xs" numberOfLines={1}>{item.room}</Text>
+                      </View>
                     </View>
-                    <View className="bg-primary/10 rounded-lg px-3.5 py-2" style={{ maxWidth: 130 }}>
-                      <Text className="text-primary font-raleway-bold text-xs" numberOfLines={1}>{item.room}</Text>
+                    <View className={`flex-row justify-between items-center mt-3.5 pt-3 border-t ${hasConflict ? 'border-red-200' : 'border-gray-100'}`}>
+                      <View className="flex-row items-center gap-2">
+                        <Ionicons name="time-outline" size={14} color={hasConflict ? '#dc2626' : '#7B003F'} />
+                        <Text className={`text-sm font-raleway-bold ${hasConflict ? 'text-red-600' : 'text-primary'}`}>
+                          {item.timeStart} {'\u2013'} {item.timeEnd}
+                        </Text>
+                      </View>
+                      <Text className="text-xs text-text-secondary font-raleway">{item.group} {'\u00B7'} {item.semester}</Text>
                     </View>
-                  </View>
-                  <View className="flex-row justify-between items-center mt-3.5 pt-3 border-t border-gray-100">
-                    <View className="flex-row items-center gap-2">
-                      <Ionicons name="time-outline" size={14} color="#7B003F" />
-                      <Text className="text-sm text-primary font-raleway-bold">
-                        {item.timeStart} {'\u2013'} {item.timeEnd}
-                      </Text>
-                    </View>
-                    <Text className="text-xs text-text-secondary font-raleway">{item.group} {'\u00B7'} {item.semester}</Text>
                   </View>
                 </View>
               </View>
-            </View>
-          )}
+            );
+          }}
         />
       )}
 

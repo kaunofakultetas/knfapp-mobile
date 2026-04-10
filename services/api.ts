@@ -471,6 +471,18 @@ export async function searchMessagesApi(
   }
 }
 
+export async function fetchOnlineStatus(userIds: string[]): Promise<Record<string, boolean>> {
+  try {
+    const { data } = await api.post<{ online: Record<string, boolean> }>(
+      API_ENDPOINTS.chatOnlineStatus,
+      { userIds },
+    );
+    return data.online;
+  } catch {
+    return {};
+  }
+}
+
 export async function searchUsersApi(q: string): Promise<{ users: SearchUserResult[] }> {
   try {
     const { data } = await api.get<{ users: SearchUserResult[] }>(API_ENDPOINTS.chatUserSearch, {

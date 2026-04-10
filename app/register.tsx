@@ -5,7 +5,7 @@ import { showToast } from '@/context/NetworkContext';
 import { validateInvitationCode } from '@/services/api';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ActivityIndicator,
@@ -31,6 +31,17 @@ interface FormData {
 
 type FormErrors = Partial<Record<keyof FormData, string>>;
 
+/** Map backend role to i18n key */
+function roleDisplayKey(role: string): string {
+  const map: Record<string, string> = {
+    student: 'admin.roleStudent',
+    teacher: 'admin.roleTeacher',
+    curator: 'admin.roleCurator',
+    admin: 'admin.roleAdmin',
+  };
+  return map[role] || 'admin.roleStudent';
+}
+
 export default function RegisterScreen() {
   const router = useRouter();
   const { register, loading } = useAuth();
@@ -49,13 +60,56 @@ export default function RegisterScreen() {
   const [codeValidation, setCodeValidation] = useState<{
     valid?: boolean;
     role?: string;
+    remainingUses?: number;
     checking?: boolean;
+    error?: string;
   }>({});
+
+  // Debounced validation for manual code entry
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const validateCode = useCallback(async (code: string) => {
+    const trimmed = code.trim();
+    if (!trimmed || trimmed.length < 4) {
+      setCodeValidation({});
+      return;
+    }
+
+    setCodeValidation({ checking: true });
+
+    try {
+      const result = await validateInvitationCode(trimmed);
+      setCodeValidation({
+        valid: result.valid,
+        role: result.role,
+        remainingUses: result.remainingUses,
+        error: result.valid ? undefined : result.error,
+      });
+      if (!result.valid) {
+        setErrors((prev) => ({
+          ...prev,
+          invitationCode: result.error || t('register.invalidCode'),
+        }));
+      } else {
+        // Clear any prior error on the invitation code field
+        setErrors((prev) => ({ ...prev, invitationCode: undefined }));
+      }
+    } catch {
+      setCodeValidation({});
+    }
+  }, [t]);
+
+  // Cleanup debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
 
   const validate = (): boolean => {
     const e: FormErrors = {};
 
-    // Invitation code is optional — if blank, user registers as guest
+    // Invitation code is optional -- if blank, user registers as guest
     if (!form.username.trim()) {
       e.username = t('register.errors.usernameRequired');
     } else if (form.username.length < 3) {
@@ -76,6 +130,10 @@ export default function RegisterScreen() {
     }
     if (form.password !== form.confirmPassword) {
       e.confirmPassword = t('register.errors.passwordMismatch');
+    }
+    // If user typed a code but it was validated as invalid, block submit
+    if (form.invitationCode.trim() && codeValidation.valid === false) {
+      e.invitationCode = codeValidation.error || t('register.invalidCode');
     }
 
     setErrors(e);
@@ -119,23 +177,44 @@ export default function RegisterScreen() {
     }
   };
 
+  const handleCodeChange = (value: string) => {
+    updateField('invitationCode', value);
+    setCodeValidation({});
+
+    // Debounce validation -- wait 600ms after user stops typing
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      validateCode(value);
+    }, 600);
+  };
+
   const handleCodeScanned = async (code: string) => {
     updateField('invitationCode', code);
     setCodeValidation({ checking: true });
 
     try {
       const result = await validateInvitationCode(code);
-      setCodeValidation({ valid: result.valid, role: result.role });
+      setCodeValidation({
+        valid: result.valid,
+        role: result.role,
+        remainingUses: result.remainingUses,
+        error: result.valid ? undefined : result.error,
+      });
       if (!result.valid) {
         setErrors((prev) => ({
           ...prev,
           invitationCode: result.error || t('register.invalidQr'),
         }));
+      } else {
+        setErrors((prev) => ({ ...prev, invitationCode: undefined }));
       }
     } catch {
       setCodeValidation({});
     }
   };
+
+  // Whether user will register as guest (no valid code)
+  const isGuestMode = !form.invitationCode.trim() || codeValidation.valid !== true;
 
   return (
     <KeyboardAvoidingView
@@ -175,16 +254,13 @@ export default function RegisterScreen() {
               {t('register.orEnterManually')}
             </Text>
 
-            {/* Invitation code field with validation indicator */}
+            {/* Invitation code field with real-time validation */}
             <View className="mb-md">
               <Input
                 label={t('register.invitationLabel')}
                 placeholder={t('register.invitationPlaceholder')}
                 value={form.invitationCode}
-                onChangeText={(v) => {
-                  updateField('invitationCode', v);
-                  setCodeValidation({});
-                }}
+                onChangeText={handleCodeChange}
                 error={errors.invitationCode}
                 autoCapitalize="characters"
                 autoCorrect={false}
@@ -194,17 +270,53 @@ export default function RegisterScreen() {
               {codeValidation.checking && (
                 <View className="flex-row items-center mt-1.5 ml-1">
                   <ActivityIndicator size="small" color="#4CAF50" />
-                  <Text className="text-white/70 text-xs ml-2 font-raleway">{t('register.checkingCode', 'Tikrinamas kodas...')}</Text>
+                  <Text className="text-white/70 text-xs ml-2 font-raleway">{t('register.checkingCode')}</Text>
                 </View>
               )}
-              {codeValidation.valid && codeValidation.role && (
+              {codeValidation.valid === true && codeValidation.role && (
+                <View className="bg-white/10 rounded-lg p-3 mt-2">
+                  <View className="flex-row items-center">
+                    <Ionicons name="checkmark-circle" size={18} color="#4CAF50" />
+                    <Text className="text-green-400 text-sm ml-2 font-raleway-bold">
+                      {t('register.codeValid')}
+                    </Text>
+                  </View>
+                  <View className="flex-row items-center mt-1.5 ml-6">
+                    <Ionicons name="shield-checkmark-outline" size={14} color="rgba(255,255,255,0.7)" />
+                    <Text className="text-white/70 text-xs ml-1.5 font-raleway">
+                      {t('register.codeRole', { role: t(roleDisplayKey(codeValidation.role)) })}
+                    </Text>
+                  </View>
+                  {codeValidation.remainingUses !== undefined && (
+                    <View className="flex-row items-center mt-1 ml-6">
+                      <Ionicons name="people-outline" size={14} color="rgba(255,255,255,0.7)" />
+                      <Text className="text-white/70 text-xs ml-1.5 font-raleway">
+                        {t('register.codeRemaining', { count: codeValidation.remainingUses })}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              )}
+              {codeValidation.valid === false && codeValidation.error && !errors.invitationCode && (
                 <View className="flex-row items-center mt-1.5 ml-1">
-                  <Ionicons name="checkmark-circle" size={16} color="#4CAF50" />
-                  <Text className="text-green-400 text-xs ml-1 font-raleway">
-                    {t('register.codeScanned', { code: form.invitationCode })}
+                  <Ionicons name="close-circle" size={16} color="#EF5350" />
+                  <Text className="text-red-400 text-xs ml-1 font-raleway">
+                    {codeValidation.error}
                   </Text>
                 </View>
               )}
+            </View>
+
+            {/* Guest/Invited mode indicator */}
+            <View className="flex-row items-center mb-md px-1">
+              <Ionicons
+                name={isGuestMode ? 'person-outline' : 'ribbon-outline'}
+                size={14}
+                color={isGuestMode ? 'rgba(255,255,255,0.5)' : '#4CAF50'}
+              />
+              <Text className={`text-xs ml-1.5 font-raleway ${isGuestMode ? 'text-white/50' : 'text-green-400'}`}>
+                {isGuestMode ? t('register.registeringAsGuest') : t('register.registeringAsInvited')}
+              </Text>
             </View>
 
             <Input

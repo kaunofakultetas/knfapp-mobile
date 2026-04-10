@@ -48,6 +48,7 @@ export const API_ENDPOINTS = {
   chatUnreadCount: "/chat/unread-count",
   chatUserSearch: "/chat/users/search",
   chatMessageSearch: (convId: string) => `/chat/conversations/${convId}/messages/search`,
+  chatOnlineStatus: "/chat/online-status",
 
   // Social
   socialFeed: "/social/feed",

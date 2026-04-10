@@ -1,4 +1,6 @@
+import CachedBanner from '@/components/CachedBanner';
 import Header from '@/components/ui/Header';
+import { useNetworkRestore } from '@/hooks/useNetworkRestore';
 import { useSocketStatus } from '@/hooks/useSocketStatus';
 import {
   deleteConversationApi,
@@ -6,6 +8,7 @@ import {
   togglePinApi,
 } from '@/services/api';
 import type { ApiConversation } from '@/services/api';
+import { cacheGet, cacheSet, CACHE_KEY_CONVERSATIONS, CONVERSATIONS_CACHE_MAX_AGE } from '@/services/cache';
 import { connectSocket, onNewMessage, type SocketMessage } from '@/services/socket';
 import type { Conversation } from '@/types';
 import { Ionicons } from '@expo/vector-icons';
@@ -63,13 +66,24 @@ export default function MessagesScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [conversations, setConversations] = useState<ApiConversation[]>([]);
+  const [cachedAt, setCachedAt] = useState<number | null>(null);
 
   const loadConversations = useCallback(async () => {
     try {
       const resp = await fetchConversations();
       setConversations(resp.conversations);
+      setCachedAt(null);
+      // Cache for offline use
+      cacheSet(CACHE_KEY_CONVERSATIONS, resp.conversations);
     } catch {
-      // API unavailable — keep current state
+      // API unavailable — try offline cache if no data shown yet
+      if (conversations.length === 0) {
+        const cached = await cacheGet<ApiConversation[]>(CACHE_KEY_CONVERSATIONS, CONVERSATIONS_CACHE_MAX_AGE);
+        if (cached) {
+          setConversations(cached.data);
+          setCachedAt(cached.cachedAt);
+        }
+      }
     } finally {
       setLoading(false);
     }
@@ -104,6 +118,9 @@ export default function MessagesScreen() {
     await loadConversations();
     setRefreshing(false);
   };
+
+  // Auto-refresh when network is restored after being offline
+  useNetworkRestore(loadConversations);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -173,6 +190,7 @@ export default function MessagesScreen() {
           </Text>
         </Pressable>
       )}
+      {cachedAt && <CachedBanner cachedAt={cachedAt} />}
       <View className="px-md py-md bg-white border-b border-gray-100">
         <View className="flex-row items-center">
           <View className="flex-1 flex-row items-center bg-gray-50 rounded-lg px-3 py-2">

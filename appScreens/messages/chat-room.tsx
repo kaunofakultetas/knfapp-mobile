@@ -49,6 +49,7 @@ export default function ChatRoomScreen() {
     openReactionsViewer,
     openImageViewer,
     reactionTargetId,
+    retryMessage,
   } = useChatRoom(conversationId as string);
 
   // Image viewer centering handled inside ImageViewerModal
@@ -92,6 +93,7 @@ export default function ChatRoomScreen() {
           onPressImage={(uri) => {
             openImageViewer(uri);
           }}
+          onRetry={retryMessage}
         />
         {/* Typing indicator */}
         {typingText && (

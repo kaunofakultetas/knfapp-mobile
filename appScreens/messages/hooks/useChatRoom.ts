@@ -33,6 +33,7 @@ export function useChatRoom(conversationId: string) {
     sendMessage: composer.sendMessage,
     sendThumbsUp: composer.sendThumbsUp,
     attachImage: composer.attachImage,
+    retryMessage: composer.retryMessage,
     openReactionPicker: reactions.openReactionPicker,
     applyReaction: reactions.applyReaction,
     clearReaction: reactions.clearReaction,

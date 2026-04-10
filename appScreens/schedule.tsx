@@ -3,9 +3,10 @@ import { decodeHtmlEntities } from '@/services/htmlDecode';
 import Header from '@/components/ui/Header';
 import { fetchSchedule, fetchScheduleFilters, ScheduleLesson, ScheduleResponse } from '@/services/api';
 import { cacheGet, cacheKeySchedule, cacheSet, SCHEDULE_CACHE_MAX_AGE } from '@/services/cache';
+import { useNetworkRestore } from '@/hooks/useNetworkRestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ActivityIndicator,
@@ -126,6 +127,18 @@ export default function ScheduleScreen() {
     await loadLessons(selectedDay, selectedGroup, selectedSemester);
     setRefreshing(false);
   }, [selectedDay, selectedGroup, selectedSemester, loadLessons]);
+
+  // Auto-refresh when network is restored -- use refs to avoid stale closures
+  const dayRef = useRef(selectedDay);
+  const groupRef = useRef(selectedGroup);
+  const semesterRef = useRef(selectedSemester);
+  dayRef.current = selectedDay;
+  groupRef.current = selectedGroup;
+  semesterRef.current = selectedSemester;
+
+  useNetworkRestore(useCallback(() => {
+    loadLessons(dayRef.current, groupRef.current, semesterRef.current);
+  }, [loadLessons]));
 
   const changeDay = (delta: number) => {
     setSelectedDay((prev) => {

@@ -11,6 +11,7 @@ import {
   type InfoProgram,
 } from '@/services/api';
 import { cacheGet, cacheKeyInfo, cacheSet, INFO_CACHE_MAX_AGE } from '@/services/cache';
+import { useNetworkRestore } from '@/hooks/useNetworkRestore';
 import { decodeHtmlEntities } from '@/services/htmlDecode';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -225,6 +226,9 @@ export default function InfoScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Auto-refresh when network is restored after being offline
+  useNetworkRestore(load);
 
   const onRefresh = () => {
     setRefreshing(true);

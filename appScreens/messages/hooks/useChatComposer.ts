@@ -1,11 +1,13 @@
 // Sends messages via the backend API with optimistic UI updates.
 // Emits typing indicators via Socket.IO.
-import { useCallback, useRef, useState } from 'react';
+// Supports retry for failed messages and auto-retry on network restore.
+import { useCallback, useEffect, useRef, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import type { ChatUIMessage } from '../components/types';
 import { sendMessageApi, uploadImageApi, getUploadUrl } from '@/services/api';
 import { emitTyping, emitStopTyping } from '@/services/socket';
 import { showToast } from '@/context/NetworkContext';
+import { useNetworkRestore } from '@/hooks/useNetworkRestore';
 
 export function useChatComposer(
   conversationId: string,
@@ -120,6 +122,58 @@ export function useChatComposer(
     }
   };
 
+  // Auto-retry failed messages when network is restored
+  const retryMessageRef = useRef<((msg: ChatUIMessage) => Promise<void>) | null>(null);
+  useNetworkRestore(useCallback(() => {
+    // Get current messages via the updater pattern and retry failed ones
+    setMessages((prev) => {
+      const failed = prev.filter((m) => m.isOwn && m.status === 'failed');
+      if (failed.length > 0 && retryMessageRef.current) {
+        // Schedule retries asynchronously (don't block the state update)
+        const retryFn = retryMessageRef.current;
+        setTimeout(() => {
+          failed.forEach((m) => retryFn(m));
+        }, 500);
+      }
+      return prev; // no state change here
+    });
+  }, [setMessages]));
+
+  const retryMessage = useCallback(async (msg: ChatUIMessage) => {
+    if (msg.status !== 'failed') return;
+    // Mark as sending (status = 'sent')
+    setMessages((prev) =>
+      prev.map((m) => (m.id === msg.id ? { ...m, status: 'sent' } : m)),
+    );
+    try {
+      const resp = await sendMessageApi(conversationId, msg.text, msg.imageUrl);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === msg.id
+            ? {
+                id: resp.message.id,
+                text: resp.message.text,
+                time: resp.message.time,
+                user: resp.message.senderName,
+                isOwn: true,
+                status: resp.message.status || 'sent',
+                imageUrl: resp.message.imageUrl || undefined,
+                reactions: [],
+              }
+            : m,
+        ),
+      );
+    } catch {
+      setMessages((prev) =>
+        prev.map((m) => (m.id === msg.id ? { ...m, status: 'failed' } : m)),
+      );
+      showToast('error', 'Nepavyko i\u0161si\u0173sti \u017einut\u0117s');
+    }
+  }, [conversationId, setMessages]);
+
+  // Keep ref in sync for network-restore auto-retry
+  retryMessageRef.current = retryMessage;
+
   return {
     newMessage,
     setNewMessage: handleTextChange,
@@ -128,5 +182,6 @@ export function useChatComposer(
     sendMessage,
     sendThumbsUp,
     attachImage,
+    retryMessage,
   } as const;
 }

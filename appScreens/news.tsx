@@ -4,6 +4,7 @@ import PollWidget from '@/components/PollWidget';
 import { MOCK_NEWS_POSTS } from '@/constants/Data';
 import { useAuth } from '@/context/AuthContext';
 import { showToast } from '@/context/NetworkContext';
+import { useNetworkRestore } from '@/hooks/useNetworkRestore';
 import { fetchNewsFeed, getUploadUrl, NewsFeedResponse, toggleLikeApi } from '@/services/api';
 import { cacheGet, cacheSet, CACHE_KEY_NEWS, NEWS_CACHE_MAX_AGE } from '@/services/cache';
 import { decodeHtmlEntities } from '@/services/htmlDecode';
@@ -163,6 +164,9 @@ export default function NewsScreen() {
     await loadPosts(1);
     setRefreshing(false);
   }, [loadPosts]);
+
+  // Auto-refresh when network is restored after being offline
+  useNetworkRestore(useCallback(() => { loadPosts(1); }, [loadPosts]));
 
   const onEndReached = useCallback(async () => {
     if (!hasMore || loadingMore) return;

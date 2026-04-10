@@ -13,6 +13,7 @@ export default function MessageList({
   onLongPress,
   onPressReactions,
   onPressImage,
+  onRetry,
 }: {
   messages: ChatUIMessage[];
   bottomInset: number;
@@ -20,6 +21,7 @@ export default function MessageList({
   onLongPress: (item: ChatUIMessage) => void;
   onPressReactions: (item: ChatUIMessage) => void;
   onPressImage: (uri: string) => void;
+  onRetry?: (item: ChatUIMessage) => void;
 }) {
   const listRef = useRef<FlatList<ChatUIMessage>>(null);
   const isAtBottomRef = useRef(true);
@@ -84,6 +86,7 @@ export default function MessageList({
             onLongPress={() => onLongPress(item)}
             onPressReactions={() => onPressReactions(item)}
             onPressImage={(uri) => onPressImage(uri)}
+            onRetry={onRetry}
           />
         )}
         keyboardDismissMode="on-drag"

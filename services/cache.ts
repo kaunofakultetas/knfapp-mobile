@@ -58,6 +58,9 @@ export function cacheKeyInfo(lang: string): string {
   return `info:${lang}`;
 }
 
+/** Conversations list cache key. */
+export const CACHE_KEY_CONVERSATIONS = 'conversations:list';
+
 // ── Max ages ───────────────────────────────────────────────────────────────
 
 /** 24 hours — news can be stale but still useful offline. */
@@ -68,3 +71,6 @@ export const SCHEDULE_CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
 
 /** 7 days — faculty info is mostly static. */
 export const INFO_CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
+
+/** 1 hour — conversations list is fairly dynamic but useful offline. */
+export const CONVERSATIONS_CACHE_MAX_AGE = 1 * 60 * 60 * 1000;

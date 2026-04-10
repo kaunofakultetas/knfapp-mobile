@@ -2,19 +2,28 @@
  * Network connectivity context.
  *
  * Tracks whether the device is online/offline using @react-native-community/netinfo
- * and exposes a `showToast` helper for non-blocking user feedback.
+ * and exposes:
+ * - `isConnected` — current connectivity state
+ * - `onNetworkRestore` — subscribe to network-restore events for auto-refresh
+ * - `showToast` — non-blocking user feedback
  */
 
 import NetInfo, { NetInfoState } from '@react-native-community/netinfo';
-import React, { createContext, ReactNode, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import Toast from 'react-native-toast-message';
 import { useTranslation } from 'react-i18next';
+import { connectSocket } from '@/services/socket';
 
 interface NetworkContextType {
   isConnected: boolean;
+  /** Subscribe to network-restore events. Returns unsubscribe function. */
+  onNetworkRestore: (listener: () => void) => () => void;
 }
 
-const NetworkContext = createContext<NetworkContextType>({ isConnected: true });
+const NetworkContext = createContext<NetworkContextType>({
+  isConnected: true,
+  onNetworkRestore: () => () => {},
+});
 
 export function useNetwork() {
   return useContext(NetworkContext);
@@ -40,6 +49,12 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
   const [isConnected, setIsConnected] = useState(true);
   const wasDisconnected = useRef(false);
   const { t } = useTranslation();
+  const restoreListeners = useRef(new Set<() => void>());
+
+  const onNetworkRestore = useCallback((listener: () => void) => {
+    restoreListeners.current.add(listener);
+    return () => { restoreListeners.current.delete(listener); };
+  }, []);
 
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener((state: NetInfoState) => {
@@ -51,6 +66,14 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
       } else if (online && wasDisconnected.current) {
         wasDisconnected.current = false;
         showToast('success', t('network.online'));
+
+        // Reconnect socket on network restore
+        connectSocket().catch(() => {});
+
+        // Notify all subscribers (screens showing cached data) to refresh
+        restoreListeners.current.forEach((fn) => {
+          try { fn(); } catch { /* best-effort */ }
+        });
       }
 
       setIsConnected(online);
@@ -60,7 +83,7 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
   }, [isConnected, t]);
 
   return (
-    <NetworkContext.Provider value={{ isConnected }}>
+    <NetworkContext.Provider value={{ isConnected, onNetworkRestore }}>
       {children}
     </NetworkContext.Provider>
   );

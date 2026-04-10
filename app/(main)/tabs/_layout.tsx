@@ -42,19 +42,19 @@ export default function MainTabsLayout() {
           tabBarInactiveTintColor: '#687076',
           tabBarButton: HapticTab,
           tabBarBackground: TabBarBackground as any,
-          tabBarItemStyle: { 
-            flex: 1, 
-            flexBasis: 0, 
-            alignItems: 'center', 
+          tabBarItemStyle: {
+            flex: 1,
+            flexBasis: 0,
+            alignItems: 'center',
             justifyContent: 'center',
-            borderTopWidth: 3,
+            borderTopWidth: 2.5,
             borderTopColor: isFocused ? '#7B003F' : 'transparent',
           },
           tabBarStyle: Platform.select({
-            ios: { position: 'absolute', backgroundColor: '#FFFFFF', borderTopColor: '#FFFFFF', borderTopWidth: 2 },
-            default: { backgroundColor: '#FFFFFF', borderTopColor: '#FFFFFF', borderTopWidth: 2 },
+            ios: { position: 'absolute', backgroundColor: '#FFFFFF', borderTopColor: '#E0E0E0', borderTopWidth: 0.5, height: 60 },
+            default: { backgroundColor: '#FFFFFF', borderTopColor: '#E0E0E0', borderTopWidth: 0.5, height: 60 },
           }),
-          tabBarLabelStyle: { marginBottom: 6 },
+          tabBarLabelStyle: { marginBottom: 6, fontFamily: 'Raleway-Medium', fontSize: 11 },
           animation: 'shift',
         };
       }}

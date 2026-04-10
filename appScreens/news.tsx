@@ -7,7 +7,7 @@ import { showToast } from '@/context/NetworkContext';
 import { fetchNewsFeed, getUploadUrl, NewsFeedResponse, toggleLikeApi } from '@/services/api';
 import { cacheGet, cacheSet, CACHE_KEY_NEWS, NEWS_CACHE_MAX_AGE } from '@/services/cache';
 import type { NewsPost } from '@/types';
-import { FontAwesome, Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -37,8 +37,8 @@ function SourceBadge({ source }: { source?: string }) {
   };
   const label = labelKeys[source] ? t(labelKeys[source]) : source;
   return (
-    <View className="absolute top-2 right-2 bg-primary/80 px-2 py-0.5 rounded">
-      <Text className="text-white text-xs font-bold">{label}</Text>
+    <View className="absolute top-2.5 right-2.5 bg-primary/85 px-2.5 py-1 rounded-md">
+      <Text className="text-white text-xs font-raleway-bold">{label}</Text>
     </View>
   );
 }
@@ -209,7 +209,7 @@ export default function NewsScreen() {
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <View className="flex-1 bg-white">
+    <View className="flex-1 bg-background-secondary">
       {/* Fixed primary-colored top line under the notch */}
       <View
         pointerEvents="none"
@@ -241,7 +241,7 @@ export default function NewsScreen() {
         <Header title={t('news.title')} />
       </Animated.View>
       <Animated.ScrollView
-        className="w-full bg-white"
+        className="w-full bg-background-secondary"
         scrollEventThrottle={16}
         contentContainerStyle={{ paddingTop: measuredHeaderHeight }}
         ref={scrollViewRef as any}
@@ -323,8 +323,9 @@ export default function NewsScreen() {
             <ActivityIndicator size="large" color="#7B003F" />
           </View>
         ) : posts.length === 0 ? (
-          <View className="items-center py-20">
-            <Text className="text-gray-500 text-lg">{t('news.empty', 'Naujienų nėra')}</Text>
+          <View className="items-center justify-center py-20 px-lg">
+            <Ionicons name="newspaper-outline" size={48} color="#BDBDBD" />
+            <Text className="text-text-secondary text-lg mt-md font-raleway-medium text-center">{t('news.empty', 'Naujienų nėra')}</Text>
           </View>
         ) : (
           <>
@@ -333,19 +334,21 @@ export default function NewsScreen() {
               const likeCount = likeCounts[post.id] ?? post.likes;
               return (
                 <Pressable key={post.id} onPress={() => openPost(post.id)}>
-                  <View className="mx-2.5 my-5 bg-gray-300 pb-2.5">
+                  <View className="mx-md my-sm bg-white rounded-xl overflow-hidden" style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 8, elevation: 3 }}>
                     {post.imageUrl ? (
                       <View>
-                        <Image className="w-full aspect-square" source={{ uri: getUploadUrl(post.imageUrl) }} />
+                        <Image className="w-full aspect-video" source={{ uri: getUploadUrl(post.imageUrl) }} resizeMode="cover" />
                         <SourceBadge source={post.source} />
                       </View>
                     ) : (
-                      <SourceBadge source={post.source} />
+                      <View className="px-md pt-md">
+                        <SourceBadge source={post.source} />
+                      </View>
                     )}
-                    <View className="bg-primary">
-                      <Text className="m-1.5 ml-2.5 text-white">{formatDate(post.date)}</Text>
+                    <View className="px-md pt-3">
+                      <Text className="text-xs text-primary font-raleway-semibold uppercase tracking-wide">{formatDate(post.date)}</Text>
                     </View>
-                    <Text className="pt-2.5 px-2.5 text-xl">{post.title}</Text>
+                    <Text className="px-md pt-1.5 text-lg font-raleway-bold text-text-primary leading-6">{post.title}</Text>
                     {post.author ? (
                       <Pressable
                         onPress={(e) => {
@@ -356,43 +359,42 @@ export default function NewsScreen() {
                         }}
                         disabled={!post.authorId || post.source === 'knf.vu.lt' || post.source === 'vu.lt'}
                       >
-                        <Text className={`px-2.5 pt-1 text-sm ${post.authorId && post.source !== 'knf.vu.lt' && post.source !== 'vu.lt' ? 'text-[#7B003F] font-medium' : 'text-gray-600'}`}>
+                        <Text className={`px-md pt-1 text-sm font-raleway ${post.authorId && post.source !== 'knf.vu.lt' && post.source !== 'vu.lt' ? 'text-primary font-raleway-medium' : 'text-text-secondary'}`}>
                           {post.author}
                         </Text>
                       </Pressable>
                     ) : null}
                     {post.postType === 'poll' && <PollWidget postId={post.id} />}
-                    <View className="flex-1 flex-row justify-between px-7 pb-2 mt-2.5">
+                    <View className="flex-row items-center justify-between px-md py-3 mt-2 border-t border-gray-100">
                       <Pressable
-                        className="justify-center items-center"
+                        className="flex-row items-center gap-1.5"
                         onPress={() => toggleLike(post)}
                         hitSlop={8}
                       >
-                        <FontAwesome
-                          name={isLiked ? 'heart' : 'heart-o'}
-                          size={24}
-                          className="mt-1"
-                          color={isLiked ? '#E64164' : undefined}
+                        <Ionicons
+                          name={isLiked ? 'heart' : 'heart-outline'}
+                          size={22}
+                          color={isLiked ? '#E64164' : '#757575'}
                         />
-                        <Text className="mt-1.5 text-lg">{likeCount}</Text>
+                        <Text className={`text-sm font-raleway-medium ${isLiked ? 'text-accent' : 'text-text-secondary'}`}>{likeCount}</Text>
                       </Pressable>
                       <Pressable
-                        className="justify-center items-center"
+                        className="flex-row items-center gap-1.5"
                         onPress={() =>
                           router.push(`/(main)/news-comments?postId=${post.id}`)
                         }
                         hitSlop={8}
                       >
-                        <FontAwesome name="comment-o" size={24} className="mt-1" />
-                        <Text className="mt-1.5 text-lg">{post.comments}</Text>
+                        <Ionicons name="chatbubble-outline" size={20} color="#757575" />
+                        <Text className="text-sm text-text-secondary font-raleway-medium">{post.comments}</Text>
                       </Pressable>
                       <Pressable
-                        className="justify-center items-center"
+                        className="flex-row items-center gap-1.5"
                         onPress={() => onShare(post)}
                         hitSlop={8}
                       >
-                        <FontAwesome name="share-square-o" size={24} className="mt-1" />
-                        <Text className="mt-1.5 text-lg">{post.shares}</Text>
+                        <Ionicons name="share-outline" size={20} color="#757575" />
+                        <Text className="text-sm text-text-secondary font-raleway-medium">{post.shares}</Text>
                       </Pressable>
                     </View>
                   </View>

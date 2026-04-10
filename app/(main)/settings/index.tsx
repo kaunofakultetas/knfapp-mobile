@@ -30,23 +30,23 @@ export default function SettingsScreen() {
   };
 
   return (
-    <View className="flex-1 bg-white">
+    <View className="flex-1 bg-background-secondary">
       <Header title={t('settings.title')} />
       <View className="p-lg gap-md">
 
         {/* Account section */}
-        <Text className="text-lg font-bold text-primary mb-1">{t('settings.account')}</Text>
+        <Text className="text-lg font-raleway-bold text-primary mb-1">{t('settings.account')}</Text>
         {isAuthenticated && user ? (
-          <View className="flex-row items-center justify-between bg-gray-50 rounded-lg p-3 mb-2">
+          <View className="flex-row items-center justify-between bg-white rounded-xl p-4" style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 }}>
             <View className="flex-1">
-              <Text className="text-base font-bold">{user.displayName}</Text>
-              <Text className="text-sm text-gray-500">{user.email}</Text>
+              <Text className="text-base font-raleway-bold text-text-primary">{user.displayName}</Text>
+              <Text className="text-sm text-text-secondary font-raleway mt-0.5">{user.email}</Text>
             </View>
             <Button title={t('settings.logout')} variant="outline" size="sm" onPress={handleLogout} />
           </View>
         ) : (
-          <View className="bg-gray-50 rounded-lg p-3 mb-2">
-            <Text className="text-sm text-gray-500 mb-2">{t('settings.guestMessage')}</Text>
+          <View className="bg-white rounded-xl p-4" style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 }}>
+            <Text className="text-sm text-text-secondary mb-3 font-raleway">{t('settings.guestMessage')}</Text>
             <Button
               title={t('settings.login')}
               variant="primary"
@@ -56,54 +56,75 @@ export default function SettingsScreen() {
           </View>
         )}
 
-        <View className="flex-row items-center justify-between">
-          <Text className="text-base">{t('settings.notifications')}</Text>
-          <Switch value={notifications} onValueChange={toggleNotifications} />
-        </View>
-
-        <View className="flex-row items-center justify-between">
-          <Text className="text-base">{t('settings.theme')}</Text>
-          <View className="flex-row gap-sm">
-            <Button title={t('settings.light')} variant={theme === 'light' ? 'primary' : 'outline'} size="sm" onPress={() => setTheme('light')} />
-            <Button title={t('settings.dark')} variant={theme === 'dark' ? 'primary' : 'outline'} size="sm" onPress={() => setTheme('dark')} />
-          </View>
-        </View>
-
-        <View className="flex-row items-center justify-between">
-          <Text className="text-base">{t('settings.language')}</Text>
-          <View className="flex-row gap-sm">
-            <Button title="LT" variant={language === 'lt' ? 'primary' : 'outline'} size="sm" onPress={() => setLanguage('lt')} />
-            <Button title="EN" variant={language === 'en' ? 'primary' : 'outline'} size="sm" onPress={() => setLanguage('en')} />
-          </View>
-        </View>
-
-        {/* Faculty info link (visible to everyone) */}
-        <Pressable
-          className="flex-row items-center justify-between bg-gray-50 rounded-lg p-3 mt-2"
-          onPress={() => router.push('/(main)/info')}
-        >
-          <View className="flex-row items-center gap-2">
-            <Ionicons name="information-circle" size={20} color="#7B003F" />
-            <Text className="text-base font-medium">{t('info.title', 'Informacija')}</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color="#999" />
-        </Pressable>
-
-        {/* Admin panel link (admin/curator only) */}
-        {isAuthenticated && (user?.role === 'admin' || user?.role === 'curator') && (
-          <Pressable
-            className="flex-row items-center justify-between bg-gray-50 rounded-lg p-3 mt-2"
-            onPress={() => router.push('/(main)/admin')}
-          >
-            <View className="flex-row items-center gap-2">
-              <Ionicons name="shield-checkmark" size={20} color="#7B003F" />
-              <Text className="text-base font-medium">{t('admin.title', 'Administravimas')}</Text>
+        {/* Preferences section */}
+        <View className="bg-white rounded-xl overflow-hidden mt-sm" style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 }}>
+          <View className="flex-row items-center justify-between px-4 py-3.5 border-b border-gray-100">
+            <View className="flex-row items-center gap-2.5">
+              <Ionicons name="notifications-outline" size={20} color="#7B003F" />
+              <Text className="text-base font-raleway">{t('settings.notifications')}</Text>
             </View>
-            <Ionicons name="chevron-forward" size={18} color="#999" />
-          </Pressable>
-        )}
+            <Switch
+              value={notifications}
+              onValueChange={toggleNotifications}
+              trackColor={{ false: '#E0E0E0', true: '#C4607F' }}
+              thumbColor={notifications ? '#7B003F' : '#FAFAFA'}
+            />
+          </View>
 
-        <View className="mt-xl">
+          <View className="flex-row items-center justify-between px-4 py-3.5 border-b border-gray-100">
+            <View className="flex-row items-center gap-2.5">
+              <Ionicons name="color-palette-outline" size={20} color="#7B003F" />
+              <Text className="text-base font-raleway">{t('settings.theme')}</Text>
+            </View>
+            <View className="flex-row gap-sm">
+              <Button title={t('settings.light')} variant={theme === 'light' ? 'primary' : 'outline'} size="sm" onPress={() => setTheme('light')} />
+              <Button title={t('settings.dark')} variant={theme === 'dark' ? 'primary' : 'outline'} size="sm" onPress={() => setTheme('dark')} />
+            </View>
+          </View>
+
+          <View className="flex-row items-center justify-between px-4 py-3.5">
+            <View className="flex-row items-center gap-2.5">
+              <Ionicons name="language-outline" size={20} color="#7B003F" />
+              <Text className="text-base font-raleway">{t('settings.language')}</Text>
+            </View>
+            <View className="flex-row gap-sm">
+              <Button title="LT" variant={language === 'lt' ? 'primary' : 'outline'} size="sm" onPress={() => setLanguage('lt')} />
+              <Button title="EN" variant={language === 'en' ? 'primary' : 'outline'} size="sm" onPress={() => setLanguage('en')} />
+            </View>
+          </View>
+        </View>
+
+        {/* Links section */}
+        <View className="bg-white rounded-xl overflow-hidden mt-sm" style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 }}>
+          <Pressable
+            className="flex-row items-center justify-between px-4 py-3.5 border-b border-gray-100"
+            style={({ pressed }) => [pressed && { backgroundColor: '#F5F5F5' }]}
+            onPress={() => router.push('/(main)/info')}
+          >
+            <View className="flex-row items-center gap-2.5">
+              <Ionicons name="information-circle-outline" size={20} color="#7B003F" />
+              <Text className="text-base font-raleway-medium">{t('info.title', 'Informacija')}</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color="#BDBDBD" />
+          </Pressable>
+
+          {/* Admin panel link (admin/curator only) */}
+          {isAuthenticated && (user?.role === 'admin' || user?.role === 'curator') && (
+            <Pressable
+              className="flex-row items-center justify-between px-4 py-3.5"
+              style={({ pressed }) => [pressed && { backgroundColor: '#F5F5F5' }]}
+              onPress={() => router.push('/(main)/admin')}
+            >
+              <View className="flex-row items-center gap-2.5">
+                <Ionicons name="shield-checkmark-outline" size={20} color="#7B003F" />
+                <Text className="text-base font-raleway-medium">{t('admin.title', 'Administravimas')}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#BDBDBD" />
+            </Pressable>
+          )}
+        </View>
+
+        <View className="mt-lg">
           <Button title={t('settings.resetDefaults')} variant="outline" onPress={resetSettings} />
         </View>
       </View>

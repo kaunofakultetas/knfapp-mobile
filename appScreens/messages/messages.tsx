@@ -142,7 +142,7 @@ export default function MessagesScreen() {
 
   if (loading) {
     return (
-      <View className="bg-white flex-1">
+      <View className="bg-background-secondary flex-1">
         <Header title={t('messages.title')} />
         <View className="flex-1 items-center justify-center">
           <ActivityIndicator size="large" color="#7B003F" />
@@ -152,7 +152,7 @@ export default function MessagesScreen() {
   }
 
   return (
-    <View className="bg-white flex-1 relative">
+    <View className="bg-background-secondary flex-1 relative">
       <Header title={t('messages.title')} />
       {(socketStatus === 'reconnecting' || socketStatus === 'connecting') && (
         <View className="bg-amber-50 px-4 py-2 flex-row items-center justify-center border-b border-amber-200">
@@ -173,23 +173,29 @@ export default function MessagesScreen() {
           </Text>
         </Pressable>
       )}
-      <View className="px-lg py-md">
+      <View className="px-md py-md bg-white border-b border-gray-100">
         <View className="flex-row items-center">
-          <TextInput
-            className="flex-1 bg-white border border-gray-300 text-gray-800 px-md py-xs rounded-md"
-            placeholder={t('messages.searchPlaceholder')}
-            placeholderTextColor="#757575"
-            value={query}
-            onChangeText={setQuery}
-          />
-          <Pressable className="ml-md" onPress={handleNewChatPress}>
-            <Feather name="edit" size={24} color="#7B003F" />
+          <View className="flex-1 flex-row items-center bg-gray-50 rounded-lg px-3 py-2">
+            <Feather name="search" size={18} color="#9E9E9E" />
+            <TextInput
+              className="flex-1 text-text-primary font-raleway text-base ml-2"
+              placeholder={t('messages.searchPlaceholder')}
+              placeholderTextColor="#9E9E9E"
+              value={query}
+              onChangeText={setQuery}
+            />
+          </View>
+          <Pressable
+            className="ml-md w-10 h-10 rounded-full bg-primary/10 items-center justify-center"
+            onPress={handleNewChatPress}
+          >
+            <Feather name="edit" size={20} color="#7B003F" />
           </Pressable>
         </View>
       </View>
 
-      <View className="px-2.5 flex-1">
-        <View className="mt-2.5">
+      <View className="px-md flex-1">
+        <View className="mt-sm">
           {filtered.length > 0 ? (
             <FlatList
               data={filtered}
@@ -208,11 +214,12 @@ export default function MessagesScreen() {
               }
             />
           ) : (
-            <View className="items-center justify-center flex-1">
-              <Text className="font-bold text-2xl pb-7">
+            <View className="items-center justify-center flex-1 py-20">
+              <Feather name="message-circle" size={48} color="#BDBDBD" />
+              <Text className="font-raleway-bold text-xl text-text-primary mt-md">
                 {t('messages.noRoomsTitle')}
               </Text>
-              <Text>{t('messages.noRoomsSubtitle')}</Text>
+              <Text className="font-raleway text-text-secondary mt-sm text-center px-lg">{t('messages.noRoomsSubtitle')}</Text>
             </View>
           )}
         </View>

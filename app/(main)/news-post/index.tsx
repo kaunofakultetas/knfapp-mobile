@@ -72,7 +72,7 @@ export default function NewsPostScreen() {
 
   if (loading) {
     return (
-      <View className="flex-1 bg-white items-center justify-center">
+      <View className="flex-1 bg-background-secondary items-center justify-center">
         <ActivityIndicator size="large" color="#7B003F" />
       </View>
     );
@@ -80,8 +80,8 @@ export default function NewsPostScreen() {
 
   if (!post) {
     return (
-      <View className="flex-1 bg-white items-center justify-center">
-        <Text className="text-gray-500 text-lg">{t('newsPost.notFound')}</Text>
+      <View className="flex-1 bg-background-secondary items-center justify-center">
+        <Text className="text-text-secondary text-lg font-raleway-medium">{t('newsPost.notFound')}</Text>
       </View>
     );
   }
@@ -93,20 +93,20 @@ export default function NewsPostScreen() {
           <Image source={{ uri: getUploadUrl(post.imageUrl) }} className="w-full h-[250px]" resizeMode="cover" />
         ) : null}
 
-        <View className="bg-primary p-2.5 flex-row justify-between items-center">
-          <Text className="text-white text-sm">{formatDate(post.date)}</Text>
+        <View className="bg-primary px-5 py-3 flex-row justify-between items-center">
+          <Text className="text-white text-sm font-raleway-medium">{formatDate(post.date)}</Text>
           {post.source ? (
-            <Text className="text-white/80 text-xs">
+            <Text className="text-white/80 text-xs font-raleway">
               {post.source === 'knf.vu.lt' ? t('news.sourceKnf') : post.source === 'vu.lt' ? t('news.sourceVu') : post.source === 'faculty' ? t('news.sourceFaculty') : post.source}
             </Text>
           ) : null}
         </View>
 
-        <Text className="text-2xl font-bold text-gray-800 p-5 pb-2.5">{post.title}</Text>
+        <Text className="text-2xl font-raleway-bold text-text-primary p-5 pb-2.5">{post.title}</Text>
         {post.author ? (
-          <Text className="px-5 pb-2 text-sm text-gray-500">{post.author}</Text>
+          <Text className="px-5 pb-2 text-sm text-text-secondary font-raleway">{post.author}</Text>
         ) : null}
-        <Text className="text-base leading-6 text-gray-800 p-5 pt-0">{post.content}</Text>
+        <Text className="text-base leading-6 text-text-primary font-raleway p-5 pt-0">{post.content}</Text>
 
         {post.postType === 'poll' && <PollWidget postId={post.id} />}
 
@@ -118,15 +118,15 @@ export default function NewsPostScreen() {
       </View>
 
       <View className="px-5 pb-5">
-        <Text className="text-lg font-raleway-bold mb-sm">{t('newsPost.commentsTitle')}</Text>
+        <Text className="text-lg font-raleway-bold text-text-primary mb-sm">{t('newsPost.commentsTitle')}</Text>
         {comments.length === 0 ? (
-          <Text className="text-gray-600">{t('newsPost.noComments')}</Text>
+          <Text className="text-text-secondary font-raleway">{t('newsPost.noComments')}</Text>
         ) : (
           comments.map((c) => (
-            <View key={c.id} className="bg-gray-100 rounded-md p-sm mb-sm">
-              <Text className="text-xs text-primary font-bold mb-0.5">{c.userName}</Text>
-              <Text className="text-sm text-gray-800">{c.text}</Text>
-              <Text className="text-xs text-gray-500 mt-1">{c.time}</Text>
+            <View key={c.id} className="bg-gray-50 rounded-lg p-3 mb-2">
+              <Text className="text-xs text-primary font-raleway-bold mb-0.5">{c.userName}</Text>
+              <Text className="text-sm text-text-primary font-raleway">{c.text}</Text>
+              <Text className="text-xs text-text-secondary font-raleway mt-1">{c.time}</Text>
             </View>
           ))
         )}

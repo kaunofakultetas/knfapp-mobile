@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Text, View } from 'react-native';
+import { ActivityIndicator, View } from 'react-native';
 
 export default function IndexScreen() {
   const router = useRouter();
@@ -26,8 +26,8 @@ export default function IndexScreen() {
   }, [router, isAuthenticated]);
 
   return (
-    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'white' }}>
-      <Text style={{ fontSize: 18, color: '#7B003F' }}>{t('common.loading')}</Text>
+    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#7B003F' }}>
+      <ActivityIndicator size="large" color="#FFFFFF" />
     </View>
   );
 }

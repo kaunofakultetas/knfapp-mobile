@@ -5,10 +5,17 @@
  */
 import { useAuth } from '@/context/AuthContext';
 import Header from '@/components/ui/Header';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Pressable, Text, View } from 'react-native';
+
+const ICON_MAP: Record<string, keyof typeof Ionicons.glyphMap> = {
+  'chatbubbles-outline': 'chatbubbles-outline',
+  'id-card-outline': 'id-card-outline',
+  'lock-closed-outline': 'lock-closed-outline',
+};
 
 interface LoginRequiredOverlayProps {
   headerTitle: string;
@@ -33,22 +40,35 @@ export default function LoginRequiredOverlay({
     return <>{children}</>;
   }
 
+  // Map emoji strings to Ionicons names for consistent rendering
+  const ionIconName: keyof typeof Ionicons.glyphMap =
+    icon in ICON_MAP
+      ? ICON_MAP[icon]
+      : icon === '\u{1F4AC}' || icon === '\u{1F5E8}'
+        ? 'chatbubbles-outline'
+        : icon === '\u{1FAAA}'
+          ? 'id-card-outline'
+          : 'lock-closed-outline';
+
   return (
-    <View className="flex-1 bg-white">
+    <View className="flex-1 bg-background-secondary">
       <Header title={headerTitle} />
       <View className="flex-1 items-center justify-center p-lg">
-        <Text className="text-5xl mb-md">{icon}</Text>
-        <Text className="text-lg font-semibold text-gray-800 mb-sm text-center">
+        <View className="w-20 h-20 rounded-full bg-primary/10 items-center justify-center mb-lg">
+          <Ionicons name={ionIconName} size={40} color="#7B003F" />
+        </View>
+        <Text className="text-xl font-raleway-bold text-text-primary mb-sm text-center">
           {message}
         </Text>
-        <Text className="text-sm text-gray-500 mb-lg text-center">
+        <Text className="text-sm text-text-secondary mb-xl text-center font-raleway leading-5">
           {hint}
         </Text>
         <Pressable
-          className="bg-[#7B003F] px-8 py-3 rounded-xl"
+          className="bg-primary px-xl py-3.5 rounded-xl"
+          style={({ pressed }) => [pressed && { opacity: 0.85 }]}
           onPress={() => router.push('/login')}
         >
-          <Text className="text-white font-semibold">{t('settings.login')}</Text>
+          <Text className="text-white font-raleway-bold text-base">{t('settings.login')}</Text>
         </Pressable>
       </View>
     </View>

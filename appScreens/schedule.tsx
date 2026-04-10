@@ -140,19 +140,19 @@ export default function ScheduleScreen() {
   const activeFilterCount = (selectedGroup ? 1 : 0) + (selectedSemester ? 1 : 0);
 
   return (
-    <View className="flex-1 bg-white">
+    <View className="flex-1 bg-background-secondary">
       <Header
         title={t('schedule.title')}
         right={
           <View className="flex-row items-center">
             <Pressable onPress={() => changeDay(-1)} hitSlop={8}>
-              <Text className="text-white text-xl px-2">‹</Text>
+              <Feather name="chevron-left" size={20} color="white" />
             </Pressable>
-            <Text className="text-white text-base font-bold mx-1">
+            <Text className="text-white text-base font-raleway-bold mx-2">
               {dayNames[selectedDay]}
             </Text>
             <Pressable onPress={() => changeDay(1)} hitSlop={8}>
-              <Text className="text-white text-xl px-2">›</Text>
+              <Feather name="chevron-right" size={20} color="white" />
             </Pressable>
           </View>
         }
@@ -161,11 +161,12 @@ export default function ScheduleScreen() {
       {/* Filter bar */}
       <Pressable
         onPress={() => setFilterModalVisible(true)}
-        className="flex-row items-center justify-between px-4 py-2.5 bg-gray-50 border-b border-gray-200"
+        className="flex-row items-center justify-between px-4 py-2.5 bg-white border-b border-gray-100"
+        style={({ pressed }) => [pressed && { backgroundColor: '#F5F5F5' }]}
       >
         <View className="flex-row items-center flex-1">
           <Feather name="filter" size={16} color="#7B003F" />
-          <Text className="text-sm text-gray-700 ml-2" numberOfLines={1}>
+          <Text className="text-sm text-text-primary font-raleway-medium ml-2" numberOfLines={1}>
             {selectedGroup
               ? `${selectedGroup}${selectedSemester ? ` · ${selectedSemester}` : ''}`
               : t('schedule.allGroups')}
@@ -173,22 +174,22 @@ export default function ScheduleScreen() {
         </View>
         {activeFilterCount > 0 && (
           <View className="bg-primary rounded-full w-5 h-5 items-center justify-center ml-2">
-            <Text className="text-white text-xs font-bold">{activeFilterCount}</Text>
+            <Text className="text-white text-xs font-raleway-bold">{activeFilterCount}</Text>
           </View>
         )}
-        <Feather name="chevron-down" size={16} color="#666" className="ml-2" />
+        <Feather name="chevron-down" size={16} color="#9E9E9E" style={{ marginLeft: 8 }} />
       </Pressable>
 
       {/* Quick day tabs */}
-      <View className="flex-row bg-gray-100 border-b border-gray-200">
+      <View className="flex-row bg-white border-b border-gray-100">
         {weekdayTabs.map((day) => (
           <Pressable
             key={day}
             onPress={() => setSelectedDay(day)}
-            className={`flex-1 py-2.5 items-center ${selectedDay === day ? 'border-b-2 border-primary' : ''}`}
+            className={`flex-1 py-3 items-center ${selectedDay === day ? 'border-b-2 border-primary' : ''}`}
           >
             <Text
-              className={`text-sm font-bold ${selectedDay === day ? 'text-primary' : 'text-gray-500'}`}
+              className={`text-sm font-raleway-bold ${selectedDay === day ? 'text-primary' : 'text-text-secondary'}`}
             >
               {dayNames[day].substring(0, 3)}
             </Text>
@@ -202,13 +203,15 @@ export default function ScheduleScreen() {
           <ActivityIndicator size="large" color="#7B003F" />
         </View>
       ) : lessons.length === 0 ? (
-        <View className="flex-1 items-center justify-center px-6">
-          <Feather name="calendar" size={48} color="#ccc" />
-          <Text className="text-gray-500 text-lg mt-4 text-center">
+        <View className="flex-1 items-center justify-center px-lg">
+          <View className="w-20 h-20 rounded-full bg-gray-100 items-center justify-center mb-md">
+            <Feather name="calendar" size={36} color="#BDBDBD" />
+          </View>
+          <Text className="text-text-secondary text-lg mt-sm text-center font-raleway-medium">
             {t('schedule.noLectures', 'Šią dieną paskaitų nėra')}
           </Text>
           {selectedGroup && (
-            <Text className="text-gray-400 text-sm mt-1 text-center">
+            <Text className="text-text-secondary text-sm mt-1 text-center font-raleway">
               {selectedGroup}{selectedSemester ? ` · ${selectedSemester}` : ''}
             </Text>
           )}
@@ -223,21 +226,21 @@ export default function ScheduleScreen() {
           }
           ItemSeparatorComponent={() => <View className="h-3" />}
           renderItem={({ item }) => (
-            <View className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+            <View className="bg-white rounded-xl p-4" style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2 }}>
               <View className="flex-row justify-between items-start">
                 <View className="flex-1 mr-3">
-                  <Text className="text-lg font-bold text-primary">{item.title}</Text>
-                  <Text className="text-sm text-gray-600 mt-1">{item.teacher}</Text>
+                  <Text className="text-base font-raleway-bold text-primary">{item.title}</Text>
+                  <Text className="text-sm text-text-secondary font-raleway mt-1">{item.teacher}</Text>
                 </View>
                 <View className="bg-primary/10 rounded-lg px-3 py-1.5">
-                  <Text className="text-primary font-bold text-sm">{item.room}</Text>
+                  <Text className="text-primary font-raleway-bold text-sm">{item.room}</Text>
                 </View>
               </View>
-              <View className="flex-row justify-between mt-3 pt-3 border-t border-gray-200">
-                <Text className="text-sm text-gray-700">
+              <View className="flex-row justify-between mt-3 pt-3 border-t border-gray-100">
+                <Text className="text-sm text-text-primary font-raleway-medium">
                   {item.timeStart} – {item.timeEnd}
                 </Text>
-                <Text className="text-xs text-gray-400">{item.group} · {item.semester}</Text>
+                <Text className="text-xs text-text-secondary font-raleway">{item.group} · {item.semester}</Text>
               </View>
             </View>
           )}
@@ -261,7 +264,7 @@ export default function ScheduleScreen() {
             </View>
 
             <View className="px-5 pt-4 pb-2">
-              <Text className="text-xl font-bold text-gray-900">{t('schedule.filterTitle')}</Text>
+              <Text className="text-xl font-raleway-bold text-text-primary">{t('schedule.filterTitle')}</Text>
             </View>
 
             <ScrollView className="max-h-96 px-5">

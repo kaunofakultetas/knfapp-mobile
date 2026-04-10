@@ -41,7 +41,7 @@ export default function Sidebar({ visible, onClose }: { visible: boolean; onClos
         <Pressable className="absolute left-0 top-0 bottom-0 w-[300px] bg-white" onPress={(e) => e.stopPropagation()}>
           <View className="bg-primary px-lg py-xl pt-2xl">
             <Text className="text-white text-2xl font-raleway-bold">{t('menu.title')}</Text>
-            <Text className="text-white/80">{t('menu.subtitle')}</Text>
+            <Text className="text-white/70 font-raleway mt-1">{t('menu.subtitle')}</Text>
           </View>
           <View className="p-lg">
             {ALL_ITEMS.map((it) => (
@@ -55,8 +55,8 @@ export default function Sidebar({ visible, onClose }: { visible: boolean; onClos
                 style={({ pressed }) => [pressed && { opacity: 0.85 }]}
               >
                 <View className="flex-row items-center">
-                  <Ionicons name={it.icon as any} size={22} color="#334155" />
-                  <Text className="text-gray-800 ml-md">{t(`tabs.${it.key}`)}</Text>
+                  <Ionicons name={it.icon as any} size={22} color="#7B003F" />
+                  <Text className="text-text-primary font-raleway-medium ml-md">{t(`tabs.${it.key}`)}</Text>
                 </View>
                 {hardPinned.has(it.key) ? null : (
                   <Pressable

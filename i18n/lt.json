@@ -9,10 +9,14 @@
   },
   "navigation": {
     "title": "Navigacija",
-    "scrollHint360": "Slinkite - pilni 360°",
+    "scrollHint360": "Slinkite - pilni 360\u00b0",
     "onTarget": "Tiksliai",
-    "turnLeft": "Sukite kairėn {{deg}}°",
-    "turnRight": "Sukite dešinėn {{deg}}°"
+    "turnLeft": "Sukite kair\u0117n {{deg}}\u00b0",
+    "turnRight": "Sukite de\u0161in\u0117n {{deg}}\u00b0",
+    "searchPlaceholder": "Ie\u0161koti patalpos...",
+    "allRooms": "Visos patalpos ({{count}})",
+    "searchResults": "Rasta: {{count}}",
+    "noResults": "Patalp\u0173 nerasta"
   },
   "header": {
     "openMenu": "Atidaryti meniu"
@@ -174,10 +178,10 @@
   },
   "settings": {
     "title": "Nustatymai",
-    "notifications": "Pranešimai",
+    "notifications": "Prane\u0161imai",
     "theme": "Tema",
     "language": "Kalba",
-    "light": "Šviesi",
+    "light": "\u0160viesi",
     "dark": "Tamsi",
     "resetDefaults": "Atstatyti numatytuosius",
     "account": "Paskyra",
@@ -186,7 +190,16 @@
     "logout": "Atsijungti",
     "pushNotifications": "Tiesioginiai prane\u0161imai",
     "pushNotificationsDesc": "Gaukite prane\u0161imus apie naujas \u017einutes ir naujienas",
-    "guestMessage": "Prisijunkite, kad galėtumėte naudotis pokalbiais, studento ID ir kt."
+    "guestMessage": "Prisijunkite, kad gal\u0117tum\u0117te naudotis pokalbiais, studento ID ir kt.",
+    "notificationChannels": "Prane\u0161im\u0173 kanalai",
+    "channelNews": "Naujienos",
+    "channelNewsDesc": "Nauji straipsniai ir fakulteto naujienos",
+    "channelChat": "Pokalbiai",
+    "channelChatDesc": "Naujos \u017einut\u0117s ir pokalbiai",
+    "channelSchedule": "Tvarkara\u0161tis",
+    "channelScheduleDesc": "Tvarkara\u0161\u010dio pakeitimai ir priminimai",
+    "channelAdmin": "Skelbimai",
+    "channelAdminDesc": "Svarb\u016bs fakulteto prane\u0161imai"
   },
   "chat": {
     "title": "Pokalbis",

@@ -891,6 +891,37 @@ export async function unregisterPushToken(token: string): Promise<void> {
   }
 }
 
+// ── Notification Channels API ──────────────────────────────────────────────
+
+export type NotificationChannel = 'news' | 'chat' | 'schedule' | 'admin';
+
+export interface NotificationChannelsResponse {
+  channels: Record<NotificationChannel, boolean>;
+}
+
+export async function fetchNotificationChannels(): Promise<NotificationChannelsResponse> {
+  try {
+    const { data } = await api.get<NotificationChannelsResponse>(API_ENDPOINTS.notificationChannels);
+    return data;
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+export async function updateNotificationChannels(
+  channels: Partial<Record<NotificationChannel, boolean>>,
+): Promise<NotificationChannelsResponse> {
+  try {
+    const { data } = await api.put<NotificationChannelsResponse>(
+      API_ENDPOINTS.notificationChannels,
+      { channels },
+    );
+    return data;
+  } catch (err) {
+    handleError(err);
+  }
+}
+
 // ── Health ───────────────────────────────────────────────────────────────────
 
 export async function checkHealth(): Promise<boolean> {

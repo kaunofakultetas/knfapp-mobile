@@ -9,10 +9,14 @@
   },
   "navigation": {
     "title": "Navigation",
-    "scrollHint360": "Scroll - full 360°",
+    "scrollHint360": "Scroll - full 360\u00b0",
     "onTarget": "On target",
-    "turnLeft": "Turn left {{deg}}°",
-    "turnRight": "Turn right {{deg}}°"
+    "turnLeft": "Turn left {{deg}}\u00b0",
+    "turnRight": "Turn right {{deg}}\u00b0",
+    "searchPlaceholder": "Search rooms...",
+    "allRooms": "All rooms ({{count}})",
+    "searchResults": "Found: {{count}}",
+    "noResults": "No rooms found"
   },
   "header": {
     "openMenu": "Open menu"
@@ -207,7 +211,16 @@
     "logout": "Log out",
     "pushNotifications": "Push notifications",
     "pushNotificationsDesc": "Get notified about new messages and news",
-    "guestMessage": "Log in for chat, student ID, and more"
+    "guestMessage": "Log in for chat, student ID, and more",
+    "notificationChannels": "Notification channels",
+    "channelNews": "News",
+    "channelNewsDesc": "New articles and faculty news",
+    "channelChat": "Chat",
+    "channelChatDesc": "New messages and conversations",
+    "channelSchedule": "Schedule",
+    "channelScheduleDesc": "Schedule changes and reminders",
+    "channelAdmin": "Announcements",
+    "channelAdminDesc": "Important faculty announcements"
   },
   "profile": {
     "title": "Profile",

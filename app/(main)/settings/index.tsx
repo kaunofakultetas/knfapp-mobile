@@ -3,20 +3,81 @@ import Header from '@/components/ui/Header';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import {
+  fetchNotificationChannels,
+  NotificationChannel,
+  updateNotificationChannels,
+} from '@/services/api';
+import {
   registerForPushNotifications,
   unregisterPushNotifications,
 } from '@/services/notifications';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Alert, Pressable, Switch, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, Switch, Text, View } from 'react-native';
+
+// Channel metadata for display
+const CHANNEL_META: {
+  key: NotificationChannel;
+  icon: keyof typeof Ionicons.glyphMap;
+  labelKey: string;
+  descKey: string;
+}[] = [
+  { key: 'news', icon: 'newspaper-outline', labelKey: 'settings.channelNews', descKey: 'settings.channelNewsDesc' },
+  { key: 'chat', icon: 'chatbubble-outline', labelKey: 'settings.channelChat', descKey: 'settings.channelChatDesc' },
+  { key: 'schedule', icon: 'calendar-outline', labelKey: 'settings.channelSchedule', descKey: 'settings.channelScheduleDesc' },
+  { key: 'admin', icon: 'megaphone-outline', labelKey: 'settings.channelAdmin', descKey: 'settings.channelAdminDesc' },
+];
 
 export default function SettingsScreen() {
   const { language, theme, notifications, setLanguage, setTheme, toggleNotifications, resetSettings } = useApp();
   const { isAuthenticated, user, logout } = useAuth();
   const { t } = useTranslation();
   const router = useRouter();
+
+  // Notification channel preferences (per-topic opt-in)
+  const [channels, setChannels] = useState<Record<NotificationChannel, boolean>>({
+    news: true,
+    chat: true,
+    schedule: true,
+    admin: true,
+  });
+  const [channelsLoaded, setChannelsLoaded] = useState(false);
+  const channelUpdateTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Load channel preferences from backend when authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchNotificationChannels()
+        .then((res) => {
+          setChannels(res.channels);
+          setChannelsLoaded(true);
+        })
+        .catch(() => {
+          setChannelsLoaded(true); // Use defaults on error
+        });
+    } else {
+      setChannelsLoaded(false);
+    }
+  }, [isAuthenticated]);
+
+  const handleToggleChannel = useCallback(
+    (channel: NotificationChannel) => {
+      setChannels((prev) => {
+        const updated = { ...prev, [channel]: !prev[channel] };
+
+        // Debounced save to backend (300ms)
+        if (channelUpdateTimer.current) clearTimeout(channelUpdateTimer.current);
+        channelUpdateTimer.current = setTimeout(() => {
+          updateNotificationChannels({ [channel]: updated[channel] }).catch(() => {});
+        }, 300);
+
+        return updated;
+      });
+    },
+    [],
+  );
 
   const handleToggleNotifications = useCallback(() => {
     if (notifications) {
@@ -49,7 +110,7 @@ export default function SettingsScreen() {
   return (
     <View className="flex-1 bg-background-secondary">
       <Header title={t('settings.title')} />
-      <View className="p-lg gap-md">
+      <ScrollView className="flex-1" contentContainerStyle={{ padding: 16, gap: 12 }}>
 
         {/* Account section */}
         <Text className="text-xs font-raleway-bold text-text-secondary uppercase tracking-widest mb-2">{t('settings.account')}</Text>
@@ -121,6 +182,43 @@ export default function SettingsScreen() {
           </View>
         </View>
 
+        {/* Notification channels section (visible when authenticated and notifications enabled) */}
+        {isAuthenticated && notifications && (
+          <>
+            <Text className="text-xs font-raleway-bold text-text-secondary uppercase tracking-widest mb-2 mt-md">
+              {t('settings.notificationChannels')}
+            </Text>
+            <View
+              className="bg-white rounded-xl overflow-hidden"
+              style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 }}
+            >
+              {CHANNEL_META.map((ch, idx) => (
+                <View
+                  key={ch.key}
+                  className={`flex-row items-center justify-between px-4 py-3.5 ${idx < CHANNEL_META.length - 1 ? 'border-b border-gray-100' : ''}`}
+                >
+                  <View className="flex-1 flex-row items-center gap-2.5">
+                    <Ionicons name={ch.icon} size={18} color="#7B003F" />
+                    <View className="flex-1 mr-3">
+                      <Text className="text-sm font-raleway-medium">{t(ch.labelKey)}</Text>
+                      <Text className="text-xs text-text-secondary font-raleway mt-0.5 leading-4">
+                        {t(ch.descKey)}
+                      </Text>
+                    </View>
+                  </View>
+                  <Switch
+                    value={channels[ch.key]}
+                    onValueChange={() => handleToggleChannel(ch.key)}
+                    trackColor={{ false: '#E0E0E0', true: '#C4607F' }}
+                    thumbColor={channels[ch.key] ? '#7B003F' : '#FAFAFA'}
+                    disabled={!channelsLoaded}
+                  />
+                </View>
+              ))}
+            </View>
+          </>
+        )}
+
         {/* Links section */}
         <Text className="text-xs font-raleway-bold text-text-secondary uppercase tracking-widest mb-2 mt-md">{t('settings.other', 'Kita')}</Text>
         <View className="bg-white rounded-xl overflow-hidden" style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 1 }}>
@@ -152,10 +250,10 @@ export default function SettingsScreen() {
           )}
         </View>
 
-        <View className="mt-lg">
+        <View className="mt-lg mb-lg">
           <Button title={t('settings.resetDefaults')} variant="outline" onPress={resetSettings} />
         </View>
-      </View>
+      </ScrollView>
     </View>
   );
 }

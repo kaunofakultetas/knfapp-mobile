@@ -77,4 +77,5 @@ export const API_ENDPOINTS = {
 
   // Notifications
   notificationsRegister: "/notifications/register",
+  notificationChannels: "/notifications/channels",
 } as const;

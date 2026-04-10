@@ -57,9 +57,10 @@
   },
   "register": {
     "title": "Create Account",
-    "subtitle": "Scan a QR code or enter your invitation code",
-    "invitationLabel": "Invitation Code",
-    "invitationPlaceholder": "Enter invitation code",
+    "subtitle": "Scan a QR code or create an account",
+    "guestHint": "Invitation code is optional \u2014 you can register without one with limited features",
+    "invitationLabel": "Invitation Code (optional)",
+    "invitationPlaceholder": "Enter invitation code (optional)",
     "scanQr": "Scan QR Code",
     "scanQrHint": "Point your camera at the invitation QR code",
     "orEnterManually": "or enter manually",

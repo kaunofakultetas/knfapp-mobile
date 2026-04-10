@@ -57,9 +57,10 @@
   },
   "register": {
     "title": "Sukurti paskyrą",
-    "subtitle": "Nuskenuokite QR kodą arba įveskite kvietimo kodą",
-    "invitationLabel": "Kvietimo kodas",
-    "invitationPlaceholder": "Įveskite kvietimo kodą",
+    "subtitle": "Nuskenuokite QR kodą arba sukurkite paskyrą",
+    "guestHint": "Kvietimo kodas nebūtinas \u2014 galite registruotis be jo su ribotomis funkcijomis",
+    "invitationLabel": "Kvietimo kodas (nebūtina)",
+    "invitationPlaceholder": "Įveskite kvietimo kodą (nebūtina)",
     "scanQr": "Nuskenuoti QR kodą",
     "scanQrHint": "Nukreipkite kamerą į kvietimo QR kodą",
     "orEnterManually": "arba įveskite rankiniu būdu",

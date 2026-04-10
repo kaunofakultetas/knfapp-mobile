@@ -55,9 +55,7 @@ export default function RegisterScreen() {
   const validate = (): boolean => {
     const e: FormErrors = {};
 
-    if (!form.invitationCode.trim()) {
-      e.invitationCode = t('register.errors.invitationRequired');
-    }
+    // Invitation code is optional — if blank, user registers as guest
     if (!form.username.trim()) {
       e.username = t('register.errors.usernameRequired');
     } else if (form.username.length < 3) {
@@ -88,13 +86,25 @@ export default function RegisterScreen() {
     if (!validate()) return;
 
     try {
-      await register({
-        invitation_code: form.invitationCode.trim(),
+      const params: {
+        invitation_code?: string;
+        username: string;
+        password: string;
+        display_name: string;
+        email: string;
+      } = {
         username: form.username.trim(),
         password: form.password,
         display_name: form.displayName.trim(),
         email: form.email.trim().toLowerCase(),
-      });
+      };
+      // Only include invitation_code if user provided one
+      const code = form.invitationCode.trim();
+      if (code) {
+        params.invitation_code = code;
+      }
+
+      await register(params);
       router.replace('/(main)/tabs/news');
     } catch (error: any) {
       const message = error?.message || t('register.errorMessage');
@@ -142,8 +152,11 @@ export default function RegisterScreen() {
             <Text className="text-3xl mb-md text-white font-raleway-bold text-center">
               {t('register.title')}
             </Text>
-            <Text className="text-gray-300 text-center mb-xl font-raleway">
+            <Text className="text-gray-300 text-center mb-lg font-raleway">
               {t('register.subtitle')}
+            </Text>
+            <Text className="text-gray-400 text-center mb-xl font-raleway text-xs">
+              {t('register.guestHint')}
             </Text>
 
             {/* QR Scanner Button */}

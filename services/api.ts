@@ -112,7 +112,7 @@ export async function loginApi(username: string, password: string): Promise<Auth
 }
 
 export async function registerApi(params: {
-  invitation_code: string;
+  invitation_code?: string;
   username: string;
   password: string;
   display_name: string;

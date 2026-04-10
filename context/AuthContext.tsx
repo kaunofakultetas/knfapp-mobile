@@ -16,7 +16,7 @@ type AuthAction =
 interface AuthContextType extends AuthState {
   login: (username: string, password: string) => Promise<void>;
   register: (params: {
-    invitation_code: string;
+    invitation_code?: string;
     username: string;
     password: string;
     display_name: string;
@@ -122,7 +122,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const register = async (params: {
-    invitation_code: string;
+    invitation_code?: string;
     username: string;
     password: string;
     display_name: string;

@@ -8,8 +8,11 @@ import {
   connectSocket,
   onNewMessage,
   onReactionUpdate,
+  onMessagesRead,
+  emitMarkRead,
   type SocketMessage,
   type ReactionUpdate,
+  type MessagesReadEvent,
 } from '@/services/socket';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -20,7 +23,7 @@ function apiMessageToUI(m: ApiMessage): ChatUIMessage {
     time: m.time,
     user: m.senderName,
     isOwn: m.isOwn,
-    status: 'read',
+    status: m.status || (m.isOwn ? 'sent' : 'read'),
     imageUrl: m.imageUrl || undefined,
     reactions: m.reactions.map((r) => ({
       emoji: r.emoji,
@@ -70,7 +73,8 @@ export function useChatMessages(conversationId: string) {
         }
         setParticipants(map);
 
-        // Mark as read
+        // Mark as read via both Socket.IO and REST
+        emitMarkRead(conversationId);
         markConversationRead(conversationId).catch(() => {});
       } catch {
         // API unavailable — leave messages empty
@@ -81,10 +85,11 @@ export function useChatMessages(conversationId: string) {
     return () => { cancelled = true; };
   }, [conversationId]);
 
-  // Listen for real-time messages and reaction updates via Socket.IO
+  // Listen for real-time messages, reaction updates, and read receipts via Socket.IO
   useEffect(() => {
     let unsubMessage: (() => void) | undefined;
     let unsubReaction: (() => void) | undefined;
+    let unsubRead: (() => void) | undefined;
 
     (async () => {
       const sock = await connectSocket();
@@ -128,7 +133,9 @@ export function useChatMessages(conversationId: string) {
           [data.senderId]: data.senderName,
         }));
 
-        // Mark as read
+        // Mark as read via Socket.IO (faster than REST)
+        emitMarkRead(conversationId);
+        // Also call REST as fallback
         markConversationRead(conversationId).catch(() => {});
       });
 
@@ -151,11 +158,33 @@ export function useChatMessages(conversationId: string) {
           }),
         );
       });
+
+      // Listen for read receipts — update message status for own messages
+      unsubRead = onMessagesRead((data: MessagesReadEvent) => {
+        if (data.conversationId !== conversationId) return;
+        const myId = currentUserIdRef.current;
+        // Only relevant if someone else read our messages
+        if (data.readerId === myId) return;
+
+        const readSet = new Set(data.messageIds);
+        setMessages((prev) =>
+          prev.map((m) => {
+            if (!m.isOwn) return m;
+            if (!readSet.has(m.id)) return m;
+            // Upgrade status to 'read'
+            if (m.status === 'sent' || m.status === 'delivered') {
+              return { ...m, status: 'read' };
+            }
+            return m;
+          }),
+        );
+      });
     })();
 
     return () => {
       unsubMessage?.();
       unsubReaction?.();
+      unsubRead?.();
     };
   }, [conversationId]);
 

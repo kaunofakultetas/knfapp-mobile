@@ -299,6 +299,8 @@ export interface ApiMessage {
   time: string;
   createdAt: string;
   isOwn: boolean;
+  status?: 'sent' | 'delivered' | 'read';
+  readBy?: string[];
   reactions: {
     emoji: string;
     count: number;
@@ -418,6 +420,15 @@ export async function togglePinApi(convId: string): Promise<{ pinned: boolean }>
 export async function markConversationRead(convId: string): Promise<void> {
   try {
     await api.put(API_ENDPOINTS.chatRead(convId));
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+export async function fetchTotalUnreadCount(): Promise<{ unreadCount: number }> {
+  try {
+    const { data } = await api.get<{ unreadCount: number }>(API_ENDPOINTS.chatUnreadCount);
+    return data;
   } catch (err) {
     handleError(err);
   }

@@ -7,6 +7,7 @@ import { IconSymbol } from '@/components/ui/IconSymbol';
 // Inlined TabBarBackground to avoid external small files
 import { useApp } from '@/context/AppContext';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { useUnreadCount } from '@/hooks/useUnreadCount';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useTranslation } from 'react-i18next';
 import { StyleSheet, View } from 'react-native';
@@ -31,6 +32,7 @@ export default function MainTabsLayout() {
   const { pinnedTabs = [] } = useApp();
   const show = (key: string) => pinnedTabs.includes(key);
   const { t } = useTranslation();
+  const { count: unreadCount } = useUnreadCount();
 
   return (
     <Tabs
@@ -71,6 +73,8 @@ export default function MainTabsLayout() {
         options={{
           title: t('tabs.messages'),
           tabBarIcon: ({ color, focused }) => <IconSymbol size={26} name={focused ? "message.fill" : "message"} color={color} />,
+          tabBarBadge: unreadCount > 0 ? (unreadCount > 99 ? '99+' : unreadCount) : undefined,
+          tabBarBadgeStyle: { backgroundColor: '#7B003F', fontSize: 10, minWidth: 18, height: 18, lineHeight: 18 },
         }}
       />
       <Tabs.Screen

@@ -66,12 +66,13 @@ export function useTypingIndicator(conversationId: string) {
   }, [conversationId]);
 
   // Build display text: "Alice is typing..." or "Alice, Bob are typing..."
+  // Uses Lithuanian format by default but the caller can override via i18n
   const typingText =
     typingUsers.length === 0
       ? null
       : typingUsers.length === 1
-        ? `${typingUsers[0].displayName} rašo...`
-        : `${typingUsers.map((u) => u.displayName).join(', ')} rašo...`;
+        ? `${typingUsers[0].displayName} ra\u0161o...`
+        : `${typingUsers.map((u) => u.displayName).join(', ')} ra\u0161o...`;
 
   return { typingUsers, typingText };
 }

@@ -45,6 +45,7 @@ export const API_ENDPOINTS = {
   chatPin: (convId: string) => `/chat/conversations/${convId}/pin`,
   chatRead: (convId: string) => `/chat/conversations/${convId}/read`,
   chatDelete: (convId: string) => `/chat/conversations/${convId}`,
+  chatUnreadCount: "/chat/unread-count",
   chatUserSearch: "/chat/users/search",
 
   // Social

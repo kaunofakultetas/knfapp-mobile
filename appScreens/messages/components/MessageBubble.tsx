@@ -63,8 +63,14 @@ export default function MessageBubble({
         {item.isOwn && item.status === 'failed' && (
           <Ionicons name="alert-circle" size={14} color="#fca5a5" style={{ marginLeft: 6 }} />
         )}
-        {item.isOwn && item.status !== 'failed' && (
-          <Ionicons name={item.status === 'read' ? 'checkmark-done' : 'checkmark'} size={14} color={'white'} style={{ marginLeft: 6 }} />
+        {item.isOwn && item.status === 'read' && (
+          <Ionicons name="checkmark-done" size={14} color="#93c5fd" style={{ marginLeft: 6 }} />
+        )}
+        {item.isOwn && item.status === 'delivered' && (
+          <Ionicons name="checkmark-done" size={14} color="white" style={{ marginLeft: 6 }} />
+        )}
+        {item.isOwn && item.status === 'sent' && (
+          <Ionicons name="checkmark" size={14} color="white" style={{ marginLeft: 6 }} />
         )}
       </View>
     </TouchableOpacity>

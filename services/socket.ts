@@ -76,6 +76,12 @@ export interface StopTypingEvent {
   userId: string;
 }
 
+export interface MessagesReadEvent {
+  conversationId: string;
+  readerId: string;
+  messageIds: string[];
+}
+
 /**
  * Connect to the socket.io server using the stored auth token.
  * Disconnects any existing connection first.
@@ -169,6 +175,13 @@ export function emitStopTyping(conversationId: string): void {
   socket?.emit('stop_typing', { conversationId });
 }
 
+/**
+ * Emit mark_read via Socket.IO (alternative to REST endpoint).
+ */
+export function emitMarkRead(conversationId: string): void {
+  socket?.emit('mark_read', { conversationId });
+}
+
 // Event listener helpers
 
 type Listener<T> = (data: T) => void;
@@ -191,4 +204,9 @@ export function onTyping(listener: Listener<TypingEvent>): () => void {
 export function onStopTyping(listener: Listener<StopTypingEvent>): () => void {
   socket?.on('user_stop_typing', listener);
   return () => { socket?.off('user_stop_typing', listener); };
+}
+
+export function onMessagesRead(listener: Listener<MessagesReadEvent>): () => void {
+  socket?.on('messages_read', listener);
+  return () => { socket?.off('messages_read', listener); };
 }

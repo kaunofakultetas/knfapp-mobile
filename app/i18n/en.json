@@ -9,21 +9,30 @@
   },
   "navigation": {
     "title": "Navigation",
-    "scrollHint360": "Scroll - full 360\u00b0",
+    "scrollHint360": "Scroll - full 360°",
     "onTarget": "On target",
-    "turnLeft": "Turn left {{deg}}\u00b0",
-    "turnRight": "Turn right {{deg}}\u00b0",
+    "turnLeft": "Turn left {{deg}}°",
+    "turnRight": "Turn right {{deg}}°",
     "searchPlaceholder": "Search rooms...",
     "allRooms": "All rooms ({{count}})",
     "searchResults": "Found: {{count}}",
-    "noResults": "No rooms found"
+    "noResults": "No rooms found",
+    "endOfRoute": "End of the route",
+    "floorLabel": "Building {{building}}, floor {{floor}}",
+    "openSearch": "Open room search",
+    "closeSearch": "Close search",
+    "clearSearch": "Clear search",
+    "previousStep": "Previous step",
+    "nextStep": "Next step"
   },
   "header": {
     "openMenu": "Open menu"
   },
   "menu": {
     "title": "Menu",
-    "subtitle": "Manage pinned tabs"
+    "subtitle": "Manage pinned tabs",
+    "pinTab": "Pin “{{tab}}”",
+    "unpinTab": "Unpin “{{tab}}”"
   },
   "common": {
     "loading": "Loading...",
@@ -33,7 +42,14 @@
     "reportIssue": "Report Issue",
     "ok": "OK",
     "back": "Back",
-    "next": "Next"
+    "next": "Next",
+    "cancel": "Cancel",
+    "close": "Close",
+    "copy": "Copy",
+    "save": "Save",
+    "showPassword": "Show password",
+    "hidePassword": "Hide password",
+    "clear": "Clear"
   },
   "login": {
     "welcomeTitle": "Welcome!",
@@ -44,14 +60,10 @@
     "usernamePlaceholder": "Enter your username",
     "passwordLabel": "Password",
     "passwordPlaceholder": "Enter your password",
-    "forgotPassword": "Forgot password?",
     "signIn": "Sign In",
-    "sso": "Sign in via SSO (placeholder)",
-    "ssoComingSoon": "SSO will be integrated later",
     "errors": {
       "usernameRequired": "Username is required",
-      "passwordRequired": "Password is required",
-      "passwordMin": "Password must be at least 6 characters"
+      "passwordRequired": "Password is required"
     },
     "errorTitle": "Login error",
     "errorMessage": "Invalid username or password",
@@ -62,7 +74,7 @@
   "register": {
     "title": "Create Account",
     "subtitle": "Scan a QR code or create an account",
-    "guestHint": "Invitation code is optional \u2014 you can register without one with limited features",
+    "guestHint": "Invitation code is optional — you can register without one with limited features",
     "invitationLabel": "Invitation Code (optional)",
     "invitationPlaceholder": "Enter invitation code (optional)",
     "scanQr": "Scan QR Code",
@@ -95,7 +107,6 @@
     "errorTitle": "Registration Error",
     "errorMessage": "Registration failed. Please try again.",
     "errors": {
-      "invitationRequired": "Invitation code is required",
       "usernameRequired": "Username is required",
       "usernameMin": "Username must be at least 3 characters",
       "displayNameRequired": "Full name is required",
@@ -113,7 +124,6 @@
     "searchPlaceholder": "Search",
     "noRoomsTitle": "No conversations yet",
     "noRoomsSubtitle": "Tap the icon above to start a chat",
-    "members": "{{count}} members",
     "tapToStart": "Tap to start chatting",
     "now": "now",
     "pin": "Pin",
@@ -121,18 +131,24 @@
     "delete": "Delete",
     "all": "All",
     "newMessage": "New message",
-    "system": "System",
     "people": "People",
     "groups": "Groups",
     "noPeopleTitle": "No direct chats yet",
     "noGroupsTitle": "No group chats yet",
     "reconnecting": "Connecting...",
-    "disconnected": "Disconnected — tap to reconnect"
+    "disconnected": "Disconnected — tap to reconnect",
+    "members_other": "{{count}} members",
+    "loadError": "Couldn't load conversations",
+    "noResults": "No results for “{{query}}”",
+    "deleteTitle": "Delete conversation",
+    "deleteConfirm": "Really delete this conversation?",
+    "actionError": "Couldn't complete the action",
+    "photoMessage": "Photo",
+    "members_one": "{{count}} member"
   },
   "news": {
     "title": "News",
     "comments": "Comments",
-    "pollTitle": "Poll - When are we barbecuing in the yard?",
     "empty": "No news",
     "loadMore": "More news",
     "pollVotes_one": "{{count}} vote",
@@ -141,15 +157,27 @@
     "feedCommunity": "Community",
     "emptyCommunity": "No community posts yet",
     "emptyCommunityHint": "Create a post or add friends to see their updates",
-    "searchMessages": "Search messages...",
-    "searchResults": "Found: {{count}}",
-    "noSearchResults": "No results found",
     "filterAll": "All",
     "sourceKnf": "KNF",
     "sourceVu": "VU",
     "sourceFaculty": "Faculty",
     "sourceApp": "App",
-    "sourceUser": "User"
+    "sourceUser": "User",
+    "loadError": "Couldn't load the news",
+    "pollClosed": "Poll closed",
+    "pollLoginToVote": "Log in to vote",
+    "pollVoteError": "Couldn't submit your vote",
+    "loginToLike": "Log in to like posts",
+    "likeError": "Couldn't update the like",
+    "communityLoginTitle": "Log in to see community posts",
+    "communityLoginHint": "The community feed shows posts from your friends",
+    "a11yLike": "Like",
+    "a11yUnlike": "Unlike",
+    "a11yComments": "Open comments",
+    "a11yShare": "Share the post",
+    "a11yCreatePost": "Create a new post",
+    "a11yOpenAuthor": "Open the author's profile",
+    "pollLoadError": "Couldn't load the poll"
   },
   "newsPost": {
     "commentsTitle": "Comments",
@@ -157,13 +185,22 @@
     "inputPlaceholder": "Write a comment...",
     "readMore": "Read more...",
     "notFound": "Article not found",
-    "loginToComment": "Log in to comment"
+    "loginToComment": "Log in to comment",
+    "loadError": "Couldn't load the article",
+    "commentError": "Couldn't post the comment",
+    "openSource": "Read at the source",
+    "like": "Like",
+    "unlike": "Unlike",
+    "share": "Share",
+    "likeError": "Couldn't update the like",
+    "loginToLike": "Log in to like posts",
+    "viewAllComments": "View all comments ({{count}})",
+    "commentsLoadError": "Couldn't load the comments",
+    "openSourceError": "Couldn't open the link"
   },
   "schedule": {
     "title": "Schedule",
     "noLectures": "No lectures",
-    "typeLecture": "Type: Lecture",
-    "group": "Group: {{group}}",
     "filterTitle": "Filter schedule",
     "groupLabel": "Group",
     "semesterLabel": "Semester",
@@ -172,12 +209,28 @@
     "clearFilters": "Clear",
     "applyFilters": "Done",
     "conflict": "Overlap",
-    "conflictBanner_one": "{{count}} lesson has a time overlap",
-    "conflictBanner_other": "{{count}} lessons have time overlaps"
+    "conflictBanner_one": "{{count}} lecture overlaps in time",
+    "conflictBanner_other": "{{count}} lectures overlap in time",
+    "loadError": "Couldn't load the schedule",
+    "dayMon": "Mon",
+    "dayTue": "Tue",
+    "dayWed": "Wed",
+    "dayThu": "Thu",
+    "dayFri": "Fri",
+    "daySat": "Sat",
+    "daySun": "Sun",
+    "dayFullMon": "Monday",
+    "dayFullTue": "Tuesday",
+    "dayFullWed": "Wednesday",
+    "dayFullThu": "Thursday",
+    "dayFullFri": "Friday",
+    "dayFullSat": "Saturday",
+    "dayFullSun": "Sunday",
+    "prevDay": "Previous day",
+    "nextDay": "Next day"
   },
   "id": {
     "title": "Student ID",
-    "studentFallback": "Student",
     "loginRequired": "Log in to see your ID",
     "loginHint": "Your student card with QR code will appear here",
     "studentNumber": "Student No.",
@@ -194,7 +247,13 @@
     "university": "Vilnius University",
     "changePhoto": "Change photo",
     "photoUpdated": "Photo updated",
-    "photoError": "Failed to upload photo"
+    "photoError": "Failed to upload photo",
+    "saveError": "Couldn't save",
+    "numberPlaceholder": "e.g. 20261234",
+    "groupPlaceholder": "e.g. ISKS-1",
+    "programPlaceholder": "e.g. Information Systems",
+    "editCard": "Edit card",
+    "refreshError": "Couldn't refresh the data"
   },
   "chat": {
     "title": "Chat",
@@ -207,7 +266,28 @@
     "searchPlaceholder": "Search messages...",
     "searchResults": "Found: {{count}}",
     "noSearchResults": "No results found",
-    "closeSearch": "Close search"
+    "closeSearch": "Close search",
+    "sendError": "Couldn't send the message",
+    "imageUploadError": "Couldn't upload the photo",
+    "reactionAddError": "Couldn't add the reaction",
+    "reactionRemoveError": "Couldn't remove the reaction",
+    "reactionsTitle": "Reactions",
+    "noReactions": "No reactions",
+    "scrollToLatest": "Latest messages",
+    "loadError": "Couldn't load messages",
+    "sending": "Sending...",
+    "sendFailed": "Not sent",
+    "attachImage": "Attach a photo",
+    "chooseEmoji": "Choose an emoji",
+    "quickLike": "Like",
+    "loadOlder": "Older messages",
+    "emptyTitle": "No messages yet",
+    "emptyHint": "Write the first message",
+    "openSearch": "Search messages",
+    "searchJumpHint": "Tap a result to return to the conversation",
+    "removeReaction": "Remove reaction",
+    "photoMessage": "Photo",
+    "uploadingImage": "Uploading photo…"
   },
   "newChat": {
     "title": "New chat",
@@ -220,7 +300,10 @@
     "selectOneUser": "Select one person to start a direct chat",
     "searchUsers": "Search users",
     "searchPlaceholder": "Type a name...",
-    "noResults": "No users found"
+    "noResults": "No users found",
+    "removeUser": "Remove {{name}}",
+    "directInfo": "A direct chat will be created — the group name is not used",
+    "groupInfo": "A group chat will be created"
   },
   "settings": {
     "title": "Settings",
@@ -245,7 +328,16 @@
     "channelSchedule": "Schedule",
     "channelScheduleDesc": "Schedule changes and reminders",
     "channelAdmin": "Announcements",
-    "channelAdminDesc": "Important faculty announcements"
+    "channelAdminDesc": "Important faculty announcements",
+    "preferences": "Preferences",
+    "other": "Other",
+    "system": "System",
+    "resetDone": "Settings reset",
+    "logoutConfirm": "Are you sure you want to log out?",
+    "resetConfirm": "Are you sure you want to reset all settings to their defaults?",
+    "reset": "Reset",
+    "pushPermissionDenied": "Notification permission was denied",
+    "channelUpdateError": "Could not save notification preferences"
   },
   "profile": {
     "title": "Profile",
@@ -262,14 +354,24 @@
     "noPosts": "No posts yet",
     "newPost": "New Post",
     "avatarUpdated": "Avatar updated",
-    "avatarError": "Failed to update avatar"
+    "avatarError": "Failed to update avatar",
+    "unfriendTitle": "Remove friend",
+    "unfriendConfirm": "Remove {{name}} from your friends?",
+    "loadError": "Couldn't load the profile",
+    "deletePost": "Delete post",
+    "deletePostConfirm": "Really delete this post?",
+    "postDeleted": "Post deleted",
+    "deleteError": "Couldn't delete the post",
+    "memberSince": "Member since {{date}}"
   },
   "friends": {
     "title": "Friends",
     "loginRequired": "Log in to see your friends",
     "empty": "No friends yet",
-    "emptyHint": "Visit profiles and send friend requests to connect with classmates",
-    "pendingRequests": "{{count}} pending request(s)"
+    "emptyHint": "Add friends from chats and community posts",
+    "pendingRequests_one": "{{count}} pending request",
+    "pendingRequests_other": "{{count}} pending requests",
+    "loadError": "Couldn't load friends"
   },
   "friendRequests": {
     "title": "Friend Requests",
@@ -278,7 +380,9 @@
     "empty": "No pending requests",
     "errorTitle": "Error",
     "acceptError": "Failed to accept request",
-    "rejectError": "Failed to decline request"
+    "rejectError": "Failed to decline request",
+    "loginRequired": "Log in to see friend requests",
+    "loadError": "Couldn't load requests"
   },
   "createPost": {
     "title": "New Post",
@@ -300,7 +404,15 @@
     "pollMinOptions": "At least 2 options are required",
     "pollError": "Post created but poll could not be added",
     "addImage": "Add image",
-    "imageUploadError": "Failed to upload image"
+    "imageUploadError": "Failed to upload image",
+    "loginRequired": "Log in to create posts",
+    "facultyBadge": "Faculty",
+    "loginRequiredHint": "Once you log in you can share posts with the faculty community",
+    "imagePickError": "Couldn't open the photo library",
+    "removeImage": "Remove image",
+    "pollRemoveOption": "Remove option",
+    "pollDiscard": "Continue without a poll",
+    "pollRetrySuccess": "Poll added"
   },
   "notFound": {
     "oops": "Oops!",
@@ -312,7 +424,11 @@
     "offlineHint": "Some features may not work",
     "online": "Back online",
     "cachedData": "Showing cached data",
-    "cachedAgo": "Updated {{time}}"
+    "cachedAgo": "Updated {{time}}",
+    "justNow": "just now",
+    "minutesShort": "{{count}} min",
+    "hoursShort": "{{count}} h",
+    "daysShort": "{{count}} d"
   },
   "toast": {
     "networkError": "Could not reach server",
@@ -324,7 +440,8 @@
   },
   "error": {
     "title": "Oops! Something went wrong",
-    "unexpected": "An unexpected error occurred"
+    "unexpected": "An unexpected error occurred",
+    "offline": "Can't reach the server"
   },
   "info": {
     "title": "Faculty Info",
@@ -335,7 +452,8 @@
     "hours": "Building Hours",
     "programs": "Study Programs",
     "faq": "FAQ",
-    "loadError": "Could not load faculty information"
+    "loadError": "Could not load faculty information",
+    "linkError": "Could not open the link"
   },
   "admin": {
     "title": "Administration",
@@ -354,7 +472,7 @@
     "maxUses": "Usage limit",
     "expires": "Expiration",
     "generate": "Generate code",
-    "codeCreated": "Code created: ",
+    "codeCreated": "Code created: {{code}}",
     "createError": "Failed to create code",
     "activeCodes": "Active invitation codes",
     "noCodes": "No invitation codes",
@@ -379,6 +497,10 @@
     "userUpdated": "User updated",
     "userUpdateError": "Failed to update user",
     "cannotDeactivateSelf": "Cannot deactivate your own account",
-    "search": "Search users..."
+    "search": "Search users...",
+    "you": "you",
+    "noUsersFound": "No users found",
+    "userCount": "Showing: {{count}}",
+    "deactivated": "Deactivated"
   }
 }

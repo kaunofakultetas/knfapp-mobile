@@ -1,112 +1,183 @@
+// -----------------------------------------------------------
+//  [*] Main — the bottom tab bar
+//
+//  Six tabs: news, messages, schedule, id, map, settings.
+//  News and messages are hard-pinned by AppContext; the other
+//  four obey the pinned-tab setting through expo-router's
+//  href — an unpinned tab gets href null, which removes it
+//  from the bar and disables linking to it until re-pinned.
+//
+//  The messages tab carries the live unread badge from
+//  useUnreadCount; icons flip between the filled and -outline
+//  Ionicons variant on focus, so the active tab reads by
+//  shape as well as by tint. Tab-bar colors are JS props, so
+//  they come from useTheme() and follow the scheme.
+//
+//  Split into (root component last):
+//
+//    makeTabIcon    — focus-aware Ionicons renderer factory
+//    MainTabsLayout — the Tabs navigator (default export)
+// -----------------------------------------------------------
+
+// Navigation shell
 import { Tabs } from 'expo-router';
-import React from 'react';
-import { Platform } from 'react-native';
-
-import { HapticTab } from '@/components/HapticTab';
-import { IconSymbol } from '@/components/ui/IconSymbol';
-// Inlined TabBarBackground to avoid external small files
-import { useApp } from '@/context/AppContext';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { useUnreadCount } from '@/hooks/useUnreadCount';
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useTranslation } from 'react-i18next';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet } from 'react-native';
+
+// Tab-bar chrome — haptic buttons, glyphs, themed colors
+import { Ionicons } from '@expo/vector-icons';
+import { HapticTab } from '@/components/HapticTab';
+import { fonts } from '@/constants/theme';
+import { useTheme } from '@/hooks/useTheme';
+
+// Pinned-tab visibility and the unread badge
+import { useApp } from '@/context/AppContext';
+import { useUnreadCount } from '@/hooks/useUnreadCount';
+
+
+// Ionicons name union — keeps the filled/outline pairs typo-safe
+type IoniconName = keyof typeof Ionicons.glyphMap;
 
 
 
 
 
-function TabBarBackground() {
-  return <View style={[StyleSheet.absoluteFill, { backgroundColor: '#FFFFFF' }]} /> as any;
+
+
+// -----------------------------------------------------------
+// makeTabIcon
+// -----------------------------------------------------------
+//
+// Returns a tabBarIcon renderer that swaps the -outline glyph
+// for the filled one while the tab is focused. Each renderer
+// is built once at module level, so the navigator sees a
+// stable component identity across re-renders.
+//
+// Used by:
+//   - the per-tab icon constants (below)
+// -----------------------------------------------------------
+
+function makeTabIcon(filled: IoniconName, outline: IoniconName) {
+  return function TabIcon({
+    color,
+    size,
+    focused,
+  }: {
+    color: string;
+    size: number;
+    focused: boolean;
+  }) {
+    return <Ionicons name={focused ? filled : outline} size={size} color={color} />;
+  };
 }
 
-export function useBottomTabOverflow() {
-  return useBottomTabBarHeight();
-}
+
+// One renderer per tab — see makeTabIcon above
+const NewsIcon = makeTabIcon('newspaper', 'newspaper-outline');
+const MessagesIcon = makeTabIcon('chatbubbles', 'chatbubbles-outline');
+const ScheduleIcon = makeTabIcon('calendar', 'calendar-outline');
+const IdIcon = makeTabIcon('id-card', 'id-card-outline');
+const MapIcon = makeTabIcon('map', 'map-outline');
+const SettingsIcon = makeTabIcon('settings', 'settings-outline');
 
 
 
+
+
+
+
+// -----------------------------------------------------------
+// MainTabsLayout (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - expo-router — layout of the (main)/tabs route group
+// -----------------------------------------------------------
 
 export default function MainTabsLayout() {
-  const colorScheme = useColorScheme();
-  const { pinnedTabs = [] } = useApp();
-  const show = (key: string) => pinnedTabs.includes(key);
+
   const { t } = useTranslation();
+  const { colors } = useTheme();
+  const { pinnedTabs } = useApp();
   const { count: unreadCount } = useUnreadCount();
+
+
+  // Unpinned tabs disappear from the bar; news and messages
+  // are hard-pinned by AppContext so they never take the null
+  const tabHref = (key: string) => (pinnedTabs.includes(key) ? undefined : null);
+
 
   return (
     <Tabs
-      screenOptions={({ route, navigation }) => {
-        const isFocused = navigation.getState().index === navigation.getState().routes.findIndex(r => r.name === route.name);
-        return {
-          headerShown: false,
-          tabBarActiveTintColor: '#7B003F',
-          tabBarInactiveTintColor: '#687076',
-          tabBarButton: HapticTab,
-          tabBarBackground: TabBarBackground as any,
-          tabBarItemStyle: {
-            flex: 1,
-            flexBasis: 0,
-            alignItems: 'center',
-            justifyContent: 'center',
-            borderTopWidth: 2.5,
-            borderTopColor: isFocused ? '#7B003F' : 'transparent',
-          },
-          tabBarStyle: Platform.select({
-            ios: { position: 'absolute', backgroundColor: '#FFFFFF', borderTopColor: '#E0E0E0', borderTopWidth: 0.5, height: 60 },
-            default: { backgroundColor: '#FFFFFF', borderTopColor: '#E0E0E0', borderTopWidth: 0.5, height: 60 },
-          }),
-          tabBarLabelStyle: { marginBottom: 6, fontFamily: 'Raleway-Medium', fontSize: 12 },
-          animation: 'shift',
-        };
+      screenOptions={{
+        headerShown: false,
+        tabBarButton: HapticTab,
+        tabBarActiveTintColor: colors.brand,
+        tabBarInactiveTintColor: colors.inkFaint,
+        tabBarStyle: {
+          backgroundColor: colors.surface,
+          borderTopColor: colors.line,
+          borderTopWidth: StyleSheet.hairlineWidth,
+        },
+        tabBarLabelStyle: { fontFamily: fonts.medium, fontSize: 12 },
+        animation: 'shift',
       }}
     >
       <Tabs.Screen
         name="news"
         options={{
           title: t('tabs.news'),
-          tabBarIcon: ({ color, focused }) => <IconSymbol size={26} name={focused ? "newspaper.fill" : "newspaper"} color={color} />,
+          tabBarIcon: NewsIcon,
         }}
       />
       <Tabs.Screen
         name="messages"
         options={{
           title: t('tabs.messages'),
-          tabBarIcon: ({ color, focused }) => <IconSymbol size={26} name={focused ? "message.fill" : "message"} color={color} />,
-          tabBarBadge: unreadCount > 0 ? (unreadCount > 99 ? '99+' : unreadCount) : undefined,
-          tabBarBadgeStyle: { backgroundColor: '#7B003F', fontSize: 10, minWidth: 18, height: 18, lineHeight: 18 },
+          tabBarIcon: MessagesIcon,
+          tabBarBadge:
+            unreadCount > 0 ? (unreadCount > 99 ? '99+' : unreadCount) : undefined,
+          tabBarBadgeStyle: {
+            backgroundColor: colors.brand,
+            color: colors.onBrand,
+            fontFamily: fonts.medium,
+            fontSize: 10,
+            minWidth: 18,
+            height: 18,
+            lineHeight: 18,
+          },
         }}
       />
       <Tabs.Screen
         name="schedule"
         options={{
           title: t('tabs.schedule'),
-          tabBarIcon: ({ color, focused }) => <IconSymbol size={26} name="calendar" color={color} />,
-          href: show('schedule') ? undefined : null,
+          tabBarIcon: ScheduleIcon,
+          href: tabHref('schedule'),
         }}
       />
       <Tabs.Screen
         name="id"
         options={{
           title: t('tabs.id'),
-          tabBarIcon: ({ color, focused }) => <IconSymbol size={26} name={focused ? "person.crop.square" : "person.crop.square"} color={color} />,
-          href: show('id') ? undefined : null,
+          tabBarIcon: IdIcon,
+          href: tabHref('id'),
         }}
       />
       <Tabs.Screen
         name="map"
         options={{
           title: t('tabs.map'),
-          tabBarIcon: ({ color, focused }) => <IconSymbol size={26} name={focused ? "map.fill" : "map"} color={color} />,
-          href: show('map') ? undefined : null,
+          tabBarIcon: MapIcon,
+          href: tabHref('map'),
         }}
       />
       <Tabs.Screen
         name="settings"
         options={{
           title: t('tabs.settings'),
-          tabBarIcon: ({ color, focused }) => <IconSymbol size={26} name={focused ? "gearshape.fill" : "gearshape"} color={color} />,
-          href: show('settings') ? undefined : null,
+          tabBarIcon: SettingsIcon,
+          href: tabHref('settings'),
         }}
       />
     </Tabs>

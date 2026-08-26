@@ -1,5 +1,13 @@
-// Export all UI components from a single file
-export { Button } from './Button';
-export { Input } from './Input';
-export { Card } from './Card';
-export { LoadingSpinner } from './LoadingSpinner';
+export { default as Button } from './Button';
+export { default as Input } from './Input';
+export { default as Card } from './Card';
+export { default as LoadingSpinner } from './LoadingSpinner';
+export { default as SectionTitle } from './SectionTitle';
+export { default as Badge } from './Badge';
+export { default as Avatar } from './Avatar';
+export { default as Screen } from './Screen';
+export { default as Header } from './Header';
+export { default as EmptyState } from './EmptyState';
+export { default as ErrorState } from './ErrorState';
+export { confirmAction } from './ConfirmDialog';
+export { toastConfig } from './Toast';

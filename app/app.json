@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "KNFAPP",
+    "name": "VU KNF",
     "slug": "KNFAPP",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -33,22 +33,33 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff"
+          "backgroundColor": "#ffffff",
+          "dark": {
+            "image": "./assets/images/splash-icon.png",
+            "backgroundColor": "#151215"
+          }
         }
       ],
       [
         "expo-camera",
         {
-          "cameraPermission": "Camera access is needed to scan invitation QR codes."
+          "cameraPermission": "Kamera reikalinga kvietimo QR kodams nuskaityti."
         }
       ],
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow KNFAPP to access your photos to share images in posts and messages."
+          "photosPermission": "Prieiga prie nuotraukų reikalinga dalintis vaizdais įrašuose ir žinutėse."
         }
       ],
-      "expo-font"
+      [
+        "expo-notifications",
+        {
+          "color": "#7B003F"
+        }
+      ],
+      "expo-font",
+      "expo-localization"
     ],
     "experiments": {
       "typedRoutes": true

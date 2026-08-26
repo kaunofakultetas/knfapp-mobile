@@ -1,79 +1,152 @@
-/**
- * Tracks the total unread message count across all conversations.
- * Fetches from backend on mount and refreshes on socket events.
- * Used for the Messages tab badge.
- */
-import { useCallback, useEffect, useRef, useState } from 'react';
+// -----------------------------------------------------------
+//  [*] useUnreadCount — total unread messages for the badge
+//
+//  Fetches the total unread count when the user is (or
+//  becomes) authenticated, resets to 0 on logout, and tracks
+//  socket traffic in between: a new message from someone else
+//  bumps the count immediately, then a debounced server
+//  re-count (500 ms) reconciles — the message may belong to
+//  the conversation the user currently has open, which the
+//  backend already counts as read.
+//
+//  Correctness notes:
+//    - every fetch carries a sequence number, so a slow
+//      response never overwrites a newer one — and none can
+//      resurrect a count after the logout reset;
+//    - socket subscriptions are registry-based and survive
+//      reconnects, but connectSocket() is awaited, so a
+//      cancelled flag stops the effect from subscribing after
+//      its own cleanup has already run.
+// -----------------------------------------------------------
+
+// Auth reactivity — the count belongs to exactly one user
+import { useAuth } from '@/context/AuthContext';
+
+// The authoritative server count
 import { fetchTotalUnreadCount } from '@/services/api';
+
+// Live increments and read receipts
 import {
   connectSocket,
-  onNewMessage,
   onMessagesRead,
+  onNewMessage,
   type SocketMessage,
-  type MessagesReadEvent,
 } from '@/services/socket';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
-export function useUnreadCount() {
+// Local count state and lifecycle guards
+import { useCallback, useEffect, useRef, useState } from 'react';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// useUnreadCount
+// -----------------------------------------------------------
+//
+//   const { count, refresh } = useUnreadCount()
+//     count   — total unread messages; 0 while logged out
+//     refresh — force a server re-count (e.g. after marking a
+//               conversation read via REST)
+//
+// Used by:
+//   - app/(main)/tabs/_layout.tsx — Messages tab Badge
+// -----------------------------------------------------------
+
+export function useUnreadCount(): {
+  count: number;
+  refresh: () => Promise<void>;
+} {
+  const { isAuthenticated, user } = useAuth();
   const [count, setCount] = useState(0);
-  const currentUserIdRef = useRef<string | null>(null);
+  const userId = user?.id ?? null;
 
-  // Load current user ID
-  useEffect(() => {
-    AsyncStorage.getItem('auth').then((raw) => {
-      if (raw) {
-        try {
-          const parsed = JSON.parse(raw);
-          currentUserIdRef.current = parsed.user?.id ?? null;
-        } catch { /* ignore */ }
-      }
-    });
-  }, []);
 
-  const refresh = useCallback(async () => {
+  // Only the newest fetch may write; bumped on logout so an
+  // in-flight response cannot land after the reset to 0
+  const seqRef = useRef(0);
+
+
+  // Replace the optimistic count with the server's number;
+  // failures keep whatever is showing (backend unreachable)
+  const refresh = useCallback(async (): Promise<void> => {
+    const seq = ++seqRef.current;
     try {
-      const resp = await fetchTotalUnreadCount();
-      setCount(resp.unreadCount);
+      const { unreadCount } = await fetchTotalUnreadCount();
+      if (seq === seqRef.current) setCount(unreadCount);
     } catch {
-      // API unavailable — keep current count
+      // Offline or expired session — keep the current count
     }
   }, []);
 
-  // Fetch on mount
+
+  // Auth reactivity: fetch on login and on user change, reset
+  // on logout (the badge must never show another user's count)
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    if (!isAuthenticated) {
+      seqRef.current += 1;
+      setCount(0);
+      return;
+    }
+    void refresh();
+  }, [isAuthenticated, userId, refresh]);
 
-  // Listen for new messages and read events to keep count fresh
+
+  // Socket traffic keeps the count live between fetches. The
+  // registry keeps handlers valid across reconnects; the
+  // cancelled flag covers cleanup racing the awaited connect.
   useEffect(() => {
-    let unsubMessage: (() => void) | undefined;
-    let unsubRead: (() => void) | undefined;
+    if (!isAuthenticated) return;
 
-    (async () => {
-      const sock = await connectSocket();
-      if (!sock) return;
+    let cancelled = false;
+    let unsubscribeMessage: (() => void) | undefined;
+    let unsubscribeRead: (() => void) | undefined;
+    let reconcileTimer: ReturnType<typeof setTimeout> | null = null;
 
-      // New message from someone else = increment
-      unsubMessage = onNewMessage((data: SocketMessage) => {
-        const myId = currentUserIdRef.current;
-        if (data.senderId !== myId) {
-          // Quick increment, then refresh from server for accuracy
-          setCount((prev) => prev + 1);
-        }
+    // Debounced server re-count: socket bursts collapse into a
+    // single request, and optimistic increments for the open
+    // conversation get corrected instead of drifting
+    const scheduleReconcile = () => {
+      if (reconcileTimer) clearTimeout(reconcileTimer);
+      reconcileTimer = setTimeout(() => {
+        reconcileTimer = null;
+        void refresh();
+      }, 500);
+    };
+
+    void (async () => {
+      // Best-effort connect: a failure only delays events — the
+      // registry subscriptions below stay valid regardless
+      try {
+        await connectSocket();
+      } catch {
+        // Ignored — see comment above
+      }
+      if (cancelled) return;
+
+      unsubscribeMessage = onNewMessage((message: SocketMessage) => {
+        // Own outgoing messages echo back over the socket and
+        // are never unread
+        if (message.senderId === userId) return;
+        setCount((previous) => previous + 1);
+        scheduleReconcile();
       });
 
-      // Messages read = refresh from server
-      unsubRead = onMessagesRead((_data: MessagesReadEvent) => {
-        // We marked something as read — refresh
-        refresh();
+      unsubscribeRead = onMessagesRead(() => {
+        scheduleReconcile();
       });
     })();
 
     return () => {
-      unsubMessage?.();
-      unsubRead?.();
+      cancelled = true;
+      if (reconcileTimer) clearTimeout(reconcileTimer);
+      unsubscribeMessage?.();
+      unsubscribeRead?.();
     };
-  }, [refresh]);
+  }, [isAuthenticated, userId, refresh]);
+
 
   return { count, refresh };
 }

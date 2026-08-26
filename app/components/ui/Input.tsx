@@ -1,147 +1,164 @@
+// -----------------------------------------------------------
+//  [*] UI kit — Input
+//
+//  Labeled text field on surface-soft with a CONSTANT border
+//  width — focus and error change the border COLOR only
+//  (line-strong → brand → danger), so the field contents
+//  never shift by a pixel; the old kit swapped 1px→2px on
+//  every focus.
+//
+//  Internal focus handlers COMPOSE with consumer onFocus /
+//  onBlur instead of being replaced by the props spread —
+//  the old kit silently lost its focus styling when a caller
+//  passed either. secureTextEntry adds an eye toggle with a
+//  translated a11y label; submitBehavior replaces the
+//  deprecated blurOnSubmit, keeping focus on submit so forms
+//  can chain fields through the forwarded TextInput ref.
+// -----------------------------------------------------------
+
+// Eye-toggle and left-icon glyphs
 import { Ionicons } from '@expo/vector-icons';
-import React, { useState } from 'react';
-import {
-  Text,
-  TextInput,
-  TextInputProps,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+
+// Field primitives and the forwarded-ref plumbing
+import { forwardRef, useState } from 'react';
+import { Pressable, Text, TextInput, View, type TextInputProps } from 'react-native';
+
+// Translated a11y labels for the password toggle
+import { useTranslation } from 'react-i18next';
+
+// Placeholder and icon colors for the active scheme
+import { useTheme } from '@/hooks/useTheme';
+
 
 interface InputProps extends TextInputProps {
   label?: string;
   error?: string;
   helperText?: string;
-  icon?: React.ReactNode;
-  rightIcon?: React.ReactNode;
-  onRightIconPress?: () => void;
+  leftIcon?: keyof typeof Ionicons.glyphMap;
   containerClassName?: string;
-  inputClassName?: string;
-  labelClassName?: string;
-  variant?: 'default' | 'filled' | 'outline';
-  size?: 'sm' | 'md' | 'lg';
 }
 
-export const Input: React.FC<InputProps> = ({
-  label,
-  error,
-  helperText,
-  icon,
-  rightIcon,
-  onRightIconPress,
-  containerClassName,
-  inputClassName,
-  labelClassName,
-  variant = 'outline',
-  size = 'md',
-  secureTextEntry,
-  ...props
-}) => {
-  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
-  const [isFocused, setIsFocused] = useState(false);
 
-  const handleTogglePassword = () => {
-    setIsPasswordVisible(!isPasswordVisible);
+
+
+
+
+
+// -----------------------------------------------------------
+// Input (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - app/login.tsx, app/register.tsx — the auth forms
+//   - app/(main)/tabs/id.tsx — student-card edit fields
+//   - app/(main)/new-chat/ — user search + group name
+//   - app/(main)/create-post/ — title, content and poll rows
+// -----------------------------------------------------------
+
+const Input = forwardRef<TextInput, InputProps>(function Input(
+  {
+    label,
+    error,
+    helperText,
+    leftIcon,
+    containerClassName,
+    secureTextEntry,
+    multiline,
+    style,
+    onFocus,
+    onBlur,
+    ...rest
+  },
+  ref,
+) {
+
+  const { t } = useTranslation();
+  const { colors } = useTheme();
+  const [focused, setFocused] = useState(false);
+  const [passwordVisible, setPasswordVisible] = useState(false);
+
+
+  // Compose with the consumer's handler — never replace it
+  const handleFocus: TextInputProps['onFocus'] = (event) => {
+    setFocused(true);
+    onFocus?.(event);
   };
 
-  // Container classes
-  const containerClasses = `mb-md ${containerClassName || ''}`;
 
-  // Input container variant classes
-  const variantClasses = {
-    default: 'border-b border-border-light',
-    filled: 'bg-background-secondary px-md',
-    outline: 'border border-border-light px-md',
+  const handleBlur: TextInputProps['onBlur'] = (event) => {
+    setFocused(false);
+    onBlur?.(event);
   };
 
-  // Size classes
-  const sizeClasses = {
-    sm: 'h-10',
-    md: 'h-12',
-    lg: 'h-14',
-  };
 
-  // Input container classes
-  const inputContainerClasses = `
-    flex-row items-center rounded-md
-    ${variantClasses[variant]}
-    ${sizeClasses[size]}
-    ${isFocused ? 'border-2 border-primary' : ''}
-    ${error ? 'border-danger' : ''}
-  `.trim();
+  // Error outranks focus so a failed field stays red while
+  // the user is typing the correction
+  const borderClass = error ? 'border-danger' : focused ? 'border-brand' : 'border-line-strong';
 
-  // Text input classes
-  const textInputClasses = `
-    flex-1 font-raleway text-base text-text-primary py-0
-    ${inputClassName || ''}
-  `.trim();
 
-  const showPasswordToggle = secureTextEntry && !rightIcon;
-  const actualSecureTextEntry = secureTextEntry && !isPasswordVisible;
+  const fieldClasses = [
+    'flex-row gap-sm rounded-md border bg-surface-soft px-md',
+    multiline ? 'items-start py-sm' : 'h-12 items-center',
+    borderClass,
+  ].join(' ');
+
 
   return (
-    <View className={containerClasses}>
-      {label && (
-        <Text className={labelClassName || "text-sm font-raleway-medium text-text-primary mb-xs"}>
-          {label}
-        </Text>
-      )}
-      
-      <View className={inputContainerClasses}>
-        {icon && (
-          <View className="p-xs">
-            {icon}
-          </View>
+    <View className={`mb-md ${containerClassName ?? ''}`}>
+
+      {label && <Text className="mb-xs font-raleway-medium text-sm text-ink">{label}</Text>}
+
+      <View className={fieldClasses}>
+
+        {leftIcon && (
+          <Ionicons name={leftIcon} size={20} color={focused ? colors.brand : colors.inkFaint} />
         )}
-        
+
+        {/* Defaults sit before the spread so callers can
+            override them; the composed handlers and the
+            toggled secure flag sit after so they cannot */}
         <TextInput
-          className={textInputClasses}
-          secureTextEntry={actualSecureTextEntry}
-          onFocus={() => setIsFocused(true)}
-          onBlur={() => setIsFocused(false)}
-          placeholderTextColor="#757575"
+          ref={ref}
+          className="flex-1 py-0 font-raleway text-base text-ink"
+          placeholderTextColor={colors.inkFaint}
           clearButtonMode="while-editing"
-          returnKeyType={secureTextEntry ? 'done' : 'next'}
-          blurOnSubmit={false}
-          {...props}
+          returnKeyType={multiline ? undefined : secureTextEntry ? 'done' : 'next'}
+          submitBehavior={multiline ? 'newline' : 'submit'}
+          {...rest}
+          style={[multiline ? { textAlignVertical: 'top' as const } : null, style]}
+          multiline={multiline}
+          secureTextEntry={secureTextEntry && !passwordVisible}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
         />
-        
-        {showPasswordToggle && (
-          <TouchableOpacity 
-            className="p-xs"
-            onPress={handleTogglePassword}
+
+        {secureTextEntry && (
+          <Pressable
+            onPress={() => setPasswordVisible((visible) => !visible)}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={t(passwordVisible ? 'common.hidePassword' : 'common.showPassword')}
           >
             <Ionicons
-              name={isPasswordVisible ? 'eye-off-outline' : 'eye-outline'}
+              name={passwordVisible ? 'eye-off-outline' : 'eye-outline'}
               size={20}
-              color="#757575"
+              color={colors.inkFaint}
             />
-          </TouchableOpacity>
-        )}
-        
-        {rightIcon && (
-          <TouchableOpacity 
-            className="p-xs"
-            onPress={onRightIconPress}
-          >
-            {rightIcon}
-          </TouchableOpacity>
+          </Pressable>
         )}
       </View>
-      
-      {error && (
-        <Text className="text-xs text-danger mt-xs font-raleway">
-          {error}
-        </Text>
-      )}
-      {helperText && !error && (
-        <Text className="text-xs text-text-secondary mt-xs font-raleway">
-          {helperText}
-        </Text>
-      )}
+
+      {/* Error replaces the helper — one line below the field */}
+      {error ? (
+        <Text className="mt-xs font-raleway text-xs text-danger">{error}</Text>
+      ) : helperText ? (
+        <Text className="mt-xs font-raleway text-xs text-ink-soft">{helperText}</Text>
+      ) : null}
     </View>
   );
-};
+});
 
-// No more StyleSheet needed! All styles are now in TailwindCSS classes
-// The component is now much cleaner and more maintainable
+export default Input;
+
+// Named alongside the default so the ui barrel can `export *`
+export { Input };

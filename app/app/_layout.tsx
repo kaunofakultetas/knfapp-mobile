@@ -1,64 +1,118 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
+// -----------------------------------------------------------
+//  [*] App — root layout
+//
+//  The provider stack and navigation shell every route mounts
+//  under: crash boundary > gestures > app settings > auth >
+//  network > themed shell. The shell carries the nativewind
+//  themeVars style, so every className token in the tree
+//  resolves against the active scheme and switching theme is
+//  a single style swap on one View.
+//
+//  The Raleway/SpaceMono font gate lives INSIDE the shell
+//  (not above the providers, where the old layout had it)
+//  because LoadingSpinner takes its tint from useTheme(),
+//  which needs AppProvider mounted.
+//
+//  StatusBar is hard-set to light: the top of every screen is
+//  the burgundy header or the brand splash, and in the dark
+//  scheme light icons are right anyway.
+//
+//  Split into (root component last):
+//
+//    AppNavigation — nav theme, route stack, notification taps
+//    ThemedShell   — theme vars wrapper, font gate, toast host
+//    RootLayout    — the provider stack (default export)
+// -----------------------------------------------------------
+
+// Side-effect imports — reanimated must load early; the css
+// import registers the semantic token classes (gesture handler
+// loads through the GestureHandlerRootView import below)
+import 'react-native-reanimated';
+import '../global.css';
+
+// Navigation shell
+import { ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React, { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
+import { View } from 'react-native';
 import { ErrorBoundary } from 'react-error-boundary';
-import 'react-native-gesture-handler';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import 'react-native-reanimated';
 import Toast from 'react-native-toast-message';
-import '../global.css';
 
-import { ErrorFallback } from '@/components/ErrorFallback';
-import { LoadingSpinner } from '@/components/ui';
+// Providers and theme plumbing
+import { navigationThemes, themeVars } from '@/constants/theme';
 import { AppProvider, useApp } from '@/context/AppContext';
 import { AuthProvider } from '@/context/AuthContext';
 import { NetworkProvider } from '@/context/NetworkContext';
-import { useColorScheme } from '@/hooks/useColorScheme';
+
+// Crash fallback and shell UI
+import { ErrorFallback } from '@/components/ErrorFallback';
+import { LoadingSpinner, toastConfig } from '@/components/ui';
+
+// Notification taps deep-link into the app
+import * as Notifications from 'expo-notifications';
 import {
   getNotificationData,
   setupNotificationChannel,
 } from '@/services/notifications';
-import * as Notifications from 'expo-notifications';
-import { useTranslation } from 'react-i18next';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// AppNavigation
+// -----------------------------------------------------------
+//
+// The route stack under the scheme-matched navigation theme.
+// Also owns the notification-tap listener: chat messages open
+// their conversation, news and admin announcements land on
+// the news tab.
+//
+// Used by:
+//   - ThemedShell (below)
+// -----------------------------------------------------------
 
 function AppNavigation() {
-  const { theme } = useApp();
-  const navTheme = theme === 'dark' ? DarkTheme : DefaultTheme;
-  const { t } = useTranslation();
+  const { scheme } = useApp();
   const router = useRouter();
-  const responseListenerRef = useRef<ReturnType<typeof Notifications.addNotificationResponseReceivedListener> | null>(null);
 
-  // Set up notification channel and response listener
+
+  // Android needs its channel registered before any push can
+  // display; taps are handled here so a cold-started app still
+  // routes correctly once the stack exists
   useEffect(() => {
     setupNotificationChannel();
 
-    // Handle notification taps (user tapped a notification)
-    responseListenerRef.current = Notifications.addNotificationResponseReceivedListener(
+    const subscription = Notifications.addNotificationResponseReceivedListener(
       (response) => {
         const data = getNotificationData(response.notification);
         if (!data) return;
 
         if (data.type === 'chat_message' && data.conversationId) {
+          // Title is unknown at tap time — the room screen
+          // resolves it from the conversation itself
           router.push({
             pathname: '/(main)/chat-room',
             params: { conversationId: data.conversationId, title: '' },
           });
         } else if (data.type === 'news' || data.type === 'admin_announcement') {
-          // Navigate to news tab
           router.push('/(main)/tabs/news');
         }
       },
     );
 
-    return () => {
-      responseListenerRef.current?.remove();
-    };
+    return () => subscription.remove();
   }, [router]);
 
+
   return (
-    <ThemeProvider value={navTheme}>
+    <ThemeProvider value={navigationThemes[scheme]}>
       <Stack>
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="login" options={{ headerShown: false }} />
@@ -66,15 +120,37 @@ function AppNavigation() {
         <Stack.Screen name="(main)" options={{ headerShown: false }} />
         <Stack.Screen name="+not-found" />
       </Stack>
-      <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
+      <StatusBar style="light" />
     </ThemeProvider>
   );
 }
 
-export default function RootLayout() {
-  const colorScheme = useColorScheme();
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ThemedShell
+// -----------------------------------------------------------
+//
+// The wrapper View whose themeVars style feeds every semantic
+// className token below it. Fonts gate here rather than above
+// the providers so the spinner can resolve its brand tint;
+// the Toast host sits beside the stack so toasts overlay any
+// screen.
+//
+// Used by:
+//   - RootLayout (below)
+// -----------------------------------------------------------
+
+function ThemedShell() {
+  const { scheme } = useApp();
   const { t } = useTranslation();
-  const [loaded] = useFonts({
+
+
+  const [fontsLoaded] = useFonts({
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
     'Raleway-Regular': require('../assets/fonts/Raleway-Regular.ttf'),
     'Raleway-Medium': require('../assets/fonts/Raleway-Medium.ttf'),
@@ -82,18 +158,46 @@ export default function RootLayout() {
     'Raleway-Bold': require('../assets/fonts/Raleway-Bold.ttf'),
   });
 
-  if (!loaded) {
-    return <LoadingSpinner text={t('common.loadingFonts')} overlay />;
-  }
 
+  return (
+    <View style={themeVars[scheme]} className="flex-1 bg-canvas">
+      {fontsLoaded ? (
+        <AppNavigation />
+      ) : (
+        <LoadingSpinner text={t('common.loadingFonts')} overlay />
+      )}
+      <Toast config={toastConfig} />
+    </View>
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// RootLayout (default export)
+// -----------------------------------------------------------
+//
+// Provider order matters: AppProvider first (settings feed
+// the theme and language), then auth, then network — the
+// network layer toasts in the active language and auth-aware
+// screens sit below both.
+//
+// Used by:
+//   - expo-router — the root layout route
+// -----------------------------------------------------------
+
+export default function RootLayout() {
   return (
     <ErrorBoundary FallbackComponent={ErrorFallback}>
       <GestureHandlerRootView style={{ flex: 1 }}>
         <AppProvider>
           <AuthProvider>
             <NetworkProvider>
-              <AppNavigation />
-              <Toast />
+              <ThemedShell />
             </NetworkProvider>
           </AuthProvider>
         </AppProvider>

@@ -356,10 +356,20 @@ function LoginStep({ returnTo, onBack, onGuest }: LoginStepProps) {
       <SafeAreaView edges={['bottom']} className="flex-1">
         <ScrollView
           className="flex-1"
-          contentContainerClassName="flex-grow justify-center px-lg py-xl"
+          contentContainerClassName="flex-grow px-lg pt-2xl pb-xl"
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
         >
+
+          {/* Identity block — top-aligned so the form sits where the
+              thumb rests instead of floating mid-screen */}
+          <View className="mb-xl">
+            <Text className="font-raleway-medium text-xs uppercase tracking-widest text-brand">
+              {t('id.university')}
+            </Text>
+            <Text className="mt-xs font-raleway-bold text-2xl text-ink">{t('id.faculty')}</Text>
+            <Text className="mt-sm font-raleway text-base text-ink-soft">{t('login.subtitle')}</Text>
+          </View>
 
           <ErrorBanner message={serverError} />
 

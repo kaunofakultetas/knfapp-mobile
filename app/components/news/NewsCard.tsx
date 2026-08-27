@@ -36,6 +36,7 @@ import SourceBadge from './SourceBadge';
 
 // Feed shape, upload resolution and date formatting
 import { getUploadUrl, type SocialFeedPost } from '@/services/api';
+import { stripScrapedPreamble } from '@/services/newsText';
 import { formatDate } from '@/services/format';
 
 // JS-side icon colors
@@ -243,7 +244,7 @@ export default function NewsCard({
 
 
   // Poll posts show the live widget instead of a text teaser
-  const snippet = post.postType === 'poll' ? null : makeSnippet(post.summary || post.content);
+  const snippet = post.postType === 'poll' ? null : makeSnippet(stripScrapedPreamble(post.summary || post.content, post));
 
 
   return (

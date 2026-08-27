@@ -14,10 +14,10 @@
 //  `createdAt` (or lastUpdatedMs) locally via
 //  services/format.ts.
 //
-//  Reaction REST responses carry no reactions array — the
-//  authoritative state arrives on the 'reaction_update'
-//  socket event, so reaction UIs update optimistically and
-//  reconcile there.
+//  Reaction REST responses now carry the authoritative
+//  `reactions` array; the same state is also broadcast on the
+//  'reaction_update' socket event, which is what the reaction
+//  hooks reconcile against (the REST body is unused so far).
 //
 //  Split into:
 //
@@ -81,6 +81,8 @@ export interface ApiConversation {
     time: string;
     senderId: string;
     senderName: string;
+    // The last message was unsent — previews show a placeholder
+    deleted?: boolean;
   };
 }
 
@@ -123,6 +125,18 @@ export interface ApiMessage {
     bySelf: boolean;
     byUserIds: string[];
   }[];
+  // Quoted message of a reply (null when not a reply); the
+  // quote of an unsent message keeps the sender, loses content
+  replyTo?: {
+    id: string;
+    senderId: string;
+    senderName: string;
+    text: string;
+    imageUrl?: string | null;
+    deleted: boolean;
+  } | null;
+  // Unsent by its sender — text/imageUrl arrive blank
+  deleted?: boolean;
 }
 
 
@@ -162,6 +176,11 @@ export interface ConversationsResponse {
 export interface MessagesResponse {
   messages: ApiMessage[];
   hasMore: boolean;
+  // Every member — the room header and intro card draw from it
+  participants: { id: string; displayName: string; avatarUrl?: string | null }[];
+  // The conversation row — type/title for rooms opened without
+  // route params (push notifications)
+  conversation: { id: string; type: 'direct' | 'group'; title?: string | null; avatarEmoji?: string | null } | null;
 }
 
 
@@ -242,12 +261,9 @@ export const fetchConversations = () =>
 // createConversation
 // -----------------------------------------------------------
 //
-// Backend gap worth knowing: ONLINE recipients of a brand-new
-// conversation get neither the socket event (their socket
-// never joined the new room) nor a push (suppressed for
-// online users) — they see the chat only after their next
-// refresh, so don't treat "recipient hasn't answered" as a
-// delivery failure.
+// The backend joins every participant's live sockets into
+// the new room at creation, so online recipients receive the
+// first messages immediately; offline ones get the push.
 //
 // Used by:
 //   - app/(main)/new-chat/index.tsx — start chat
@@ -270,8 +286,12 @@ export const createConversation = (params: {
 // fetchMessages
 // -----------------------------------------------------------
 //
-//   fetchMessages(convId)              — latest page
-//   fetchMessages(convId, oldestId)    — page before a message
+//   fetchMessages(convId)                 — latest page
+//   fetchMessages(convId, beforeCreatedAt) — the page older than a
+//                                            stamp (the server pages
+//                                            on created_at, so pass
+//                                            the oldest loaded stamp,
+//                                            never an id)
 //
 // Used by:
 //   - hooks/chat/useChatMessages.ts — history + scroll-back
@@ -296,19 +316,44 @@ export const fetchMessages = (convId: string, before?: string, limit = 50) =>
 //
 // Text and image are both optional at the type level but the
 // backend rejects an empty body — callers send at least one.
-// imageUrl must be the RELATIVE path from uploadImageApi.
+// imageUrl must be the RELATIVE path from uploadImageApi;
+// replyToId quotes a message of the same conversation.
 //
 // Used by:
 //   - hooks/chat/useChatComposer.ts — the send action
 // -----------------------------------------------------------
 
-export const sendMessageApi = (convId: string, text: string, imageUrl?: string) =>
+export const sendMessageApi = (convId: string, text: string, imageUrl?: string, replyToId?: string) =>
   request(
     api.post<{ message: ApiMessage }>(`/chat/conversations/${convId}/messages`, {
       ...(text ? { text } : {}),
       ...(imageUrl ? { imageUrl } : {}),
+      ...(replyToId ? { replyToId } : {}),
     }),
   );
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// deleteMessageApi
+// -----------------------------------------------------------
+//
+// "Unsend" — only the sender may call it (403 otherwise). The
+// backend clears the content, keeps the row and broadcasts
+// 'message_deleted'; the hook updates optimistically and
+// reverts on failure.
+//
+// Used by:
+//   - hooks/chat/useChatMessages.ts — deleteMessage
+// -----------------------------------------------------------
+
+export async function deleteMessageApi(convId: string, msgId: string): Promise<void> {
+  await request(api.delete(`/chat/conversations/${convId}/messages/${msgId}`));
+}
 
 
 
@@ -320,9 +365,9 @@ export const sendMessageApi = (convId: string, text: string, imageUrl?: string) 
 // reactToMessageApi
 // -----------------------------------------------------------
 //
-// Resolves with no useful body — the updated reactions array
-// arrives via the 'reaction_update' socket event (see the
-// file header).
+// The response body carries the updated `reactions` array
+// but callers rely on the 'reaction_update' socket event
+// instead (see the file header), so it resolves to void.
 //
 // Used by:
 //   - hooks/chat/useChatReactions.ts — set/replace own reaction

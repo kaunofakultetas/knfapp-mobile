@@ -5,7 +5,7 @@
 //  page over REST, keeps it live through the socket registry,
 //  and pages older messages with the before-cursor. The list
 //  is held NEWEST-FIRST — exactly what the inverted FlatList
-//  in components/chat/MessageList.tsx renders — so "prepend a
+//  in chatkit/MessageList.tsx renders — so "prepend a
 //  new message" is an unshift and "load older" is an append.
 //
 //  Socket subscriptions go through the registry helpers in
@@ -37,17 +37,21 @@
 // -----------------------------------------------------------
 
 // History REST endpoints and their row shape
-import { fetchMessages, markConversationRead, type ApiMessage } from '@/services/api';
+import { deleteMessageApi, fetchMessages, markConversationRead, type ApiMessage } from '@/services/api';
+import { useNetworkRestore } from '@/hooks/useNetworkRestore';
+import { parseStamp } from '@/chatkit/timeline';
 
 // Live delivery — registry-backed subscriptions and room emits
 import {
   connectSocket,
   emitMarkRead,
   joinConversation,
-  leaveConversation,
+  onMessageDeleted,
   onMessagesRead,
   onNewMessage,
+  onSocketStatusChange,
   onReactionUpdate,
+  type MessageDeletedEvent,
   type MessagesReadEvent,
   type ReactionUpdate,
   type SocketMessage,
@@ -61,7 +65,7 @@ import { showToast } from '@/context/NetworkContext';
 import { useTranslation } from 'react-i18next';
 
 // The unified UI message shape
-import type { ChatMessage } from '@/types';
+import type { ChatMessage, ChatReplyRef } from '@/types';
 
 // State and lifecycle plumbing
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -77,15 +81,81 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 // -----------------------------------------------------------
 //
 // Marks optimistic messages that only exist client-side; the
-// echo dedupe above and the pull-to-refresh reconcile both key
+// echo dedupe above and the resync merge both key
 // off it.
 //
 // Used by:
-//   - useChatMessages (below) — echo replace, refresh keep
+//   - useChatMessages (below) — echo replace, resync merge
 //   - hooks/chat/useChatComposer.ts — temp id minting
 // -----------------------------------------------------------
 
 export const TEMP_ID_PREFIX = 'temp-';
+
+// The wire shape of a quoted message (api rows and socket
+// payloads agree); null/undefined means "not a reply"
+export type WireReply = {
+  id: string;
+  senderId: string;
+  senderName: string;
+  text: string;
+  imageUrl?: string | null;
+  deleted: boolean;
+} | null | undefined;
+
+// A quote arrives with nullable imageUrl — the UI wants
+// undefined, and a quote of an unsent message stays flagged
+export const mapReply = (reply: WireReply): ChatReplyRef | undefined =>
+  reply
+    ? {
+        id: reply.id,
+        senderId: reply.senderId,
+        senderName: reply.senderName,
+        text: reply.text ?? '',
+        imageUrl: reply.imageUrl || undefined,
+        deleted: !!reply.deleted,
+      }
+    : undefined;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// findTempFor / adoptTemp
+// -----------------------------------------------------------
+//
+// The server row of an own send, whether it arrives as a socket
+// echo or inside a resync page, must REPLACE the optimistic temp
+// that produced it — never sit beside it. Temps carry no server
+// id, so the match is by content: the oldest temp with the same
+// text and image path (echoes and pages arrive in send order;
+// the list is newest-first, so scan from the end). The adopted
+// row keeps the temp's key and local photo so the bubble does
+// not remount.
+//
+// Used by:
+//   - useChatMessages (below) — echo handler, resync merge
+// -----------------------------------------------------------
+
+function findTempFor(list: ChatMessage[], incoming: ChatMessage): number {
+  for (let i = list.length - 1; i >= 0; i--) {
+    const m = list[i];
+    if (
+      m.id.startsWith(TEMP_ID_PREFIX) &&
+      m.text === incoming.text &&
+      (m.imageUrl ?? '') === (incoming.imageUrl ?? '')
+    ) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function adoptTemp(incoming: ChatMessage, temp: ChatMessage): ChatMessage {
+  return { ...incoming, clientId: temp.clientId ?? temp.id, localImageUri: temp.localImageUri };
+}
 
 
 
@@ -124,6 +194,8 @@ function toChatMessage(m: ApiMessage): ChatMessage {
       bySelf: r.bySelf,
       byUserIds: r.byUserIds,
     })),
+    replyTo: mapReply(m.replyTo),
+    deleted: !!m.deleted,
   };
 }
 
@@ -142,18 +214,43 @@ function toChatMessage(m: ApiMessage): ChatMessage {
 //   - app/(main)/chat-room/index.tsx — screen state typing
 // -----------------------------------------------------------
 
+// A conversation member as the history endpoint lists them —
+// the room header and intro card draw avatars from this
+export interface ParticipantProfile {
+  id: string;
+  displayName: string;
+  avatarUrl?: string;
+}
+
+const toProfile = (p: { id: string; displayName: string; avatarUrl?: string | null }): ParticipantProfile => ({
+  id: p.id,
+  displayName: p.displayName,
+  avatarUrl: p.avatarUrl || undefined,
+});
+
+// The conversation row as GET /messages returns it — the source
+// of type/title for a room opened from a push notification
+export interface ConversationMeta {
+  id: string;
+  type: 'direct' | 'group';
+  title?: string | null;
+  avatarEmoji?: string | null;
+}
+
 export interface UseChatMessagesResult {
   messages: ChatMessage[];
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
   participants: Record<string, string>;
+  profiles: ParticipantProfile[];
+  conversation: ConversationMeta | null;
   loading: boolean;
   error: boolean;
   retry: () => void;
-  refreshing: boolean;
-  refresh: () => Promise<void>;
+  resync: () => Promise<void>;
   loadOlder: () => void;
   loadingOlder: boolean;
   hasMore: boolean;
+  deleteMessage: (messageId: string) => void;
 }
 
 
@@ -170,12 +267,13 @@ export interface UseChatMessagesResult {
 //     messages,       — ChatMessage[], NEWEST-FIRST
 //     setMessages,    — shared with composer/reactions hooks
 //     participants,   — senderId → displayName map
+//     profiles,       — members with avatars (first page)
 //     loading, error, retry
 //                     — first-load lifecycle (spinner /
 //                       ErrorState / reload with spinner)
-//     refreshing, refresh
-//                     — pull-to-refresh: refetch newest page,
-//                       keep pending optimistic bubbles
+//     conversation    — type/title of the room (first page)
+//     resync          — merge the newest page after a socket
+//                       drop or network restore (automatic)
 //     loadOlder, loadingOlder, hasMore
 //                     — before-cursor paging for the inverted
 //                       list's onEndReached
@@ -185,6 +283,24 @@ export interface UseChatMessagesResult {
 //   - app/(main)/chat-room/index.tsx — the chat room screen
 // -----------------------------------------------------------
 
+// Blank a message (and every quote of it) after an unsend
+const markDeleted = (m: ChatMessage, messageId: string): ChatMessage => {
+  let next = m;
+  if (m.id === messageId && !m.deleted) {
+    next = { ...m, text: '', imageUrl: undefined, reactions: [], deleted: true };
+  }
+  if (next.replyTo && next.replyTo.id === messageId && !next.replyTo.deleted) {
+    next = { ...next, replyTo: { ...next.replyTo, text: '', imageUrl: undefined, deleted: true } };
+  }
+  return next;
+};
+
+
+
+
+
+
+
 export function useChatMessages(conversationId: string): UseChatMessagesResult {
   const { t } = useTranslation();
   const { user } = useAuth();
@@ -192,9 +308,12 @@ export function useChatMessages(conversationId: string): UseChatMessagesResult {
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [participants, setParticipants] = useState<Record<string, string>>({});
+  const [profiles, setProfiles] = useState<ParticipantProfile[]>([]);
+  const profilesRef = useRef<ParticipantProfile[]>([]);
+  profilesRef.current = profiles;
+  const [conversation, setConversation] = useState<ConversationMeta | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
@@ -253,6 +372,8 @@ export function useChatMessages(conversationId: string): UseChatMessagesResult {
         setHasMore(resp.hasMore);
         hasMoreRef.current = resp.hasMore;
         mergeParticipants(resp.messages);
+        setProfiles(resp.participants.map(toProfile));
+        setConversation(resp.conversation);
 
         // Opening the room clears its unread state — socket for
         // speed, REST as the fallback when realtime is down
@@ -291,12 +412,16 @@ export function useChatMessages(conversationId: string): UseChatMessagesResult {
         conversationId: data.conversationId,
         senderId: data.senderId,
         senderName: data.senderName,
-        senderAvatar: data.senderAvatar || undefined,
+        // The socket payload carries no portrait — the member list does
+        senderAvatar:
+          data.senderAvatar || profilesRef.current.find((p) => p.id === data.senderId)?.avatarUrl || undefined,
         text: data.text ?? '',
         imageUrl: data.imageUrl || undefined,
         createdAt: data.createdAt,
         isOwn,
         status: isOwn ? 'sent' : 'read',
+        replyTo: mapReply(data.replyTo),
+        deleted: !!data.deleted,
         reactions: data.reactions.map((r) => ({
           emoji: r.emoji,
           count: r.count,
@@ -315,17 +440,11 @@ export function useChatMessages(conversationId: string): UseChatMessagesResult {
         // a timeout whose request actually reached the server
         // still echoes, and replacing beats duplicating.
         if (isOwn) {
-          for (let i = prev.length - 1; i >= 0; i--) {
-            const m = prev[i];
-            if (
-              m.id.startsWith(TEMP_ID_PREFIX) &&
-              m.text === incoming.text &&
-              (m.imageUrl ?? '') === (incoming.imageUrl ?? '')
-            ) {
-              const next = [...prev];
-              next[i] = incoming;
-              return next;
-            }
+          const i = findTempFor(prev, incoming);
+          if (i >= 0) {
+            const next = [...prev];
+            next[i] = adoptTemp(incoming, prev[i]);
+            return next;
           }
         }
 
@@ -364,6 +483,13 @@ export function useChatMessages(conversationId: string): UseChatMessagesResult {
     });
 
 
+    // An unsend anywhere in the room blanks that message here
+    // too, and any reply quoting it flips to the placeholder
+    const unsubDeleted = onMessageDeleted((data: MessageDeletedEvent) => {
+      if (data.conversationId !== conversationId) return;
+      setMessages((prev) => prev.map((m) => markDeleted(m, data.messageId)));
+    });
+
     const unsubRead = onMessagesRead((data: MessagesReadEvent) => {
       if (data.conversationId !== conversationId) return;
       if (data.readerId === selfIdRef.current) return;
@@ -392,38 +518,108 @@ export function useChatMessages(conversationId: string): UseChatMessagesResult {
       unsubMessage();
       unsubReaction();
       unsubRead();
-      leaveConversation(conversationId);
+      unsubDeleted();
+      // No leave_conversation here: the server joins every room
+      // of the member at connect, and leaving would silence this
+      // conversation for the list previews and the unread badge
+      // until the next reconnect
     };
   }, [conversationId]);
 
 
-  // Pull-to-refresh: refetch the newest page silently, keeping
-  // optimistic temps (pending or failed sends the server page
-  // cannot contain) at the newest end
-  const refresh = useCallback(async () => {
+  // After a socket drop or a network restore the newest page is
+  // fetched again and MERGED by id — unknown rows slot in by
+  // stamp, known rows take the server's version, temps and paged
+  // history stay put — so a gap of missed messages closes without
+  // the list jumping
+  const resync = useCallback(async () => {
     if (!conversationId) return;
-
-    setRefreshing(true);
     try {
       const resp = await fetchMessages(conversationId);
       if (!mountedRef.current) return;
 
-      const page = resp.messages.map(toChatMessage).reverse();
-      setMessages((prev) => [
-        ...prev.filter((m) => m.id.startsWith(TEMP_ID_PREFIX)),
-        ...page,
-      ]);
-      setHasMore(resp.hasMore);
-      hasMoreRef.current = resp.hasMore;
+      const page = resp.messages.map(toChatMessage);
+
+      // A gap wider than one page: the newest page shares nothing
+      // with the loaded history, which therefore cannot be stitched
+      // to it — start over from this head and let paging refill
+      // downwards (an empty room simply takes the page)
+      const loadedServerRows = messagesRef.current.filter((m) => !m.id.startsWith(TEMP_ID_PREFIX));
+      const loadedIds = new Set(loadedServerRows.map((m) => m.id));
+      const freshHead = loadedServerRows.length === 0 || (resp.hasMore && !page.some((row) => loadedIds.has(row.id)));
+      if (freshHead) {
+        setHasMore(resp.hasMore);
+        hasMoreRef.current = resp.hasMore;
+      }
+
+      setMessages((prev) => {
+        if (freshHead) {
+          // Temps whose server row is in the page adopt it; the rest
+          // stay pending on top
+          let temps = prev.filter((m) => m.id.startsWith(TEMP_ID_PREFIX));
+          const head = page.slice().reverse().map((row) => {
+            if (!row.isOwn) return row;
+            const i = findTempFor(temps, row);
+            if (i < 0) return row;
+            const adopted = adoptTemp(row, temps[i]);
+            temps = temps.filter((_, index) => index !== i);
+            return adopted;
+          });
+          return [...temps, ...head];
+        }
+
+        let next = prev;
+        for (const row of page) {
+          const index = next.findIndex((m) => m.id === row.id);
+          if (index >= 0) {
+            // Always the server's version (reactions, quotes, status)
+            const known = next[index];
+            next = next.slice();
+            next[index] = { ...row, clientId: known.clientId, localImageUri: known.localImageUri };
+            continue;
+          }
+          const tempIndex = row.isOwn ? findTempFor(next, row) : -1;
+          next = next.slice();
+          if (tempIndex >= 0) next[tempIndex] = adoptTemp(row, next[tempIndex]);
+          else next.push(row);
+        }
+        if (next === prev) return prev;
+
+        const stamp = (m: ChatMessage) =>
+          m.id.startsWith(TEMP_ID_PREFIX) ? Number.POSITIVE_INFINITY : (parseStamp(m.createdAt)?.getTime() ?? 0);
+        return next.sort((a, b) => {
+          const ta = stamp(a);
+          const tb = stamp(b);
+          return ta === tb ? 0 : tb - ta;
+        });
+      });
       mergeParticipants(resp.messages);
+      setProfiles(resp.participants.map(toProfile));
+      setConversation(resp.conversation);
       emitMarkRead(conversationId);
       markConversationRead(conversationId).catch(() => {});
     } catch {
-      if (mountedRef.current) showToast('error', t('chat.loadError'));
-    } finally {
-      if (mountedRef.current) setRefreshing(false);
+      // Silent: the live feed keeps working and the next reconnect retries
     }
-  }, [conversationId, mergeParticipants, t]);
+  }, [conversationId, mergeParticipants]);
+
+
+  // Reconnect (after a drop) and network restore both resync
+  const wasDownRef = useRef(false);
+  useEffect(() => {
+    if (!conversationId) return;
+    return onSocketStatusChange((status) => {
+      if (status !== 'connected') {
+        wasDownRef.current = true;
+        return;
+      }
+      if (wasDownRef.current) {
+        wasDownRef.current = false;
+        void resync();
+      }
+    });
+  }, [conversationId, resync]);
+  useNetworkRestore(() => void resync());
 
 
   // Older-history paging for the inverted list's onEndReached.
@@ -447,7 +643,9 @@ export function useChatMessages(conversationId: string): UseChatMessagesResult {
     setLoadingOlder(true);
     void (async () => {
       try {
-        const resp = await fetchMessages(conversationId, cursor.id);
+        // The server pages on created_at, so the cursor is the
+        // oldest loaded stamp — never an id
+        const resp = await fetchMessages(conversationId, cursor.createdAt);
         if (!mountedRef.current) return;
 
         const page = resp.messages.map(toChatMessage).reverse();
@@ -471,15 +669,51 @@ export function useChatMessages(conversationId: string): UseChatMessagesResult {
   const retry = useCallback(() => setReloadKey((k) => k + 1), []);
 
 
+  // Optimistic unsend: the placeholder shows at once and the
+  // original comes back (with a toast) if the backend refuses
+  const deleteMessage = useCallback(
+    (messageId: string) => {
+      const target = messagesRef.current.find((m) => m.id === messageId);
+      if (!target || target.deleted) return;
+      // Snapshot the whole list: the optimistic pass also flips
+      // every quote of this message, and a failure restores them all
+      const snapshot = messagesRef.current;
+      setMessages((prev) => prev.map((m) => markDeleted(m, messageId)));
+      deleteMessageApi(conversationId, messageId).catch(() => {
+        if (!mountedRef.current) return;
+        // Put back only what the optimistic pass touched — live
+        // reactions / receipts that landed meanwhile stay
+        const original = snapshot.find((m) => m.id === messageId);
+        const quote = snapshot.find((m) => m.replyTo?.id === messageId)?.replyTo;
+        setMessages((prev) =>
+          prev.map((m) => {
+            if (m.id === messageId && original) {
+              return { ...m, text: original.text, imageUrl: original.imageUrl, deleted: original.deleted };
+            }
+            if (m.replyTo?.id === messageId && quote) {
+              return { ...m, replyTo: { ...m.replyTo, text: quote.text, imageUrl: quote.imageUrl, deleted: quote.deleted } };
+            }
+            return m;
+          }),
+        );
+        showToast('error', t('chat.deleteError'));
+      });
+    },
+    [conversationId, t],
+  );
+
+
   return {
     messages,
     setMessages,
     participants,
+    profiles,
+    conversation,
+    deleteMessage,
+    resync,
     loading,
     error,
     retry,
-    refreshing,
-    refresh,
     loadOlder,
     loadingOlder,
     hasMore,

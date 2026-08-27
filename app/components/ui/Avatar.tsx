@@ -3,10 +3,11 @@
 //
 //  User portrait with graceful degradation: expo-image (with
 //  its disk cache) when a photo exists, otherwise the first
-//  initial on a brand-soft disc. `uri` is usually the
-//  RELATIVE path the backend stores for uploads —
-//  getUploadUrl resolves it against API_BASE_URL and passes
-//  absolute http(s) URLs through untouched.
+//  initial on a brand-soft disc — also when the photo FAILS to
+//  load (a dead URL must never leave a blank hole in a row).
+//  `uri` is usually the RELATIVE path the backend stores for
+//  uploads — getUploadUrl resolves it against API_BASE_URL and
+//  passes absolute http(s) URLs through untouched.
 //
 //  The optional online dot sits on the bottom-right edge with
 //  a surface ring, so it separates cleanly from any photo
@@ -17,6 +18,7 @@
 import { Image } from 'expo-image';
 
 // Fallback disc and online dot primitives
+import { useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
 
 // Resolves relative backend upload paths to absolute URLs
@@ -43,7 +45,7 @@ interface AvatarProps {
 // Used by:
 //   - components/chat/ConversationRow.tsx — list portraits
 //     with the online dot
-//   - components/chat/MessageBubble.tsx — group senders
+//   - components/chat/ConversationRow.tsx — conversation rows
 //   - components/news/CommentRow.tsx — comment authors
 //   - app/(main)/friends/, app/(main)/friend-requests/ — rows
 //   - app/(main)/profile/ — the profile header portrait
@@ -61,10 +63,17 @@ export default function Avatar({ uri, name, size = 40, online = false }: AvatarP
   const dotSize = Math.max(10, Math.round(size * 0.28));
 
 
+  // A photo that cannot load falls back to the initial; a new
+  // uri gets a fresh try
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [uri]);
+  const showPhoto = !!uri && !failed;
+
+
   return (
     <View style={{ width: size, height: size }}>
 
-      {uri ? (
+      {showPhoto ? (
         // recyclingKey stops FlatList row reuse from flashing
         // the previous user's photo while the next one loads
         <Image
@@ -73,6 +82,7 @@ export default function Avatar({ uri, name, size = 40, online = false }: AvatarP
           contentFit="cover"
           recyclingKey={uri}
           transition={100}
+          onError={() => setFailed(true)}
         />
       ) : (
         <View

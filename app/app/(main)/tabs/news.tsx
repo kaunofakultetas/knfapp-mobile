@@ -2,7 +2,12 @@
 //  [*] Tabs — News feed
 //
 //  The app's landing tab: faculty news and community posts
-//  under one static header. Two modes — 'all' is the public
+//  under a header whose title bar tucks away as the reader
+//  scrolls down and glides back on any scroll up
+//  (hooks/useCollapsibleHeader) — the feed-mode toggle and
+//  the filter chips stay pinned because they ARE the feed's
+//  navigation, and the brand band under the status bar never
+//  moves. Two modes — 'all' is the public
 //  scraped-plus-user feed with source filter chips and an
 //  offline cache; 'community' is the friends-only social feed.
 //  Community needs an account, but the mode stays visible
@@ -20,7 +25,8 @@
 //  cache — a filtered or community page would poison the
 //  cached copy with a partial view. Mode and filter are
 //  useFeed deps, so every switch runs the full first-page
-//  spinner and the list remounts scrolled to the top.
+//  spinner, the list remounts scrolled to the top and the
+//  title bar is revealed again.
 //
 //  Split into (root component last):
 //
@@ -39,6 +45,7 @@ import { EmptyState, ErrorState, Header, LoadingSpinner, Screen } from '@/compon
 // Feed engine, auth, connectivity and theming
 import { useAuth } from '@/context/AuthContext';
 import { showToast, useNetwork } from '@/context/NetworkContext';
+import useCollapsibleHeader from '@/hooks/useCollapsibleHeader';
 import { useFeed, type FeedPage } from '@/hooks/useFeed';
 import { useTheme } from '@/hooks/useTheme';
 
@@ -57,7 +64,6 @@ import { usePathname, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  FlatList,
   type ListRenderItemInfo,
   Pressable,
   RefreshControl,
@@ -67,6 +73,8 @@ import {
   View,
   type ViewStyle,
 } from 'react-native';
+import Animated from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 
 // The two views of the tab
@@ -339,6 +347,8 @@ export default function NewsTab() {
   const { colors } = useTheme();
   const { isAuthenticated } = useAuth();
   const { isConnected } = useNetwork();
+  const insets = useSafeAreaInsets();
+  const header = useCollapsibleHeader();
 
 
   // Mode + filter drive the feed's deps; switching modes also
@@ -416,10 +426,18 @@ export default function NewsTab() {
   };
 
 
+  // Every switch reloads from the top, so the title bar comes
+  // back with it
   const selectMode = (mode: FeedMode) => {
     if (mode === feedMode) return;
     setFeedMode(mode);
     setSourceFilter('');
+    header.reveal();
+  };
+
+  const selectFilter = (key: SourceFilter) => {
+    setSourceFilter(key);
+    header.reveal();
   };
 
 
@@ -455,10 +473,19 @@ export default function NewsTab() {
   return (
     <Screen>
 
-      <Header title={t('news.title')} />
+      {/* Brand band under the status bar — never collapses */}
+      <View className="bg-brand-header" style={{ height: insets.top }} />
+
+      {/* The title bar tucks away on scroll; the rows below stay */}
+      <Animated.View style={header.barStyle}>
+        <Animated.View onLayout={header.onBarLayout} style={header.barContentStyle}>
+          <Header title={t('news.title')} inset={false} />
+        </Animated.View>
+      </Animated.View>
+
       <FeedModeToggle mode={feedMode} onSelect={selectMode} />
       {feedMode === 'all' ? (
-        <SourceChips active={sourceFilter} onSelect={setSourceFilter} />
+        <SourceChips active={sourceFilter} onSelect={selectFilter} />
       ) : null}
 
       {feed.cachedAt ? <CachedBanner cachedAt={feed.cachedAt} /> : null}
@@ -471,12 +498,14 @@ export default function NewsTab() {
           <LoadingSpinner />
         </View>
       ) : feed.error ? (
-        <ErrorState offline={!isConnected} onRetry={() => void feed.refresh()} />
+        <ErrorState message={t('news.loadError')} offline={!isConnected} onRetry={() => void feed.refresh()} />
       ) : (
-        <FlatList
+        <Animated.FlatList
           data={feed.items}
           keyExtractor={(item) => item.id}
           renderItem={renderPost}
+          onScroll={header.scrollHandler}
+          scrollEventThrottle={16}
           contentContainerStyle={{ flexGrow: 1, paddingTop: 8, paddingBottom: 96 }}
           refreshControl={
             <RefreshControl

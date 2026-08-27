@@ -1,7 +1,7 @@
 // -----------------------------------------------------------
 //  [*] useChatComposer — optimistic sends, retry, typing
 //
-//  Everything between the InputBar and the server: optimistic
+//  Everything between the Composer and the server: optimistic
 //  bubbles ('sending' → 'sent' via the REST response, 'failed'
 //  on error), tap-to-retry, an automatic retry sweep when
 //  connectivity returns, image attach, and the typing emits.
@@ -49,7 +49,7 @@ import { useNetworkRestore } from '@/hooks/useNetworkRestore';
 import { useTranslation } from 'react-i18next';
 
 // Message shape and the optimistic-id marker
-import { TEMP_ID_PREFIX } from '@/hooks/chat/useChatMessages';
+import { TEMP_ID_PREFIX, mapReply } from '@/hooks/chat/useChatMessages';
 import type { ChatMessage } from '@/types';
 
 // Image picking and lifecycle plumbing
@@ -76,8 +76,18 @@ const TYPING_IDLE_MS = 3000;
 //
 // Used by:
 //   - useChatComposer (below)
-//   - app/(main)/chat-room/index.tsx — InputBar wiring
+//   - app/(main)/chat-room/index.tsx — Composer wiring
 // -----------------------------------------------------------
+
+// What a failed send needs to retry: the body, the uploaded
+// image path — or, when the upload itself failed, the picked
+// asset so the retry uploads again
+interface FailedPayload {
+  text: string;
+  imageUrl?: string;
+  replyToId?: string;
+  asset?: { uri: string; fileName?: string; mimeType?: string };
+}
 
 export interface UseChatComposerResult {
   text: string;
@@ -87,6 +97,10 @@ export interface UseChatComposerResult {
   sendQuickLike: () => void;
   attachImage: () => Promise<void>;
   retryMessage: (message: ChatMessage) => void;
+  // Drops a failed optimistic bubble that will not be retried
+  discardMessage: (messageId: string) => void;
+  replyTo: ChatMessage | null;
+  setReplyTo: (message: ChatMessage | null) => void;
 }
 
 
@@ -117,13 +131,23 @@ export interface UseChatComposerResult {
 export function useChatComposer(
   conversationId: string,
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>,
+  messages: ChatMessage[],
 ): UseChatComposerResult {
   const { t } = useTranslation();
   const { user } = useAuth();
 
 
+  // The live list, for the queue: an entry whose temp is gone
+  // (the socket echo replaced a failed send, or it was discarded)
+  // must never be re-sent by the restore sweep
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+
+
   const [text, setText] = useState('');
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [replyTo, setReplyToState] = useState<ChatMessage | null>(null);
+  const replyToRef = useRef<ChatMessage | null>(null);
 
 
   // Draft mirror read synchronously by sendMessage — the state
@@ -138,7 +162,9 @@ export function useChatComposer(
 
   // tempId → payload for every failed send; the restore sweep
   // and tap-to-retry both re-drive from here
-  const failedQueueRef = useRef(new Map<string, { text: string; imageUrl?: string }>());
+  const failedQueueRef = useRef(
+    new Map<string, FailedPayload>(),
+  );
 
 
   // Temp ids currently on the wire — guards a retry tap racing
@@ -203,7 +229,7 @@ export function useChatComposer(
   // the socket echo already replaced the temp, the map finds
   // nothing and the swap is a clean no-op.
   const deliver = useCallback(
-    async (tempId: string, body: string, imageUrl?: string) => {
+    async (tempId: string, body: string, imageUrl?: string, replyToId?: string) => {
       if (inFlightRef.current.has(tempId)) return;
       inFlightRef.current.add(tempId);
 
@@ -212,7 +238,7 @@ export function useChatComposer(
       );
 
       try {
-        const resp = await sendMessageApi(conversationId, body, imageUrl);
+        const resp = await sendMessageApi(conversationId, body, imageUrl, replyToId);
         failedQueueRef.current.delete(tempId);
 
         const sent: ChatMessage = {
@@ -227,16 +253,20 @@ export function useChatComposer(
           isOwn: true,
           status: resp.message.status ?? 'sent',
           reactions: [],
+          replyTo: mapReply(resp.message.replyTo),
+          deleted: false,
         };
         setMessages((prev) => {
           // Socket echo may have delivered the server row first
           if (prev.some((m) => m.id === sent.id)) {
             return prev.filter((m) => m.id !== tempId);
           }
-          return prev.map((m) => (m.id === tempId ? sent : m));
+          // The row keeps the temp's key (and local photo) so the
+          // bubble does not remount mid-animation
+          return prev.map((m) => (m.id === tempId ? { ...sent, clientId: m.clientId ?? tempId, localImageUri: m.localImageUri } : m));
         });
       } catch {
-        failedQueueRef.current.set(tempId, { text: body, imageUrl });
+        failedQueueRef.current.set(tempId, { text: body, imageUrl, replyToId });
         setMessages((prev) =>
           prev.map((m) => (m.id === tempId ? { ...m, status: 'failed' } : m)),
         );
@@ -249,32 +279,93 @@ export function useChatComposer(
   );
 
 
-  // Append the optimistic bubble (newest-first list → unshift)
-  // and start delivery
-  const startSend = useCallback(
-    (body: string, imageUrl?: string) => {
-      if (!user) return;
+  // Append the optimistic bubble (newest-first list → unshift);
+  // returns its temp id and the consumed reply target. An image
+  // send passes the picked asset's local uri so the bubble shows
+  // the photo while it uploads
+  const createTemp = useCallback(
+    (body: string, imageUrl?: string, localImageUri?: string) => {
+      if (!user) return null;
+      // The reply strip is consumed by whichever send comes next
+      const reply = replyToRef.current;
+      replyToRef.current = null;
+      setReplyToState(null);
 
       tempSeqRef.current += 1;
       const tempId = `${TEMP_ID_PREFIX}${tempSeqRef.current}-${Date.now()}`;
       const optimistic: ChatMessage = {
         id: tempId,
+        clientId: tempId,
         conversationId,
         senderId: user.id,
         senderName: user.displayName,
         senderAvatar: user.avatarUrl,
         text: body,
         imageUrl,
+        localImageUri: localImageUri ?? undefined,
         createdAt: new Date().toISOString(),
         isOwn: true,
         status: 'sending',
         reactions: [],
+        replyTo: reply
+          ? {
+              id: reply.id,
+              senderId: reply.senderId,
+              senderName: reply.senderName,
+              text: reply.text,
+              imageUrl: reply.imageUrl,
+              deleted: !!reply.deleted,
+            }
+          : undefined,
+        deleted: false,
       };
       setMessages((prev) => [optimistic, ...prev]);
 
-      void deliver(tempId, body, imageUrl);
+      return { tempId, replyToId: reply?.id };
     },
-    [conversationId, deliver, setMessages, user],
+    [conversationId, setMessages, user],
+  );
+
+
+  const startSend = useCallback(
+    (body: string, imageUrl?: string) => {
+      const temp = createTemp(body, imageUrl);
+      if (temp) void deliver(temp.tempId, body, imageUrl, temp.replyToId);
+    },
+    [createTemp, deliver],
+  );
+
+
+  // Upload the picked asset, then deliver the message with the
+  // RELATIVE url the server returned (bubbles resolve it with
+  // getUploadUrl at render time). A failed upload parks the
+  // asset in the queue so a retry uploads again
+  const uploadAndDeliver = useCallback(
+    async (tempId: string, asset: NonNullable<FailedPayload['asset']>, replyToId?: string) => {
+      // Same guard as deliver: a retry tap and the restore sweep
+      // must not start two uploads of one photo
+      if (inFlightRef.current.has(tempId)) return;
+      inFlightRef.current.add(tempId);
+      setUploadingImage(true);
+      setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: 'sending' } : m)));
+      try {
+        const upload = await uploadImageApi(asset.uri, asset.fileName, asset.mimeType);
+        setUploadingImage(false);
+        // The temp now carries the server path (the echo matcher
+        // and the viewer compare it) while still showing the local
+        // file until the upload is cached
+        setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, imageUrl: upload.url } : m)));
+        inFlightRef.current.delete(tempId);
+        await deliver(tempId, '', upload.url, replyToId);
+      } catch {
+        setUploadingImage(false);
+        inFlightRef.current.delete(tempId);
+        failedQueueRef.current.set(tempId, { text: '', replyToId, asset });
+        setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: 'failed' } : m)));
+        showToast('error', t('chat.imageUploadError'));
+      }
+    },
+    [deliver, setMessages, t],
   );
 
 
@@ -302,7 +393,7 @@ export function useChatComposer(
   }, [sendMessage, startSend]);
 
 
-  // Pick → upload → send. uploadingImage drives the InputBar's
+  // Pick → upload → send. uploadingImage drives the Composer's
   // spinner and blocks a second pick while the first uploads
   const attachImage = useCallback(async () => {
     if (uploadingImage) return;
@@ -315,22 +406,14 @@ export function useChatComposer(
     if (result.canceled || !result.assets?.[0]) return;
 
     const asset = result.assets[0];
-    setUploadingImage(true);
-    try {
-      const upload = await uploadImageApi(
-        asset.uri,
-        asset.fileName || undefined,
-        asset.mimeType || undefined,
-      );
-      // The RELATIVE url is what the message carries — bubbles
-      // resolve it with getUploadUrl at render time
-      startSend('', upload.url);
-    } catch {
-      showToast('error', t('chat.imageUploadError'));
-    } finally {
-      setUploadingImage(false);
-    }
-  }, [startSend, t, uploadingImage]);
+    const picked = { uri: asset.uri, fileName: asset.fileName || undefined, mimeType: asset.mimeType || undefined };
+
+    // The bubble appears at once with the local photo; the
+    // upload and the send follow behind it
+    const temp = createTemp('', undefined, asset.uri);
+    if (!temp) return;
+    await uploadAndDeliver(temp.tempId, picked, temp.replyToId);
+  }, [createTemp, uploadAndDeliver, uploadingImage]);
 
 
   // Tap-to-retry on a failed bubble. The queue entry is the
@@ -341,20 +424,62 @@ export function useChatComposer(
       if (message.status !== 'failed') return;
       const payload = failedQueueRef.current.get(message.id);
       if (!payload) return;
+      if (!messagesRef.current.some((m) => m.id === message.id)) {
+        failedQueueRef.current.delete(message.id);
+        return;
+      }
 
-      void deliver(message.id, payload.text, payload.imageUrl);
+      if (payload.asset && !payload.imageUrl) {
+        void uploadAndDeliver(message.id, payload.asset, payload.replyToId);
+        return;
+      }
+      void deliver(message.id, payload.text, payload.imageUrl, payload.replyToId);
     },
-    [deliver],
+    [deliver, uploadAndDeliver],
   );
 
 
   // Connectivity returned — re-drive every queued failure from
   // the ref snapshot (never from inside a state updater)
   useNetworkRestore(() => {
+    const present = new Set(messagesRef.current.map((m) => m.id));
     for (const [tempId, payload] of Array.from(failedQueueRef.current.entries())) {
-      void deliver(tempId, payload.text, payload.imageUrl);
+      if (!present.has(tempId)) {
+        failedQueueRef.current.delete(tempId);
+        continue;
+      }
+      if (payload.asset && !payload.imageUrl) void uploadAndDeliver(tempId, payload.asset, payload.replyToId);
+      else void deliver(tempId, payload.text, payload.imageUrl, payload.replyToId);
     }
   });
+
+
+  const setReplyTo = useCallback((message: ChatMessage | null) => {
+    replyToRef.current = message;
+    setReplyToState(message);
+  }, []);
+
+
+  // Prune queue entries whose temp no longer exists
+  useEffect(() => {
+    if (failedQueueRef.current.size === 0) return;
+    const present = new Set(messages.map((m) => m.id));
+    for (const tempId of Array.from(failedQueueRef.current.keys())) {
+      if (!present.has(tempId)) failedQueueRef.current.delete(tempId);
+    }
+  }, [messages]);
+
+
+  // Drop a failed bubble the user gives up on — only temps are
+  // ever discarded; server rows go through the unsend flow
+  const discardMessage = useCallback(
+    (messageId: string) => {
+      if (!messageId.startsWith(TEMP_ID_PREFIX)) return;
+      failedQueueRef.current.delete(messageId);
+      setMessages((prev) => prev.filter((m) => m.id !== messageId));
+    },
+    [setMessages],
+  );
 
 
   return {
@@ -365,5 +490,8 @@ export function useChatComposer(
     sendQuickLike,
     attachImage,
     retryMessage,
+    discardMessage,
+    replyTo,
+    setReplyTo,
   };
 }

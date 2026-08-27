@@ -187,7 +187,7 @@ function FacultyCard({
           {t('id.university')}
         </Text>
         <Text className="mt-xs font-raleway-bold text-lg text-on-brand">
-          {t('info.facultyName')}
+          {t('id.faculty')}
         </Text>
       </View>
 

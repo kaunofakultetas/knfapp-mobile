@@ -14,12 +14,14 @@
 //  historical design bound listeners to the instance, and a
 //  network blip silently orphaned every mounted screen.
 //
-//  Transports are polling-first: the backend runs
-//  flask-socketio in threading mode without simple-websocket,
-//  so a websocket attempt can never succeed and only delays
-//  each connect. NOTE the deployed Caddyfile routes /api/* but
-//  not /socket.io/* to the backend — realtime works in local
-//  dev only until that route is added.
+//  Transport is long-polling only, with upgrades disabled: the
+//  backend runs flask-socketio in threading mode without
+//  simple-websocket, so a websocket attempt can never succeed
+//  and would only fail noisily after every connect. The
+//  ingress Caddyfile proxies /socket.io/* to the backend, and
+//  the backend's ALLOWED_ORIGINS must list the web origin —
+//  flask-socketio checks Origin on the polling handshake even
+//  for same-origin pages (native apps send no Origin).
 //
 //  Split into:
 //
@@ -30,6 +32,8 @@
 //    disconnectSocket    — teardown (logout, token change)
 //    emitters            — join/leave/typing/mark_read
 //    on* helpers         — registry-backed subscriptions
+//                          (new_message, reaction_update, typing,
+//                          messages_read, message_deleted)
 // -----------------------------------------------------------
 
 // Socket.IO is served on the API host, above the /api prefix
@@ -102,6 +106,20 @@ export interface SocketMessage {
     count: number;
     byUserIds: string[];
   }[];
+  replyTo?: {
+    id: string;
+    senderId: string;
+    senderName: string;
+    text: string;
+    imageUrl?: string | null;
+    deleted: boolean;
+  } | null;
+  deleted?: boolean;
+}
+
+export interface MessageDeletedEvent {
+  conversationId: string;
+  messageId: string;
 }
 
 export interface ReactionUpdate {
@@ -227,7 +245,8 @@ type EventName =
   | 'reaction_update'
   | 'user_typing'
   | 'user_stop_typing'
-  | 'messages_read';
+  | 'messages_read'
+  | 'message_deleted';
 
 type Listener<T> = (data: T) => void;
 
@@ -238,6 +257,7 @@ const FORWARDED_EVENTS: EventName[] = [
   'user_typing',
   'user_stop_typing',
   'messages_read',
+  'message_deleted',
 ];
 
 // Stored as Listener<never> (contravariant) so one Set type
@@ -361,7 +381,11 @@ async function establish(): Promise<Socket | null> {
     forceNew: true,
     // Backend reads the token from request.args at connect
     query: { token },
-    transports: ['polling', 'websocket'],
+    // Polling only: the backend (flask-socketio, threading mode,
+    // no simple-websocket) cannot accept WebSocket, so every
+    // upgrade attempt would fail noisily and delay nothing but us
+    transports: ['polling'],
+    upgrade: false,
     reconnection: true,
     reconnectionAttempts: Infinity,
     reconnectionDelay: 1000,
@@ -629,4 +653,25 @@ export function onStopTyping(listener: Listener<StopTypingEvent>): () => void {
 
 export function onMessagesRead(listener: Listener<MessagesReadEvent>): () => void {
   return addListener('messages_read', listener);
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// onMessageDeleted
+// -----------------------------------------------------------
+//
+// Fired when a sender unsends a message — the room swaps the
+// body for the "message deleted" placeholder.
+//
+// Used by:
+//   - hooks/chat/useChatMessages — live unsend
+// -----------------------------------------------------------
+
+export function onMessageDeleted(listener: Listener<MessageDeletedEvent>): () => void {
+  return addListener('message_deleted', listener);
 }

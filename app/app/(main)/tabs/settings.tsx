@@ -302,6 +302,9 @@ function SwitchRow({
         disabled={disabled}
         trackColor={{ false: colors.line, true: colors.brandSoft }}
         thumbColor={value ? colors.brand : colors.surface}
+        // react-native-web ignores thumbColor for the ON state and
+        // paints its own teal unless activeThumbColor is given
+        {...({ activeThumbColor: colors.brand } as Record<string, unknown>)}
         accessibilityRole="switch"
         accessibilityLabel={label}
         accessibilityState={{ checked: value, disabled }}

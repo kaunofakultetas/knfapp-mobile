@@ -23,6 +23,7 @@
 //
 //    Palette          — the token shape both schemes share
 //    palettes         — light + dark values
+//    cssVariables     — palette → {--token: value} map
 //    themeVars        — nativewind vars() per scheme
 //    fonts            — Raleway family + mono names
 //    navigationThemes — @react-navigation themes per scheme
@@ -76,6 +77,13 @@ export interface Palette {
   dangerSoft: string;
   info: string;
   scrim: string;         // modal overlays
+  chatCanvas: string;    // the conversation feed's ground
+  bubbleIn: string;      // received message bubbles
+  bubbleOut: string;     // own message bubbles (white text)
+  quoteWash: string;     // reply-quote block inside a received bubble
+  menuSurface: string;   // floating chrome: context menu, pills, fabs
+  shadow: string;        // shadowColor — black in both schemes
+  onBrandWash: string;   // translucent white on brand fills (quotes, discs)
 }
 
 
@@ -104,7 +112,7 @@ export const palettes: Record<'light' | 'dark', Palette> = {
     surfaceSoft: '#EFEAEC',
     ink: '#221E20',
     inkSoft: '#6E6468',
-    inkFaint: '#A79DA1',
+    inkFaint: '#857A7F',
     onBrand: '#FFFFFF',
     line: '#E6E0E2',
     lineStrong: '#C9C0C4',
@@ -121,6 +129,13 @@ export const palettes: Record<'light' | 'dark', Palette> = {
     dangerSoft: '#F9E5E5',
     info: '#1565C0',
     scrim: 'rgba(0, 0, 0, 0.45)',
+    chatCanvas: '#FFFFFF',
+    bubbleIn: '#EFEAEC',
+    bubbleOut: '#7B003F',
+    quoteWash: 'rgba(0, 0, 0, 0.06)',
+    menuSurface: '#FFFFFF',
+    shadow: '#000000',
+    onBrandWash: 'rgba(255, 255, 255, 0.22)',
   },
   dark: {
     canvas: '#151215',
@@ -128,7 +143,7 @@ export const palettes: Record<'light' | 'dark', Palette> = {
     surfaceSoft: '#2A2428',
     ink: '#F3EEF0',
     inkSoft: '#A99FA4',
-    inkFaint: '#6E6468',
+    inkFaint: '#948A8F',
     onBrand: '#FFFFFF',
     line: '#352E32',
     lineStrong: '#4A4247',
@@ -145,6 +160,19 @@ export const palettes: Record<'light' | 'dark', Palette> = {
     dangerSoft: '#351B1B',
     info: '#64B5F6',
     scrim: 'rgba(0, 0, 0, 0.6)',
+    // The feed sits on the darker canvas so received bubbles
+    // stand off it; own bubbles keep the burgundy hue rather
+    // than the lifted pink the icons use
+    chatCanvas: '#151215',
+    bubbleIn: '#2C262A',
+    bubbleOut: '#A3235E',
+    quoteWash: 'rgba(255, 255, 255, 0.08)',
+    // Floating chrome sits a step above the surface so it keeps an
+    // edge over the dimmed canvas; shadows stay black (an ink-
+    // coloured shadow reads as a halo in the dark scheme)
+    menuSurface: '#2F282C',
+    shadow: '#000000',
+    onBrandWash: 'rgba(255, 255, 255, 0.22)',
   },
 };
 
@@ -163,24 +191,27 @@ export const palettes: Record<'light' | 'dark', Palette> = {
 // puts the active scheme's entry on a plain wrapper View, so
 // switching theme restyles every className in the tree.
 //
+// On web, Modals portal OUTSIDE the wrapper View's DOM subtree
+// and would lose these variables, so app/_layout.tsx also
+// mirrors cssVariables() onto document.documentElement there.
+//
 // Used by:
-//   - app/_layout.tsx — style on the root wrapper View
+//   - app/_layout.tsx — style on the root wrapper View, and the
+//     web root-element mirror
 // -----------------------------------------------------------
 
 // Palette keys are camelCase; CSS variables are kebab-case
-const toCssVars = (p: Palette) =>
-  vars(
-    Object.fromEntries(
-      Object.entries(p).map(([key, value]) => [
-        `--${key.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase())}`,
-        value,
-      ]),
-    ),
+export const cssVariables = (p: Palette): Record<string, string> =>
+  Object.fromEntries(
+    Object.entries(p).map(([key, value]) => [
+      `--${key.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase())}`,
+      value,
+    ]),
   );
 
 export const themeVars = {
-  light: toCssVars(palettes.light),
-  dark: toCssVars(palettes.dark),
+  light: vars(cssVariables(palettes.light)),
+  dark: vars(cssVariables(palettes.dark)),
 };
 
 

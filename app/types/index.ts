@@ -24,6 +24,7 @@
 //    ConversationType        — direct chat or group chat
 //    ConversationParticipant — a member of a conversation
 //    Conversation            — a chat-list row (no messages)
+//    ChatReplyRef            — the quoted message of a reply
 //    ChatReaction            — one emoji group on a message
 //    ChatMessage             — the unified UI message shape
 // -----------------------------------------------------------
@@ -283,7 +284,7 @@ export interface Conversation {
 // Used by:
 //   - ChatMessage (below)
 //   - hooks/chat/useChatReactions.ts
-//   - components/chat/ReactionsPicker.tsx, ReactionsViewer.tsx
+//   - chatkit (reaction pills + action sheet), components/chat/ReactionsViewer.tsx
 // -----------------------------------------------------------
 
 export interface ChatReaction {
@@ -291,6 +292,36 @@ export interface ChatReaction {
   count: number;
   bySelf: boolean;
   byUserIds: string[];
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ChatReplyRef
+// -----------------------------------------------------------
+//
+// The quoted message inside a reply bubble — a snapshot the
+// backend joins in, not a live reference. `deleted` is true
+// when the quoted message was since unsent; the text/image
+// are blank then and the bubble shows the placeholder.
+//
+// Used by:
+//   - ChatMessage (below)
+//   - chatkit — the reply quote inside bubbles + the composer
+//     reply strip
+// -----------------------------------------------------------
+
+export interface ChatReplyRef {
+  id: string;
+  senderId: string;
+  senderName: string;
+  text: string;
+  imageUrl?: string;
+  deleted: boolean;
 }
 
 
@@ -313,7 +344,7 @@ export interface ChatReaction {
 // Used by:
 //   - services/api/chat.ts — the row → UI mapper
 //   - hooks/chat/useChatMessages.ts, useChatComposer.ts
-//   - components/chat/MessageBubble.tsx, MessageList.tsx
+//   - chatkit — MessageBubble, MessageList, timeline
 // -----------------------------------------------------------
 
 export interface ChatMessage {
@@ -328,4 +359,14 @@ export interface ChatMessage {
   isOwn: boolean;
   status: 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
   reactions: ChatReaction[];
+  // Present on replies; the composer builds it optimistically
+  replyTo?: ChatReplyRef;
+  // Unsent by its sender — text/image are blank, a placeholder renders
+  deleted?: boolean;
+  // The optimistic temp id an own message was born with — kept on
+  // the server row after the swap so the list row keeps its key
+  clientId?: string;
+  // The picked asset's local uri, shown until the uploaded image
+  // is cached (own photo sends only)
+  localImageUri?: string;
 }

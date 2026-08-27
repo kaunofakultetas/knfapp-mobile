@@ -37,13 +37,13 @@ import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { View } from 'react-native';
+import { Platform, View } from 'react-native';
 import { ErrorBoundary } from 'react-error-boundary';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Toast from 'react-native-toast-message';
 
 // Providers and theme plumbing
-import { navigationThemes, themeVars } from '@/constants/theme';
+import { cssVariables, navigationThemes, palettes, themeVars } from '@/constants/theme';
 import { AppProvider, useApp } from '@/context/AppContext';
 import { AuthProvider } from '@/context/AuthContext';
 import { NetworkProvider } from '@/context/NetworkContext';
@@ -148,6 +148,20 @@ function AppNavigation() {
 function ThemedShell() {
   const { scheme } = useApp();
   const { t } = useTranslation();
+
+
+  // react-native-web renders Modal into a portal outside this
+  // View's DOM subtree, where the vars() style cannot be
+  // inherited — drawer, sheets and viewers would paint
+  // transparent. Mirroring the variables on the document root
+  // gives portals the same palette. Native never reaches this.
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+    const root = document.documentElement;
+    for (const [name, value] of Object.entries(cssVariables(palettes[scheme]))) {
+      root.style.setProperty(name, value);
+    }
+  }, [scheme]);
 
 
   const [fontsLoaded] = useFonts({

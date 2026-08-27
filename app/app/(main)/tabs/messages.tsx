@@ -62,6 +62,7 @@ import { useFeed } from '@/hooks/useFeed';
 import { useSocketStatus } from '@/hooks/useSocketStatus';
 import {
   connectSocket,
+  onMessageDeleted,
   onNewMessage,
   type SocketMessage,
   type SocketStatus,
@@ -104,6 +105,10 @@ const TAB_LABEL_KEYS: Record<FilterTab, string> = {
 
 const FILTER_TABS: FilterTab[] = ['all', 'people', 'groups'];
 
+// How long a non-connected socket state may last before the
+// banner shows
+const BANNER_GRACE_MS = 8000;
+
 
 
 
@@ -129,7 +134,20 @@ function SocketBanner({ status }: { status: SocketStatus }) {
   const { colors } = useTheme();
 
 
-  if (status === 'connected') return null;
+  // The strip waits out the connect handshake — a fresh open
+  // spends a few seconds 'connecting' and must not flash red
+  const [settled, setSettled] = useState(false);
+  useEffect(() => {
+    if (status === 'connected') {
+      setSettled(false);
+      return;
+    }
+    const timer = setTimeout(() => setSettled(true), BANNER_GRACE_MS);
+    return () => clearTimeout(timer);
+  }, [status]);
+
+
+  if (status === 'connected' || !settled) return null;
 
 
   if (status === 'disconnected') {
@@ -196,7 +214,7 @@ function SearchRow({
     <View className="bg-surface px-md pb-sm pt-md">
       <View className="flex-row items-center">
 
-        <View className="flex-1 flex-row items-center rounded-lg bg-surface-soft px-sm py-sm">
+        <View className="flex-1 flex-row items-center rounded-full bg-surface-soft px-sm py-sm">
           <Ionicons name="search" size={18} color={colors.inkFaint} />
           <TextInput
             className="ml-sm flex-1 font-raleway text-base text-ink"
@@ -387,6 +405,7 @@ function Conversations() {
   useEffect(() => {
     let cancelled = false;
     let unsubscribe: (() => void) | undefined;
+    let unsubscribeDeleted: (() => void) | undefined;
 
     void (async () => {
       // Best-effort connect — the subscription below works
@@ -431,11 +450,26 @@ function Conversations() {
           ),
         );
       });
+
+      // An unsent last message flips its preview to the placeholder
+      unsubscribeDeleted = onMessageDeleted(({ conversationId, messageId }) => {
+        setItems((current) =>
+          current.map((conversation) =>
+            conversation.id === conversationId && conversation.lastMessage?.id === messageId
+              ? {
+                  ...conversation,
+                  lastMessage: { ...conversation.lastMessage, text: '', imageUrl: undefined, deleted: true },
+                }
+              : conversation,
+          ),
+        );
+      });
     })();
 
     return () => {
       cancelled = true;
       unsubscribe?.();
+      unsubscribeDeleted?.();
       if (refetchTimerRef.current) {
         clearTimeout(refetchTimerRef.current);
         refetchTimerRef.current = null;

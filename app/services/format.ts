@@ -105,7 +105,7 @@ export function formatDate(iso: string): string {
 // backend's UTC-preformatted `time` field.
 //
 // Used by:
-//   - components/chat/MessageBubble — message times
+//   - chatkit/MessageBubble — revealed message times
 //   - components/chat/ConversationRow — last-message times
 // -----------------------------------------------------------
 

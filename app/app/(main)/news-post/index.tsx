@@ -64,6 +64,7 @@ import type { NewsPost } from '@/types';
 // Auth gate for the like toggle + app-wide toasts
 import { useAuth } from '@/context/AuthContext';
 import { showToast } from '@/context/NetworkContext';
+import { stripScrapedPreamble } from '@/services/newsText';
 
 // Route param, navigation and the stack-header offset
 import { useHeaderHeight } from '@react-navigation/elements';
@@ -301,7 +302,7 @@ function ArticleHeader({
         <Text className="px-md pt-xs font-raleway text-sm text-ink-soft">{post.author}</Text>
       ) : null}
       <Text className="px-md pt-sm font-raleway text-base leading-6 text-ink">
-        {post.content}
+        {stripScrapedPreamble(post.content, post)}
       </Text>
 
       {post.postType === 'poll' && (

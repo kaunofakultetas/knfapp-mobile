@@ -43,7 +43,6 @@ function parseTime(hhmm: string): number {
 
 
 
-
 // -----------------------------------------------------------
 // detectConflicts
 // -----------------------------------------------------------
@@ -84,7 +83,6 @@ function detectConflicts(lessons: ScheduleLesson[]): Set<string> {
 
   return conflicts;
 }
-
 
 
 

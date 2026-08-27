@@ -82,10 +82,10 @@ export interface AdminStats {
 // AdminUser
 // -----------------------------------------------------------
 //
-// `active` is optional because the backend accepts it on
-// PATCH but does not yet echo it back in the list or update
-// responses — treat a missing value as "unknown", not as
-// deactivated.
+// `active` comes back on both the list and the update
+// responses since backend migration v8; it stays optional
+// only so an older backend that omits it reads as "unknown"
+// rather than deactivated.
 //
 // Used by:
 //   - fetchAdminUsers, updateAdminUser (below)
@@ -200,10 +200,10 @@ export const fetchAdminUsers = () =>
 // updateAdminUser
 // -----------------------------------------------------------
 //
-// Backend gap worth knowing: deactivation (active: false)
-// currently deletes the user's sessions but is NOT enforced
-// at the next login — treat the toggle as advisory until the
-// backend checks the flag.
+// Deactivation (active: false) deletes the user's sessions
+// AND is enforced by the backend: login answers 403 and every
+// authenticated request from a stale session is refused. The
+// backend rejects non-boolean `active` values with 400.
 //
 // Used by:
 //   - app/(main)/admin-users/index.tsx — role/active editors

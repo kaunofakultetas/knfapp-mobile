@@ -21,6 +21,10 @@ module.exports = {
     './hooks/**/*.{js,jsx,ts,tsx}',
   ],
   presets: [require('nativewind/preset')],
+  // Theming runs on CSS variables (constants/theme.ts), never on
+  // dark: variants; 'class' just keeps NativeWind's web runtime
+  // from throwing when its own observer calls the scheme setter
+  darkMode: 'class',
   theme: {
     extend: {
       colors: {
@@ -60,6 +64,12 @@ module.exports = {
         },
         info: 'var(--info)',
         scrim: 'var(--scrim)',
+        'chat-canvas': 'var(--chat-canvas)',
+        'bubble-in': 'var(--bubble-in)',
+        'bubble-out': 'var(--bubble-out)',
+        'quote-wash': 'var(--quote-wash)',
+        'menu-surface': 'var(--menu-surface)',
+        'on-brand-wash': 'var(--on-brand-wash)',
       },
       fontFamily: {
         raleway: ['Raleway-Regular'],

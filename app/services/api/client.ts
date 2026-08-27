@@ -270,7 +270,10 @@ export async function request<T>(promise: Promise<AxiosResponse<T>>): Promise<T>
 // -----------------------------------------------------------
 
 export function getUploadUrl(path: string): string {
-  if (/^https?:\/\//i.test(path)) return path;
+  // Absolute URLs and local picker URIs (file:, content:, blob:,
+  // data:) pass through — an optimistic image bubble shows the
+  // picked asset before the upload finishes
+  if (/^(https?:\/\/|file:|content:|blob:|data:)/i.test(path)) return path;
 
   // Origin without the '/api' suffix or trailing slashes, so
   // the join below controls the prefix exactly once

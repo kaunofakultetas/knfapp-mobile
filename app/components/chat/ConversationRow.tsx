@@ -22,16 +22,19 @@
 //    ConversationRow — the row itself (default export)
 // -----------------------------------------------------------
 
-// Portrait and unread pill from the UI kit
+// Portrait and unread pill from the UI kit; the group stack from
+// the messaging kit
+import { StackedAvatars } from '@/chatkit';
 import { Avatar, Badge } from '@/components/ui';
 
-// Conversation shape straight from the chat API
-import type { ApiConversation } from '@/services/api';
+// Conversation shape straight from the chat API + upload paths
+import { getUploadUrl, type ApiConversation } from '@/services/api';
 
 // Relative "5 min" age of the last activity
 import { formatRelative } from '@/services/format';
 
-// JS-side icon colors
+// JS-side icon colors + the session (own-message prefix)
+import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/hooks/useTheme';
 
 // Row primitives and the swipe container
@@ -126,9 +129,9 @@ function RowActions({
 // -----------------------------------------------------------
 //
 // Direct chats show the OTHER participant's Avatar (photo or
-// initial) with the online dot; groups show their emoji — or
-// the people glyph when none was picked — on a brand-soft
-// disc.
+// initial) with the online dot; groups show their emoji on a
+// brand-soft disc, or — when none was picked — the first two
+// members' portraits stacked, the way Messenger draws a group.
 //
 // Used by:
 //   - ConversationRow (below)
@@ -144,9 +147,6 @@ function RowAvatar({
   isOnline: boolean;
 }) {
 
-  const { colors } = useTheme();
-
-
   if (item.type === 'direct') {
     const other = item.participants.find((participant) => participant.id !== currentUserId);
     return (
@@ -160,15 +160,19 @@ function RowAvatar({
   }
 
 
-  return (
-    <View className="h-12 w-12 items-center justify-center rounded-full bg-brand-soft">
-      {item.avatarEmoji ? (
+  if (item.avatarEmoji) {
+    return (
+      <View className="h-12 w-12 items-center justify-center rounded-full bg-brand-soft">
         <Text style={{ fontSize: 22 }}>{item.avatarEmoji}</Text>
-      ) : (
-        <Ionicons name="people" size={22} color={colors.brand} />
-      )}
-    </View>
-  );
+      </View>
+    );
+  }
+
+
+  const members = item.participants
+    .filter((participant) => participant.id !== currentUserId)
+    .map((participant) => ({ name: participant.displayName, uri: participant.avatarUrl ? getUploadUrl(participant.avatarUrl) : undefined }));
+  return <StackedAvatars members={members} size={48} />;
 }
 
 
@@ -196,17 +200,26 @@ export default function ConversationRow({
 
   const { t } = useTranslation();
   const { colors } = useTheme();
+  const { user } = useAuth();
   const hasUnread = item.unreadCount > 0;
 
 
-  // Group previews name the sender; a photo-only message gets
-  // a placeholder word instead of an empty line
+  // Previews: an unsent last message shows its placeholder; an
+  // own one is prefixed "You:"; group previews name the sender;
+  // a photo-only message gets a placeholder word instead of an
+  // empty line
   const last = item.lastMessage;
-  const body = last ? last.text || t('messages.photoMessage') : '';
+  const body = last
+    ? last.deleted
+      ? t('messages.deletedPreview')
+      : last.text || t('messages.photoMessage')
+    : '';
   const preview = last
-    ? item.type === 'group' && last.senderName
-      ? `${last.senderName}: ${body}`
-      : body
+    ? last.senderId === user?.id
+      ? `${t('messages.youPrefix')} ${body}`
+      : item.type === 'group' && last.senderName
+        ? `${last.senderName}: ${body}`
+        : body
     : t('messages.tapToStart');
 
 

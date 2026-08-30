@@ -2,7 +2,7 @@
 //  [*] Chat room — one conversation
 //
 //  The messaging screen behind a conversation row, built on
-//  the chatkit: a grouped, time-stamped live feed with a
+//  the chatuikit: a grouped, time-stamped live feed with a
 //  typing bubble and an intro card, a composer that replies
 //  (from the context menu or a swipe) and quick-likes, and the
 //  long-press context menu with quick reactions, reply, copy
@@ -63,7 +63,7 @@ import {
   type KitMessage,
   type KitMessageAction,
   type MessageListHandle,
-} from '@knf/chatkit';
+} from '@knf/chatuikit';
 
 // Sheets outside the kit's scope
 import ImageViewerModal, { type ViewerImage } from '@/components/chat/ImageViewerModal';

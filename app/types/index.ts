@@ -220,141 +220,19 @@ export interface LoginForm {
 
 
 // -----------------------------------------------------------
-// ChatReaction
+// Chat model
 // -----------------------------------------------------------
 //
-// One emoji group under a message — the aggregate count plus
-// `bySelf` for toggle state and `byUserIds` for the viewer
-// sheet.
-//
-// Used by:
-//   - ChatMessage (below)
-//   - hooks/chat/useChatReactions.ts
-//   - chatkit (reaction pills + action sheet), components/chat/ReactionsViewer.tsx
+// The conversation model is @knf/chatengine's — one shape from
+// the transport to the bubbles (chatuikit's KitMessage is
+// structurally the same). Re-exported under the app's names.
 // -----------------------------------------------------------
 
-export interface ChatReaction {
-  emoji: string;
-  count: number;
-  bySelf: boolean;
-  byUserIds: string[];
-}
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// ChatReplyRef
-// -----------------------------------------------------------
-//
-// The quoted message inside a reply bubble — a snapshot the
-// backend joins in, not a live reference. `deleted` is true
-// when the quoted message was since unsent; the text/image
-// are blank then and the bubble shows the placeholder.
-//
-// Used by:
-//   - ChatMessage (below)
-//   - chatkit — the reply quote inside bubbles + the composer
-//     reply strip
-// -----------------------------------------------------------
-
-export interface ChatReplyRef {
-  id: string;
-  senderId: string;
-  senderName: string;
-  text: string;
-  imageUrl?: string | null;
-  deleted: boolean;
-  // What the quoted message carried (the quote line says
-  // "Video" / the file's name when there is no text)
-  kind?: ChatMessageKind;
-  fileName?: string;
-}
-
-// text | image | video | file | system — see the backend's
-// messages.kind (migration v57)
-export type ChatMessageKind = 'text' | 'image' | 'video' | 'file' | 'system';
-
-// A document attachment (kind 'file')
-export interface ChatFile {
-  name: string;
-  uri: string;
-  size?: number;
-  mimeType?: string;
-}
-
-// A video attachment (kind 'video'): the stored video path, its
-// poster (an uploaded frame), the local poster while an own send
-// is still uploading, and the duration in seconds
-export interface ChatVideo {
-  uri: string;
-  thumbnailUri?: string;
-  localThumbnailUri?: string;
-  duration?: number;
-  size?: number;
-  mimeType?: string;
-  name?: string;
-}
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// ChatMessage
-// -----------------------------------------------------------
-//
-// The unified UI message shape: api history rows, socket
-// payloads and optimistic local sends all map into this
-// before rendering. `status` covers the optimistic lifecycle
-// ('sending' → 'sent' → …, 'failed' enables retry). Display
-// time is formatted from `createdAt` (ISO) — never from the
-// backend's preformatted `time` strings, which are UTC.
-//
-// Used by:
-//   - services/api/chat.ts — the row → UI mapper
-//   - hooks/chat/useChatMessages.ts, useChatComposer.ts
-//   - chatkit — MessageBubble, MessageList, timeline
-// -----------------------------------------------------------
-
-export interface ChatMessage {
-  id: string;
-  conversationId: string;
-  senderId: string;
-  senderName: string;
-  senderAvatar?: string | null;
-  text: string;
-  imageUrl?: string;
-  createdAt: string;
-  isOwn: boolean;
-  status: 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
-  // Ids of members who have read an OWN message (the sender's
-  // own id included) — receipts accumulate here so group
-  // bubbles only claim 'read' once every other member has read
-  readBy?: string[];
-  reactions: ChatReaction[];
-  // Present on replies; the composer builds it optimistically
-  replyTo?: ChatReplyRef;
-  // Unsent by its sender — text/image are blank, a placeholder renders
-  deleted?: boolean;
-  // The optimistic temp id an own message was born with — kept on
-  // the server row after the swap so the list row keeps its key
-  clientId?: string;
-  // The picked asset's local uri, shown until the uploaded image
-  // is cached (own photo sends only)
-  localImageUri?: string;
-  // See ChatMessageKind — absent means text / photo (by imageUrl)
-  kind?: ChatMessageKind;
-  // ISO stamp of the sender's last edit (the bubble marks it)
-  editedAt?: string | null;
-  file?: ChatFile;
-  video?: ChatVideo;
-  // Natural pixel size of the photo / video frame, so the bubble
-  // is laid out at its final size before the bytes arrive
-  mediaSize?: { width: number; height: number };
-}
+export type {
+  ChatFile,
+  ChatMessage,
+  ChatMessageKind,
+  ChatReaction,
+  ChatReplyRef,
+  ChatVideo,
+} from '@knf/chatengine';

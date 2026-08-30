@@ -17,7 +17,7 @@
 //
 //  Split into:
 //
-//    parseIso          — zone-safe Date (delegates to chatkit)
+//    parseIso          — zone-safe Date (delegates to chatuikit)
 //    activeLocale      — i18n language → BCP 47 locale
 //    formatDate        — long date
 //    formatTime        — HH:MM local time
@@ -32,7 +32,7 @@ import i18n from '@/i18n';
 
 // ONE zoneless-UTC rule for the whole app — the kit's parser
 // owns it and this module delegates instead of duplicating
-import { parseStamp } from '@knf/chatkit';
+import { parseStamp } from '@knf/chatuikit';
 
 
 // Intl.DateTimeFormat construction is expensive and list rows
@@ -146,7 +146,7 @@ export function formatDate(iso: string): string {
 // backend's UTC-preformatted `time` field.
 //
 // Used by:
-//   - chatkit/MessageBubble — revealed message times
+//   - chatuikit/MessageBubble — revealed message times
 //   - components/chat/ConversationRow — last-message times
 // -----------------------------------------------------------
 

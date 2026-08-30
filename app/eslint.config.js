@@ -8,18 +8,19 @@ module.exports = defineConfig([
     ignores: ['dist/*'],
   },
   {
-    // packages/chatkit is a standalone module: nothing in it may
+    // packages/chatuikit is a standalone module: nothing in it may
     // reach into the app. Everything it needs arrives through
-    // ChatKitProvider — this rule is what keeps that true after
+    // ChatUiKitProvider — this rule is what keeps that true after
     // the next quick fix
-    files: ['packages/chatkit/**/*.{ts,tsx}'],
+    files: ['packages/chatuikit/**/*.{ts,tsx}', 'packages/chatengine/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-imports': [
         'error',
         {
           patterns: [
-            { group: ['@/*'], message: 'chatkit must not import from the app — pass it through ChatKitProvider' },
-            { group: ['../../../*', '../../../../*', '../../../../../*'], message: 'chatkit must not import from outside its package' },
+            { group: ['@/*'], message: 'a package must not import from the app — pass it through its provider' },
+            { group: ['@knf/*'], message: 'the packages stay independent of each other — they meet in the app' },
+            { group: ['../../../*', '../../../../*', '../../../../../*'], message: 'chatuikit must not import from outside its package' },
           ],
         },
       ],

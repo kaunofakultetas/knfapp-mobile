@@ -74,7 +74,7 @@ import {
 } from '@/services/socket';
 
 // Server-stamp parsing for socket patches (zoneless-UTC shape)
-import { parseStamp } from '@knf/chatkit';
+import { parseStamp } from '@knf/chatuikit';
 
 // Conversations REST API and its offline cache key
 import {

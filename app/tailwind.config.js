@@ -16,7 +16,7 @@
 module.exports = {
   content: [
     './app/**/*.{js,jsx,ts,tsx}',
-    './chatkit/**/*.{js,jsx,ts,tsx}',
+    './packages/chatuikit/**/*.{js,jsx,ts,tsx}',
     './components/**/*.{js,jsx,ts,tsx}',
     './context/**/*.{js,jsx,ts,tsx}',
     './hooks/**/*.{js,jsx,ts,tsx}',

@@ -87,7 +87,8 @@
     ],
     "collectCoverageFrom": [
       "app/**/*.{ts,tsx}",
-      "packages/chatkit/src/**/*.{ts,tsx}",
+      "packages/chatuikit/src/**/*.{ts,tsx}",
+      "packages/chatengine/src/**/*.{ts,tsx}",
       "components/**/*.{ts,tsx}",
       "context/**/*.{ts,tsx}",
       "hooks/**/*.{ts,tsx}",

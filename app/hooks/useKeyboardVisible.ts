@@ -3,7 +3,7 @@
 //
 //  One boolean for layouts that pad by the home-indicator
 //  inset while the keyboard is down and sit flush on the keys
-//  while it is up (the chatkit Composer carries the same
+//  while it is up (the chatuikit Composer carries the same
 //  logic inline). iOS answers on the will-events so the pad
 //  drops in step with the keyboard animation; Android only
 //  has the did-events. Web has no soft keyboard: always false.

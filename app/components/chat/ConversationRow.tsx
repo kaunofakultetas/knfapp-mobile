@@ -25,7 +25,7 @@
 
 // Portrait and unread pill from the UI kit; the group stack from
 // the messaging kit
-import { StackedAvatars } from '@knf/chatkit';
+import { StackedAvatars } from '@knf/chatuikit';
 import { Avatar, Badge } from '@/components/ui';
 
 // Conversation shape straight from the chat API + upload paths
@@ -231,7 +231,7 @@ function ConversationRow({
 
 
   // The swipe panel is gesture-only — mirror pin and delete as
-  // named accessibility actions (chatkit/MessageBubble's
+  // named accessibility actions (chatuikit/MessageBubble's
   // pattern) so assistive tech reaches them from the row
   const pinActionLabel = item.pinned ? t('messages.unpin') : t('messages.pin');
   const deleteActionLabel =

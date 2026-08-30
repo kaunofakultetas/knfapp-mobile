@@ -27,7 +27,7 @@ import { useAuth } from '@/context/AuthContext';
 
 // The room currently on screen — its messages are being read
 // as they land, never counted
-import { getActiveConversation } from '@/hooks/chat/activeConversation';
+import { getActiveConversation } from '@knf/chatengine';
 
 // The authoritative server count
 import { fetchTotalUnreadCount } from '@/services/api';

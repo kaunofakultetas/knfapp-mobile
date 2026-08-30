@@ -57,10 +57,13 @@ import {
   MessageList,
   RoomHeaderTitle,
   useKitLabels,
+  KitKeyboardAvoidingView,
+  VideoPlayerModal,
   type ContextTarget,
   type KitMessage,
+  type KitMessageAction,
   type MessageListHandle,
-} from '@/chatkit';
+} from '@knf/chatkit';
 
 // Sheets outside the kit's scope
 import ImageViewerModal, { type ViewerImage } from '@/components/chat/ImageViewerModal';
@@ -71,7 +74,7 @@ import { confirmAction, EmptyState, ErrorState, LoadingSpinner } from '@/compone
 import { showToast } from '@/context/NetworkContext';
 
 // Search + presence endpoints and render-time helpers
-import { fetchOnlineStatus, getUploadUrl, reactToMessageApi, removeReactionApi, searchMessagesApi, type MessageSearchResult } from '@/services/api';
+import { fetchOnlineStatus, getUploadUrl, reactToMessageApi, removeReactionApi, reportTarget, searchMessagesApi, type MessageSearchResult } from '@/services/api';
 import { activeLocale, formatDateTime } from '@/services/format';
 
 // Session, theme and navigation
@@ -91,7 +94,6 @@ import {
   AppState,
   BackHandler,
   FlatList,
-  KeyboardAvoidingView,
   Linking,
   Platform,
   Pressable,
@@ -428,7 +430,7 @@ function typingText(users: TypingUser[], t: (key: string, opts?: Record<string, 
 //   - ChatRoomScreen (below)
 // -----------------------------------------------------------
 
-function ChatRoom({ convId, type }: { convId: string; type?: string }) {
+function ChatRoom({ convId, type, unreadCount }: { convId: string; type?: string; unreadCount: number }) {
 
   const { t } = useTranslation();
   const { colors } = useTheme();
@@ -456,6 +458,9 @@ function ChatRoom({ convId, type }: { convId: string; type?: string }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [viewerImageId, setViewerImageId] = useState<string | null>(null);
+  // The video being played (one player at a time — see the kit's
+  // VideoPlayerModal); resolved to a loadable URL at render time
+  const [playingVideoUri, setPlayingVideoUri] = useState<string | null>(null);
   const [reactorsMessageId, setReactorsMessageId] = useState<string | null>(null);
   const [revealedId, setRevealedId] = useState<string | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
@@ -579,11 +584,32 @@ function ChatRoom({ convId, type }: { convId: string; type?: string }) {
       return () => clearInterval(timer);
     }, []),
   );
+  // The unread stretch: the room opened with N unread, and the
+  // list is newest-first, so the Nth newest loaded row is the
+  // oldest unread one. Fixed once from the first loaded page —
+  // messages sent or received afterwards must not move the line
+  const unreadMarkerRef = useRef<{ firstUnreadId: string; count: number } | null>(null);
+  const [unreadMarker, setUnreadMarker] = useState<{ firstUnreadId: string; count: number } | null>(null);
+  useEffect(() => {
+    if (unreadMarkerRef.current || unreadCount <= 0 || chat.messages.length === 0) return;
+    const index = Math.min(unreadCount, chat.messages.length) - 1;
+    const marker = { firstUnreadId: chat.messages[index].id, count: unreadCount };
+    unreadMarkerRef.current = marker;
+    setUnreadMarker(marker);
+  }, [chat.messages, unreadCount]);
+
   // hasMore rides along so the kit can suppress the false "pause"
   // separator above the oldest LOADED message while older history
-  // still exists server-side
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- dayKey forces the relabel
-  const timeline = useMemo(() => buildTimeline(chat.messages, timelineLabels, chat.hasMore), [chat.messages, timelineLabels, chat.hasMore, dayKey]);
+  // still exists server-side; dayKey forces the relabel at midnight
+  const timeline = useMemo(
+    () =>
+      buildTimeline(chat.messages, timelineLabels, chat.hasMore, {
+        unreadFromId: unreadMarker?.firstUnreadId,
+        unreadCount: unreadMarker?.count,
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- dayKey forces the relabel
+    [chat.messages, timelineLabels, chat.hasMore, dayKey, unreadMarker],
+  );
 
 
   // The intro card closes the history once there is no older page
@@ -686,10 +712,14 @@ function ChatRoom({ convId, type }: { convId: string; type?: string }) {
     },
     [openPicker],
   );
+  // Reached by the menu's host actions, which are built above
+  // closeMenu in source order
+  const closeMenuRef = useRef<() => void>(() => {});
   const closeMenu = useCallback(() => {
     setMenuTarget(null);
     closePicker();
   }, [closePicker]);
+  closeMenuRef.current = closeMenu;
   // The source row hides once the floating copy is on screen and
   // reappears when the close animation ends; a reply chosen in
   // the menu is applied on close too, so the composer focuses
@@ -840,8 +870,64 @@ function ChatRoom({ convId, type }: { convId: string; type?: string }) {
   const toggleTime = useCallback((m: KitMessage) => setRevealedId((current) => (current === m.id ? null : m.id)), []);
   const openReactors = useCallback((m: KitMessage) => setReactorsMessageId(m.id), []);
   const openImage = useCallback((m: KitMessage) => setViewerImageId(m.clientId ?? m.id), []);
+  const openVideo = useCallback((m: KitMessage) => {
+    const uri = m.video?.uri ? getUploadUrl(m.video.uri) : null;
+    if (uri) setPlayingVideoUri(uri);
+  }, []);
   const openLink = useCallback(
     (href: string) => void Linking.openURL(href).catch(() => showToast('error', t('info.linkError'))),
+    [t],
+  );
+
+
+  // The long-press menu's host rows: Report on anyone else's
+  // message files into the admin-reviewed ledger (confirmed
+  // first — a menu tap is not a complaint). closeMenu is declared
+  // further down; the ref reaches it without a dependency cycle
+  // startEdit rides in a ref like closeMenu: the menu rows are
+  // memoised on the catalog alone, never on the composer object
+  const startEditRef = useRef(composer.startEdit);
+  startEditRef.current = composer.startEdit;
+  const menuActions = useMemo<KitMessageAction[]>(
+    () => [
+      {
+        // Edit: own text (a caption counts), never a temp, an unsent
+        // one or a system row — the composer takes the text over
+        id: 'edit',
+        label: t('chat.edit'),
+        icon: 'pencil-outline',
+        visible: (m) => m.isOwn && !m.deleted && !!m.text && !m.id.startsWith(TEMP_ID_PREFIX) && (m.kind ?? 'text') !== 'system',
+        onPress: (m) => {
+          closeMenuRef.current();
+          startEditRef.current(m);
+        },
+      },
+      {
+        id: 'report',
+        label: t('chat.report'),
+        icon: 'flag-outline',
+        visible: (m) => !m.isOwn && !m.deleted && !m.id.startsWith(TEMP_ID_PREFIX),
+        onPress: (m) => {
+          closeMenuRef.current();
+          void (async () => {
+            const confirmed = await confirmAction({
+              title: t('chat.reportTitle'),
+              message: t('chat.reportConfirm'),
+              confirmLabel: t('chat.report'),
+              cancelLabel: t('common.cancel'),
+              destructive: true,
+            });
+            if (!confirmed) return;
+            try {
+              await reportTarget('message', m.id, t('chat.reportReason'));
+              showToast('success', t('chat.reported'));
+            } catch {
+              showToast('error', t('common.error'));
+            }
+          })();
+        },
+      },
+    ],
     [t],
   );
   // Only rows the server knows can be replied to; the menu also
@@ -882,17 +968,7 @@ function ChatRoom({ convId, type }: { convId: string; type?: string }) {
 
 
   return (
-    <KeyboardAvoidingView
-      className="flex-1 bg-surface"
-      // iOS pads by the keyboard height with NO header offset:
-      // this screen's layout frame reaches the window bottom, so
-      // the KAV math is already complete — adding the classic
-      // useHeaderHeight() offset floated the composer exactly one
-      // header height above the keys (measured on device).
-      // Android is inert: the window's own adjustResize does the
-      // lifting there, and stacking a behavior on top double-lifts
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
+    <KitKeyboardAvoidingView style={{ backgroundColor: colors.surface }}>
 
       {/* The search overlays the feed so the feed keeps its scroll
           position and its mounted rows for the jump */}
@@ -959,10 +1035,12 @@ function ChatRoom({ convId, type }: { convId: string; type?: string }) {
               onPressQuote={jumpToQuoted}
               onPressReactions={openReactors}
               onPressImage={openImage}
+              onPressVideo={openVideo}
               onRetry={composer.retryMessage}
               onPressLink={openLink}
               // Unfocused rooms keep quiet for the screen reader
               isFocused={isFocused}
+              unread={unreadMarker}
               // Direct accessibility actions — no menu detour
               onCopy={copyText}
               onReact={reactDirect}
@@ -978,10 +1056,12 @@ function ChatRoom({ convId, type }: { convId: string; type?: string }) {
             onChangeText={composer.onChangeText}
             onSend={composer.sendMessage}
             onQuickLike={composer.sendQuickLike}
-            onAttachImage={() => void composer.attachImage()}
+            onAttachMedia={() => void composer.attachMedia()}
+            onAttachFile={() => void composer.attachFile()}
             onToggleEmoji={() => setEmojiOpen((open) => !open)}
             emojiOpen={emojiOpen}
-            uploadingImage={composer.uploadingImage}
+            uploadingMedia={composer.uploadingMedia}
+            uploadingFile={composer.uploadingFile}
             replyTo={
               composer.replyTo
                 ? {
@@ -991,10 +1071,14 @@ function ChatRoom({ convId, type }: { convId: string; type?: string }) {
                     text: composer.replyTo.text,
                     imageUrl: composer.replyTo.imageUrl,
                     deleted: !!composer.replyTo.deleted,
+                    kind: composer.replyTo.kind,
+                    fileName: composer.replyTo.file?.name,
                   }
                 : null
             }
             onCancelReply={() => setReplyTo(null)}
+            editing={composer.editing}
+            onCancelEdit={composer.cancelEdit}
           />
         </>
       </View>
@@ -1031,6 +1115,7 @@ function ChatRoom({ convId, type }: { convId: string; type?: string }) {
         onClose={closeMenu}
         onOpened={onMenuOpened}
         onClosed={onMenuClosed}
+        actions={menuActions}
       />
 
       <ReactionsViewer
@@ -1046,7 +1131,13 @@ function ChatRoom({ convId, type }: { convId: string; type?: string }) {
         onClose={() => setViewerImageId(null)}
       />
 
-    </KeyboardAvoidingView>
+      {/* One player at a time; mounted only while a video is open
+          so the decoder is released on close */}
+      {playingVideoUri ? (
+        <VideoPlayerModal visible uri={playingVideoUri} onClose={() => setPlayingVideoUri(null)} />
+      ) : null}
+
+    </KitKeyboardAvoidingView>
   );
 }
 
@@ -1076,9 +1167,10 @@ function ChatRoom({ convId, type }: { convId: string; type?: string }) {
 
 export default function ChatRoomScreen() {
 
-  const { conversationId, type } = useLocalSearchParams<{
+  const { conversationId, type, unread } = useLocalSearchParams<{
     conversationId: string;
     type?: string;
+    unread?: string;
   }>();
   const convId = conversationId ?? '';
 
@@ -1120,5 +1212,5 @@ export default function ChatRoomScreen() {
   }
 
 
-  return <ChatRoom convId={convId} type={type} />;
+  return <ChatRoom convId={convId} type={type} unreadCount={Number(unread) || 0} />;
 }

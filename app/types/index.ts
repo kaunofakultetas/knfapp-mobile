@@ -268,6 +268,35 @@ export interface ChatReplyRef {
   text: string;
   imageUrl?: string | null;
   deleted: boolean;
+  // What the quoted message carried (the quote line says
+  // "Video" / the file's name when there is no text)
+  kind?: ChatMessageKind;
+  fileName?: string;
+}
+
+// text | image | video | file | system — see the backend's
+// messages.kind (migration v57)
+export type ChatMessageKind = 'text' | 'image' | 'video' | 'file' | 'system';
+
+// A document attachment (kind 'file')
+export interface ChatFile {
+  name: string;
+  uri: string;
+  size?: number;
+  mimeType?: string;
+}
+
+// A video attachment (kind 'video'): the stored video path, its
+// poster (an uploaded frame), the local poster while an own send
+// is still uploading, and the duration in seconds
+export interface ChatVideo {
+  uri: string;
+  thumbnailUri?: string;
+  localThumbnailUri?: string;
+  duration?: number;
+  size?: number;
+  mimeType?: string;
+  name?: string;
 }
 
 
@@ -319,4 +348,13 @@ export interface ChatMessage {
   // The picked asset's local uri, shown until the uploaded image
   // is cached (own photo sends only)
   localImageUri?: string;
+  // See ChatMessageKind — absent means text / photo (by imageUrl)
+  kind?: ChatMessageKind;
+  // ISO stamp of the sender's last edit (the bubble marks it)
+  editedAt?: string | null;
+  file?: ChatFile;
+  video?: ChatVideo;
+  // Natural pixel size of the photo / video frame, so the bubble
+  // is laid out at its final size before the bytes arrive
+  mediaSize?: { width: number; height: number };
 }

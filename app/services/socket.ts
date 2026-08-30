@@ -150,13 +150,29 @@ export interface SocketMessage {
     text: string;
     imageUrl?: string | null;
     deleted: boolean;
+    kind?: 'text' | 'image' | 'video' | 'file' | 'system';
+    fileName?: string | null;
   } | null;
   deleted?: boolean;
+  // v57/v58: the kind, the edit stamp, the attachment and the
+  // media frame — same shape as the REST ApiMessage
+  kind?: 'text' | 'image' | 'video' | 'file' | 'system';
+  editedAt?: string | null;
+  attachment?: { url: string; name: string; size: number; mime: string } | null;
+  media?: { width?: number | null; height?: number | null; duration?: number | null; thumbnailUrl?: string | null } | null;
 }
 
 export interface MessageDeletedEvent {
   conversationId: string;
   messageId: string;
+}
+
+// The sender rewrote a message: the new text and the edit stamp
+export interface MessageEditedEvent {
+  conversationId: string;
+  messageId: string;
+  text: string;
+  editedAt: string;
 }
 
 export interface ReactionUpdate {
@@ -298,7 +314,8 @@ type EventName =
   | 'user_typing'
   | 'user_stop_typing'
   | 'messages_read'
-  | 'message_deleted';
+  | 'message_deleted'
+  | 'message_edited';
 
 type Listener<T> = (data: T) => void;
 
@@ -310,6 +327,7 @@ const FORWARDED_EVENTS: EventName[] = [
   'user_stop_typing',
   'messages_read',
   'message_deleted',
+  'message_edited',
 ];
 
 // Stored as Listener<never> (contravariant) so one Set type
@@ -888,4 +906,10 @@ export function onMessagesRead(listener: Listener<MessagesReadEvent>): () => voi
 
 export function onMessageDeleted(listener: Listener<MessageDeletedEvent>): () => void {
   return addListener('message_deleted', listener);
+}
+
+// 'message_edited' — the room hears a rewrite; the hook swaps the
+// text and stamps editedAt on the row (and on quotes of it)
+export function onMessageEdited(listener: Listener<MessageEditedEvent>): () => void {
+  return addListener('message_edited', listener);
 }

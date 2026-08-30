@@ -75,6 +75,7 @@ jest.mock('@/services/socket', () => ({
   },
   onMessagesRead: () => () => {},
   onMessageDeleted: () => () => {},
+  onMessageEdited: () => () => {},
   onReactionUpdate: () => () => {},
   onSocketStatusChange: () => () => {},
 }));

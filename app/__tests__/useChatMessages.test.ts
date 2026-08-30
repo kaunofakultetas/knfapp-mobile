@@ -56,6 +56,7 @@ jest.mock('@/services/socket', () => ({
   getSocketStatus: () => 'connected',
   joinConversation: jest.fn(),
   onMessageDeleted: () => () => {},
+  onMessageEdited: () => () => {},
   onMessagesRead: () => () => {},
   onNewMessage: (cb: (d: unknown) => void) => {
     mockHandlers.newMessage.push(cb);

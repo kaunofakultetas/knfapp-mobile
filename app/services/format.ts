@@ -32,7 +32,7 @@ import i18n from '@/i18n';
 
 // ONE zoneless-UTC rule for the whole app — the kit's parser
 // owns it and this module delegates instead of duplicating
-import { parseStamp } from '@/chatkit/timeline';
+import { parseStamp } from '@knf/chatkit';
 
 
 // Intl.DateTimeFormat construction is expensive and list rows

@@ -44,7 +44,7 @@
 // -----------------------------------------------------------
 
 // Send + upload endpoints, and the error shape triage reads
-import { ApiError, sendMessageApi, uploadImageApi } from '@/services/api';
+import { ApiError, MAX_UPLOAD_BYTES, MAX_VIDEO_UPLOAD_BYTES, editMessageApi, sendMessageApi, uploadFileApi, uploadImageApi, type SendMessageExtra } from '@/services/api';
 
 // Per-conversation outbox + draft persistence
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -61,15 +61,18 @@ import { useNetworkRestore } from '@/hooks/useNetworkRestore';
 import { useTranslation } from 'react-i18next';
 
 // Message shape and the optimistic-id marker
-import { TEMP_ID_PREFIX, mapReply } from '@/hooks/chat/useChatMessages';
+import { TEMP_ID_PREFIX, mapContent, mapReply, markEdited } from '@/hooks/chat/useChatMessages';
 import type { ChatMessage } from '@/types';
 
 // The Composer's cap — one shared constant so the emoji strip
 // can never out-type the field's maxLength
-import { DEFAULT_MAX_LENGTH as MAX_MESSAGE_LENGTH } from '@/chatkit/Composer';
+import { DEFAULT_MAX_LENGTH as MAX_MESSAGE_LENGTH } from '@knf/chatkit/composer/Composer';
+import type { KitMessage } from '@knf/chatkit';
 
 // Image picking and lifecycle plumbing
+import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
+import * as VideoThumbnails from 'expo-video-thumbnails';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 
@@ -138,26 +141,73 @@ const sendFailureKey = (err: unknown): string => {
 // image path — or, when the upload itself failed, the picked
 // asset so the retry uploads again. createdAt is the bubble's
 // original stamp, persisted so a rehydrated bubble keeps it
+// A picked asset waiting for its upload: a photo (the default),
+// a video (with the frame the picker reported and the length
+// in seconds) or a document
+export interface PickedAsset {
+  uri: string;
+  fileName?: string;
+  mimeType?: string;
+  fileSize?: number;
+  kind?: 'image' | 'video' | 'file';
+  width?: number;
+  height?: number;
+  duration?: number;
+}
+
 interface FailedPayload {
   text: string;
   imageUrl?: string;
   replyToId?: string;
-  asset?: { uri: string; fileName?: string; mimeType?: string; fileSize?: number };
+  asset?: PickedAsset;
+  // The uploaded attachment / media of a send that failed AFTER
+  // its upload — a retry posts again without re-uploading
+  extra?: SendMessageExtra;
   createdAt?: string;
 }
+
+// Videos longer than this are refused before the upload — the
+// cap keeps a clip under the 50 MB ceiling for phone encodes
+const MAX_VIDEO_SECONDS = 180;
+
+// The document types the backend stores (uploads/routes.py
+// ALLOWED_DOC_EXTENSIONS) — the picker filters to them
+const DOCUMENT_TYPES = [
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/zip',
+  'text/plain',
+];
 
 export interface UseChatComposerResult {
   text: string;
   onChangeText: (next: string) => void;
+  // A photo / video upload in flight (uploadingImage is the same
+  // flag under its older name)
+  uploadingMedia: boolean;
   uploadingImage: boolean;
+  // A document upload in flight
+  uploadingFile: boolean;
   sendMessage: () => void;
   sendQuickLike: () => void;
+  // Pick a photo or a video from the library (attachImage is
+  // the older name for the same action)
+  attachMedia: () => Promise<void>;
   attachImage: () => Promise<void>;
-  retryMessage: (message: ChatMessage) => void;
+  // Pick a document
+  attachFile: () => Promise<void>;
+  retryMessage: (message: KitMessage) => void;
+  // Edit mode: the message whose text the field holds; sendMessage
+  // saves it, cancelEdit restores the draft that was there
+  editing: KitMessage | null;
+  startEdit: (message: KitMessage) => void;
+  cancelEdit: () => void;
   // Drops a failed optimistic bubble that will not be retried
   discardMessage: (messageId: string) => void;
-  replyTo: ChatMessage | null;
-  setReplyTo: (message: ChatMessage | null) => void;
+  replyTo: KitMessage | null;
+  setReplyTo: (message: KitMessage | null) => void;
 }
 
 
@@ -176,9 +226,14 @@ export interface UseChatComposerResult {
 //     composer.sendMessage         — send the trimmed draft
 //     composer.sendQuickLike       — 👍 when the draft is
 //                                    empty, otherwise send it
-//     composer.attachImage         — pick → upload → send;
-//                                    uploadingImage covers the
-//                                    upload window
+//     composer.attachMedia         — photo or video: pick →
+//                                    upload (poster + clip for
+//                                    a video) → send;
+//                                    uploadingMedia covers it
+//     composer.attachFile          — a document, the same way
+//     composer.startEdit(m) /
+//     cancelEdit / editing         — edit mode; sendMessage
+//                                    saves the rewrite
 //     composer.retryMessage(m)     — re-drive a failed bubble
 //
 // Used by:
@@ -205,12 +260,19 @@ export function useChatComposer(
 
 
   const [text, setText] = useState('');
-  // Uploads in flight by temp id — uploadingImage is derived,
-  // so one upload finishing can never blank another's spinner
-  const [uploadingIds, setUploadingIds] = useState<ReadonlySet<string>>(new Set());
-  const uploadingImage = uploadingIds.size > 0;
-  const [replyTo, setReplyToState] = useState<ChatMessage | null>(null);
-  const replyToRef = useRef<ChatMessage | null>(null);
+  // Uploads in flight by temp id, per button — one upload
+  // finishing can never blank another's spinner
+  const [uploadingIds, setUploadingIds] = useState<ReadonlyMap<string, 'media' | 'file'>>(new Map());
+  const uploadingMedia = Array.from(uploadingIds.values()).includes('media');
+  const uploadingFile = Array.from(uploadingIds.values()).includes('file');
+
+  // Edit mode: the message being rewritten and the draft the
+  // field held before, restored on cancel
+  const [editing, setEditingState] = useState<KitMessage | null>(null);
+  const editingRef = useRef<KitMessage | null>(null);
+  const parkedDraftRef = useRef('');
+  const [replyTo, setReplyToState] = useState<KitMessage | null>(null);
+  const replyToRef = useRef<KitMessage | null>(null);
 
 
   // Draft mirror read synchronously by sendMessage — the state
@@ -315,6 +377,9 @@ export function useChatComposer(
     rehydratedPendingRef.current.clear();
     replyToRef.current = null;
     setReplyToState(null);
+    editingRef.current = null;
+    setEditingState(null);
+    parkedDraftRef.current = '';
   }, [conversationId]);
 
 
@@ -423,7 +488,7 @@ export function useChatComposer(
   // the socket echo already replaced the temp, the map finds
   // nothing and the swap is a clean no-op.
   const deliver = useCallback(
-    async (tempId: string, body: string, imageUrl?: string, replyToId?: string) => {
+    async (tempId: string, body: string, imageUrl?: string, replyToId?: string, extra?: SendMessageExtra) => {
       if (inFlightRef.current.has(tempId)) return;
       inFlightRef.current.add(tempId);
 
@@ -434,7 +499,11 @@ export function useChatComposer(
       try {
         // The temp id doubles as the idempotency key — a retry
         // of a timed-out-but-committed send gets the same row
-        const resp = await sendMessageApi(conversationId, body, imageUrl, replyToId, tempId);
+        // (the extra argument only when there is one — a plain text
+        // send keeps the five-argument call)
+        const resp = extra
+          ? await sendMessageApi(conversationId, body, imageUrl, replyToId, tempId, extra)
+          : await sendMessageApi(conversationId, body, imageUrl, replyToId, tempId);
         failedQueueRef.current.delete(tempId);
         persistQueue();
 
@@ -452,22 +521,32 @@ export function useChatComposer(
           reactions: [],
           replyTo: mapReply(resp.message.replyTo),
           deleted: false,
+          ...mapContent(resp.message),
         };
         setMessages((prev) => {
           // Socket echo may have delivered the server row first
           if (prev.some((m) => m.id === sent.id)) {
             return prev.filter((m) => m.id !== tempId);
           }
-          // The row keeps the temp's key (and local photo) so the
-          // bubble does not remount mid-animation
-          return prev.map((m) => (m.id === tempId ? { ...sent, clientId: m.clientId ?? tempId, localImageUri: m.localImageUri } : m));
+          // The row keeps the temp's key (and local photo / poster)
+          // so the bubble does not remount mid-animation
+          return prev.map((m) =>
+            m.id === tempId
+              ? {
+                  ...sent,
+                  clientId: m.clientId ?? tempId,
+                  localImageUri: m.localImageUri,
+                  video: sent.video && m.video ? { ...sent.video, localThumbnailUri: m.video.localThumbnailUri } : sent.video,
+                }
+              : m,
+          );
         });
       } catch (err) {
         // Only failures that can heal re-queue for the sweep;
         // a definitive 4xx keeps the bubble failed for good —
         // just the discard affordance, and a toast saying why
         if (isRetryable(err)) {
-          failedQueueRef.current.set(tempId, { text: body, imageUrl, replyToId });
+          failedQueueRef.current.set(tempId, { text: body, imageUrl, replyToId, extra });
         } else {
           failedQueueRef.current.delete(tempId);
         }
@@ -489,7 +568,7 @@ export function useChatComposer(
   // send passes the picked asset's local uri so the bubble shows
   // the photo while it uploads
   const createTemp = useCallback(
-    (body: string, imageUrl?: string, localImageUri?: string) => {
+    (body: string, imageUrl?: string, localImageUri?: string, content?: Partial<Pick<ChatMessage, 'kind' | 'file' | 'video' | 'mediaSize'>>) => {
       if (!user) return null;
       // The reply strip is consumed by whichever send comes next
       const reply = replyToRef.current;
@@ -520,9 +599,12 @@ export function useChatComposer(
               text: reply.text,
               imageUrl: reply.imageUrl,
               deleted: !!reply.deleted,
+              kind: reply.kind,
+              fileName: reply.file?.name,
             }
           : undefined,
         deleted: false,
+        ...content,
       };
       setMessages((prev) => [optimistic, ...prev]);
 
@@ -544,13 +626,13 @@ export function useChatComposer(
   // Per-temp spinner bookkeeping for concurrent uploads (a
   // retry racing a fresh attach) — one finishing never blanks
   // another's spinner
-  const markUploading = useCallback((tempId: string) => {
-    setUploadingIds((prev) => new Set(prev).add(tempId));
+  const markUploading = useCallback((tempId: string, slot: 'media' | 'file') => {
+    setUploadingIds((prev) => new Map(prev).set(tempId, slot));
   }, []);
   const unmarkUploading = useCallback((tempId: string) => {
     setUploadingIds((prev) => {
       if (!prev.has(tempId)) return prev;
-      const next = new Set(prev);
+      const next = new Map(prev);
       next.delete(tempId);
       return next;
     });
@@ -558,26 +640,84 @@ export function useChatComposer(
 
 
   // Upload the picked asset, then deliver the message with the
-  // RELATIVE url the server returned (bubbles resolve it with
-  // getUploadUrl at render time). A retryably failed upload
-  // parks the asset in the queue so a retry uploads again
+  // RELATIVE url(s) the server returned (bubbles resolve them
+  // with getUploadUrl at render time). A photo is one upload; a
+  // video is two — its poster frame first (a JPEG through the
+  // photo route, so receivers see a still before they tap), then
+  // the clip through the video route; a document is one. A
+  // retryably failed upload parks the asset in the queue so a
+  // retry uploads again
   const uploadAndDeliver = useCallback(
-    async (tempId: string, asset: NonNullable<FailedPayload['asset']>, replyToId?: string) => {
+    async (tempId: string, asset: PickedAsset, replyToId?: string) => {
       // Same guard as deliver: a retry tap and the restore sweep
-      // must not start two uploads of one photo
+      // must not start two uploads of one asset
       if (inFlightRef.current.has(tempId)) return;
       inFlightRef.current.add(tempId);
-      markUploading(tempId);
+      const kind = asset.kind ?? 'image';
+      markUploading(tempId, kind === 'file' ? 'file' : 'media');
       setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: 'sending' } : m)));
       try {
+        if (kind === 'video') {
+          // The poster: a frame half a second in, or none when the
+          // device cannot decode it — the bubble then shows the
+          // dark stage, still playable
+          let posterUrl: string | undefined;
+          let frame: { width: number; height: number } | undefined = asset.width && asset.height ? { width: asset.width, height: asset.height } : undefined;
+          try {
+            const thumb = await VideoThumbnails.getThumbnailAsync(asset.uri, { time: 500, quality: 0.7 });
+            const poster = await uploadImageApi(thumb.uri, 'poster.jpg', 'image/jpeg');
+            posterUrl = poster.url;
+            if (poster.width && poster.height) frame = { width: poster.width, height: poster.height };
+            else if (thumb.width && thumb.height) frame = { width: thumb.width, height: thumb.height };
+          } catch {
+            posterUrl = undefined;
+          }
+          const upload = await uploadFileApi(asset.uri, { name: asset.fileName, mimeType: asset.mimeType, fileSize: asset.fileSize, kind: 'video' });
+          unmarkUploading(tempId);
+          const extra: SendMessageExtra = {
+            kind: 'video',
+            attachment: { url: upload.url, name: upload.name, size: upload.size, mime: upload.mime },
+            media: { ...(frame ?? {}), duration: asset.duration, thumbnailUrl: posterUrl },
+          };
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === tempId
+                ? { ...m, video: { ...(m.video ?? { uri: upload.url }), uri: upload.url, thumbnailUri: posterUrl }, mediaSize: frame ?? m.mediaSize }
+                : m,
+            ),
+          );
+          inFlightRef.current.delete(tempId);
+          await deliver(tempId, '', undefined, replyToId, extra);
+          return;
+        }
+
+        if (kind === 'file') {
+          const upload = await uploadFileApi(asset.uri, { name: asset.fileName, mimeType: asset.mimeType, fileSize: asset.fileSize, kind: 'file' });
+          unmarkUploading(tempId);
+          const extra: SendMessageExtra = {
+            kind: 'file',
+            attachment: { url: upload.url, name: upload.name, size: upload.size, mime: upload.mime },
+          };
+          setMessages((prev) =>
+            prev.map((m) => (m.id === tempId ? { ...m, file: { name: upload.name, uri: upload.url, size: upload.size, mimeType: upload.mime } } : m)),
+          );
+          inFlightRef.current.delete(tempId);
+          await deliver(tempId, '', undefined, replyToId, extra);
+          return;
+        }
+
         const upload = await uploadImageApi(asset.uri, asset.fileName, asset.mimeType, asset.fileSize);
         unmarkUploading(tempId);
+        // The stored pixel size rides along so every reader lays
+        // the bubble out at its final proportions before the bytes
+        const frame = upload.width && upload.height ? { width: upload.width, height: upload.height } : undefined;
+        const extra: SendMessageExtra | undefined = frame ? { media: frame } : undefined;
         // The temp now carries the server path (the echo matcher
         // and the viewer compare it) while still showing the local
         // file until the upload is cached
-        setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, imageUrl: upload.url } : m)));
+        setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, imageUrl: upload.url, mediaSize: frame ?? m.mediaSize } : m)));
         inFlightRef.current.delete(tempId);
-        await deliver(tempId, '', upload.url, replyToId);
+        await deliver(tempId, '', upload.url, replyToId, extra);
       } catch (err) {
         unmarkUploading(tempId);
         inFlightRef.current.delete(tempId);
@@ -590,7 +730,9 @@ export function useChatComposer(
         setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: 'failed' } : m)));
         showToast(
           'error',
-          err instanceof ApiError && err.code === 'timeout' ? t('toast.timeout') : t('chat.imageUploadError'),
+          err instanceof ApiError && err.code === 'timeout' ? t('toast.timeout')
+          : err instanceof ApiError && err.serverCode === 'file_too_large' ? t('chat.fileTooLarge')
+          : t(kind === 'video' ? 'chat.videoUploadError' : kind === 'file' ? 'chat.fileUploadError' : 'chat.imageUploadError'),
         );
       }
     },
@@ -604,6 +746,36 @@ export function useChatComposer(
   // button visibly acts and nothing lands on the wire
   const sendMessage = useCallback(() => {
     const body = textRef.current.trim();
+
+    // Edit mode: save the rewrite (optimistically — the room's
+    // 'message_edited' echo confirms it), or leave the message
+    // as it was when nothing changed. An emptied field cannot
+    // save (the kit dims the check); the strip's × is the exit
+    const target = editingRef.current;
+    if (target) {
+      if (!body) return;
+      editingRef.current = null;
+      setEditingState(null);
+      textRef.current = parkedDraftRef.current;
+      setText(parkedDraftRef.current);
+      persistDraft(parkedDraftRef.current);
+      parkedDraftRef.current = '';
+      stopTyping();
+      if (body === target.text) return;
+      const previous = target.text;
+      const optimisticStamp = new Date().toISOString();
+      setMessages((prev) => prev.map((m) => markEdited(m, target.id, body, optimisticStamp)));
+      editMessageApi(conversationId, target.id, body)
+        .then((saved) => {
+          setMessages((prev) => prev.map((m) => markEdited(m, target.id, saved.text, saved.editedAt)));
+        })
+        .catch(() => {
+          setMessages((prev) => prev.map((m) => (m.id === target.id ? { ...m, text: previous, editedAt: target.editedAt ?? undefined } : m)));
+          showToast('error', t('chat.editError'));
+        });
+      return;
+    }
+
     if (!body) {
       if (textRef.current) {
         textRef.current = '';
@@ -619,7 +791,31 @@ export function useChatComposer(
     persistDraft('');
     stopTyping();
     startSend(body);
-  }, [persistDraft, startSend, stopTyping]);
+  }, [conversationId, persistDraft, setMessages, startSend, stopTyping, t]);
+
+
+  // Enter edit mode: the field takes the message's text, the
+  // draft that was there waits in a ref; a reply in progress is
+  // dropped (a rewrite is not an answer)
+  const startEdit = useCallback((message: KitMessage) => {
+    if (!message.isOwn || message.deleted) return;
+    if (!editingRef.current) parkedDraftRef.current = textRef.current;
+    editingRef.current = message;
+    setEditingState(message);
+    replyToRef.current = null;
+    setReplyToState(null);
+    textRef.current = message.text;
+    setText(message.text);
+  }, []);
+
+  const cancelEdit = useCallback(() => {
+    if (!editingRef.current) return;
+    editingRef.current = null;
+    setEditingState(null);
+    textRef.current = parkedDraftRef.current;
+    setText(parkedDraftRef.current);
+    parkedDraftRef.current = '';
+  }, []);
 
 
   // The thumbs-up button: a quick 👍 on an EMPTY field only —
@@ -640,48 +836,117 @@ export function useChatComposer(
   const pickingRef = useRef(false);
 
 
-  // Pick → upload → send. uploadingImage drives the Composer's
-  // spinner and blocks a second pick while the first uploads
-  const attachImage = useCallback(async () => {
-    if (pickingRef.current || uploadingImage) return;
+  // Pick → upload → send. uploadingMedia drives the Composer's
+  // spinner and blocks a second pick while the first uploads.
+  // The library offers photos AND videos; nothing is cropped
+  // (the old square crop is what made every photo square). A
+  // video is refused before the upload when it is too long or
+  // too big — a toast, not a failed bubble
+  const attachMedia = useCallback(async () => {
+    if (pickingRef.current || uploadingMedia) return;
     pickingRef.current = true;
 
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        allowsEditing: true,
+        mediaTypes: ['images', 'videos'],
+        allowsEditing: false,
         quality: 0.8,
+        videoMaxDuration: MAX_VIDEO_SECONDS,
+        // iOS: an H.264 mp4 rather than an HEVC .mov the backend and
+        // Android readers cannot play
+        preferredAssetRepresentationMode: ImagePicker.UIImagePickerPreferredAssetRepresentationMode?.Compatible,
       });
       if (result.canceled || !result.assets?.[0]) return;
 
       const asset = result.assets[0];
-      const picked = {
+      const isVideo = asset.type === 'video';
+      const durationSeconds = typeof asset.duration === 'number' && asset.duration > 0 ? asset.duration / 1000 : undefined;
+      if (isVideo && durationSeconds && durationSeconds > MAX_VIDEO_SECONDS + 1) {
+        showToast('error', t('chat.videoTooLong'));
+        return;
+      }
+      if (isVideo && typeof asset.fileSize === 'number' && asset.fileSize > MAX_VIDEO_UPLOAD_BYTES) {
+        showToast('error', t('chat.fileTooLarge'));
+        return;
+      }
+
+      const picked: PickedAsset = {
         uri: asset.uri,
         fileName: asset.fileName || undefined,
         mimeType: asset.mimeType || undefined,
         fileSize: asset.fileSize ?? undefined,
+        kind: isVideo ? 'video' : 'image',
+        width: asset.width || undefined,
+        height: asset.height || undefined,
+        duration: durationSeconds,
       };
 
-      // The bubble appears at once with the local photo; the
-      // upload and the send follow behind it
-      const temp = createTemp('', undefined, asset.uri);
+      // The bubble appears at once — the local photo, or the dark
+      // video stage with the length — at its final proportions;
+      // the upload and the send follow behind it
+      const frame = asset.width && asset.height ? { width: asset.width, height: asset.height } : undefined;
+      const temp = isVideo
+        ? createTemp('', undefined, undefined, { kind: 'video', video: { uri: asset.uri, duration: durationSeconds, mimeType: picked.mimeType, name: picked.fileName }, mediaSize: frame })
+        : createTemp('', undefined, asset.uri, { mediaSize: frame });
       if (!temp) return;
       await uploadAndDeliver(temp.tempId, picked, temp.replyToId);
     } catch {
       // A refused or crashed picker must not kill the attach
       // button silently
-      showToast('error', t('chat.imagePickError'));
+      showToast('error', t('chat.mediaPickError'));
     } finally {
       pickingRef.current = false;
     }
-  }, [createTemp, t, uploadAndDeliver, uploadingImage]);
+  }, [createTemp, t, uploadAndDeliver, uploadingMedia]);
+
+
+  // The paperclip: a document from the system picker (copied
+  // into the cache so the upload can read it), refused before
+  // the upload when over the cap
+  const attachFile = useCallback(async () => {
+    if (pickingRef.current || uploadingFile) return;
+    pickingRef.current = true;
+
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: DOCUMENT_TYPES,
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+
+      const asset = result.assets[0];
+      if (typeof asset.size === 'number' && asset.size > MAX_UPLOAD_BYTES) {
+        showToast('error', t('chat.fileTooLarge'));
+        return;
+      }
+
+      const picked: PickedAsset = {
+        uri: asset.uri,
+        fileName: asset.name,
+        mimeType: asset.mimeType || undefined,
+        fileSize: asset.size ?? undefined,
+        kind: 'file',
+      };
+      const temp = createTemp('', undefined, undefined, {
+        kind: 'file',
+        file: { name: asset.name, uri: asset.uri, size: asset.size ?? undefined, mimeType: asset.mimeType || undefined },
+      });
+      if (!temp) return;
+      await uploadAndDeliver(temp.tempId, picked, temp.replyToId);
+    } catch {
+      showToast('error', t('chat.filePickError'));
+    } finally {
+      pickingRef.current = false;
+    }
+  }, [createTemp, t, uploadAndDeliver, uploadingFile]);
 
 
   // Tap-to-retry on a failed bubble. The queue entry is the
   // authoritative payload; a bubble whose entry is gone was
   // already retried (stale press) and is skipped
   const retryMessage = useCallback(
-    (message: ChatMessage) => {
+    (message: KitMessage) => {
       if (message.status !== 'failed') return;
       const payload = failedQueueRef.current.get(message.id);
       if (!payload) return;
@@ -691,11 +956,11 @@ export function useChatComposer(
         return;
       }
 
-      if (payload.asset && !payload.imageUrl) {
+      if (payload.asset && !payload.imageUrl && !payload.extra?.attachment) {
         void uploadAndDeliver(message.id, payload.asset, payload.replyToId);
         return;
       }
-      void deliver(message.id, payload.text, payload.imageUrl, payload.replyToId);
+      void deliver(message.id, payload.text, payload.imageUrl, payload.replyToId, payload.extra);
     },
     [deliver, persistQueue, uploadAndDeliver],
   );
@@ -715,14 +980,14 @@ export function useChatComposer(
         changed = true;
         continue;
       }
-      if (payload.asset && !payload.imageUrl) void uploadAndDeliver(tempId, payload.asset, payload.replyToId);
-      else void deliver(tempId, payload.text, payload.imageUrl, payload.replyToId);
+      if (payload.asset && !payload.imageUrl && !payload.extra?.attachment) void uploadAndDeliver(tempId, payload.asset, payload.replyToId);
+      else void deliver(tempId, payload.text, payload.imageUrl, payload.replyToId, payload.extra);
     }
     if (changed) persistQueue();
   });
 
 
-  const setReplyTo = useCallback((message: ChatMessage | null) => {
+  const setReplyTo = useCallback((message: KitMessage | null) => {
     replyToRef.current = message;
     setReplyToState(message);
   }, []);
@@ -765,13 +1030,20 @@ export function useChatComposer(
   return {
     text,
     onChangeText,
-    uploadingImage,
+    uploadingMedia,
+    uploadingImage: uploadingMedia,
+    uploadingFile,
     sendMessage,
     sendQuickLike,
-    attachImage,
+    attachMedia,
+    attachImage: attachMedia,
+    attachFile,
     retryMessage,
     discardMessage,
     replyTo,
     setReplyTo,
+    editing,
+    startEdit,
+    cancelEdit,
   };
 }

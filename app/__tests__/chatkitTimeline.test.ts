@@ -9,7 +9,8 @@
 //  order) with its time separator.
 // -----------------------------------------------------------
 
-import { buildTimeline, dayKey, dayLabel, GROUP_GAP_MS, parseStamp, SEPARATOR_GAP_MS } from '@/chatkit/timeline';
+import { buildTimeline, dayKey, dayLabel, GROUP_GAP_MS, parseStamp, SEPARATOR_GAP_MS } from '@knf/chatkit/core/timeline';
+import type { KitMessage } from '@knf/chatkit';
 import type { ChatMessage } from '@/types';
 
 
@@ -76,7 +77,7 @@ describe('buildTimeline', () => {
       [message('c', 'me', 60_000), message('b', 'me', 0), message('a', 'them', yesterday)],
       LABELS,
     );
-    const kinds = items.map((row) => (row.type === 'separator' ? 'sep' : row.message.id));
+    const kinds = items.map((row) => (row.type === 'message' ? row.message.id : row.type === 'separator' ? 'sep' : 'unread'));
     expect(kinds).toEqual(['c', 'b', 'sep', 'a', 'sep']);
     const seps = items.filter((row) => row.type === 'separator');
     expect(seps).toHaveLength(2);
@@ -90,7 +91,7 @@ describe('buildTimeline', () => {
       [message('b', 'me', SEPARATOR_GAP_MS + 60_000), message('a', 'me', 0)],
       LABELS,
     );
-    const kinds = items.map((row) => (row.type === 'separator' ? 'sep' : row.message.id));
+    const kinds = items.map((row) => (row.type === 'message' ? row.message.id : row.type === 'separator' ? 'sep' : 'unread'));
     expect(kinds).toEqual(['b', 'sep', 'a', 'sep']);
     expect(positions(items)).toEqual(['single', 'single']);
   });
@@ -108,7 +109,7 @@ describe('buildTimeline', () => {
     );
     // The invalid stamp breaks the run (its day never merges) but
     // must not emit an empty separator row above itself
-    const kinds = items.map((row) => (row.type === 'separator' ? 'sep' : row.message.id));
+    const kinds = items.map((row) => (row.type === 'message' ? row.message.id : row.type === 'separator' ? 'sep' : 'unread'));
     expect(kinds).toEqual(['b', 'a', 'sep']);
     expect(positions(items)).toEqual(['single', 'single']);
   });
@@ -117,7 +118,7 @@ describe('buildTimeline', () => {
   it('suppresses the stamp at the paging edge while older history exists', () => {
     const rows = (hasMore: boolean) =>
       buildTimeline([message('b', 'me', 60_000), message('a', 'me', 0)], LABELS, hasMore)
-        .map((row) => (row.type === 'separator' ? 'sep' : row.message.id));
+        .map((row) => (row.type === 'message' ? row.message.id : row.type === 'separator' ? 'sep' : 'unread'));
     expect(rows(true)).toEqual(['b', 'a']);
     expect(rows(false)).toEqual(['b', 'a', 'sep']);
   });
@@ -180,4 +181,37 @@ describe('parseStamp', () => {
     expect(parseStamp('')).toBeNull();
   });
 
+});
+
+
+// -----------------------------------------------------------
+// Stage-1 additions: system rows, the unread line
+// -----------------------------------------------------------
+
+describe('buildTimeline — system rows and the unread line', () => {
+  const at = (minutesAgo: number) => new Date(Date.now() - minutesAgo * 60_000).toISOString();
+  const msg = (id: string, senderId: string, minutesAgo: number, extra: Partial<KitMessage> = {}): KitMessage => ({
+    id, senderId, senderName: senderId, text: id, createdAt: at(minutesAgo), isOwn: false, status: 'sent', reactions: [], ...extra,
+  });
+
+  it('never folds a system row into a run', () => {
+    const items = buildTimeline(
+      [msg('c', 'ona', 0), msg('sys', 'ona', 1, { kind: 'system', text: 'Ona joined' }), msg('a', 'ona', 2)],
+      LABELS,
+    );
+    const positions = items.flatMap((row) => (row.type === 'message' ? [[row.message.id, row.position]] : []));
+    expect(positions).toEqual([['c', 'single'], ['sys', 'single'], ['a', 'single']]);
+  });
+
+  it('places the unread line right above the first unread message', () => {
+    const items = buildTimeline([msg('c', 'ona', 0), msg('b', 'ona', 1), msg('a', 'ona', 2)], LABELS, false, {
+      unreadFromId: 'b',
+      unreadCount: 2,
+    });
+    const kinds = items.map((row) => (row.type === 'message' ? row.message.id : row.type === 'separator' ? 'sep' : 'unread'));
+    // newest-first: the line follows 'b' in the array, i.e. sits above it on screen
+    expect(kinds.slice(0, 3)).toEqual(['c', 'b', 'unread']);
+    const unread = items.find((row) => row.type === 'unread');
+    expect(unread && unread.type === 'unread' ? unread.count : null).toBe(2);
+  });
 });

@@ -25,7 +25,7 @@
 
 // Portrait and unread pill from the UI kit; the group stack from
 // the messaging kit
-import { StackedAvatars } from '@/chatkit';
+import { StackedAvatars } from '@knf/chatkit';
 import { Avatar, Badge } from '@/components/ui';
 
 // Conversation shape straight from the chat API + upload paths
@@ -258,14 +258,19 @@ function ConversationRow({
   const body = last
     ? last.deleted
       ? t('messages.deletedPreview')
-      : last.text || t('messages.photoMessage')
+      : last.text
+        || (last.kind === 'video' ? t('messages.videoMessage')
+          : last.kind === 'file' ? t('messages.fileMessage')
+          : t('messages.photoMessage'))
     : '';
   const preview = last
-    ? last.senderId === user?.id
-      ? `${t('messages.youPrefix')} ${body}`
-      : item.type === 'group' && last.senderName
-        ? `${last.senderName}: ${body}`
-        : body
+    ? last.kind === 'system'
+      ? body
+      : last.senderId === user?.id
+        ? `${t('messages.youPrefix')} ${body}`
+        : item.type === 'group' && last.senderName
+          ? `${last.senderName}: ${body}`
+          : body
     : t('messages.tapToStart');
 
 

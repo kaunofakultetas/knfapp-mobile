@@ -74,7 +74,7 @@ import {
 } from '@/services/socket';
 
 // Server-stamp parsing for socket patches (zoneless-UTC shape)
-import { parseStamp } from '@/chatkit';
+import { parseStamp } from '@knf/chatkit';
 
 // Conversations REST API and its offline cache key
 import {
@@ -748,6 +748,9 @@ function Conversations() {
           conversationId: conversation.id,
           title: conversation.title,
           type: conversation.type,
+          // The room draws its "new messages" line from this —
+          // captured now, before opening the room clears it
+          unread: String(conversation.unreadCount ?? 0),
         },
       });
     },

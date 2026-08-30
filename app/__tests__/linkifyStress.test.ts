@@ -7,7 +7,7 @@
 //  inputs must come back fast and correct.
 // -----------------------------------------------------------
 
-import { linkify } from '@/chatkit/linkify';
+import { linkify } from '@knf/chatkit/core/linkify';
 
 
 const flatten = (segments: { value: string }[]) => segments.map((s) => s.value).join('');

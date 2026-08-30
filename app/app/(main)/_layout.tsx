@@ -56,6 +56,7 @@ import { Stack } from 'expo-router';
 import { Platform, View } from 'react-native';
 
 // The drawer and the shared header
+import ChatKitHost from '@/components/chat/ChatKitHost';
 import Sidebar from '@/components/Sidebar';
 import StackHeader, { type StackHeaderProps } from '@/components/navigation/StackHeader';
 import DrawerProvider, { useDrawer } from '@/context/DrawerContext';
@@ -100,6 +101,9 @@ function MainStack() {
       importantForAccessibility={isOpen ? 'no-hide-descendants' : 'auto'}
       aria-hidden={isOpen}
     >
+      {/* The standalone chatkit's theme/labels/env — above every
+          screen that renders kit components */}
+      <ChatKitHost>
       <Stack
         screenOptions={{
           header: renderHeader,
@@ -141,6 +145,7 @@ function MainStack() {
         />
         <Stack.Screen name="info/index" options={{ title: t('info.title') }} />
       </Stack>
+      </ChatKitHost>
     </View>
   );
 }

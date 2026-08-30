@@ -4,6 +4,8 @@
     "baseUrl": ".",
     "strict": true,
     "paths": {
+      "@knf/chatkit": ["./packages/chatkit/src"],
+      "@knf/chatkit/*": ["./packages/chatkit/src/*"],
       "@/*": ["./*"],
       "@/appScreens/*": ["./appScreens/*"],
       "@/assets/*": ["./assets/*"],

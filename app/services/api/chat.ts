@@ -85,12 +85,34 @@ export interface ApiConversation {
     // the REST list blanks it) — previews fall back either way
     text: string | null;
     imageUrl?: string | null;
+    // text | image | video | file | system — previews name the
+    // kind when there is no text
+    kind?: ApiMessageKind;
     time: string;
     senderId: string;
     senderName: string;
     // The last message was unsent — previews show a placeholder
     deleted?: boolean;
   };
+}
+
+export type ApiMessageKind = 'text' | 'image' | 'video' | 'file' | 'system';
+
+// A document / video attachment as stored (migration v57)
+export interface ApiAttachment {
+  url: string;
+  name: string;
+  size: number;
+  mime: string;
+}
+
+// What a photo / video message knows about its frame (v58):
+// natural size, duration in seconds, the poster's upload path
+export interface ApiMedia {
+  width?: number | null;
+  height?: number | null;
+  duration?: number | null;
+  thumbnailUrl?: string | null;
 }
 
 
@@ -144,9 +166,15 @@ export interface ApiMessage {
     text: string;
     imageUrl?: string | null;
     deleted: boolean;
+    kind?: ApiMessageKind;
+    fileName?: string | null;
   } | null;
   // Unsent by its sender — text/imageUrl arrive blank
   deleted?: boolean;
+  kind?: ApiMessageKind;
+  editedAt?: string | null;
+  attachment?: ApiAttachment | null;
+  media?: ApiMedia | null;
 }
 
 
@@ -342,14 +370,58 @@ export const fetchMessages = (convId: string, before?: string, limit = 50, befor
 //   - hooks/chat/useChatComposer.ts — the send action
 // -----------------------------------------------------------
 
-export const sendMessageApi = (convId: string, text: string, imageUrl?: string, replyToId?: string, clientMsgId?: string) =>
+export interface SendMessageExtra {
+  // A document or a video (uploaded first — uploadFileApi)
+  attachment?: ApiAttachment;
+  // The frame size / duration / poster of a photo or video
+  media?: ApiMedia;
+  kind?: ApiMessageKind;
+}
+
+export const sendMessageApi = (
+  convId: string,
+  text: string,
+  imageUrl?: string,
+  replyToId?: string,
+  clientMsgId?: string,
+  extra?: SendMessageExtra,
+) =>
   request(
     api.post<{ message: ApiMessage }>(`/chat/conversations/${encodeURIComponent(convId)}/messages`, {
       ...(text ? { text } : {}),
       ...(imageUrl ? { imageUrl } : {}),
       ...(replyToId ? { replyToId } : {}),
       ...(clientMsgId ? { client_msg_id: clientMsgId } : {}),
+      ...(extra?.attachment ? { attachment: extra.attachment } : {}),
+      ...(extra?.media ? { media: extra.media } : {}),
+      ...(extra?.kind ? { kind: extra.kind } : {}),
     }),
+  );
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// editMessageApi
+// -----------------------------------------------------------
+//
+// The sender rewrites their own text; the backend stamps
+// editedAt and broadcasts 'message_edited' to the room (the
+// hook applies the echo like everyone else's).
+//
+// Used by:
+//   - hooks/chat/useChatComposer.ts — edit mode
+// -----------------------------------------------------------
+
+export const editMessageApi = (convId: string, msgId: string, text: string) =>
+  request(
+    api.put<{ id: string; text: string; editedAt: string }>(
+      `/chat/conversations/${encodeURIComponent(convId)}/messages/${encodeURIComponent(msgId)}`,
+      { text },
+    ),
   );
 
 

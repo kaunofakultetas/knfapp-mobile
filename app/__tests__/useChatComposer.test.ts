@@ -13,7 +13,7 @@ jest.mock('@react-native-async-storage/async-storage', () =>
 );
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('@react-navigation/native', () => ({ useIsFocused: () => true }));
-jest.mock('@/chatkit/Composer', () => ({ DEFAULT_MAX_LENGTH: 5000 }));
+jest.mock('@knf/chatkit/composer/Composer', () => ({ DEFAULT_MAX_LENGTH: 5000 }));
 jest.mock('@/context/AuthContext', () => ({
   useAuth: () => ({ user: { id: 'u1', displayName: 'Me' }, isAuthenticated: true }),
 }));

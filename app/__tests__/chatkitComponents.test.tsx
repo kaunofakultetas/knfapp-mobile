@@ -22,7 +22,10 @@ const mockKitLabels = {
   newMessages: (count: number) => `${count} new`, loadOlder: 'Older messages',
   conversationStart: 'Conversation start', inputPlaceholder: 'Message', send: 'Send',
   quickLike: 'Like', attachPhoto: 'Attach photo', uploadingPhoto: 'Uploading photo',
+  video: 'Video', videoUnavailable: 'Video unavailable', playVideo: 'Play video', attachMedia: 'Attach media', attachFile: 'Attach file',
+  uploadingMedia: 'Uploading', uploadingFile: 'Uploading file', edited: 'edited', editingMessage: 'Editing message', cancelEdit: 'Cancel edit', saveEdit: 'Save',
   chooseEmoji: 'Choose emoji', openLink: 'Open link', imageUnavailable: 'Image unavailable',
+  unreadMessages: 'New messages', file: 'File',
 };
 
 jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'));
@@ -49,13 +52,16 @@ jest.mock('@/hooks/useTheme', () => {
   const { palettes } = jest.requireActual('@/constants/theme');
   return { useTheme: () => ({ scheme: 'light', colors: palettes.light }) };
 });
-jest.mock('@/chatkit/labels', () => ({ useKitLabels: () => mockKitLabels }));
+jest.mock('@knf/chatkit/provider', () => ({
+  ...jest.requireActual('@knf/chatkit/provider'),
+  useKitLabels: () => mockKitLabels,
+}));
 
 import { render } from '@testing-library/react-native';
 
-import MessageBubble from '@/chatkit/MessageBubble';
-import MessageList, { keyExtractor } from '@/chatkit/MessageList';
-import { buildTimeline } from '@/chatkit/timeline';
+import MessageBubble from '@knf/chatkit/message/MessageBubble';
+import MessageList, { keyExtractor } from '@knf/chatkit/list/MessageList';
+import { buildTimeline } from '@knf/chatkit/core/timeline';
 import type { ChatMessage } from '@/types';
 
 

@@ -10,9 +10,12 @@
 //
 //  Split into:
 //
-//    UploadResponse    — relative url + stored filename
+//    UploadResponse    — relative url + stored filename (+ name,
+//                        size, mime, photo pixel size)
 //    MAX_UPLOAD_BYTES  — the backend's 5 MB cap, mirrored
+//    MAX_VIDEO_UPLOAD_BYTES — the 50 MB video cap
 //    uploadImageApi    — multipart upload of a local image
+//    uploadFileApi     — a document or a video (kind=file|video)
 // -----------------------------------------------------------
 
 // Shared client core
@@ -41,6 +44,14 @@ import { Platform } from 'react-native';
 export interface UploadResponse {
   url: string;
   filename: string;
+  // Additive since v57: the name the sender chose, the byte size
+  // and the canonical mime — what a file / video message carries
+  name: string;
+  size: number;
+  mime: string;
+  // Photos only: the stored pixel size after the re-encode
+  width?: number | null;
+  height?: number | null;
 }
 
 
@@ -63,6 +74,9 @@ export interface UploadResponse {
 // -----------------------------------------------------------
 
 export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+
+// Videos get their own, larger cap (backend VIDEO_MAX_SIZE)
+export const MAX_VIDEO_UPLOAD_BYTES = 50 * 1024 * 1024;
 
 
 
@@ -139,6 +153,73 @@ export async function uploadImageApi(
   } catch (err) {
     // Tag the backend's post-hoc size rejection like the
     // preflight one, so callers handle a single shape
+    if (
+      err instanceof ApiError &&
+      err.code === 'http' &&
+      !err.serverCode &&
+      /too large/i.test(err.message)
+    ) {
+      throw new ApiError(err.message, err.status, 'http', err.data, 'file_too_large');
+    }
+    throw err;
+  }
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// uploadFileApi
+// -----------------------------------------------------------
+//
+//   uploadFileApi(uri, { name, mimeType, fileSize, kind: 'file' })
+//   uploadFileApi(uri, { …, kind: 'video' })
+//
+// A document or a video, posted as multipart with the `kind`
+// form field the backend branches on (stored as sent once the
+// bytes prove the type — no re-encode). Videos get the larger
+// cap and a longer timeout. Same oversize tagging as photos.
+//
+// Used by:
+//   - hooks/chat/useChatComposer.ts — attachFile / attachMedia
+// -----------------------------------------------------------
+
+export async function uploadFileApi(
+  uri: string,
+  options: { name?: string; mimeType?: string; fileSize?: number; kind: 'file' | 'video' },
+): Promise<UploadResponse> {
+
+  const cap = options.kind === 'video' ? MAX_VIDEO_UPLOAD_BYTES : MAX_UPLOAD_BYTES;
+  if (typeof options.fileSize === 'number' && options.fileSize > cap) {
+    throw new ApiError('File too large', 413, 'http', undefined, 'file_too_large');
+  }
+
+
+  const name = options.name || uri.split('/').pop() || (options.kind === 'video' ? 'video.mp4' : 'file');
+  const type = options.mimeType || (options.kind === 'video' ? 'video/mp4' : 'application/octet-stream');
+
+
+  const formData = new FormData();
+  formData.append('kind', options.kind);
+  if (Platform.OS === 'web') {
+    const blob = await (await fetch(uri)).blob();
+    formData.append('file', blob, name);
+  } else {
+    formData.append('file', { uri, name, type } as unknown as Blob);
+  }
+
+
+  try {
+    return await request(
+      api.post<UploadResponse>('/uploads', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: options.kind === 'video' ? 120_000 : 45_000,
+      }),
+    );
+  } catch (err) {
     if (
       err instanceof ApiError &&
       err.code === 'http' &&

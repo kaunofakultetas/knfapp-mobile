@@ -46,7 +46,7 @@
 // that tells a lost-access failure from a transient one
 import { ApiError, deleteMessageApi, fetchMessages, markConversationRead, type ApiMessage } from '@/services/api';
 import { useNetworkRestore } from '@/hooks/useNetworkRestore';
-import { parseStamp } from '@/chatkit/timeline';
+import { parseStamp } from '@knf/chatkit/core/timeline';
 
 // The composer's persisted failed-send outbox (rehydrated on
 // first load so a send that died with the app stays visible)
@@ -58,11 +58,13 @@ import {
   emitMarkRead,
   joinConversation,
   onMessageDeleted,
+  onMessageEdited,
   onMessagesRead,
   onNewMessage,
   onSocketStatusChange,
   onReactionUpdate,
   type MessageDeletedEvent,
+  type MessageEditedEvent,
   type MessagesReadEvent,
   type ReactionUpdate,
   type SocketMessage,
@@ -80,7 +82,7 @@ import { showToast } from '@/context/NetworkContext';
 import { useTranslation } from 'react-i18next';
 
 // The unified UI message shape
-import type { ChatMessage, ChatReplyRef } from '@/types';
+import type { ChatMessage, ChatMessageKind, ChatReplyRef } from '@/types';
 
 // Read acknowledgements only fire while the app is in the
 // foreground AND this screen is the focused one
@@ -120,6 +122,8 @@ export type WireReply = {
   text: string;
   imageUrl?: string | null;
   deleted: boolean;
+  kind?: ChatMessageKind;
+  fileName?: string | null;
 } | null | undefined;
 
 // A quote arrives with nullable imageUrl — the UI wants
@@ -133,8 +137,47 @@ export const mapReply = (reply: WireReply): ChatReplyRef | undefined =>
         text: reply.text ?? '',
         imageUrl: reply.imageUrl || undefined,
         deleted: !!reply.deleted,
+        kind: reply.kind,
+        fileName: reply.fileName || undefined,
       }
     : undefined;
+
+
+// The attachment / media fields a row carries (REST and socket
+// share the shape) → the ChatMessage's file / video / mediaSize.
+// A 'video' row's attachment is the video, its media the frame
+// and the poster; a 'file' row's attachment is the document; a
+// photo row only has the frame
+type WireContent = {
+  kind?: ChatMessageKind;
+  editedAt?: string | null;
+  attachment?: { url: string; name: string; size: number; mime: string } | null;
+  media?: { width?: number | null; height?: number | null; duration?: number | null; thumbnailUrl?: string | null } | null;
+};
+
+export const mapContent = (m: WireContent): Pick<ChatMessage, 'kind' | 'editedAt' | 'file' | 'video' | 'mediaSize'> => {
+  const kind = m.kind ?? undefined;
+  const media = m.media ?? undefined;
+  const mediaSize = media && media.width && media.height ? { width: media.width, height: media.height } : undefined;
+  const attachment = m.attachment ?? undefined;
+  return {
+    kind,
+    editedAt: m.editedAt ?? undefined,
+    mediaSize,
+    file: kind === 'file' && attachment ? { name: attachment.name, uri: attachment.url, size: attachment.size, mimeType: attachment.mime } : undefined,
+    video:
+      kind === 'video' && attachment
+        ? {
+            uri: attachment.url,
+            thumbnailUri: media?.thumbnailUrl || undefined,
+            duration: media?.duration ?? undefined,
+            size: attachment.size,
+            mimeType: attachment.mime,
+            name: attachment.name,
+          }
+        : undefined,
+  };
+};
 
 
 
@@ -233,6 +276,7 @@ function toChatMessage(m: ApiMessage): ChatMessage {
     })),
     replyTo: mapReply(m.replyTo),
     deleted: !!m.deleted,
+    ...mapContent(m),
   };
 }
 
@@ -398,10 +442,24 @@ export interface UseChatMessagesResult {
 export const markDeleted = (m: ChatMessage, messageId: string): ChatMessage => {
   let next = m;
   if (m.id === messageId && !m.deleted) {
-    next = { ...m, text: '', imageUrl: undefined, reactions: [], deleted: true };
+    next = { ...m, text: '', imageUrl: undefined, file: undefined, video: undefined, mediaSize: undefined, reactions: [], deleted: true };
   }
   if (next.replyTo && next.replyTo.id === messageId && !next.replyTo.deleted) {
-    next = { ...next, replyTo: { ...next.replyTo, text: '', imageUrl: undefined, deleted: true } };
+    next = { ...next, replyTo: { ...next.replyTo, text: '', imageUrl: undefined, fileName: undefined, deleted: true } };
+  }
+  return next;
+};
+
+
+// Apply an edit (the sender's own echo or the room's): the new
+// text and the stamp on the row, and on every quote of it
+export const markEdited = (m: ChatMessage, messageId: string, text: string, editedAt: string): ChatMessage => {
+  let next = m;
+  if (m.id === messageId && !m.deleted) {
+    next = { ...m, text, editedAt };
+  }
+  if (next.replyTo && next.replyTo.id === messageId && !next.replyTo.deleted) {
+    next = { ...next, replyTo: { ...next.replyTo, text } };
   }
   return next;
 };
@@ -696,6 +754,7 @@ export function useChatMessages(conversationId: string): UseChatMessagesResult {
         status: isOwn ? 'sent' : 'read',
         replyTo: mapReply(data.replyTo),
         deleted: !!data.deleted,
+        ...mapContent(data),
         reactions: (data.reactions ?? []).map((r) => ({
           emoji: r.emoji,
           count: r.count,
@@ -767,6 +826,11 @@ export function useChatMessages(conversationId: string): UseChatMessagesResult {
       setMessages((prev) => prev.map((m) => markDeleted(m, data.messageId)));
     });
 
+    const unsubEdited = onMessageEdited((data: MessageEditedEvent) => {
+      if (data.conversationId !== conversationId) return;
+      setMessages((prev) => prev.map((m) => markEdited(m, data.messageId, data.text, data.editedAt)));
+    });
+
     // A receipt names ONE reader — accumulate readers per own
     // message and only claim 'read' once every OTHER member has
     // read it; the first reader promotes 'sent' → 'delivered'
@@ -812,6 +876,7 @@ export function useChatMessages(conversationId: string): UseChatMessagesResult {
       unsubReaction();
       unsubRead();
       unsubDeleted();
+      unsubEdited();
       // No leave_conversation here: the server joins every room
       // of the member at connect, and leaving would silence this
       // conversation for the list previews and the unread badge

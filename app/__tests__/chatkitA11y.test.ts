@@ -10,7 +10,7 @@
 import { act, renderHook } from '@testing-library/react-native';
 import { AccessibilityInfo } from 'react-native';
 
-import { useScreenReaderEnabledRef } from '@/chatkit/a11y';
+import { useScreenReaderEnabledRef } from '@knf/chatkit/hooks/a11y';
 
 
 type ChangeListener = (enabled: boolean) => void;

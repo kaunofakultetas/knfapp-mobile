@@ -42,12 +42,16 @@ import {
 } from '@/components/ui';
 import { useTheme } from '@/hooks/useTheme';
 
+// The current location, params included, for the login round trip
+import { useReturnHref } from '@/hooks/useReturnHref';
+
 // Navigation, i18n and primitives
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect, usePathname, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { memo, useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FlatList, Pressable, RefreshControl, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 
 // Both requests share one load cycle so the banner and the
@@ -113,22 +117,26 @@ function PendingBanner({ count, onPress }: { count: number; onPress: () => void 
 // FriendRow
 // -----------------------------------------------------------
 //
-// One friend: the row opens the profile, the trailing 44pt
-// circle jumps straight into a chat with them (nested
-// Pressables — RN routes the inner tap correctly).
+// One friend: the name area opens the profile, the trailing
+// 44pt circle jumps straight into a chat with them. A FLAT
+// row of sibling Pressables (the friend-requests layout) —
+// nesting the chat button inside a pressable row collapsed it
+// into the row's single screen-reader stop; as siblings both
+// actions get their own focus. Memoized so a list re-render
+// touches only rows whose props actually moved.
 //
 // Used by:
 //   - FriendsScreen (below)
 // -----------------------------------------------------------
 
-function FriendRow({
+const FriendRow = memo(function FriendRow({
   item,
   onOpen,
   onChat,
 }: {
   item: Friend;
-  onOpen: () => void;
-  onChat: () => void;
+  onOpen: (friend: Friend) => void;
+  onChat: (friend: Friend) => void;
 }) {
 
   const { t } = useTranslation();
@@ -136,36 +144,38 @@ function FriendRow({
 
 
   return (
-    <Pressable
-      className="flex-row items-center border-b border-line py-sm"
-      onPress={onOpen}
-      accessibilityRole="button"
-      accessibilityLabel={item.displayName}
-    >
+    <View className="flex-row items-center border-b border-line py-sm">
 
-      <Avatar uri={item.avatarUrl} name={item.displayName} size={48} />
-      <View className="ml-sm flex-1">
-        <Text className="font-raleway-bold text-base text-ink" numberOfLines={1}>
-          {item.displayName}
-        </Text>
-        <Text className="font-raleway text-xs text-ink-soft" numberOfLines={1}>
-          @{item.username}
-        </Text>
-      </View>
+      <Pressable
+        className="flex-1 flex-row items-center"
+        onPress={() => onOpen(item)}
+        accessibilityRole="button"
+        accessibilityLabel={item.displayName}
+      >
+        <Avatar uri={item.avatarUrl} name={item.displayName} size={48} />
+        <View className="ml-sm flex-1">
+          <Text className="font-raleway-bold text-base text-ink" numberOfLines={1}>
+            {item.displayName}
+          </Text>
+          <Text className="font-raleway text-xs text-ink-soft" numberOfLines={1}>
+            @{item.username}
+          </Text>
+        </View>
+      </Pressable>
 
       {/* w-11 = 44pt — the minimum touch target on its own */}
       <Pressable
         className="h-11 w-11 items-center justify-center rounded-full bg-surface-soft"
-        onPress={onChat}
+        onPress={() => onChat(item)}
         accessibilityRole="button"
         accessibilityLabel={t('messages.newMessage')}
       >
         <Ionicons name="chatbubble-outline" size={20} color={colors.ink} />
       </Pressable>
 
-    </Pressable>
+    </View>
   );
-}
+});
 
 
 
@@ -188,7 +198,8 @@ export default function FriendsScreen() {
   const { t } = useTranslation();
   const { colors } = useTheme();
   const router = useRouter();
-  const pathname = usePathname();
+  const returnTo = useReturnHref();
+  const insets = useSafeAreaInsets();
 
 
   // Logged out resolves empty without a request; logging in or
@@ -211,18 +222,10 @@ export default function FriendsScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
 
-  // Latest refresh closure in a ref, so the focus effect stays
-  // dependency-free — a dep on the per-render refresh identity
-  // would re-fire the effect on every render while focused
-  const refreshRef = useRef(refresh);
-  useEffect(() => {
-    refreshRef.current = refresh;
-  });
-
-
   // Silent in-place refetch on every return to the screen
   // (friendships change on profiles); the first focus rides
-  // the mount load and is skipped
+  // the mount load and is skipped. useLoad's refresh has a
+  // stable identity, so the dep never re-fires this mid-focus
   const focusedOnceRef = useRef(false);
   useFocusEffect(
     useCallback(() => {
@@ -230,16 +233,41 @@ export default function FriendsScreen() {
         focusedOnceRef.current = true;
         return;
       }
-      void refreshRef.current();
-    }, []),
+      void refresh();
+    }, [refresh]),
   );
 
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await refreshRef.current();
+    await refresh();
     setRefreshing(false);
   };
+
+
+  // Stable row handlers — the memoized FriendRow re-renders
+  // only when its own friend row changes
+  const handleOpen = useCallback(
+    (friend: Friend) =>
+      router.push({ pathname: '/(main)/profile', params: { userId: friend.id } }),
+    [router],
+  );
+
+  const handleChat = useCallback(
+    (friend: Friend) =>
+      router.push({
+        pathname: '/(main)/new-chat',
+        params: { prefillUserId: friend.id, prefillName: friend.displayName },
+      }),
+    [router],
+  );
+
+  const renderItem = useCallback(
+    ({ item }: { item: Friend }) => (
+      <FriendRow item={item} onOpen={handleOpen} onChat={handleChat} />
+    ),
+    [handleOpen, handleChat],
+  );
 
 
   if (!isAuthenticated) {
@@ -250,7 +278,7 @@ export default function FriendsScreen() {
           title={t('friends.loginRequired')}
           action={{
             label: t('settings.login'),
-            onPress: () => router.push({ pathname: '/login', params: { returnTo: pathname } }),
+            onPress: () => router.push({ pathname: '/login', params: { returnTo } }),
           }}
         />
       </Screen>
@@ -283,27 +311,19 @@ export default function FriendsScreen() {
       <FlatList
         data={data?.friends ?? []}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 16, paddingBottom: 24 }}
+        contentContainerStyle={{
+          flexGrow: 1,
+          paddingHorizontal: 16,
+          // Clears the home indicator on notched devices
+          paddingBottom: insets.bottom + 24,
+        }}
         ListHeaderComponent={
           <PendingBanner
             count={data?.pendingCount ?? 0}
             onPress={() => router.push('/(main)/friend-requests')}
           />
         }
-        renderItem={({ item }) => (
-          <FriendRow
-            item={item}
-            onOpen={() =>
-              router.push({ pathname: '/(main)/profile', params: { userId: item.id } })
-            }
-            onChat={() =>
-              router.push({
-                pathname: '/(main)/new-chat',
-                params: { prefillUserId: item.id, prefillName: item.displayName },
-              })
-            }
-          />
-        )}
+        renderItem={renderItem}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}

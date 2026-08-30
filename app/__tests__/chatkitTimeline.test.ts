@@ -9,7 +9,7 @@
 //  order) with its time separator.
 // -----------------------------------------------------------
 
-import { buildTimeline, dayKey, dayLabel, GROUP_GAP_MS, SEPARATOR_GAP_MS } from '@/chatkit/timeline';
+import { buildTimeline, dayKey, dayLabel, GROUP_GAP_MS, parseStamp, SEPARATOR_GAP_MS } from '@/chatkit/timeline';
 import type { ChatMessage } from '@/types';
 
 
@@ -100,6 +100,28 @@ describe('buildTimeline', () => {
     expect(buildTimeline([], LABELS)).toEqual([]);
   });
 
+
+  it('gives an unparseable stamp its own bucket and no blank separator', () => {
+    const items = buildTimeline(
+      [message('b', 'me', 60_000, { createdAt: 'not-a-date' }), message('a', 'me', 0)],
+      LABELS,
+    );
+    // The invalid stamp breaks the run (its day never merges) but
+    // must not emit an empty separator row above itself
+    const kinds = items.map((row) => (row.type === 'separator' ? 'sep' : row.message.id));
+    expect(kinds).toEqual(['b', 'a', 'sep']);
+    expect(positions(items)).toEqual(['single', 'single']);
+  });
+
+
+  it('suppresses the stamp at the paging edge while older history exists', () => {
+    const rows = (hasMore: boolean) =>
+      buildTimeline([message('b', 'me', 60_000), message('a', 'me', 0)], LABELS, hasMore)
+        .map((row) => (row.type === 'separator' ? 'sep' : row.message.id));
+    expect(rows(true)).toEqual(['b', 'a']);
+    expect(rows(false)).toEqual(['b', 'a', 'sep']);
+  });
+
 });
 
 
@@ -122,6 +144,40 @@ describe('dayKey', () => {
 
   it('treats zoneless backend stamps as UTC', () => {
     expect(dayKey('2026-08-27T10:00:00')).toEqual(dayKey('2026-08-27T10:00:00Z'));
+  });
+
+  it('buckets SQLite space-separated stamps with their T-form twin', () => {
+    expect(dayKey('2026-08-27 10:00:00')).toEqual(dayKey('2026-08-27T10:00:00Z'));
+  });
+
+  it('gives unparseable stamps their own buckets', () => {
+    expect(dayKey('not-a-date')).not.toEqual(dayKey('also-not-a-date'));
+    expect(dayKey('not-a-date')).not.toEqual(dayKey('2026-08-27T10:00:00Z'));
+  });
+
+});
+
+
+// The kit's parser is THE zoneless-UTC rule for the whole app —
+// services/format delegates here, so every accepted stamp shape
+// is pinned in this one suite
+describe('parseStamp', () => {
+
+  it('treats zoneless T-form stamps as UTC', () => {
+    expect(parseStamp('2026-08-27T10:05:00')?.getTime()).toBe(Date.UTC(2026, 7, 27, 10, 5, 0));
+  });
+
+  it('normalizes SQLite space-form stamps to the same UTC instant', () => {
+    expect(parseStamp('2026-08-27 10:05:00')?.getTime()).toBe(Date.UTC(2026, 7, 27, 10, 5, 0));
+  });
+
+  it('keeps explicit offsets', () => {
+    expect(parseStamp('2026-08-27T10:05:00+03:00')?.getTime()).toBe(Date.UTC(2026, 7, 27, 7, 5, 0));
+  });
+
+  it('returns null for garbage', () => {
+    expect(parseStamp('not-a-date')).toBeNull();
+    expect(parseStamp('')).toBeNull();
   });
 
 });

@@ -19,7 +19,7 @@
 
 // Theme + labels
 import { useTheme } from '@/hooks/useTheme';
-import { useKitLabels } from './labels';
+import { useKitLabels, type KitLabels } from './labels';
 
 // Rendering + motion
 import { Ionicons } from '@expo/vector-icons';
@@ -44,8 +44,10 @@ import { fonts } from '@/constants/theme';
 import type { KitReply } from './types';
 
 
-// The backend's limit; the counter appears near it
-const DEFAULT_MAX_LENGTH = 5000;
+// The backend's limit; the counter appears near it. Exported so
+// the host's composer hook clamps pasted/emoji input to the same
+// number instead of keeping its own copy
+export const DEFAULT_MAX_LENGTH = 5000;
 
 // Field growth bounds (one to five lines)
 const FIELD_MIN = 38;
@@ -68,9 +70,8 @@ const isWeb = Platform.OS === 'web';
 //   - Composer (below)
 // -----------------------------------------------------------
 
-function ReplyStrip({ reply, onCancel }: { reply: KitReply; onCancel: () => void }) {
+function ReplyStrip({ reply, labels, onCancel }: { reply: KitReply; labels: KitLabels; onCancel: () => void }) {
 
-  const labels = useKitLabels();
   const { colors } = useTheme();
 
 
@@ -104,7 +105,7 @@ function ReplyStrip({ reply, onCancel }: { reply: KitReply; onCancel: () => void
           {snippet}
         </Text>
       </View>
-      <Pressable onPress={onCancel} hitSlop={10} accessibilityRole="button" accessibilityLabel={labels.cancelReply}>
+      <Pressable onPress={onCancel} hitSlop={12} accessibilityRole="button" accessibilityLabel={labels.cancelReply}>
         <Ionicons name="close-circle" size={20} color={colors.inkSoft} />
       </Pressable>
     </Animated.View>
@@ -129,9 +130,8 @@ function ReplyStrip({ reply, onCancel }: { reply: KitReply; onCancel: () => void
 //   - Composer (below)
 // -----------------------------------------------------------
 
-function SendSlot({ hasText, onSend, onQuickLike }: { hasText: boolean; onSend: () => void; onQuickLike: () => void }) {
+function SendSlot({ hasText, labels, onSend, onQuickLike }: { hasText: boolean; labels: KitLabels; onSend: () => void; onQuickLike: () => void }) {
 
-  const labels = useKitLabels();
   const { colors } = useTheme();
 
 
@@ -239,7 +239,10 @@ export default function Composer({
 
 
   const limit = maxLength ?? DEFAULT_MAX_LENGTH;
-  const hasText = value.trim().length > 0;
+  // What the field visibly shows drives the send morph
+  // (Messenger-style) — the send path clears a whitespace-only
+  // draft instead of posting, so the thumb never fires under text
+  const hasText = value.length > 0;
   const nearLimit = value.length > limit - 200;
 
 
@@ -255,14 +258,37 @@ export default function Composer({
   }, [replyId]);
 
 
+  // An emptied draft snaps the field back to one line, and on web
+  // every change re-measures the textarea with its controlled
+  // height released — a floored scrollHeight can never shrink, so
+  // without this the field only ever grows
+  useEffect(() => {
+    if (value.length === 0) {
+      setFieldHeight(FIELD_MIN);
+      return;
+    }
+    if (!isWeb) return;
+    const node = inputRef.current as unknown as { style?: { height: string }; scrollHeight?: number } | null;
+    if (!node?.style || typeof node.scrollHeight !== 'number') return;
+    const previous = node.style.height;
+    node.style.height = '0px';
+    const next = Math.min(FIELD_MAX, Math.max(FIELD_MIN, Math.ceil(node.scrollHeight)));
+    node.style.height = previous;
+    setFieldHeight((current) => (Math.abs(current - next) > 1 ? next : current));
+  }, [value]);
+
+
   // Hardware / web keyboards: Enter sends, Shift+Enter breaks a
-  // line, and Enter that confirms an IME composition is left alone
+  // line, and Enter that confirms an IME composition is left
+  // alone. The default is only suppressed when the key is
+  // consumed — same emptiness rule as the send button
   const onKeyPress = (e: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
     if (!isWeb || e.nativeEvent.key !== 'Enter') return;
     const native = e.nativeEvent as unknown as { shiftKey?: boolean; isComposing?: boolean; keyCode?: number };
     if (native.shiftKey || native.isComposing || native.keyCode === 229) return;
+    if (!hasText) return;
     e.preventDefault();
-    if (hasText) onSend();
+    onSend();
   };
 
 
@@ -276,7 +302,7 @@ export default function Composer({
       }}
     >
 
-      {replyTo ? <ReplyStrip reply={replyTo} onCancel={onCancelReply} /> : null}
+      {replyTo ? <ReplyStrip reply={replyTo} labels={labels} onCancel={onCancelReply} /> : null}
 
       {nearLimit ? (
         <Text style={{ paddingHorizontal: 16, paddingTop: 6, textAlign: 'right', fontFamily: fonts.regular, fontSize: 11, color: colors.inkFaint }}>
@@ -354,7 +380,7 @@ export default function Composer({
           </Pressable>
         </View>
 
-        <SendSlot hasText={hasText} onSend={onSend} onQuickLike={onQuickLike} />
+        <SendSlot hasText={hasText} labels={labels} onSend={onSend} onQuickLike={onQuickLike} />
 
       </View>
 

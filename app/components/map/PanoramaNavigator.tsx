@@ -2,12 +2,14 @@
 //  [*] Map — PanoramaNavigator
 //
 //  The 360° photo stage of the indoor navigation: one bundled
-//  panorama laid out three times in a horizontal ScrollView so
-//  panning can loop forever — when a gesture ends near a seam
-//  the offset teleports by exactly one tile width, which the
-//  marker survives because its position math is modulo the
-//  tile. Teleporting mid-gesture would kill fling momentum, so
-//  it only happens in onMomentumScrollEnd / onScrollEndDrag.
+//  panorama laid out five times in a horizontal ScrollView so
+//  panning can loop forever — when a gesture ends off the
+//  middle tile the offset teleports back by whole tile widths,
+//  which the marker survives because its position math is
+//  modulo the tile. Teleporting mid-gesture would kill fling
+//  momentum, so it only happens in onMomentumScrollEnd /
+//  onScrollEndDrag — the two tiles of buffer on either side
+//  are what keep a hard fling from hitting the edge first.
 //
 //  The stage is deliberately quiet: the route controls, the
 //  instruction and the progress live in the screen's sheet
@@ -20,10 +22,12 @@
 //
 //  The scroll offset lives in an Animated.Value, never in
 //  React state: the marker's translateX and tilt are
-//  interpolations on the animated graph, so a 60fps pan
+//  interpolations on a natively driven animated graph (web
+//  has no native driver and falls back to JS), so a 60fps pan
 //  re-renders nothing. The one thing that crosses back to the
 //  screen is the rounded angle to the target (onDeltaChange),
-//  reported only when it moves by a few degrees.
+//  read off the scroll event listener and reported only when
+//  it moves by a few degrees.
 //
 //  Committed dark look in both themes — a photo stage reads
 //  wrong on a light surface — so bg-black / white overlay text
@@ -47,11 +51,12 @@ import { Image as ExpoImage, type ImageLoadEventData } from 'expo-image';
 
 // Stage primitives
 import { Ionicons } from '@expo/vector-icons';
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Animated,
   Image as RNImage,
+  Platform,
   ScrollView,
   Text,
   View,
@@ -66,8 +71,10 @@ export interface PanoramaNavigatorProps {
   panoSource: ImageSourcePropType;
   targetAzimuth: number;      // 0–360° across the panorama width
   containerHeight: number;    // measured stage height from the screen
+  step: number;               // waypoint index — re-keys the fading hint
+  arrived?: boolean;          // at the destination: no marker, no deltas
   stepLabel: string;          // the counter chip text ("2 / 5")
-  onDeltaChange?: (deltaDeg: number) => void;
+  onDeltaChange?: (deltaDeg: number, aligned: boolean) => void;
 }
 
 
@@ -129,10 +136,14 @@ export function deltaAngleAt(
 // PanoramaTiles
 // -----------------------------------------------------------
 //
-// The same panorama three times side by side — the middle copy
-// is the one on screen, the outer two give the seam handlers a
-// full tile of buffer in both directions. Memoized so the
-// screen's instruction re-renders never touch the bitmaps.
+// The same panorama five times side by side — the middle copy
+// is the one on screen, the outer pairs give the seam handlers
+// two full tiles of buffer in both directions, enough that
+// even a hard fling runs out of momentum before the hard edge
+// of the strip. All five share ONE decoded bitmap — expo-image
+// keys its memory cache by source — so the extra copies cost
+// views, not memory. Memoized so the screen's instruction
+// re-renders never touch the bitmaps.
 //
 // Used by:
 //   - PanoramaNavigator (below)
@@ -153,11 +164,13 @@ const PanoramaTiles = memo(function PanoramaTiles({
   const tile = { width: tileWidth, height };
 
 
-  // onLoad on the first tile only — all three decode the same
+  // onLoad on the first tile only — all five decode the same
   // asset, so one report of its real size is enough
   return (
-    <View style={{ width: tileWidth * 3, height, flexDirection: 'row' }}>
+    <View style={{ width: tileWidth * 5, height, flexDirection: 'row' }}>
       <ExpoImage source={source} style={tile} contentFit="contain" cachePolicy="memory-disk" priority="high" transition={0} onLoad={onLoad} />
+      <ExpoImage source={source} style={tile} contentFit="contain" cachePolicy="memory-disk" priority="high" transition={0} />
+      <ExpoImage source={source} style={tile} contentFit="contain" cachePolicy="memory-disk" priority="high" transition={0} />
       <ExpoImage source={source} style={tile} contentFit="contain" cachePolicy="memory-disk" priority="high" transition={0} />
       <ExpoImage source={source} style={tile} contentFit="contain" cachePolicy="memory-disk" priority="high" transition={0} />
     </View>
@@ -251,13 +264,14 @@ function StepChip({ label }: { label: string }) {
 // towards the target while it is off to a side and turning
 // green once the view is aligned. It rides the animated offset
 // through the caller's interpolations, so it never re-renders
-// while panning.
+// while panning; memoized so only an alignment flip (or a new
+// animated graph) touches it at all.
 //
 // Used by:
 //   - PanoramaNavigator (below)
 // -----------------------------------------------------------
 
-function DirectionMarker({
+const DirectionMarker = memo(function DirectionMarker({
   left,
   tilt,
   top,
@@ -305,7 +319,7 @@ function DirectionMarker({
       </Animated.View>
     </Animated.View>
   );
-}
+});
 
 
 
@@ -317,14 +331,20 @@ function DirectionMarker({
 // PanoramaNavigator (default export)
 // -----------------------------------------------------------
 //
+// Memoized: the map screen re-renders on every reported angle
+// bucket while panning, but the stage's own props are stable
+// through a pan — the whole photo subtree skips those renders.
+//
 // Used by:
 //   - app/(main)/tabs/map.tsx — the route view of the map tab
 // -----------------------------------------------------------
 
-export default function PanoramaNavigator({
+export default memo(function PanoramaNavigator({
   panoSource,
   targetAzimuth,
   containerHeight,
+  step,
+  arrived = false,
   stepLabel,
   onDeltaChange,
 }: PanoramaNavigatorProps) {
@@ -352,25 +372,53 @@ export default function PanoramaNavigator({
   useEffect(() => {
     setMeasuredAspect(null);
   }, [panoSource]);
-  const onImageLoad = (event: ImageLoadEventData) => {
+  // Stable — only the setter is captured — so the PanoramaTiles
+  // memo actually holds across re-renders
+  const onImageLoad = useCallback((event: ImageLoadEventData) => {
     const { width, height } = event.source;
     if (width > 0 && height > 0) setMeasuredAspect(width / height);
-  };
+  }, []);
   const aspect = measuredAspect ?? bundledAspect;
 
   // The width at which the whole panorama fits the height
   const tileWidth = Math.max(1, containerHeight * aspect);
 
 
+  // A 4096-wide panorama decodes to ~20 MB; without eviction
+  // every step of a walked route stays pinned in expo-image's
+  // memory cache. Evicted when the source changes (and on
+  // unmount) — the mounted tiles hold their own reference, so
+  // the visible photo never blinks, and the disk cache keeps a
+  // revisited step fast
+  useEffect(() => {
+    return () => {
+      void ExpoImage.clearMemoryCache();
+    };
+  }, [panoSource]);
+
+
   const scrollRef = useRef<ScrollView | null>(null);
-  const scrollX = useRef(new Animated.Value(tileWidth)).current;
+  const scrollX = useRef(new Animated.Value(tileWidth * 2)).current;
   const [aligned, setAligned] = useState(false);
 
 
-  // The scroll offset feeds the Animated graph directly — no
-  // setState, so panning never re-renders the stage
+  // Bound by the report effect below; the scroll handler reads
+  // through the ref so its memo never has to rebuild
+  const reportRef = useRef<(offset: number) => void>(() => {});
+
+
+  // The scroll offset feeds the Animated graph on the UI
+  // thread — no setState, so panning never re-renders the
+  // stage. Web has no native driver and falls back to JS. The
+  // listener hands the offset to the delta report at scroll-
+  // event cadence instead of a per-frame value listener
   const onScroll = useMemo(
-    () => Animated.event([{ nativeEvent: { contentOffset: { x: scrollX } } }], { useNativeDriver: false }),
+    () =>
+      Animated.event([{ nativeEvent: { contentOffset: { x: scrollX } } }], {
+        useNativeDriver: Platform.OS !== 'web',
+        listener: (event: NativeSyntheticEvent<NativeScrollEvent>) =>
+          reportRef.current(event.nativeEvent.contentOffset.x),
+      }),
     [scrollX],
   );
 
@@ -407,48 +455,54 @@ export default function PanoramaNavigator({
   }, [scrollX, tileWidth, targetAzimuth, windowWidth]);
 
 
-  // The one bridge back to React: the rounded angle, reported
-  // in DELTA_REPORT_STEP increments, plus the aligned flag at
-  // its boundary
-  const lastReported = useRef<number | null>(null);
+  // The one bridge back to React: the rounded angle plus the
+  // EXACT aligned flag, reported together whenever either
+  // moves — the caller's sheet uses the flag as-is, so it can
+  // never disagree with the marker at the tolerance boundary.
+  // Silent while arrived: there is nothing left to point at.
+  const lastReported = useRef<{ rounded: number; aligned: boolean } | null>(null);
   const onDeltaRef = useRef(onDeltaChange);
-  onDeltaRef.current = onDeltaChange;
   useEffect(() => {
+    onDeltaRef.current = onDeltaChange;
+  }, [onDeltaChange]);
+  useEffect(() => {
+    if (arrived) {
+      reportRef.current = () => {};
+      return;
+    }
     const report = (offset: number) => {
       const delta = deltaAngleAt(offset, tileWidth, windowWidth, targetAzimuth);
       const nowAligned = Math.abs(delta) <= ALIGNED_TOLERANCE_DEG;
       setAligned((prev) => (prev === nowAligned ? prev : nowAligned));
 
       const rounded = Math.round(delta / DELTA_REPORT_STEP) * DELTA_REPORT_STEP;
-      if (rounded !== lastReported.current) {
-        lastReported.current = rounded;
-        onDeltaRef.current?.(rounded);
+      if (rounded !== lastReported.current?.rounded || nowAligned !== lastReported.current?.aligned) {
+        lastReported.current = { rounded, aligned: nowAligned };
+        onDeltaRef.current?.(rounded, nowAligned);
       }
     };
-    const id = scrollX.addListener(({ value }) => report(value));
-    report(tileWidth);
-    return () => scrollX.removeListener(id);
-  }, [scrollX, tileWidth, windowWidth, targetAzimuth]);
+    reportRef.current = report;
+    report(tileWidth * 2);
+  }, [tileWidth, windowWidth, targetAzimuth, arrived]);
 
 
   // contentOffset centers the very first frame; this effect
   // re-centers on every step or size change (and covers web,
   // where the contentOffset prop is not implemented)
   useEffect(() => {
-    scrollRef.current?.scrollTo({ x: tileWidth, animated: false });
-    scrollX.setValue(tileWidth);
+    scrollRef.current?.scrollTo({ x: tileWidth * 2, animated: false });
+    scrollX.setValue(tileWidth * 2);
   }, [panoSource, tileWidth, scrollX]);
 
 
-  // Teleporting by exactly one tile width is invisible — the
-  // marker position is modulo the tile — but doing it mid-
-  // gesture kills fling momentum, so it waits for the end
+  // Teleporting by whole tile widths is invisible — the marker
+  // position is modulo the tile — but doing it mid-gesture
+  // kills fling momentum, so it waits for the end. Folding
+  // into the middle tile in one move also covers a fling that
+  // crossed more than one seam
   const recenter = (x: number) => {
-    if (x < tileWidth * 0.5) {
-      scrollRef.current?.scrollTo({ x: x + tileWidth, animated: false });
-    } else if (x > tileWidth * 1.5) {
-      scrollRef.current?.scrollTo({ x: x - tileWidth, animated: false });
-    }
+    const centered = x - tileWidth * Math.round(x / tileWidth - 2);
+    if (centered !== x) scrollRef.current?.scrollTo({ x: centered, animated: false });
   };
 
   const handleMomentumEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -466,30 +520,39 @@ export default function PanoramaNavigator({
   return (
     <View className="bg-black" style={{ height: containerHeight, overflow: 'hidden' }}>
 
-      {/* The looping panorama strip */}
-      <ScrollView
+      {/* The looping panorama strip. Animated.ScrollView, not the
+          plain one: a native-driven Animated.event is a class
+          instance, not a callable, and only the animated wrapper
+          knows to attach it natively instead of invoking it */}
+      <Animated.ScrollView
         ref={scrollRef}
         horizontal
         bounces={false}
         showsHorizontalScrollIndicator={false}
         scrollEventThrottle={16}
-        contentOffset={{ x: tileWidth, y: 0 }}
+        contentOffset={{ x: tileWidth * 2, y: 0 }}
         onScroll={onScroll}
         onScrollEndDrag={handleDragEnd}
         onMomentumScrollEnd={handleMomentumEnd}
       >
         <PanoramaTiles source={panoSource} tileWidth={tileWidth} height={containerHeight} onLoad={onImageLoad} />
-      </ScrollView>
+      </Animated.ScrollView>
 
-      <DirectionMarker
-        left={markerLeft}
-        tilt={markerTilt}
-        top={Math.max(0, containerHeight * 0.5 - MARKER_SIZE / 2)}
-        aligned={aligned}
-      />
+      {/* At the destination the marker would keep pointing past
+          it — the arrival card below the stage takes over */}
+      {!arrived ? (
+        <DirectionMarker
+          left={markerLeft}
+          tilt={markerTilt}
+          top={Math.max(0, containerHeight * 0.5 - MARKER_SIZE / 2)}
+          aligned={aligned}
+        />
+      ) : null}
       <StepChip label={stepLabel} />
-      <HintPill key={String(panoSource)} />
+      {/* Keyed by the waypoint index — String(panoSource) is
+          '[object Object]' on web, which never re-keys */}
+      <HintPill key={step} />
 
     </View>
   );
-}
+});

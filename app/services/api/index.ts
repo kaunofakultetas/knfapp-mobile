@@ -1,4 +1,6 @@
 export * from './client';
+export * from './errors';
+export * from './session-events';
 export * from './auth';
 export * from './news';
 export * from './chat';

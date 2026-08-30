@@ -40,6 +40,7 @@ const timeline = useMemo(() => buildTimeline(messages, { today, yesterday, local
   onPressMessage={toggleTime}
   menuTargetId={hiddenId}                                   // hidden under the floating copy
   canAct={(m) => !isOptimistic(m)}
+  canReply={(m) => !isOptimistic(m) && !m.deleted}
   onLongPressMessage={(target) => setMenuTarget(target)}   // { message, position, frame }
   onSwipeReply={setReplyTo}
   onPressQuote={jumpToQuoted}
@@ -76,14 +77,15 @@ block of `i18n/lt.json` when reusing the kit elsewhere.
 
 - **Palette** through `useTheme()` — the kit reads `chatCanvas`,
   `bubbleIn`, `bubbleOut`, `quoteWash`, `menuSurface`, `shadow`,
-  `onBrandWash` plus the generic `ink*`, `surface*`, `line*`, `brand*`,
-  `danger*`, `scrim`, `success`, `brandHeader`.
+  `accent`, `onBrand`, `onBrandWash` plus the generic `ink*`,
+  `surface*`, `line*`, `brand*`, `danger*`, `scrim`, `success`,
+  `brandHeader`.
 - **Fonts** through `constants/theme.ts` `fonts` (regular / medium /
   semiBold / bold).
 - **NativeWind tokens** used by a handful of layout classes: spacing
-  `sm`/`md`, colours `text-ink*`, `bg-surface*`, `bg-brand`,
-  `bg-menu-surface`, `border-line`, `text-on-brand`, and the
-  `font-raleway*` families.
+  `sm`/`md`, colours `text-ink*`, `text-brand`, `bg-surface*`,
+  `bg-brand`, `bg-menu-surface`, `border-line`, `text-on-brand`, and
+  the `font-raleway*` families.
 - **Strings** through `labels.ts` (`useKitLabels()`), which maps the
   `chat.*` / `common.*` i18n keys — the kit's only i18n touchpoint.
 - **Resolvers**: `getUploadUrl` (relative upload paths → absolute) and

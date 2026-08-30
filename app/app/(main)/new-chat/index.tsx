@@ -7,7 +7,9 @@
 //  guard, so an out-of-order response can never clobber newer
 //  results), toggle them into a chip row — selections are
 //  stored as FULL user objects, so chips survive any query
-//  change — and create.
+//  change — and create. A failed search keeps the previous
+//  hits on screen behind an error + retry row — never a false
+//  "no users found".
 //
 //  Exactly one person selected creates a DIRECT chat and the
 //  group-name field is ignored; two or more create a group
@@ -23,6 +25,7 @@
 //  Split into (root component last):
 //
 //    GROUP_EMOJIS  — the random group avatar pool
+//    Separator     — stable result-list row separator
 //    SelectedChips — removable chips of the picked people
 //    UserRow       — one search hit with checkbox semantics
 //    NewChatForm   — the signed-in screen body
@@ -33,11 +36,15 @@
 import LoginRequiredOverlay from '@/components/LoginRequiredOverlay';
 
 // UI kit
-import { Avatar, Button, Input, Screen } from '@/components/ui';
+import { Avatar, Button, Input } from '@/components/ui';
 
 // Toast feedback and JS-side colors
 import { showToast } from '@/context/NetworkContext';
 import { useTheme } from '@/hooks/useTheme';
+
+// Keyboard-aware bottom padding for the pinned section
+import useKeyboardVisible from '@/hooks/useKeyboardVisible';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // People search + conversation creation
 import {
@@ -48,9 +55,8 @@ import {
 
 // Navigation, keyboard offset, i18n and primitives
 import { Ionicons } from '@expo/vector-icons';
-import { useHeaderHeight } from '@react-navigation/elements';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ActivityIndicator,
@@ -65,6 +71,10 @@ import {
 
 // A fresh group gets a random face from this pool
 const GROUP_EMOJIS = ['💬', '👥', '📚', '🧑‍🏫', '🧪', '🖥️', '🧠'];
+
+// Module-level so the results list keeps one stable separator
+// component type across renders instead of remounting hairlines
+const Separator = () => <View className="h-px bg-line" />;
 
 
 
@@ -128,19 +138,21 @@ function SelectedChips({
 // One search hit: checkbox, portrait, name and @username. The
 // row IS the checkbox for assistive tech — role + checked
 // state live on the Pressable, not on the drawn box.
+// Memoised: rows re-render only when their own user/selected
+// state changes, not on every keystroke of the query.
 //
 // Used by:
 //   - NewChatForm (below)
 // -----------------------------------------------------------
 
-function UserRow({
+const UserRow = memo(function UserRow({
   user,
   selected,
   onToggle,
 }: {
   user: SearchUserResult;
   selected: boolean;
-  onToggle: () => void;
+  onToggle: (user: SearchUserResult) => void;
 }) {
 
   const { colors } = useTheme();
@@ -149,7 +161,7 @@ function UserRow({
   return (
     <Pressable
       className="flex-row items-center py-sm"
-      onPress={onToggle}
+      onPress={() => onToggle(user)}
       accessibilityRole="checkbox"
       accessibilityState={{ checked: selected }}
       accessibilityLabel={user.displayName}
@@ -176,7 +188,7 @@ function UserRow({
 
     </Pressable>
   );
-}
+});
 
 
 
@@ -191,9 +203,16 @@ function UserRow({
 // The signed-in screen body: search state, the stored
 // selection, and the create action (see the file header for
 // the direct/group rules). The bottom section rides above the
-// keyboard — behavior 'padding' on iOS offset by the stack
-// header, Android resizes on its own — so the create button
-// is never hidden.
+// keyboard — bare 'padding' on iOS, the window's own
+// adjustResize on Android — so the create button is never
+// hidden. The KeyboardAvoidingView MUST be the screen root:
+// its keyboard math reads its own layout frame against the
+// window, and nested one level down (inside a SafeAreaView)
+// that frame came up short by the header plus the home
+// indicator, which is exactly how far the name field ended up
+// behind the keys. The bottom inset is therefore applied
+// INSIDE, on the pinned section, and only while the keyboard
+// is down — with it up the section sits flush on the keys.
 //
 // Used by:
 //   - NewChat (below)
@@ -204,7 +223,8 @@ function NewChatForm() {
   const router = useRouter();
   const { t } = useTranslation();
   const { colors } = useTheme();
-  const headerHeight = useHeaderHeight();
+  const insets = useSafeAreaInsets();
+  const keyboardUp = useKeyboardVisible();
   const { prefillUserId, prefillName } = useLocalSearchParams<{
     prefillUserId?: string;
     prefillName?: string;
@@ -228,6 +248,8 @@ function NewChatForm() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchUserResult[]>([]);
   const [searching, setSearching] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [retryNonce, setRetryNonce] = useState(0);
   const [name, setName] = useState('');
   const [creating, setCreating] = useState(false);
 
@@ -235,7 +257,10 @@ function NewChatForm() {
   // Debounced search. The sequence is bumped at effect START,
   // so clearing the field or typing on also invalidates any
   // response still in flight — stale results can never land,
-  // and a stale finally can never hide the newer spinner
+  // and a stale finally can never hide the newer spinner. The
+  // cleanup bumps it again, so unmount orphans the in-flight
+  // response too. A failure keeps the previous results and
+  // raises the failed flag; retryNonce re-runs the same query.
   const searchSeqRef = useRef(0);
 
   useEffect(() => {
@@ -245,10 +270,12 @@ function NewChatForm() {
     if (!q) {
       setResults([]);
       setSearching(false);
+      setFailed(false);
       return;
     }
 
     setSearching(true);
+    setFailed(false);
     const timer = setTimeout(() => {
       void (async () => {
         try {
@@ -257,24 +284,41 @@ function NewChatForm() {
           setResults(response.users);
         } catch {
           if (seq !== searchSeqRef.current) return;
-          setResults([]);
+          setFailed(true);
         } finally {
           if (seq === searchSeqRef.current) setSearching(false);
         }
       })();
     }, 300);
 
-    return () => clearTimeout(timer);
-  }, [query]);
+    return () => {
+      clearTimeout(timer);
+      searchSeqRef.current += 1;
+    };
+  }, [query, retryNonce]);
 
 
-  const toggleUser = (user: SearchUserResult) => {
+  const toggleUser = useCallback((user: SearchUserResult) => {
     setSelected((current) =>
       current.some((u) => u.id === user.id)
         ? current.filter((u) => u.id !== user.id)
         : [...current, user],
     );
-  };
+  }, []);
+
+
+  // Stable renderItem + memoised rows: typing in the query box
+  // re-renders only rows whose data actually changed
+  const renderItem = useCallback(
+    ({ item }: { item: SearchUserResult }) => (
+      <UserRow
+        user={item}
+        selected={selected.some((u) => u.id === item.id)}
+        onToggle={toggleUser}
+      />
+    ),
+    [selected, toggleUser],
+  );
 
 
   // Group only from 2+ people; a lone selection is a direct
@@ -308,6 +352,9 @@ function NewChatForm() {
         params: {
           conversationId,
           title: isGroup ? (title ?? fallbackTitle) : selected[0].displayName,
+          // Without the type a fresh group renders as a direct
+          // chat until its first page lands
+          type: isGroup ? 'group' : 'direct',
         },
       });
     } catch {
@@ -318,12 +365,14 @@ function NewChatForm() {
 
 
   return (
-    <Screen edges={['bottom']}>
-      <KeyboardAvoidingView
-        className="flex-1"
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={headerHeight}
-      >
+    <KeyboardAvoidingView
+      className="flex-1 bg-canvas"
+      // Screen ROOT on purpose (see the banner). iOS pads by the
+      // bare keyboard height with no header offset — a root-level
+      // frame reaches the window bottom (measured on chat-room).
+      // Android is inert: the window's own adjustResize lifts
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
 
         {/* Search + selection + results — the results list
             takes whatever height the keyboard leaves */}
@@ -347,34 +396,66 @@ function NewChatForm() {
               <ActivityIndicator size="small" color={colors.brand} />
             </View>
           ) : (
-            <FlatList
-              className="flex-1"
-              data={results}
-              keyExtractor={(user) => user.id}
-              renderItem={({ item }) => (
-                <UserRow
-                  user={item}
-                  selected={selected.some((u) => u.id === item.id)}
-                  onToggle={() => toggleUser(item)}
-                />
+            <View className="flex-1">
+
+              {/* A failed refresh keeps the stale results visible
+                  but says so, with a retry that re-runs the query */}
+              {failed && (
+                <Pressable
+                  onPress={() => setRetryNonce((n) => n + 1)}
+                  accessibilityRole="button"
+                  accessible
+                  accessibilityLiveRegion="polite"
+                  accessibilityLabel={`${t('common.searchError')}. ${t('common.tryAgain')}`}
+                  className="flex-row items-center justify-center py-sm"
+                >
+                  <Text className="font-raleway text-sm text-danger">{t('common.searchError')}</Text>
+                  <Text className="ml-sm font-raleway-medium text-sm text-brand">{t('common.tryAgain')}</Text>
+                </Pressable>
               )}
-              ItemSeparatorComponent={() => <View className="h-px bg-line" />}
-              keyboardShouldPersistTaps="handled"
-              ListEmptyComponent={
-                query.trim() && !searching ? (
-                  <Text className="py-md text-center font-raleway text-sm text-ink-soft">
-                    {t('newChat.noResults')}
-                  </Text>
-                ) : null
-              }
-            />
+
+              {/* Refreshing over stale results: dim them and spin
+                  so the wait is never mistaken for fresh data */}
+              {searching && (
+                <View style={{ position: 'absolute', right: 8, top: 8, zIndex: 10 }}>
+                  <ActivityIndicator size="small" color={colors.brand} />
+                </View>
+              )}
+
+              <FlatList
+                className="flex-1"
+                style={{ opacity: searching ? 0.6 : 1 }}
+                data={results}
+                keyExtractor={(user) => user.id}
+                renderItem={renderItem}
+                ItemSeparatorComponent={Separator}
+                keyboardShouldPersistTaps="handled"
+                ListEmptyComponent={
+                  query.trim() && !searching && !failed ? (
+                    <Text
+                      accessible
+                      accessibilityLiveRegion="polite"
+                      className="py-md text-center font-raleway text-sm text-ink-soft"
+                    >
+                      {t('newChat.noResults')}
+                    </Text>
+                  ) : null
+                }
+              />
+
+            </View>
           )}
 
         </View>
 
         {/* Name, direct/group indicator and the create button —
-            pinned to the bottom, lifted by the keyboard */}
-        <View className="border-t border-line bg-surface px-md pb-md pt-md">
+            pinned to the bottom, lifted by the keyboard. The
+            home-indicator inset pads it only while the keyboard
+            is down; up, it sits flush on the keys */}
+        <View
+          className="border-t border-line bg-surface px-md pt-md"
+          style={{ paddingBottom: keyboardUp ? 12 : insets.bottom + 12 }}
+        >
 
           <Input
             label={t('newChat.groupName')}
@@ -406,8 +487,7 @@ function NewChatForm() {
 
         </View>
 
-      </KeyboardAvoidingView>
-    </Screen>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -440,6 +520,9 @@ export default function NewChat() {
       icon="chatbubbles-outline"
       message={t('messages.loginRequired')}
       hint={t('messages.loginHint')}
+      // This pushed route already gets StackHeader from the stack
+      // layout — the overlay must not stack a second burgundy bar
+      showHeader={false}
     >
       <NewChatForm />
     </LoginRequiredOverlay>

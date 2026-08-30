@@ -1,14 +1,16 @@
 // -----------------------------------------------------------
 //  [*] Tabs — Schedule
 //
-//  The faculty timetable, one weekday at a time: a Mon–Fri
-//  tab bar plus header chevrons that cycle through weekdays
-//  only (the API numbers days 0=Monday…6=Sunday, but weekend
-//  days are never offered — a weekend visitor lands on
-//  Monday). The group/semester filter persists across
-//  launches and is re-validated against the server's filter
-//  lists, so a group removed server-side can't strand the
-//  screen on an eternally empty week.
+//  The faculty timetable, one day at a time: a quick tab bar
+//  (Mon–Fri, growing to the full week once a weekend day is
+//  in view) plus header chevrons that cycle all seven days —
+//  the API numbers days 0=Monday…6=Sunday and weekend lessons
+//  exist, so they must be reachable. The screen opens on
+//  today and re-follows the calendar on focus/foreground. The
+//  group/semester filter persists across launches and is
+//  re-validated against the server's non-empty filter lists;
+//  with no stored choice the newest parsable semester is
+//  defaulted so stale semesters never interleave into one day.
 //
 //  Every load is sequence-guarded — rapid day tapping fires
 //  overlapping requests and only the newest may write. A
@@ -24,6 +26,8 @@
 //  Split into (root component last):
 //
 //    jsDayToApi     — JS Date.getDay() → 0=Monday API days
+//    newestSemester — pick the newest 'YYYY-P/R' label
+//    Separator      — hoisted lesson-list separator
 //    DayStepper     — header chevrons + current day label
 //    DayTabs        — the Mon–Fri quick tab bar
 //    FilterBar      — active-filter summary, opens the modal
@@ -49,24 +53,31 @@ import { useScheduleConflicts } from '@/hooks/useScheduleConflicts';
 
 // Timetable API + the offline cache it falls back to
 import { fetchSchedule, fetchScheduleFilters, type ScheduleLesson, type ScheduleResponse } from '@/services/api';
-import { cacheGet, cacheKeySchedule, cacheSet, SCHEDULE_CACHE_MAX_AGE } from '@/services/cache';
+import { cacheGet, cacheKeySchedule, cacheSet, cacheSweepPrefix, SCHEDULE_CACHE_MAX_AGE } from '@/services/cache';
+
+// Failed silent refreshes toast instead of touching the list
+import { showToast } from '@/context/NetworkContext';
 
 // Filter choice persistence across launches
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Rendering
 import { Ionicons } from '@expo/vector-icons';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
+import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FlatList, Modal, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { AppState, FlatList, Modal, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 
 
-// AsyncStorage key for the persisted group/semester choice
-const SCHEDULE_PREFS_KEY = 'schedule_prefs';
+// AsyncStorage key for the persisted group/semester choice —
+// exported so AuthContext can drop it on logout
+export const SCHEDULE_PREFS_KEY = 'schedule_prefs';
 
-// The tab bar shows weekdays only; internal day numbers stay
-// the API's full 0–6 range
+// The quick tab bar defaults to weekdays and grows to the full
+// week once a weekend day is in view; day numbers stay the
+// API's 0=Monday…6=Sunday range throughout
 const WEEKDAYS = [0, 1, 2, 3, 4];
+const FULL_WEEK = [0, 1, 2, 3, 4, 5, 6];
 
 // i18n key suffixes per API day — short forms feed the tab
 // bar, full forms the header label and a11y announcements
@@ -83,14 +94,43 @@ const CARD_SHADOW = {
   elevation: 2,
 } as const;
 
-// Shape persisted under SCHEDULE_PREFS_KEY
+// Shape persisted under SCHEDULE_PREFS_KEY. semesterExplicit
+// records that the user picked a semester (or "all") THEMSELVES
+// — without it the newest semester is defaulted on launch
 interface SchedulePrefs {
   group: string | null;
   semester: string | null;
+  semesterExplicit?: boolean;
 }
 
 // JS Date.getDay() counts 0=Sunday; the API counts 0=Monday
 const jsDayToApi = (jsDay: number): number => (jsDay === 0 ? 6 : jsDay - 1);
+
+
+// Semester labels follow 'YYYY-P' (pavasaris) / 'YYYY-R'
+// (ruduo): the newest is the highest year, autumn over spring
+// within it. The backend's list order can't be trusted (BINARY-
+// collation DESC misorders it) and unparsable labels like
+// '2025-pavasaris' never win; null when nothing parses.
+const newestSemester = (labels: string[]): string | null => {
+  let best: string | null = null;
+  let bestRank = -1;
+  for (const label of labels) {
+    const match = /^(\d{4})-([PR])$/.exec(label.trim());
+    if (!match) continue;
+    const rank = Number(match[1]) * 2 + (match[2] === 'R' ? 1 : 0);
+    if (rank > bestRank) {
+      bestRank = rank;
+      best = label;
+    }
+  }
+  return best;
+};
+
+
+// Hoisted so the lesson list's separators keep their identity
+// instead of remounting on every screen render
+const Separator = () => <View className="h-3" />;
 
 
 
@@ -103,8 +143,11 @@ const jsDayToApi = (jsDay: number): number => (jsDay === 0 ? 6 : jsDay - 1);
 // -----------------------------------------------------------
 //
 // The header-right day switcher: back/forward chevrons around
-// the full weekday name. The chevron hit areas are 32×44 plus
-// hitSlop, clearing the 44pt target on both axes.
+// the SHORT weekday name — the long Lithuanian full names
+// ("Ketvirtadienis") truncate next to the screen title, so
+// the full name rides on the accessibility label instead. The
+// chevron hit areas are 32×44 plus hitSlop, clearing the 44pt
+// target on both axes.
 //
 // Used by:
 //   - ScheduleScreen (below) — Header right slot
@@ -112,10 +155,12 @@ const jsDayToApi = (jsDay: number): number => (jsDay === 0 ? 6 : jsDay - 1);
 
 function DayStepper({
   label,
+  fullLabel,
   onPrev,
   onNext,
 }: {
   label: string;
+  fullLabel: string;
   onPrev: () => void;
   onNext: () => void;
 }) {
@@ -138,7 +183,12 @@ function DayStepper({
         <Ionicons name="chevron-back" size={20} color={colors.onBrand} />
       </Pressable>
 
-      <Text className="mx-1 font-raleway-bold text-base text-on-brand" numberOfLines={1}>
+      <Text
+        className="mx-1 font-raleway-bold text-base text-on-brand"
+        numberOfLines={1}
+        style={{ flexShrink: 1 }}
+        accessibilityLabel={fullLabel}
+      >
         {label}
       </Text>
 
@@ -167,18 +217,22 @@ function DayStepper({
 // DayTabs
 // -----------------------------------------------------------
 //
-// The Mon–Fri quick tab bar under the filter bar. Tabs are
-// announced by their full day name while showing the short
-// form; the active tab carries a brand underline.
+// The quick tab bar under the filter bar — Mon–Fri by default,
+// the full week when the caller passes it (a weekend day in
+// view). Tabs are announced by their full day name while
+// showing the short form; the active tab carries a brand
+// underline (the label uses the AA-safe brand-text tone).
 //
 // Used by:
 //   - ScheduleScreen (below)
 // -----------------------------------------------------------
 
 function DayTabs({
+  days,
   selectedDay,
   onSelect,
 }: {
+  days: number[];
   selectedDay: number;
   onSelect: (day: number) => void;
 }) {
@@ -188,7 +242,7 @@ function DayTabs({
 
   return (
     <View className="flex-row border-b border-line bg-surface">
-      {WEEKDAYS.map((day) => {
+      {days.map((day) => {
         const active = selectedDay === day;
         return (
           <Pressable
@@ -201,7 +255,7 @@ function DayTabs({
             style={({ pressed }) => [pressed && { opacity: 0.7 }]}
           >
             <View className={`items-center border-b-2 py-3 ${active ? 'border-brand' : 'border-transparent'}`}>
-              <Text className={`text-sm ${active ? 'font-raleway-bold text-brand' : 'font-raleway-medium text-ink-soft'}`}>
+              <Text className={`text-sm ${active ? 'font-raleway-bold text-brand-text' : 'font-raleway-medium text-ink-soft'}`}>
                 {t(`schedule.${DAY_SHORT_KEYS[day]}`)}
               </Text>
             </View>
@@ -301,8 +355,11 @@ function ConflictBanner({ count }: { count: number }) {
 
 
   return (
+    // accessible + a polite live region — role='alert' alone is
+    // a no-op announcement-wise on RN
     <View
-      accessibilityRole="alert"
+      accessible
+      accessibilityLiveRegion="polite"
       className="mx-md mt-3 flex-row items-center rounded-xl border border-danger bg-danger-soft px-3.5 py-2.5"
     >
       <Ionicons name="alert-circle" size={16} color={colors.danger} />
@@ -329,12 +386,14 @@ function ConflictBanner({ count }: { count: number }) {
 // "overlap" chip. Times render raw — timeStart/timeEnd are
 // wall-clock "HH:MM" strings from the schedule API, not the
 // UTC-broken preformatted timestamps other endpoints carry.
+// Memoized: with a stable renderItem only the cards whose
+// props changed re-render.
 //
 // Used by:
 //   - ScheduleScreen (below) — FlatList renderItem
 // -----------------------------------------------------------
 
-function LessonCard({ lesson, conflict }: { lesson: ScheduleLesson; conflict: boolean }) {
+const LessonCard = memo(function LessonCard({ lesson, conflict }: { lesson: ScheduleLesson; conflict: boolean }) {
 
   const { t } = useTranslation();
   const { colors } = useTheme();
@@ -398,7 +457,7 @@ function LessonCard({ lesson, conflict }: { lesson: ScheduleLesson; conflict: bo
       </View>
     </View>
   );
-}
+});
 
 
 
@@ -452,12 +511,14 @@ function FilterOption({
 // FilterModal
 // -----------------------------------------------------------
 //
-// Bottom-sheet picker for group and semester. Selection
-// applies immediately; "Taikyti" only closes the sheet and
-// "Valyti" clears both filters without closing. Groups are
-// the unbounded list (dozens at faculty scale) so they get
-// the virtualized FlatList; the bounded handful of semesters
-// rides in its footer.
+// Bottom-sheet picker for group and semester. Taps edit a
+// LOCAL draft and "Taikyti" lifts it to the screen — one
+// schedule fetch per visit instead of one behind the sheet
+// for every candidate tapped; "Valyti" clears the draft
+// without closing, and a scrim/back dismissal discards an
+// unapplied draft. Groups are the unbounded list (dozens at
+// faculty scale) so they get the virtualized FlatList; the
+// bounded handful of semesters rides in its footer.
 //
 // Used by:
 //   - ScheduleScreen (below)
@@ -484,6 +545,29 @@ function FilterModal({
 }) {
 
   const { t } = useTranslation();
+
+
+  // The draft of the choice while the sheet is open — re-seeded
+  // from the applied values on every open, so a dismissal
+  // without "Taikyti" leaves the screen's filters untouched
+  const [draftGroup, setDraftGroup] = useState<string | null>(selectedGroup);
+  const [draftSemester, setDraftSemester] = useState<string | null>(selectedSemester);
+  useEffect(() => {
+    if (visible) {
+      setDraftGroup(selectedGroup);
+      setDraftSemester(selectedSemester);
+    }
+  }, [visible, selectedGroup, selectedSemester]);
+
+
+  // Only CHANGED values lift on apply — calling the semester
+  // callback for an untouched draft would wrongly mark the
+  // defaulted semester as the user's explicit choice
+  const apply = () => {
+    if (draftGroup !== selectedGroup) onSelectGroup(draftGroup);
+    if (draftSemester !== selectedSemester) onSelectSemester(draftSemester);
+    onClose();
+  };
 
 
   return (
@@ -518,16 +602,16 @@ function FilterModal({
                 </Text>
                 <FilterOption
                   label={t('schedule.allGroups')}
-                  selected={selectedGroup === null}
-                  onPress={() => onSelectGroup(null)}
+                  selected={draftGroup === null}
+                  onPress={() => setDraftGroup(null)}
                 />
               </>
             }
             renderItem={({ item }) => (
               <FilterOption
                 label={item}
-                selected={selectedGroup === item}
-                onPress={() => onSelectGroup(item)}
+                selected={draftGroup === item}
+                onPress={() => setDraftGroup(item)}
               />
             )}
             ListFooterComponent={
@@ -537,15 +621,15 @@ function FilterModal({
                 </Text>
                 <FilterOption
                   label={t('schedule.allSemesters')}
-                  selected={selectedSemester === null}
-                  onPress={() => onSelectSemester(null)}
+                  selected={draftSemester === null}
+                  onPress={() => setDraftSemester(null)}
                 />
                 {semesters.map((semester) => (
                   <FilterOption
                     key={semester}
                     label={semester}
-                    selected={selectedSemester === semester}
-                    onPress={() => onSelectSemester(semester)}
+                    selected={draftSemester === semester}
+                    onPress={() => setDraftSemester(semester)}
                   />
                 ))}
               </>
@@ -558,13 +642,13 @@ function FilterModal({
                 title={t('schedule.clearFilters')}
                 variant="outline"
                 onPress={() => {
-                  onSelectGroup(null);
-                  onSelectSemester(null);
+                  setDraftGroup(null);
+                  setDraftSemester(null);
                 }}
               />
             </View>
             <View className="flex-1">
-              <Button title={t('schedule.applyFilters')} onPress={onClose} />
+              <Button title={t('schedule.applyFilters')} onPress={apply} />
             </View>
           </View>
 
@@ -595,12 +679,9 @@ export default function ScheduleScreen() {
   const { colors } = useTheme();
 
 
-  // Opens on today's tab; weekend visitors get Monday — the
-  // tab bar is Mon–Fri and the coming week is what they plan
-  const [selectedDay, setSelectedDay] = useState(() => {
-    const today = jsDayToApi(new Date().getDay());
-    return today > 4 ? 0 : today;
-  });
+  // Opens on today's tab — weekends included, now that the
+  // full week is reachable
+  const [selectedDay, setSelectedDay] = useState(() => jsDayToApi(new Date().getDay()));
 
 
   // Lesson list, its three data states, and the cache age
@@ -613,7 +694,8 @@ export default function ScheduleScreen() {
 
   // Server-provided filter options + the user's choice;
   // filtersFetched separates "lists arrived" from "fetch
-  // failed", so validation never runs against empty lists
+  // failed", and validation additionally trusts only NON-EMPTY
+  // lists, so an empty catalogue can't wipe a stored choice
   const [groups, setGroups] = useState<string[]>([]);
   const [semesters, setSemesters] = useState<string[]>([]);
   const [filtersFetched, setFiltersFetched] = useState(false);
@@ -621,6 +703,12 @@ export default function ScheduleScreen() {
   const [selectedSemester, setSelectedSemester] = useState<string | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [prefsLoaded, setPrefsLoaded] = useState(false);
+
+
+  // True once the user (or their restored prefs) chose a
+  // semester — including "all". Until then the newest parsable
+  // semester is defaulted so stale semesters stay out of view
+  const semesterExplicitRef = useRef(false);
 
 
   // Only the newest request may write — rapid day taps fire
@@ -654,6 +742,16 @@ export default function ScheduleScreen() {
         setError(false);
         void cacheSet(key, resp);
       } catch {
+        // A failed SILENT refresh keeps whatever is on screen
+        // and just toasts — swapping live lessons for stale
+        // cache (or an empty error state) mid-view is worse
+        // than admitting the refresh failed. Spinner loads
+        // (first load / day change) still fall back to cache
+        // before the error state.
+        if (!spinner) {
+          if (seq === loadSeqRef.current) showToast('error', t('schedule.loadError'));
+          return;
+        }
         const cached = await cacheGet<ScheduleResponse>(key, SCHEDULE_CACHE_MAX_AGE);
         if (seq !== loadSeqRef.current) return;
         if (cached) {
@@ -669,7 +767,7 @@ export default function ScheduleScreen() {
         if (seq === loadSeqRef.current) setLoading(false);
       }
     },
-    [],
+    [t],
   );
 
 
@@ -688,14 +786,26 @@ export default function ScheduleScreen() {
 
 
   // Restore the persisted filter choice before the first fetch
+  // — validating the shape instead of casting, so a corrupt or
+  // foreign blob reads as "no filter" rather than poisoning
+  // state with non-strings
   useEffect(() => {
     void (async () => {
       try {
         const raw = await AsyncStorage.getItem(SCHEDULE_PREFS_KEY);
         if (raw) {
-          const prefs = JSON.parse(raw) as SchedulePrefs;
-          if (prefs.group) setSelectedGroup(prefs.group);
-          if (prefs.semester) setSelectedSemester(prefs.semester);
+          const parsed: unknown = JSON.parse(raw);
+          if (parsed && typeof parsed === 'object') {
+            const prefs = parsed as Partial<SchedulePrefs>;
+            if (typeof prefs.group === 'string' && prefs.group) setSelectedGroup(prefs.group);
+            if (typeof prefs.semester === 'string' && prefs.semester) {
+              setSelectedSemester(prefs.semester);
+              semesterExplicitRef.current = true;
+            } else if (prefs.semesterExplicit === true) {
+              // A recorded, deliberate "all semesters"
+              semesterExplicitRef.current = true;
+            }
+          }
         }
       } catch {
         // corrupt prefs read as "no filter"
@@ -710,23 +820,57 @@ export default function ScheduleScreen() {
   }, [loadFilters]);
 
 
+  // Browsing groups writes one cache row per day/group/semester
+  // combination and most are never read again (cacheGet only
+  // evicts what it is asked for) — sweep the expired ones once
+  // per mount so the store cannot grow without bound
+  useEffect(() => {
+    void cacheSweepPrefix('schedule:', SCHEDULE_CACHE_MAX_AGE);
+  }, []);
+
+
   // Persist the choice — but never before the initial read, or
   // the mount defaults would wipe the stored prefs
   useEffect(() => {
     if (!prefsLoaded) return;
-    const prefs: SchedulePrefs = { group: selectedGroup, semester: selectedSemester };
+    const prefs: SchedulePrefs = {
+      group: selectedGroup,
+      semester: selectedSemester,
+      semesterExplicit: semesterExplicitRef.current,
+    };
     AsyncStorage.setItem(SCHEDULE_PREFS_KEY, JSON.stringify(prefs)).catch(() => {});
   }, [prefsLoaded, selectedGroup, selectedSemester]);
 
 
   // Persisted filters can outlive the server's lists (a group
-  // renamed or removed) — once real lists arrive, a stale
-  // choice is cleared instead of filtering every day to empty
+  // renamed or removed) — once real, NON-EMPTY lists arrive, a
+  // stale choice is cleared instead of filtering every day to
+  // empty; an empty catalogue (fresh deployment, mid-scrape)
+  // leaves the stored preference untouched
   useEffect(() => {
     if (!prefsLoaded || !filtersFetched) return;
-    if (selectedGroup !== null && !groups.includes(selectedGroup)) setSelectedGroup(null);
-    if (selectedSemester !== null && !semesters.includes(selectedSemester)) setSelectedSemester(null);
+    if (groups.length > 0 && selectedGroup !== null && !groups.includes(selectedGroup)) {
+      setSelectedGroup(null);
+    }
+    if (semesters.length > 0 && selectedSemester !== null && !semesters.includes(selectedSemester)) {
+      // Clearing a stale semester also clears the explicit
+      // mark, so the newest-semester default below re-applies
+      semesterExplicitRef.current = false;
+      setSelectedSemester(null);
+    }
   }, [prefsLoaded, filtersFetched, groups, semesters, selectedGroup, selectedSemester]);
+
+
+  // No stored semester choice: default to the newest label the
+  // 'YYYY-P/R' shape parses to, so lectures from stale
+  // semesters never interleave into one day. "All semesters"
+  // stays an explicit opt-in through the filter modal.
+  useEffect(() => {
+    if (!prefsLoaded || !filtersFetched) return;
+    if (semesterExplicitRef.current || selectedSemester !== null) return;
+    const newest = newestSemester(semesters);
+    if (newest) setSelectedSemester(newest);
+  }, [prefsLoaded, filtersFetched, semesters, selectedSemester]);
 
 
   // (Re)load whenever the visible day or the filters change —
@@ -747,10 +891,41 @@ export default function ScheduleScreen() {
   });
 
 
-  // Chevrons cycle Mon–Fri only, skipping the weekend; the +5
-  // keeps the modulo positive when stepping back from Monday
+  // Chevrons cycle the FULL week — weekend lessons exist and
+  // must be reachable; the +7 keeps the modulo positive when
+  // stepping back from Monday
   const changeDay = (delta: number) => {
-    setSelectedDay((prev) => (prev + delta + 5) % 5);
+    setSelectedDay((prev) => (prev + delta + 7) % 7);
+  };
+
+
+  // The mount-time "today" must not fossilize: on focus and on
+  // foreground the calendar date is re-checked, and once it
+  // rolled over the selection follows today again (the load
+  // effect refetches on the day change)
+  const dayMarkerRef = useRef(new Date().toDateString());
+  const evaluateToday = useCallback(() => {
+    const marker = new Date().toDateString();
+    if (marker === dayMarkerRef.current) return;
+    dayMarkerRef.current = marker;
+    setSelectedDay(jsDayToApi(new Date().getDay()));
+  }, []);
+
+  useFocusEffect(evaluateToday);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') evaluateToday();
+    });
+    return () => sub.remove();
+  }, [evaluateToday]);
+
+
+  // Any choice made in the modal — a semester or "all" — is
+  // the user's own and must survive as such
+  const handleSelectSemester = (semester: string | null) => {
+    semesterExplicitRef.current = true;
+    setSelectedSemester(semester);
   };
 
 
@@ -776,6 +951,21 @@ export default function ScheduleScreen() {
     .join(' · ');
 
 
+  // Stable renderItem so the memoized cards only re-render
+  // when their own lesson or conflict flag changes
+  const renderLesson = useCallback(
+    ({ item }: { item: ScheduleLesson }) => (
+      <LessonCard lesson={item} conflict={conflictIds.has(item.id)} />
+    ),
+    [conflictIds],
+  );
+
+
+  // The quick tabs grow to the full week while a weekend day
+  // is in view, so the active tab is never missing
+  const visibleDays = selectedDay > 4 ? FULL_WEEK : WEEKDAYS;
+
+
   // One definition serves all three scrollable branches — the
   // list, the empty day and the error all pull-to-refresh
   const refreshControl = (
@@ -795,7 +985,8 @@ export default function ScheduleScreen() {
         title={t('schedule.title')}
         right={
           <DayStepper
-            label={t(`schedule.${DAY_FULL_KEYS[selectedDay]}`)}
+            label={t(`schedule.${DAY_SHORT_KEYS[selectedDay]}`)}
+            fullLabel={t(`schedule.${DAY_FULL_KEYS[selectedDay]}`)}
             onPrev={() => changeDay(-1)}
             onNext={() => changeDay(1)}
           />
@@ -808,7 +999,7 @@ export default function ScheduleScreen() {
         onPress={() => setModalVisible(true)}
       />
 
-      <DayTabs selectedDay={selectedDay} onSelect={setSelectedDay} />
+      <DayTabs days={visibleDays} selectedDay={selectedDay} onSelect={setSelectedDay} />
 
       {cachedAt !== null && <CachedBanner cachedAt={cachedAt} />}
       {!loading && conflictIds.size > 0 && <ConflictBanner count={conflictIds.size} />}
@@ -837,10 +1028,8 @@ export default function ScheduleScreen() {
           keyExtractor={(item) => item.id}
           contentContainerStyle={{ padding: 16, paddingBottom: 24 }}
           refreshControl={refreshControl}
-          ItemSeparatorComponent={() => <View className="h-3" />}
-          renderItem={({ item }) => (
-            <LessonCard lesson={item} conflict={conflictIds.has(item.id)} />
-          )}
+          ItemSeparatorComponent={Separator}
+          renderItem={renderLesson}
         />
       )}
 
@@ -851,7 +1040,7 @@ export default function ScheduleScreen() {
         selectedGroup={selectedGroup}
         selectedSemester={selectedSemester}
         onSelectGroup={setSelectedGroup}
-        onSelectSemester={setSelectedSemester}
+        onSelectSemester={handleSelectSemester}
         onClose={() => setModalVisible(false)}
       />
 

@@ -43,13 +43,13 @@ import { fonts } from '@/constants/theme';
 import { useTheme } from '@/hooks/useTheme';
 import { getUploadUrl } from '@/services/api';
 import { formatTime } from '@/services/format';
-import { useKitLabels } from './labels';
+import type { KitLabels } from './labels';
 
 // Rendering + gestures
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { Image as ExpoImage } from 'expo-image';
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Platform,
@@ -74,7 +74,7 @@ import Animated, {
 
 // Kit pieces
 import KitAvatar from './KitAvatar';
-import { linkify } from './linkify';
+import { linkify, type TextSegment } from './linkify';
 import {
   AVATAR_COLUMN,
   AVATAR_SIZE,
@@ -99,6 +99,10 @@ const isWeb = Platform.OS === 'web';
 const SWIPE_MAX = 72;
 const SWIPE_TRIGGER = 52;
 const SWIPE_SPRING = { damping: 22, stiffness: 260, mass: 0.8, overshootClamping: true };
+
+// What the 'React' accessibility action applies — the same
+// thumbs-up the composer's quick-like sends
+const DEFAULT_REACTION_EMOJI = '👍';
 
 const haptic = (kind: 'light' | 'medium' | 'select') => {
   if (isWeb) return;
@@ -152,16 +156,19 @@ export function bubbleRadii(position: GroupPosition, own: boolean): ViewStyle {
 function ReplyQuote({
   reply,
   own,
+  labels,
   onPress,
   onLongPress,
 }: {
   reply: KitReply;
   own: boolean;
+  // Resolved once per row and threaded down — a hook call in
+  // every leaf would subscribe each one to i18next
+  labels: KitLabels;
   onPress?: () => void;
   onLongPress?: () => void;
 }) {
 
-  const labels = useKitLabels();
   const { colors } = useTheme();
 
 
@@ -196,12 +203,13 @@ function ReplyQuote({
           {reply.senderName}
         </Text>
         <Text
+          // Full-strength white: at 0.9 the snippet dropped under
+          // AA contrast on the dark own-bubble wash
           style={{
             fontFamily: fonts.regular,
             fontSize: 13,
             lineHeight: 17,
             color: textColor,
-            opacity: own ? 0.9 : 1,
             fontStyle: reply.deleted ? 'italic' : 'normal',
           }}
           numberOfLines={1}
@@ -224,6 +232,9 @@ function ReplyQuote({
 // -----------------------------------------------------------
 //
 // Body text with URLs rendered as underlined, tappable runs.
+// MessageBubble hands down the segments it already computed for
+// the accessibility link actions; the context menu's floating
+// copy has none and linkifies here instead.
 //
 // Used by:
 //   - BubbleBody (below)
@@ -233,16 +244,20 @@ function MessageText({
   text,
   color,
   linkColor,
+  labels,
+  segments: segmentsProp,
   onPressLink,
 }: {
   text: string;
   color: string;
   linkColor: string;
+  labels: KitLabels;
+  segments?: TextSegment[];
   onPressLink?: (href: string) => void;
 }) {
 
-  const labels = useKitLabels();
-  const segments = useMemo(() => linkify(text), [text]);
+  const computed = useMemo(() => (segmentsProp ? null : linkify(text)), [segmentsProp, text]);
+  const segments = segmentsProp ?? computed ?? [];
 
 
   return (
@@ -288,30 +303,50 @@ function MessageText({
 export function BubbleBody({
   message,
   position,
+  labels,
+  segments,
+  initialImageRatio,
   onPressQuote,
   onPressImage,
   onPressLink,
   onLongPress,
+  onImageRatio,
 }: {
   message: KitMessage;
   position: GroupPosition;
+  // Resolved once by the owner (MessageBubble, the context menu)
+  labels: KitLabels;
+  // The link segments MessageBubble already computed (the
+  // floating copy omits them and linkifies on its own)
+  segments?: TextSegment[];
+  // The context menu's floating copy starts from the ratio the
+  // real bubble measured, so a photo never re-guesses at 4:3
+  initialImageRatio?: number;
   onPressQuote?: () => void;
   onPressImage?: () => void;
   onPressLink?: (href: string) => void;
   // Inner pressables (quote, photo) hand a long-press back up so
   // the menu opens wherever the finger lands
   onLongPress?: () => void;
+  // Reports the measured photo ratio up, into the context target
+  onImageRatio?: (ratio: number) => void;
 }) {
 
-  const labels = useKitLabels();
   const { colors } = useTheme();
 
 
   // The loaded asset's ratio drives the photo size; a 4:3 guess
   // avoids a layout jump for the common case
-  const [imageRatio, setImageRatio] = useState(4 / 3);
+  const [imageRatio, setImageRatio] = useState(initialImageRatio ?? 4 / 3);
   const imageWidth = Math.min(IMAGE_MAX_WIDTH, IMAGE_MAX_HEIGHT * imageRatio);
   const imageHeight = imageWidth / imageRatio;
+
+  // A photo that cannot load renders a labelled placeholder in
+  // its place — never a blank hole in the run (the Avatar rule);
+  // a changed uri (local preview → uploaded path) gets a fresh try
+  const [imageFailed, setImageFailed] = useState(false);
+  const photoUri = message.localImageUri ?? getUploadUrl(message.imageUrl ?? '') ?? undefined;
+  useEffect(() => setImageFailed(false), [photoUri]);
 
 
   const own = message.isOwn;
@@ -358,38 +393,57 @@ export function BubbleBody({
     <View style={style}>
       {message.replyTo ? (
         <View style={photo ? { paddingHorizontal: BUBBLE_PADDING_H, paddingTop: BUBBLE_PADDING_V } : undefined}>
-          <ReplyQuote reply={message.replyTo} own={brandBubble} onPress={onPressQuote} onLongPress={onLongPress} />
+          <ReplyQuote reply={message.replyTo} own={brandBubble} labels={labels} onPress={onPressQuote} onLongPress={onLongPress} />
         </View>
       ) : null}
 
       {photo ? (
         <Pressable
-          // The viewer has no entry until the upload finished
-          onPress={message.imageUrl ? onPressImage : undefined}
+          // The viewer has no entry until the upload finished — an
+          // unsent or failed photo is disabled so its taps and
+          // long-presses fall through to the bubble's own handlers
+          onPress={onPressImage}
           onLongPress={onLongPress}
           delayLongPress={260}
-          disabled={(!onPressImage || !message.imageUrl) && !onLongPress}
+          disabled={!message.imageUrl}
           accessible={!!onPressImage && !!message.imageUrl}
           accessibilityLabel={labels.photo}
         >
-          <ExpoImage
-            source={{ uri: message.localImageUri ?? getUploadUrl(message.imageUrl ?? '') }}
-            style={{ width: imageWidth, height: imageHeight }}
-            contentFit="cover"
-            transition={120}
-            onLoad={(e) => {
-              const { width, height } = e.source;
-              if (width > 0 && height > 0) setImageRatio(width / height);
-            }}
-          />
+          {imageFailed ? (
+            <View
+              style={{ width: imageWidth, height: imageHeight, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceSoft }}
+              accessible
+              accessibilityLabel={labels.imageUnavailable}
+            >
+              <Ionicons name="image-outline" size={28} color={colors.inkSoft} />
+              <Text style={{ marginTop: 4, fontFamily: fonts.regular, fontSize: 12, lineHeight: 15, color: colors.inkSoft }}>
+                {labels.imageUnavailable}
+              </Text>
+            </View>
+          ) : (
+            <ExpoImage
+              source={{ uri: photoUri }}
+              style={{ width: imageWidth, height: imageHeight }}
+              contentFit="cover"
+              transition={120}
+              onLoad={(e) => {
+                const { width, height } = e.source;
+                if (width > 0 && height > 0) {
+                  setImageRatio(width / height);
+                  onImageRatio?.(width / height);
+                }
+              }}
+              onError={() => setImageFailed(true)}
+            />
+          )}
           {message.text ? (
             <View style={{ paddingHorizontal: BUBBLE_PADDING_H, paddingTop: 6, paddingBottom: BUBBLE_PADDING_V }}>
-              <MessageText text={message.text} color={brandBubble ? colors.onBrand : colors.ink} linkColor={brandBubble ? colors.onBrand : colors.brand} onPressLink={onPressLink} />
+              <MessageText text={message.text} color={brandBubble ? colors.onBrand : colors.ink} linkColor={brandBubble ? colors.onBrand : colors.brandText} labels={labels} segments={segments} onPressLink={onPressLink} />
             </View>
           ) : null}
         </Pressable>
       ) : (
-        <MessageText text={message.text} color={brandBubble ? colors.onBrand : colors.ink} linkColor={brandBubble ? colors.onBrand : colors.brand} onPressLink={onPressLink} />
+        <MessageText text={message.text} color={brandBubble ? colors.onBrand : colors.ink} linkColor={brandBubble ? colors.onBrand : colors.brandText} labels={labels} segments={segments} onPressLink={onPressLink} />
       )}
     </View>
   );
@@ -415,17 +469,21 @@ export function BubbleBody({
 
 function ReceiptLine({
   message,
+  timeText,
+  labels,
   showStatus,
   showTime,
   onRetry,
 }: {
   message: KitMessage;
+  // Formatted once by MessageBubble and shared with its a11y label
+  timeText: string;
+  labels: KitLabels;
   showStatus: boolean;
   showTime: boolean;
   onRetry: () => void;
 }) {
 
-  const labels = useKitLabels();
   const { colors } = useTheme();
 
 
@@ -433,7 +491,8 @@ function ReceiptLine({
     return (
       <Pressable
         onPress={onRetry}
-        hitSlop={8}
+        // The row is ~16pt tall — the slop takes the target to 44
+        hitSlop={{ top: 14, bottom: 14, left: 8, right: 8 }}
         accessibilityRole="button"
         accessibilityLabel={`${labels.notSent}. ${labels.tryAgain}`}
         style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-end', marginTop: 3 }}
@@ -455,12 +514,14 @@ function ReceiptLine({
     : message.status === 'read' ? labels.read
     : message.status === 'delivered' ? labels.delivered
     : labels.sent;
-  const parts = [...(showTime ? [formatTime(message.createdAt)] : []), ...(showStatus ? [status] : [])];
+  const parts = [...(showTime ? [timeText] : []), ...(showStatus ? [status] : [])];
 
 
   return (
     <Animated.View
-      entering={FadeInDown.duration(140)}
+      // The inverted native cell mirrors Y, so 'Down' rises there;
+      // the upright web list rises with 'Up'
+      entering={isWeb ? FadeInUp.duration(140) : FadeInDown.duration(140)}
       style={{ flexDirection: 'row', alignItems: 'center', marginTop: 3, marginHorizontal: 4 }}
     >
       {showStatus && message.status === 'sending' ? (
@@ -506,6 +567,7 @@ function MessageBubbleInner({
   hidden,
   canAct,
   canReply,
+  labels,
   onPress,
   onLongPress,
   onSwipeReply,
@@ -514,6 +576,8 @@ function MessageBubbleInner({
   onPressReactions,
   onRetry,
   onPressLink,
+  onCopy,
+  onReact,
 }: {
   message: KitMessage;
   position: GroupPosition;
@@ -532,6 +596,9 @@ function MessageBubbleInner({
   // the swipe and the reply accessibility action
   canAct: boolean;
   canReply: boolean;
+  // Resolved once by MessageList and threaded down, so a window
+  // of rows does not carry a hook subscription per leaf
+  labels: KitLabels;
   onPress: (message: KitMessage) => void;
   onLongPress: (target: ContextTarget) => void;
   onSwipeReply: (message: KitMessage) => void;
@@ -540,9 +607,12 @@ function MessageBubbleInner({
   onPressReactions: (message: KitMessage) => void;
   onRetry: (message: KitMessage) => void;
   onPressLink: (href: string) => void;
+  // Direct handlers for the Copy / React accessibility actions —
+  // without them those actions fall back to opening the menu
+  onCopy?: (message: KitMessage) => void;
+  onReact?: (message: KitMessage, emoji: string) => void;
 }) {
 
-  const labels = useKitLabels();
   const { colors } = useTheme();
 
 
@@ -553,15 +623,21 @@ function MessageBubbleInner({
 
 
   // Long-press measures the bubble so the context menu can float
-  // a copy exactly where this one sits
+  // a copy exactly where this one sits. The photo ratio the body
+  // measured rides along — the copy must not restart from the
+  // 4:3 guess inside a frame sized for the real ratio
   const bodyRef = useRef<View>(null);
+  const imageRatioRef = useRef<number | undefined>(undefined);
+  const reportImageRatio = useCallback((ratio: number) => {
+    imageRatioRef.current = ratio;
+  }, []);
   const actionable = canAct && !deleted;
   const swipeable = canReply && !deleted;
   const longPress = () => {
     if (!actionable) return;
     haptic('medium');
     bodyRef.current?.measureInWindow((x, y, width, height) => {
-      onLongPress({ message, position, frame: { x, y, width, height } });
+      onLongPress({ message, position, frame: { x, y, width, height }, imageRatio: imageRatioRef.current });
     });
   };
 
@@ -569,11 +645,18 @@ function MessageBubbleInner({
   // Swipe-to-reply: the bubble follows the finger with
   // resistance and a reply glyph grows behind it. Crossing the
   // threshold arms it (one haptic); the reply fires on release
-  // only if the finger is still past the threshold, so pulling
-  // back cancels
+  // only when the gesture SUCCEEDS still past the threshold —
+  // a cancelled gesture (navigation, scroll takeover) must not
+  // reply. The message rides in a ref read on the JS side so a
+  // replaced message object never rebuilds the gesture
   const dragX = useSharedValue(0);
   const armed = useSharedValue(false);
   const direction = own ? -1 : 1;
+  const messageRef = useRef(message);
+  useEffect(() => {
+    messageRef.current = message;
+  });
+  const fireSwipeReply = useCallback(() => onSwipeReply(messageRef.current), [onSwipeReply]);
   const pan = useMemo(
     () =>
       Gesture.Pan()
@@ -588,14 +671,14 @@ function MessageBubbleInner({
           if (past && !armed.value) runOnJS(haptic)('light');
           armed.value = past;
         })
-        .onEnd(() => {
-          if (Math.abs(dragX.value) >= SWIPE_TRIGGER) runOnJS(onSwipeReply)(message);
+        .onEnd((_e, success) => {
+          if (success && Math.abs(dragX.value) >= SWIPE_TRIGGER) runOnJS(fireSwipeReply)();
         })
         .onFinalize(() => {
           armed.value = false;
           dragX.value = withSpring(0, SWIPE_SPRING);
         }),
-    [swipeable, own, direction, message, onSwipeReply, dragX, armed],
+    [swipeable, own, direction, fireSwipeReply, dragX, armed],
   );
 
   const dragStyle = useAnimatedStyle(() => ({ transform: [{ translateX: dragX.value }] }));
@@ -630,10 +713,15 @@ function MessageBubbleInner({
     : message.status === 'read' ? labels.read
     : message.status === 'delivered' ? labels.delivered
     : labels.sent;
+  // One formatting / linkify pass per message: the time is shared
+  // with ReceiptLine, the segments with MessageText and the link
+  // accessibility actions
+  const timeText = useMemo(() => formatTime(message.createdAt), [message.createdAt]);
+  const segments = useMemo(() => linkify(message.text), [message.text]);
+  const links = useMemo(() => segments.filter((seg) => seg.type === 'link'), [segments]);
   const accessibilityLabel = deleted
     ? `${message.senderName}, ${labels.deleted}`
-    : `${message.senderName}, ${message.text || labels.photo}, ${formatTime(message.createdAt)}${own && showStatus ? `, ${statusLabel}` : ''}`;
-  const links = useMemo(() => linkify(message.text).filter((seg) => seg.type === 'link'), [message.text]);
+    : `${message.senderName}, ${message.text || labels.photo}, ${timeText}${own && showStatus ? `, ${statusLabel}` : ''}`;
   const accessibilityActions = useMemo<AccessibilityActionInfo[]>(() => {
     if (deleted) return [];
     const list: AccessibilityActionInfo[] = [];
@@ -641,6 +729,7 @@ function MessageBubbleInner({
     if (actionable) {
       list.push({ name: 'react', label: labels.react });
       if (message.text) list.push({ name: 'copy', label: labels.copy });
+      list.push({ name: 'messageActions', label: labels.messageActions });
     }
     if (message.replyTo) list.push({ name: 'jumpToQuoted', label: labels.jumpToQuoted });
     if (message.imageUrl) list.push({ name: 'openPhoto', label: labels.photo });
@@ -651,7 +740,11 @@ function MessageBubbleInner({
   const onAccessibilityAction = (e: AccessibilityActionEvent) => {
     const name = e.nativeEvent.actionName;
     if (name === 'reply') onSwipeReply(message);
-    else if (name === 'react' || name === 'copy') longPress();
+    // Copy and React act directly when the host wired them; the
+    // menu stays behind the honestly-named 'Message actions'
+    else if (name === 'copy') (onCopy ? onCopy(message) : longPress());
+    else if (name === 'react') (onReact ? onReact(message, DEFAULT_REACTION_EMOJI) : longPress());
+    else if (name === 'messageActions') longPress();
     else if (name === 'jumpToQuoted') onPressQuote(message);
     else if (name === 'openPhoto') onPressImage(message);
     else if (name === 'retry') onRetry(message);
@@ -728,7 +821,10 @@ function MessageBubbleInner({
                 delayLongPress={260}
                 accessibilityRole="button"
                 accessibilityLabel={accessibilityLabel}
-                accessibilityHint={actionable ? labels.messageActions : undefined}
+                // The hint describes what ACTIVATION does (reveal
+                // the time); the menu lives behind the named
+                // 'Message actions' accessibility action
+                accessibilityHint={deleted ? undefined : labels.showTime}
                 accessibilityActions={accessibilityActions}
                 onAccessibilityAction={onAccessibilityAction}
                 style={{ borderRadius: BUBBLE_RADIUS, overflow: 'visible' }}
@@ -736,10 +832,13 @@ function MessageBubbleInner({
                 <BubbleBody
                   message={message}
                   position={position}
+                  labels={labels}
+                  segments={segments}
                   onPressQuote={message.replyTo ? () => onPressQuote(message) : undefined}
                   onPressImage={() => onPressImage(message)}
                   onPressLink={onPressLink}
                   onLongPress={actionable ? longPress : undefined}
+                  onImageRatio={reportImageRatio}
                 />
                 <Animated.View
                   pointerEvents="none"
@@ -771,7 +870,7 @@ function MessageBubbleInner({
             ) : (
               <View />
             )}
-            <ReceiptLine message={message} showStatus={showStatus && !deleted} showTime={timeRevealed} onRetry={() => onRetry(message)} />
+            <ReceiptLine message={message} timeText={timeText} labels={labels} showStatus={showStatus && !deleted} showTime={timeRevealed} onRetry={() => onRetry(message)} />
           </View>
         ) : null}
 

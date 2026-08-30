@@ -43,12 +43,13 @@ export default function Badge({ count, max = 99 }: BadgeProps) {
   const label = count > max ? `${max}+` : String(count);
 
 
+  // The pill overlays icons and rows and genuinely cannot
+  // grow — cap accessibility scaling instead of clipping
   return (
     <View className="h-[20px] min-w-[20px] items-center justify-center rounded-full bg-brand px-xs">
-      <Text className="font-raleway-bold text-xs text-on-brand">{label}</Text>
+      <Text className="font-raleway-bold text-xs text-on-brand" maxFontSizeMultiplier={1.2}>
+        {label}
+      </Text>
     </View>
   );
 }
-
-// Named alongside the default so the ui barrel can `export *`
-export { Badge };

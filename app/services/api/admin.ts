@@ -17,10 +17,14 @@
 //    revokeInvitation      — delete a code
 //    fetchAdminUsers       — list all users
 //    updateAdminUser       — change role / active flag
+//    deleteAdminUser       — erase an account (GDPR)
 // -----------------------------------------------------------
 
 // Shared client core
 import { api, request } from './client';
+
+// The backend role enum — one shared model app-wide
+import type { UserRole } from '@/types';
 
 
 
@@ -97,7 +101,7 @@ export interface AdminUser {
   username: string;
   displayName: string;
   email: string;
-  role: string;
+  role: UserRole;
   createdAt: string;
   active?: boolean;
 }
@@ -145,6 +149,11 @@ export const fetchAdminInvitations = () =>
 // createInvitation
 // -----------------------------------------------------------
 //
+// The 201 body carries only the stored columns — createdAt,
+// expired and fullyUsed are list-time derivations the caller
+// fills in for a fresh code (now / false / false) before
+// prepending it to the list.
+//
 // Used by:
 //   - app/(main)/admin/index.tsx — "new code" form
 // -----------------------------------------------------------
@@ -153,7 +162,13 @@ export const createInvitation = (params: {
   role?: string;
   max_uses?: number;
   expires_hours?: number;
-}) => request(api.post<AdminInvitation>('/admin/invitations', params));
+}) =>
+  request(
+    api.post<Omit<AdminInvitation, 'createdAt' | 'expired' | 'fullyUsed'>>(
+      '/admin/invitations',
+      params,
+    ),
+  );
 
 
 
@@ -170,7 +185,7 @@ export const createInvitation = (params: {
 // -----------------------------------------------------------
 
 export async function revokeInvitation(codeId: string): Promise<void> {
-  await request(api.delete(`/admin/invitations/${codeId}`));
+  await request(api.delete(`/admin/invitations/${encodeURIComponent(codeId)}`));
 }
 
 
@@ -211,5 +226,26 @@ export const fetchAdminUsers = () =>
 
 export const updateAdminUser = (
   userId: string,
-  updates: { role?: string; active?: boolean },
-) => request(api.patch<AdminUser>(`/admin/users/${userId}`, updates));
+  updates: { role?: UserRole; active?: boolean },
+) => request(api.patch<AdminUser>(`/admin/users/${encodeURIComponent(userId)}`, updates));
+
+
+
+
+// -----------------------------------------------------------
+// deleteAdminUser
+// -----------------------------------------------------------
+//
+// The admin's erasure path — the same routine as the user's
+// own DELETE /auth/me, without a password confirm: the row is
+// anonymised, posts tombstoned, everything personal deleted.
+// 400 for the caller's own id (that goes through /auth/me)
+// and for the last active admin; 404 for an unknown id.
+//
+// Used by:
+//   - app/(main)/admin-users/index.tsx — the erase action
+// -----------------------------------------------------------
+
+export async function deleteAdminUser(userId: string): Promise<void> {
+  await request(api.delete(`/admin/users/${encodeURIComponent(userId)}`));
+}

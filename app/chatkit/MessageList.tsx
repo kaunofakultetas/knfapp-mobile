@@ -42,17 +42,18 @@ import MessageBubble from './MessageBubble';
 import ScrollToLatestButton from './ScrollToLatestButton';
 import TimeSeparator from './TimeSeparator';
 import TypingBubble from './TypingBubble';
-import { useKitLabels } from './labels';
+import { useScreenReaderEnabledRef } from './a11y';
+import { useKitLabels, type KitLabels } from './labels';
 import { LIST_INSET } from './metrics';
-import { parseStamp } from './timeline';
+import { messageStamp } from './timeline';
 import type { ContextTarget, KitMessage, TimelineItem } from './types';
 
 // Theme
 import { useTheme } from '@/hooks/useTheme';
 
 // Primitives
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { AccessibilityInfo, ActivityIndicator, FlatList, Platform, Pressable, Text, View } from 'react-native';
+import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { AccessibilityInfo, ActivityIndicator, FlatList, Platform, Pressable, Text, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent, type ViewStyle } from 'react-native';
 
 
 // Distance from the latest message past which the reader counts
@@ -63,6 +64,21 @@ const AWAY_OFFSET = 240;
 const MAX_INDEX_RETRIES = 6;
 
 const isWeb = Platform.OS === 'web';
+
+// Hoisted so the windowed cells never re-render over a fresh
+// style object or key extractor identity
+const CONTENT_STYLE_NATIVE: ViewStyle = { paddingHorizontal: LIST_INSET, paddingVertical: 8 };
+// The upright web list bottom-aligns a short conversation the
+// way the inverted native list does by itself
+const CONTENT_STYLE_WEB: ViewStyle = { ...CONTENT_STYLE_NATIVE, flexGrow: 1, justifyContent: 'flex-end' };
+
+// An own row keeps the key it was born with across the
+// temp → server swap, so the bubble never remounts. Exported
+// for __tests__/chatkitComponents.test.tsx.
+export const keyExtractor = (row: TimelineItem) => (row.type === 'message' ? row.message.clientId ?? row.key : row.key);
+
+// Row identity, not server id — same rule as keyExtractor
+const rowId = (message: KitMessage) => message.clientId ?? message.id;
 
 
 export interface TypingInfo {
@@ -95,9 +111,8 @@ export interface MessageListHandle {
 //   - MessageList (below)
 // -----------------------------------------------------------
 
-function OlderMessagesRow({ loading, onPress }: { loading: boolean; onPress: () => void }) {
+function OlderMessagesRow({ loading, labels, onPress }: { loading: boolean; labels: KitLabels; onPress: () => void }) {
 
-  const labels = useKitLabels();
   const { colors } = useTheme();
 
 
@@ -131,7 +146,7 @@ function OlderMessagesRow({ loading, onPress }: { loading: boolean; onPress: () 
 //   - app/(main)/chat-room/index.tsx — the chat room screen
 // -----------------------------------------------------------
 
-const MessageList = forwardRef<
+const MessageList = memo(forwardRef<
   MessageListHandle,
   {
     items: TimelineItem[];
@@ -141,7 +156,13 @@ const MessageList = forwardRef<
     intro: IntroInfo | null;
     loadingOlder: boolean;
     hasMore: boolean;
+    // Whether the room screen is the focused one — an unfocused
+    // list never speaks to the screen reader (default true)
+    isFocused?: boolean;
     onLoadOlder: () => void;
+    // A jump-to-message that ran out of scrollToIndex retries —
+    // the host explains instead of stranding the reader silently
+    onJumpFailed?: () => void;
     revealedId: string | null;
     highlightedId: string | null;
     // The message whose copy floats in the context menu
@@ -158,6 +179,10 @@ const MessageList = forwardRef<
     onPressReactions: (message: KitMessage) => void;
     onRetry: (message: KitMessage) => void;
     onPressLink: (href: string) => void;
+    // Direct handlers for the bubbles' Copy / React accessibility
+    // actions — optional, the bubble falls back to its menu
+    onCopy?: (message: KitMessage) => void;
+    onReact?: (message: KitMessage, emoji: string) => void;
   }
 >(function MessageList(
   {
@@ -168,7 +193,9 @@ const MessageList = forwardRef<
     intro,
     loadingOlder,
     hasMore,
+    isFocused = true,
     onLoadOlder,
+    onJumpFailed,
     revealedId,
     highlightedId,
     menuTargetId,
@@ -182,6 +209,8 @@ const MessageList = forwardRef<
     onPressReactions,
     onRetry,
     onPressLink,
+    onCopy,
+    onReact,
   },
   ref,
 ) {
@@ -208,20 +237,34 @@ const MessageList = forwardRef<
   const contentHeightRef = useRef(0);
   const viewportHeightRef = useRef(0);
   const retriesRef = useRef(0);
+  // Web only: the current scroll offset and, while an older page
+  // is being pulled in from the top row, the content height it
+  // started from — prepended growth is compensated against these
+  // so the reader keeps their place (native has
+  // maintainVisibleContentPosition for this)
+  const scrollOffsetRef = useRef(0);
+  const pendingOlderRef = useRef<number | null>(null);
 
 
   // Newest-first everywhere except the upright web list
   const data = useMemo(() => (isWeb ? [...items].reverse() : items), [items]);
 
 
-  // Rows that arrive after mount animate in; the initial page
-  // and older pages appear in place
-  const mountedAt = useRef(Date.now());
   const newest = useMemo(() => items.find((row) => row.type === 'message'), [items]);
   // Row identity, not server id: an own send keeps its key across
   // the temp → server swap and must not count as a new arrival
-  const newestId = newest?.type === 'message' ? (newest.message.clientId ?? newest.message.id) : null;
+  const newestId = newest?.type === 'message' ? rowId(newest.message) : null;
   const newestOwn = newest?.type === 'message' ? newest.message.isOwn : false;
+
+  // Rows that arrive after the first loaded page animate in; the
+  // initial page and older pages appear in place. The baseline is
+  // the first page's newest SERVER stamp — comparing server clock
+  // to server clock, so device skew can never animate history
+  // (lazily initialised on the first render that has a message)
+  const baselineStampRef = useRef<number | null>(null);
+  if (baselineStampRef.current === null && newest?.type === 'message') {
+    baselineStampRef.current = messageStamp(newest.message);
+  }
 
   // The last own message gets the receipt line
   const lastOwnId = useMemo(() => {
@@ -241,7 +284,10 @@ const MessageList = forwardRef<
 
 
   // Own sends scroll back down; others' messages, while the
-  // reader is away, only bump the missed count
+  // reader is away, bump the missed count by the number of
+  // MESSAGES that actually arrived — one socket burst can land
+  // several rows within a single render
+  const screenReaderRef = useScreenReaderEnabledRef();
   const newestIdRef = useRef<string | null>(newestId);
   useEffect(() => {
     if (!newestId || newestId === newestIdRef.current) return;
@@ -250,6 +296,7 @@ const MessageList = forwardRef<
       newestIdRef.current = newestId;
       return;
     }
+    const previousId = newestIdRef.current;
     newestIdRef.current = newestId;
     if (newestOwn) {
       scrollToLatest(true);
@@ -257,23 +304,50 @@ const MessageList = forwardRef<
       return;
     }
     if (awayRef.current) {
-      setMissed((n) => n + 1);
+      // Count the message rows newer than the previous newest;
+      // when it left the loaded window, fall back to +1
+      let arrived = 0;
+      let found = false;
+      for (const row of items) {
+        if (row.type !== 'message') continue;
+        if (rowId(row.message) === previousId) {
+          found = true;
+          break;
+        }
+        arrived += 1;
+      }
+      setMissed((n) => n + (found ? arrived : 1));
     } else {
       // A reader at the bottom follows the new row (belt and braces
       // beside autoscrollToTopThreshold)
       scrollToLatest(true);
     }
-    if (newest?.type === 'message') {
+    // Speak only to a listening reader on the focused room, and
+    // only while scrolled away — at the bottom the reader reaches
+    // the new row by its own navigation
+    if (newest?.type === 'message' && isFocused && awayRef.current && screenReaderRef.current) {
       AccessibilityInfo.announceForAccessibility(`${newest.message.senderName}: ${newest.message.text || labels.photo}`);
     }
-  }, [newestId, newestOwn, newest, labels.photo, scrollToLatest]);
+  }, [newestId, newestOwn, newest, items, isFocused, labels.photo, scrollToLatest, screenReaderRef]);
 
 
-  const setAwayState = (next: boolean) => {
+  const setAwayState = useCallback((next: boolean) => {
     awayRef.current = next;
     setAway((prev) => (prev === next ? prev : next));
     if (!next) setMissed(0);
-  };
+  }, []);
+
+
+  // The pending scrollToIndex retry — cleared before every new
+  // jump so two jumps never race, and on unmount
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearRetryTimer = useCallback(() => {
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+  }, []);
+  useEffect(() => clearRetryTimer, [clearRetryTimer]);
 
 
   // scrollToIndex needs the row measured; when it is not, jump
@@ -284,6 +358,7 @@ const MessageList = forwardRef<
       scrollToMessage: (id) => {
         const index = data.findIndex((row) => row.type === 'message' && row.message.id === id);
         if (index < 0) return false;
+        clearRetryTimer();
         atBottomRef.current = false;
         retriesRef.current = 0;
         listRef.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true });
@@ -291,7 +366,7 @@ const MessageList = forwardRef<
       },
       scrollToLatest: () => scrollToLatest(true),
     }),
-    [data, scrollToLatest],
+    [data, scrollToLatest, clearRetryTimer],
   );
 
 
@@ -314,9 +389,10 @@ const MessageList = forwardRef<
           hidden={menuTargetId === message.id}
           canAct={canAct(message)}
           canReply={canReply(message)}
-          // Zone-safe parse: the backend's stamps carry no zone and
-          // would otherwise read as local time
-          animateIn={(parseStamp(message.createdAt)?.getTime() ?? 0) > mountedAt.current}
+          labels={labels}
+          // Server clock against server clock (cached parse): only
+          // rows stamped after the first loaded page slide in
+          animateIn={messageStamp(message) > (baselineStampRef.current ?? Number.POSITIVE_INFINITY)}
           onPress={onPressMessage}
           onLongPress={onLongPressMessage}
           onSwipeReply={onSwipeReply}
@@ -325,11 +401,91 @@ const MessageList = forwardRef<
           onPressReactions={onPressReactions}
           onRetry={onRetry}
           onPressLink={onPressLink}
+          onCopy={onCopy}
+          onReact={onReact}
         />
       );
     },
-    [isGroup, showAvatars, revealedId, lastOwnId, highlightedId, menuTargetId, canAct, canReply, onPressMessage, onLongPressMessage, onSwipeReply, onPressQuote, onPressImage, onPressReactions, onRetry, onPressLink],
+    [isGroup, showAvatars, revealedId, lastOwnId, highlightedId, menuTargetId, canAct, canReply, labels, onPressMessage, onLongPressMessage, onSwipeReply, onPressQuote, onPressImage, onPressReactions, onRetry, onPressLink, onCopy, onReact],
   );
+
+
+  // Stable FlatList handlers — a fresh identity per keystroke of
+  // the composer would re-render the whole windowed cell set
+  const onEndReached = useCallback(() => {
+    if (!isWeb && hasMore && !loadingOlder) onLoadOlder();
+  }, [hasMore, loadingOlder, onLoadOlder]);
+
+  const onListLayout = useCallback((e: LayoutChangeEvent) => {
+    // A shrinking viewport (composer grew, keyboard on web)
+    // keeps the bottom in view when the reader was there
+    const previous = viewportHeightRef.current;
+    viewportHeightRef.current = e.nativeEvent.layout.height;
+    if (isWeb && previous && previous !== viewportHeightRef.current && atBottomRef.current) scrollToLatest(false);
+  }, [scrollToLatest]);
+
+  const onContentSizeChange = useCallback((_w: number, h: number) => {
+    if (!isWeb) return;
+    contentHeightRef.current = h;
+    if (atBottomRef.current) {
+      scrollToLatest(false);
+    } else if (pendingOlderRef.current !== null && h > pendingOlderRef.current) {
+      // An older page grew the content ABOVE the viewport — shift
+      // the offset by the growth so what the reader was looking at
+      // stays put (incremental: the loading row swap also resizes)
+      listRef.current?.scrollToOffset({ offset: scrollOffsetRef.current + (h - pendingOlderRef.current), animated: false });
+      pendingOlderRef.current = h;
+    }
+    pinnedOnceRef.current = true;
+  }, [scrollToLatest]);
+
+  const onScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+    scrollOffsetRef.current = contentOffset.y;
+    const distance = isWeb
+      ? contentSize.height - layoutMeasurement.height - contentOffset.y
+      : contentOffset.y;
+    if (isWeb && pinnedOnceRef.current) atBottomRef.current = distance < 48;
+    setAwayState(distance > AWAY_OFFSET);
+  }, [setAwayState]);
+
+  // The web top row pages history while the reader is scrolled UP,
+  // outside the at-bottom re-pin — record the height the request
+  // started from so the prepend can be compensated above
+  const onLoadOlderWeb = useCallback(() => {
+    pendingOlderRef.current = contentHeightRef.current;
+    onLoadOlder();
+  }, [onLoadOlder]);
+
+  // The anchor closes a beat after the load settles, so the last
+  // size change of the prepended page still lands inside it — and
+  // later growth (new arrivals) is never compensated against
+  useEffect(() => {
+    if (loadingOlder || pendingOlderRef.current === null) return;
+    const timer = setTimeout(() => {
+      pendingOlderRef.current = null;
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [loadingOlder]);
+
+  // Unmeasured rows: jump near the estimate and retry until the
+  // target has a frame (bounded, one pending retry at a time)
+  const onScrollToIndexFailed = useCallback(({ index, averageItemLength }: { index: number; averageItemLength: number }) => {
+    if (retriesRef.current >= MAX_INDEX_RETRIES) {
+      // Out of retries: land on the estimate rather than nowhere,
+      // and let the host explain — the highlight has long expired
+      listRef.current?.scrollToOffset({ offset: averageItemLength * index, animated: false });
+      onJumpFailed?.();
+      return;
+    }
+    retriesRef.current += 1;
+    listRef.current?.scrollToOffset({ offset: averageItemLength * index, animated: false });
+    clearRetryTimer();
+    retryTimerRef.current = setTimeout(() => {
+      retryTimerRef.current = null;
+      listRef.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true });
+    }, 120);
+  }, [clearRetryTimer, onJumpFailed]);
 
 
   const typingRow = typing ? (
@@ -341,7 +497,7 @@ const MessageList = forwardRef<
   const topRow = !hasMore && intro ? (
     <ConversationIntro {...intro} />
   ) : isWeb && hasMore ? (
-    <OlderMessagesRow loading={loadingOlder} onPress={onLoadOlder} />
+    <OlderMessagesRow loading={loadingOlder} labels={labels} onPress={onLoadOlderWeb} />
   ) : loadingOlder ? (
     <View className="items-center py-sm">
       <ActivityIndicator size="small" color={colors.brand} />
@@ -356,54 +512,19 @@ const MessageList = forwardRef<
         ref={listRef}
         inverted={!isWeb}
         data={data}
-        // An own row keeps the key it was born with across the
-        // temp → server swap, so the bubble never remounts
-        keyExtractor={(row) => (row.type === 'message' ? row.message.clientId ?? row.key : row.key)}
+        keyExtractor={keyExtractor}
         renderItem={renderItem}
         className="flex-1"
-        contentContainerStyle={{
-          paddingHorizontal: LIST_INSET,
-          paddingVertical: 8,
-          // The upright web list bottom-aligns a short conversation
-          // the way the inverted native list does by itself
-          ...(isWeb ? { flexGrow: 1, justifyContent: 'flex-end' } : {}),
-        }}
-        onEndReached={() => {
-          if (!isWeb && hasMore && !loadingOlder) onLoadOlder();
-        }}
+        contentContainerStyle={isWeb ? CONTENT_STYLE_WEB : CONTENT_STYLE_NATIVE}
+        onEndReached={onEndReached}
         onEndReachedThreshold={0.4}
         // Inverted: header = bottom (typing), footer = top (intro / older)
         ListHeaderComponent={isWeb ? topRow : typingRow}
         ListFooterComponent={isWeb ? typingRow : topRow}
-        onLayout={(e) => {
-          // A shrinking viewport (composer grew, keyboard on web)
-          // keeps the bottom in view when the reader was there
-          const previous = viewportHeightRef.current;
-          viewportHeightRef.current = e.nativeEvent.layout.height;
-          if (isWeb && previous && previous !== viewportHeightRef.current && atBottomRef.current) scrollToLatest(false);
-        }}
-        onContentSizeChange={(_w, h) => {
-          if (!isWeb) return;
-          contentHeightRef.current = h;
-          if (atBottomRef.current) scrollToLatest(false);
-          pinnedOnceRef.current = true;
-        }}
-        onScroll={(e) => {
-          const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
-          const distance = isWeb
-            ? contentSize.height - layoutMeasurement.height - contentOffset.y
-            : contentOffset.y;
-          if (isWeb && pinnedOnceRef.current) atBottomRef.current = distance < 48;
-          setAwayState(distance > AWAY_OFFSET);
-        }}
-        // Unmeasured rows: jump near the estimate and retry until the
-        // target has a frame (bounded)
-        onScrollToIndexFailed={({ index, averageItemLength }) => {
-          if (retriesRef.current >= MAX_INDEX_RETRIES) return;
-          retriesRef.current += 1;
-          listRef.current?.scrollToOffset({ offset: averageItemLength * index, animated: false });
-          setTimeout(() => listRef.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true }), 120);
-        }}
+        onLayout={onListLayout}
+        onContentSizeChange={onContentSizeChange}
+        onScroll={onScroll}
+        onScrollToIndexFailed={onScrollToIndexFailed}
         scrollEventThrottle={80}
         // Keeps the reader's place when messages arrive or older
         // pages land while scrolled up (native; the web branch
@@ -434,6 +555,6 @@ const MessageList = forwardRef<
 
     </View>
   );
-});
+}));
 
 export default MessageList;

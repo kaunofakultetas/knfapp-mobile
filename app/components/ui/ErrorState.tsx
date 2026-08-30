@@ -23,6 +23,10 @@ import { Button } from './Button';
 interface ErrorStateProps {
   message?: string;
   offline?: boolean;
+  // While true the retry button shows its loading spinner —
+  // screens pass their refreshing flag so a slow retry is
+  // visibly in flight instead of silently pending
+  retrying?: boolean;
   onRetry: () => void;
 }
 
@@ -40,7 +44,12 @@ interface ErrorStateProps {
 //   - every data screen when useLoad/useFeed reports error
 // -----------------------------------------------------------
 
-export default function ErrorState({ message, offline = false, onRetry }: ErrorStateProps) {
+export default function ErrorState({
+  message,
+  offline = false,
+  retrying = false,
+  onRetry,
+}: ErrorStateProps) {
   const { t } = useTranslation();
   const { colors } = useTheme();
 
@@ -53,6 +62,7 @@ export default function ErrorState({ message, offline = false, onRetry }: ErrorS
   return (
     <View className="flex-1 items-center justify-center px-xl py-2xl">
 
+      {/* Decorative icon — hidden from assistive tech */}
       <View
         className={
           offline
@@ -60,6 +70,8 @@ export default function ErrorState({ message, offline = false, onRetry }: ErrorS
             : 'mb-md items-center justify-center rounded-full bg-danger-soft'
         }
         style={{ width: 72, height: 72 }}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
       >
         <Ionicons
           name={icon}
@@ -73,7 +85,7 @@ export default function ErrorState({ message, offline = false, onRetry }: ErrorS
       </Text>
 
       <View className="mt-lg">
-        <Button title={t('common.tryAgain')} onPress={onRetry} />
+        <Button title={t('common.tryAgain')} onPress={onRetry} loading={retrying} />
       </View>
 
     </View>

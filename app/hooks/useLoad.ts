@@ -28,7 +28,7 @@
 import { useNetworkRestore } from '@/hooks/useNetworkRestore';
 
 // Load state and lifecycle guards
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 
 
@@ -103,12 +103,20 @@ export function useLoad<T>(
   });
 
 
+  // The seq of the initial (spinner) load still in flight, or
+  // null — a silent refresh failing FASTER than a slow first
+  // load must not flag an error the screen would show while
+  // that first load is still on its way
+  const pendingInitialSeqRef = useRef<number | null>(null);
+
+
   // One code path for all four triggers (mount, deps change,
   // refresh, retry); showSpinner marks the "first load" flavor
   const load = async (showSpinner: boolean): Promise<void> => {
     const seq = ++seqRef.current;
 
     if (showSpinner) {
+      pendingInitialSeqRef.current = seq;
       setLoading(true);
       setError(false);
       // A deps change must not flash the previous entity
@@ -124,12 +132,32 @@ export function useLoad<T>(
       setError(false);
     } catch {
       if (seq !== seqRef.current) return;
+      // A failed silent refresh defers to an initial load that
+      // is still pending (see pendingInitialSeqRef above)
+      if (!showSpinner && pendingInitialSeqRef.current !== null) return;
       // Error only when the screen would otherwise show nothing
       setError(dataRef.current === null);
     } finally {
+      if (pendingInitialSeqRef.current === seq) pendingInitialSeqRef.current = null;
       if (seq === seqRef.current) setLoading(false);
     }
   };
+
+
+  // Latest load closure, so the stable refresh/retry callbacks
+  // below never run a stale capture
+  const loadRef = useRef(load);
+  useEffect(() => {
+    loadRef.current = load;
+  });
+
+
+  // Stable identities — screens hand these straight to
+  // memoized children and effect deps without ref workarounds
+  const refresh = useCallback(() => loadRef.current(false), []);
+  const retry = useCallback(() => {
+    void loadRef.current(true);
+  }, []);
 
 
   // First load — with spinner — on mount and every deps
@@ -152,9 +180,7 @@ export function useLoad<T>(
     data,
     loading,
     error,
-    refresh: () => load(false),
-    retry: () => {
-      void load(true);
-    },
+    refresh,
+    retry,
   };
 }

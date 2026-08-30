@@ -21,7 +21,15 @@ import { Ionicons } from '@expo/vector-icons';
 
 // Field primitives and the forwarded-ref plumbing
 import { forwardRef, useState } from 'react';
-import { Pressable, Text, TextInput, View, type TextInputProps } from 'react-native';
+import {
+  Platform,
+  Pressable,
+  Text,
+  TextInput,
+  View,
+  type AccessibilityState,
+  type TextInputProps,
+} from 'react-native';
 
 // Translated a11y labels for the password toggle
 import { useTranslation } from 'react-i18next';
@@ -96,9 +104,11 @@ const Input = forwardRef<TextInput, InputProps>(function Input(
   const borderClass = error ? 'border-danger' : focused ? 'border-brand' : 'border-line-strong';
 
 
+  // min-h, not h: at large accessibility text sizes the field
+  // grows with the scaled text instead of clipping it
   const fieldClasses = [
     'flex-row gap-sm rounded-md border bg-surface-soft px-md',
-    multiline ? 'items-start py-sm' : 'h-12 items-center',
+    multiline ? 'items-start py-sm' : 'min-h-12 items-center py-xs',
     borderClass,
   ].join(' ');
 
@@ -115,8 +125,9 @@ const Input = forwardRef<TextInput, InputProps>(function Input(
         )}
 
         {/* Defaults sit before the spread so callers can
-            override them; the composed handlers and the
-            toggled secure flag sit after so they cannot */}
+            override them; the composed handlers, the toggled
+            secure flag and the a11y error plumbing sit after
+            so they cannot */}
         <TextInput
           ref={ref}
           className="flex-1 py-0 font-raleway text-base text-ink"
@@ -124,10 +135,28 @@ const Input = forwardRef<TextInput, InputProps>(function Input(
           clearButtonMode="while-editing"
           returnKeyType={multiline ? undefined : secureTextEntry ? 'done' : 'next'}
           submitBehavior={multiline ? 'newline' : 'submit'}
+          accessibilityLabel={label}
           {...rest}
           style={[multiline ? { textAlignVertical: 'top' as const } : null, style]}
           multiline={multiline}
           secureTextEntry={secureTextEntry && !passwordVisible}
+          // A revealed password must never leak into the
+          // autocorrect/spellcheck dictionaries; Android's
+          // visible-password keyboard also drops suggestions
+          autoCorrect={secureTextEntry ? false : rest.autoCorrect}
+          spellCheck={secureTextEntry ? false : rest.spellCheck}
+          keyboardType={
+            secureTextEntry && passwordVisible && Platform.OS === 'android'
+              ? 'visible-password'
+              : rest.keyboardType
+          }
+          // `invalid` is not in RN's AccessibilityState typing
+          // (web maps it to aria-invalid; native ignores it),
+          // hence the assertion; the hint reads the error out
+          accessibilityHint={error ?? rest.accessibilityHint}
+          accessibilityState={
+            { ...rest.accessibilityState, invalid: !!error } as AccessibilityState
+          }
           onFocus={handleFocus}
           onBlur={handleBlur}
         />
@@ -135,9 +164,17 @@ const Input = forwardRef<TextInput, InputProps>(function Input(
         {secureTextEntry && (
           <Pressable
             onPress={() => setPasswordVisible((visible) => !visible)}
-            hitSlop={8}
             accessibilityRole="button"
             accessibilityLabel={t(passwordVisible ? 'common.hidePassword' : 'common.showPassword')}
+            // A full 44pt target; the negative margin keeps the
+            // glyph on the field's original inset
+            style={{
+              width: 44,
+              height: 44,
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginRight: -12,
+            }}
           >
             <Ionicons
               name={passwordVisible ? 'eye-off-outline' : 'eye-outline'}
@@ -148,9 +185,12 @@ const Input = forwardRef<TextInput, InputProps>(function Input(
         )}
       </View>
 
-      {/* Error replaces the helper — one line below the field */}
+      {/* Error replaces the helper — one line below the field;
+          the live region reads it out the moment it appears */}
       {error ? (
-        <Text className="mt-xs font-raleway text-xs text-danger">{error}</Text>
+        <Text accessibilityLiveRegion="assertive" className="mt-xs font-raleway text-xs text-danger">
+          {error}
+        </Text>
       ) : helperText ? (
         <Text className="mt-xs font-raleway text-xs text-ink-soft">{helperText}</Text>
       ) : null}
@@ -159,6 +199,3 @@ const Input = forwardRef<TextInput, InputProps>(function Input(
 });
 
 export default Input;
-
-// Named alongside the default so the ui barrel can `export *`
-export { Input };

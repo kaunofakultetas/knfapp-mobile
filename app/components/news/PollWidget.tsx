@@ -43,14 +43,23 @@ import { useAuth } from '@/context/AuthContext';
 import { fetchPoll, votePollApi, type PollResponse } from '@/services/api';
 import { showToast } from '@/context/NetworkContext';
 
+// Zoneless backend timestamps parsed as the UTC they are
+import { parseIso } from '@/services/format';
+
 // Icons and JS-side colors for the active scheme
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/hooks/useTheme';
 
 // Widget state and primitives
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  GestureResponderEvent,
+  Pressable,
+  Text,
+  View,
+} from 'react-native';
 
 
 
@@ -150,7 +159,14 @@ function PollHint({ icon, text }: { icon: keyof typeof Ionicons.glyphMap; text: 
 
   return (
     <View className="mb-xs flex-row items-center gap-xs">
-      <Ionicons name={icon} size={14} color={colors.inkSoft} />
+      {/* Decorative icon — hidden from assistive tech */}
+      <Ionicons
+        name={icon}
+        size={14}
+        color={colors.inkSoft}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+      />
       <Text className="font-raleway text-xs text-ink-soft">{text}</Text>
     </View>
   );
@@ -206,17 +222,26 @@ function PollOptionRow({
       className={`relative mb-sm min-h-12 overflow-hidden rounded-md border bg-surface-soft ${
         selected ? 'border-brand' : 'border-line'
       }`}
-      onPress={onPress}
+      onPress={(event: GestureResponderEvent) => {
+        // A vote inside a feed card must not also open the post
+        // (touches bubble on react-native-web)
+        event.stopPropagation();
+        onPress();
+      }}
       disabled={!canVote || busy}
-      accessibilityRole="button"
-      accessibilityLabel={text}
-      accessibilityState={{ selected, disabled: !canVote || busy }}
+      accessibilityRole="radio"
+      accessibilityLabel={showResults ? `${text}, ${pct}%` : text}
+      accessibilityState={{ checked: selected, disabled: !canVote || busy }}
     >
 
-      {/* Result bar — behind the label, width is the vote share */}
-      {showResults && (
+      {/* Result bar — behind the label, width is the vote share;
+          the brand / line-strong end cap keeps the bar's extent
+          readable at 3:1 where the soft wash alone is not */}
+      {showResults && pct > 0 && (
         <View
-          className={`absolute bottom-0 left-0 top-0 ${selected ? 'bg-brand-soft' : 'bg-line'}`}
+          className={`absolute bottom-0 left-0 top-0 border-r-2 ${
+            selected ? 'border-brand bg-brand-soft' : 'border-line-strong bg-line'
+          }`}
           style={{ width: `${pct}%` }}
         />
       )}
@@ -225,7 +250,7 @@ function PollOptionRow({
 
         <Text
           className={`flex-1 text-sm ${
-            selected ? 'font-raleway-bold text-brand' : 'font-raleway-medium text-ink'
+            selected ? 'font-raleway-bold text-brand-text' : 'font-raleway-medium text-ink'
           }`}
         >
           {text}
@@ -238,7 +263,7 @@ function PollOptionRow({
             {selected && <Ionicons name="checkmark-circle" size={16} color={colors.brand} />}
             <Text
               className={`text-sm ${
-                selected ? 'font-raleway-bold text-brand' : 'font-raleway text-ink-soft'
+                selected ? 'font-raleway-bold text-brand-text' : 'font-raleway text-ink-soft'
               }`}
             >
               {pct}%
@@ -281,6 +306,12 @@ export default function PollWidget({ postId }: { postId: string }) {
   const [votingOptionId, setVotingOptionId] = useState<string | null>(null);
 
 
+  // The ref is the real double-vote guard — two taps can land
+  // before the state above re-renders, the ref flips
+  // synchronously
+  const votingRef = useRef(false);
+
+
   // Keyed on isAuthenticated too: logging in while mounted
   // refetches so the user's own vote appears. The cancelled
   // flag drops out-of-order answers from recycled feed cells.
@@ -306,15 +337,19 @@ export default function PollWidget({ postId }: { postId: string }) {
   }, [postId, isAuthenticated, reloadKey]);
 
 
-  // Optimistic vote with exact revert; both writes are guarded
+  // Optimistic vote with exact revert; every write is guarded
   // against the cell having switched posts mid-flight
   const handleVote = async (optionId: string) => {
+    if (votingRef.current) return;
     if (!poll || votingOptionId) return;
     if (poll.userVote === optionId) return;
 
     const previous = poll;
+    votingRef.current = true;
     setVotingOptionId(optionId);
-    setPoll(applyVote(poll, optionId));
+    setPoll((current) =>
+      current && current.postId === postId ? applyVote(current, optionId) : current,
+    );
 
     try {
       const confirmed = await votePollApi(previous.postId, optionId);
@@ -327,6 +362,7 @@ export default function PollWidget({ postId }: { postId: string }) {
       );
       showToast('error', t('news.pollVoteError'));
     } finally {
+      votingRef.current = false;
       setVotingOptionId(null);
     }
   };
@@ -341,7 +377,10 @@ export default function PollWidget({ postId }: { postId: string }) {
   if (!poll) return null;
 
 
-  const closed = !!poll.endDate && new Date(poll.endDate).getTime() <= Date.now();
+  // Backend endDate is naive UTC — parseIso marks it UTC before
+  // parsing, so a poll doesn't lock a UTC-offset early
+  const end = poll.endDate ? parseIso(poll.endDate) : null;
+  const closed = !!end && end.getTime() <= Date.now();
   const canVote = isAuthenticated && !closed;
   // Results are public — only fresh voters-to-be see bare options
   const showResults = !!poll.userVote || !canVote;
@@ -353,19 +392,22 @@ export default function PollWidget({ postId }: { postId: string }) {
 
       <Text className="mb-sm font-raleway-bold text-base text-ink">{poll.title}</Text>
 
-      {poll.options.map((option) => (
-        <PollOptionRow
-          key={option.id}
-          text={option.text}
-          pct={total > 0 ? Math.round((option.votes / total) * 100) : 0}
-          selected={poll.userVote === option.id}
-          showResults={showResults}
-          canVote={canVote}
-          inFlight={votingOptionId === option.id}
-          busy={votingOptionId !== null}
-          onPress={() => handleVote(option.id)}
-        />
-      ))}
+      {/* The options are one radio group — each row is a radio */}
+      <View accessibilityRole="radiogroup">
+        {poll.options.map((option) => (
+          <PollOptionRow
+            key={option.id}
+            text={option.text}
+            pct={total > 0 ? Math.round((option.votes / total) * 100) : 0}
+            selected={poll.userVote === option.id}
+            showResults={showResults}
+            canVote={canVote}
+            inFlight={votingOptionId === option.id}
+            busy={votingOptionId !== null}
+            onPress={() => handleVote(option.id)}
+          />
+        ))}
+      </View>
 
       {/* Status row — a closed poll outranks the login hint */}
       {closed ? (
@@ -374,7 +416,9 @@ export default function PollWidget({ postId }: { postId: string }) {
         <PollHint icon="log-in-outline" text={t('news.pollLoginToVote')} />
       ) : null}
 
-      <Text className="font-raleway text-xs text-ink-faint">
+      {/* Polite live region — the total updating after a vote is
+          announced without stealing focus */}
+      <Text className="font-raleway text-xs text-ink-faint" accessibilityLiveRegion="polite">
         {t('news.pollVotes', { count: total })}
       </Text>
     </View>

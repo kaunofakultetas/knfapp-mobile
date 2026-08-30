@@ -42,8 +42,10 @@ describe('getUploadUrl', () => {
     expect(getUploadUrl('uploads/x.jpg')).toBe(`${API_BASE_URL}/uploads/x.jpg`);
   });
 
-  it('passes absolute URLs through', () => {
-    expect(getUploadUrl('https://cdn.example/x.jpg')).toBe('https://cdn.example/x.jpg');
+  it('keeps same-origin absolute URLs, refuses foreign hosts, passes local schemes', () => {
+    expect(getUploadUrl(`${API_BASE_URL}/uploads/x.jpg`)).toBe(`${API_BASE_URL}/uploads/x.jpg`);
+    expect(getUploadUrl('https://cdn.example/x.jpg')).toBeNull();
+    expect(getUploadUrl('file:///tmp/picked.jpg')).toBe('file:///tmp/picked.jpg');
   });
 });
 
@@ -53,12 +55,16 @@ describe('request', () => {
     await expect(request(Promise.resolve({ data: { ok: true } } as AxiosResponse))).resolves.toEqual({ ok: true });
   });
 
-  it('normalizes http failures with the decoded backend message', async () => {
-    const err = await failure(request(Promise.reject(httpFailure(404, { error: 'Not &amp; found' }))));
+  it('normalizes http failures, keeping the backend message verbatim', async () => {
+    // Error bodies skip the escape-on-output middleware, so the
+    // message stays raw debugging text — screens translate via
+    // apiErrorKey and never render it
+    const err = await failure(request(Promise.reject(httpFailure(404, { error: 'Not &amp; found', code: 'not_found' }))));
     expect(err).toBeInstanceOf(ApiError);
     expect(err.code).toBe('http');
     expect(err.status).toBe(404);
-    expect(err.message).toBe('Not & found');
+    expect(err.message).toBe('Not &amp; found');
+    expect(err.serverCode).toBe('not_found');
   });
 
   it('maps timeouts and network failures to codes, not text', async () => {

@@ -18,6 +18,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 
 // Rows taller than this scroll instead of growing the card
@@ -48,23 +49,39 @@ export default function ReactionsViewer({
 }) {
 
   const { t } = useTranslation();
+  const insets = useSafeAreaInsets();
 
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      statusBarTranslucent
+      navigationBarTranslucent
+      onRequestClose={onClose}
+    >
       <View className="flex-1 justify-end">
 
-        {/* Scrim — tap outside the card to dismiss */}
+        {/* Scrim — tap outside the card to dismiss; hidden from
+            assistive tech, which dismisses via the footer Close */}
         <Pressable
           onPress={onClose}
-          accessibilityRole="button"
-          accessibilityLabel={t('common.close')}
+          accessible={false}
+          importantForAccessibility="no"
           className="absolute bottom-0 left-0 right-0 top-0 bg-scrim"
         />
 
-        <View className="mx-md mb-xl rounded-2xl bg-surface p-md">
+        <View
+          className="mx-md rounded-2xl bg-surface p-md"
+          style={{ marginBottom: insets.bottom + 24 }}
+          accessibilityViewIsModal
+        >
 
-          <Text className="mb-sm font-raleway-bold text-lg text-ink">
+          <Text
+            className="mb-sm font-raleway-bold text-lg text-ink"
+            accessibilityRole="header"
+          >
             {t('chat.reactionsTitle')}
           </Text>
 
@@ -76,7 +93,16 @@ export default function ReactionsViewer({
             <ScrollView style={{ maxHeight: ROWS_MAX_HEIGHT }}>
               {rows.map((row) => (
                 <View key={row.emoji} className="mb-sm">
-                  <View className="mb-xs flex-row items-center">
+                  {/* Emoji + count as ONE accessible node — a bare
+                      number means nothing to a screen reader */}
+                  <View
+                    className="mb-xs flex-row items-center"
+                    accessible
+                    accessibilityLabel={t('chat.reactionCount', {
+                      emoji: row.emoji,
+                      count: row.names.length,
+                    })}
+                  >
                     <Text style={{ fontSize: 20 }} className="mr-sm">
                       {row.emoji}
                     </Text>

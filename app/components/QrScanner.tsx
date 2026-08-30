@@ -11,13 +11,19 @@
 //  fires onBarcodeScanned many times per second and every
 //  event delivered before a re-render commits would still see
 //  stale state — the ref flips synchronously so exactly one
-//  scan wins. It re-arms when the modal reopens (visible
-//  effect; no timers that could fire after unmount).
+//  scan wins. It re-arms when the modal reopens, and latches
+//  briefly on an unrecognised QR while the in-viewfinder
+//  "invalid" hint shows; that one timer is cleared on close
+//  and unmount so nothing fires after teardown.
 //
 //  Permission flow: while the system dialog can still appear
 //  the button requests permission; after a permanent denial
 //  (canAskAgain === false) the same button opens the system
 //  settings instead — requesting again would silently no-op.
+//  The web build has no settings screen to open, so a browser
+//  block surfaces a hint pointing at the site's permission
+//  settings (and the manual-entry field) instead of a button
+//  that does nothing.
 //
 //  Split into (root component last):
 //
@@ -26,7 +32,7 @@
 // -----------------------------------------------------------
 
 // UI kit and theming
-import { Button } from '@/components/ui';
+import { Button, LoadingSpinner } from '@/components/ui';
 import { useTheme } from '@/hooks/useTheme';
 
 // Camera and system settings
@@ -35,9 +41,9 @@ import * as Linking from 'expo-linking';
 
 // Rendering
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Modal, Pressable, Text, View } from 'react-native';
+import { Modal, Platform, Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 
@@ -70,9 +76,11 @@ interface QrScannerProps {
 //
 // Used by:
 //   - QrScanner (below)
+//   - app/register.tsx — the ?code deep-link param runs
+//     through the same validation before touching the form
 // -----------------------------------------------------------
 
-function extractCode(raw: string): string | null {
+export function extractCode(raw: string): string | null {
 
   const trimmed = raw.trim();
   if (!trimmed) return null;
@@ -120,18 +128,51 @@ export default function QrScanner({ visible, onClose, onCodeScanned }: QrScanner
   const scannedRef = useRef(false);
 
 
-  // Re-arm the guard on every open
+  // Unrecognised-QR hint, latched briefly so a random QR held
+  // in frame shows one steady message instead of strobing on
+  // every camera event
+  const [invalid, setInvalid] = useState(false);
+  const invalidTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+
+  // A permission dead end was reached: the browser blocked the
+  // camera, or the settings screen refused to open
+  const [blocked, setBlocked] = useState(false);
+
+
+  // Re-arm the guard on every open; the invalid latch and its
+  // timer are cleared on close and unmount
   useEffect(() => {
     if (visible) {
       scannedRef.current = false;
+      setInvalid(false);
+      setBlocked(false);
     }
+    return () => {
+      if (invalidTimer.current) {
+        clearTimeout(invalidTimer.current);
+        invalidTimer.current = null;
+      }
+    };
   }, [visible]);
 
 
   const handleBarcodeScanned = ({ data }: { data: string }) => {
     if (scannedRef.current) return;
     const code = extractCode(data);
-    if (!code) return;
+    if (!code) {
+      // Decoded but not an invitation QR — say so in the
+      // viewfinder and re-arm after a beat
+      scannedRef.current = true;
+      setInvalid(true);
+      if (invalidTimer.current) clearTimeout(invalidTimer.current);
+      invalidTimer.current = setTimeout(() => {
+        invalidTimer.current = null;
+        setInvalid(false);
+        scannedRef.current = false;
+      }, 1600);
+      return;
+    }
     scannedRef.current = true;
     onCodeScanned(code);
     onClose();
@@ -139,13 +180,35 @@ export default function QrScanner({ visible, onClose, onCodeScanned }: QrScanner
 
 
   // After a permanent denial the system dialog can no longer
-  // appear — route to settings instead of a silent no-op
-  const handlePermission = () => {
-    if (permission && !permission.canAskAgain) {
-      Linking.openSettings().catch(() => {});
+  // appear — route to settings instead of a silent no-op. The
+  // request is awaited so a denial that just BECAME permanent
+  // falls through to the same settings path, and a thrown
+  // request never dies as an unhandled rejection
+  const handlePermission = async (): Promise<void> => {
+
+    // The browser has no settings screen — after a block the
+    // only paths are the site's permission settings or manual
+    // entry, so say so instead of a button that does nothing
+    if (Platform.OS === 'web') {
+      const result = await requestPermission().catch(() => null);
+      if (!result?.granted) setBlocked(true);
       return;
     }
-    requestPermission();
+
+    try {
+      if (permission && !permission.canAskAgain) {
+        await Linking.openSettings();
+        return;
+      }
+      const result = await requestPermission();
+      if (!result.granted && !result.canAskAgain) {
+        await Linking.openSettings();
+      }
+    } catch {
+      // Neither the dialog nor settings could open — leave a
+      // hint instead of dead-ending silently
+      setBlocked(true);
+    }
   };
 
 
@@ -176,13 +239,31 @@ export default function QrScanner({ visible, onClose, onCodeScanned }: QrScanner
           <View className="w-7" />
         </View>
 
-        {!permission?.granted ? (
+        {!permission ? (
+          // The permission hook resolves asynchronously — a
+          // neutral spinner beats flashing the request pitch
+          // at users who already granted access
+          <View className="flex-1 items-center justify-center">
+            <LoadingSpinner />
+          </View>
+        ) : !permission.granted ? (
           <View className="flex-1 items-center justify-center px-10">
             <Ionicons name="camera-outline" size={64} color={colors.inkFaint} />
             <Text className="text-ink font-raleway text-center text-base mt-4 mb-6">
               {t('register.cameraPermission')}
             </Text>
-            <Button title={t('register.cameraPermissionButton')} onPress={handlePermission} />
+            <Button
+              title={t('register.cameraPermissionButton')}
+              onPress={() => void handlePermission()}
+            />
+            {blocked && (
+              <Text
+                accessibilityLiveRegion="polite"
+                className="text-ink-soft font-raleway text-center text-sm mt-4"
+              >
+                {t(Platform.OS === 'web' ? 'register.cameraBlockedWeb' : 'register.cameraBlocked')}
+              </Text>
+            )}
           </View>
         ) : (
           <View className="flex-1">
@@ -199,6 +280,13 @@ export default function QrScanner({ visible, onClose, onCodeScanned }: QrScanner
               <Text className="text-on-brand opacity-80 font-raleway text-sm mt-4">
                 {t('register.scanQrHint')}
               </Text>
+              {invalid && (
+                <View className="mt-3 rounded-full bg-scrim px-4 py-1">
+                  <Text className="text-on-brand font-raleway-medium text-sm">
+                    {t('register.invalidQr')}
+                  </Text>
+                </View>
+              )}
             </View>
           </View>
         )}

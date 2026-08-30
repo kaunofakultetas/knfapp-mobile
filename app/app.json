@@ -8,6 +8,10 @@
     "scheme": "knfapp",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "locales": {
+      "lt": "./locales/lt.json",
+      "en": "./locales/en.json"
+    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "lt.vu.knf.knfapp"
@@ -59,7 +63,8 @@
         }
       ],
       "expo-font",
-      "expo-localization"
+      "expo-localization",
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true

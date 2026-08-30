@@ -16,9 +16,11 @@
 //  silently instead of toasting a misleading error.
 //
 //  Refetches happen in place: the full-screen spinner shows
-//  only on the first load; focus returns and pull-to-refresh
-//  run silently behind the shown rows. Logged out the body is
-//  a login prompt carrying a returnTo route back here.
+//  on the first load and while an ErrorState retry is in
+//  flight; focus returns and pull-to-refresh run silently
+//  behind the shown rows (only the pull gesture itself drives
+//  the RefreshControl spinner). Logged out the body is a login
+//  prompt carrying a returnTo route back here.
 //
 //  Split into (root component last):
 //
@@ -52,11 +54,15 @@ import {
 } from '@/components/ui';
 import { useTheme } from '@/hooks/useTheme';
 
+// The current location, params included, for the login round trip
+import { useReturnHref } from '@/hooks/useReturnHref';
+
 // Navigation, i18n and primitives
-import { useFocusEffect, usePathname, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { memo, useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FlatList, Pressable, RefreshControl, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 
 // Which button of a row is mid-request; a row absent from the
@@ -77,12 +83,16 @@ type RequestAction = 'accept' | 'reject';
 // and the accept / decline pair. While either action is in
 // flight BOTH buttons lock and the fired one carries the
 // spinner, so a slow request never looks like a dead button.
+// The buttons' spoken labels carry the requester's name — a
+// column of bare "Accept"/"Decline" stops is unnavigable.
+// Memoized so a list re-render touches only rows whose props
+// actually moved.
 //
 // Used by:
 //   - FriendRequestsScreen (below)
 // -----------------------------------------------------------
 
-function RequestRow({
+const RequestRow = memo(function RequestRow({
   item,
   action,
   onOpen,
@@ -91,9 +101,9 @@ function RequestRow({
 }: {
   item: FriendRequest;
   action: RequestAction | null;
-  onOpen: () => void;
-  onAccept: () => void;
-  onReject: () => void;
+  onOpen: (item: FriendRequest) => void;
+  onAccept: (item: FriendRequest) => void;
+  onReject: (item: FriendRequest) => void;
 }) {
 
   const { t } = useTranslation();
@@ -104,7 +114,7 @@ function RequestRow({
 
       <Pressable
         className="flex-1 flex-row items-center"
-        onPress={onOpen}
+        onPress={() => onOpen(item)}
         accessibilityRole="button"
         accessibilityLabel={item.displayName}
       >
@@ -122,25 +132,27 @@ function RequestRow({
       {/* Both lock while one runs — the fired one spins */}
       <Button
         title={t('friendRequests.accept')}
-        onPress={onAccept}
+        onPress={() => onAccept(item)}
         size="sm"
         fullWidth={false}
         loading={action === 'accept'}
         disabled={action !== null}
+        accessibilityLabel={t('friendRequests.acceptLabel', { name: item.displayName })}
       />
       <Button
         title={t('friendRequests.reject')}
-        onPress={onReject}
+        onPress={() => onReject(item)}
         variant="secondary"
         size="sm"
         fullWidth={false}
         loading={action === 'reject'}
         disabled={action !== null}
+        accessibilityLabel={t('friendRequests.rejectLabel', { name: item.displayName })}
       />
 
     </View>
   );
-}
+});
 
 
 
@@ -163,7 +175,8 @@ export default function FriendRequestsScreen() {
   const { t } = useTranslation();
   const { colors } = useTheme();
   const router = useRouter();
-  const pathname = usePathname();
+  const returnTo = useReturnHref();
+  const insets = useSafeAreaInsets();
 
 
   // The unpaginated endpoint wrapped as a one-page feed — buys
@@ -186,18 +199,22 @@ export default function FriendRequestsScreen() {
   const inFlightRef = useRef(new Set<string>());
 
 
-  // Latest refresh closure — the focus effect below must never
-  // capture a stale one, and keeping it in a ref lets that
-  // effect stay dependency-free (a dep on the per-render
-  // refresh identity would re-fire it on every render)
-  const refreshRef = useRef(feed.refresh);
-  useEffect(() => {
-    refreshRef.current = feed.refresh;
-  });
+  // Pull-to-refresh owns this flag ALONE — focus refetches and
+  // error retries also raise feed.refreshing, and those must
+  // not spin the pull control by themselves
+  const [pullRefreshing, setPullRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setPullRefreshing(true);
+    await feed.refresh();
+    setPullRefreshing(false);
+  };
 
 
   // Silent in-place refetch when the screen regains focus; the
-  // first focus rides the mount load and is skipped
+  // first focus rides the mount load and is skipped. useFeed's
+  // refresh has a stable identity, so the dep never re-fires
+  // this mid-focus
   const focusedOnceRef = useRef(false);
   useFocusEffect(
     useCallback(() => {
@@ -205,52 +222,89 @@ export default function FriendRequestsScreen() {
         focusedOnceRef.current = true;
         return;
       }
-      void refreshRef.current();
-    }, []),
+      void feed.refresh();
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- feed.refresh is a stable useFeed callback; depping the feed object would refire every render
+    }, [feed.refresh]),
   );
 
 
-  const setRowAction = (id: string, action: RequestAction | null) => {
+  const setRowAction = useCallback((id: string, action: RequestAction | null) => {
     setInFlight((previous) => {
       const next = new Map(previous);
       if (action) next.set(id, action);
       else next.delete(id);
       return next;
     });
-  };
+  }, []);
 
 
   // Accept and decline share one shape; the row leaves the
   // list only after the server confirms. A 404/409 means the
   // request is already gone — drop the row and resync silently
-  const handleAction = async (item: FriendRequest, action: RequestAction) => {
-    if (inFlightRef.current.has(item.id)) return;
-    inFlightRef.current.add(item.id);
-    setRowAction(item.id, action);
+  const handleAction = useCallback(
+    async (item: FriendRequest, action: RequestAction) => {
+      if (inFlightRef.current.has(item.id)) return;
+      inFlightRef.current.add(item.id);
+      setRowAction(item.id, action);
 
-    try {
-      if (action === 'accept') await acceptFriendRequest(item.id);
-      else await rejectFriendRequest(item.id);
-      feed.setItems((items) => items.filter((request) => request.id !== item.id));
-    } catch (err) {
-      const gone =
-        err instanceof ApiError &&
-        err.code === 'http' &&
-        (err.status === 404 || err.status === 409);
-      if (gone) {
+      try {
+        if (action === 'accept') await acceptFriendRequest(item.id);
+        else await rejectFriendRequest(item.id);
         feed.setItems((items) => items.filter((request) => request.id !== item.id));
-        void refreshRef.current();
-      } else {
-        showToast(
-          'error',
-          t(action === 'accept' ? 'friendRequests.acceptError' : 'friendRequests.rejectError'),
-        );
+      } catch (err) {
+        const gone =
+          err instanceof ApiError &&
+          err.code === 'http' &&
+          (err.status === 404 || err.status === 409);
+        if (gone) {
+          feed.setItems((items) => items.filter((request) => request.id !== item.id));
+          void feed.refresh();
+        } else {
+          showToast(
+            'error',
+            t(action === 'accept' ? 'friendRequests.acceptError' : 'friendRequests.rejectError'),
+          );
+        }
+      } finally {
+        inFlightRef.current.delete(item.id);
+        setRowAction(item.id, null);
       }
-    } finally {
-      inFlightRef.current.delete(item.id);
-      setRowAction(item.id, null);
-    }
-  };
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- feed.setItems/refresh are stable useFeed callbacks; the feed object itself is not
+    [feed.setItems, feed.refresh, setRowAction, t],
+  );
+
+
+  // Stable row handlers — the memoized RequestRow re-renders
+  // only when its own request or in-flight action changes
+  const handleOpen = useCallback(
+    (item: FriendRequest) =>
+      router.push({ pathname: '/(main)/profile', params: { userId: item.userId } }),
+    [router],
+  );
+
+  const handleAccept = useCallback(
+    (item: FriendRequest) => void handleAction(item, 'accept'),
+    [handleAction],
+  );
+
+  const handleReject = useCallback(
+    (item: FriendRequest) => void handleAction(item, 'reject'),
+    [handleAction],
+  );
+
+  const renderItem = useCallback(
+    ({ item }: { item: FriendRequest }) => (
+      <RequestRow
+        item={item}
+        action={inFlight.get(item.id) ?? null}
+        onOpen={handleOpen}
+        onAccept={handleAccept}
+        onReject={handleReject}
+      />
+    ),
+    [inFlight, handleOpen, handleAccept, handleReject],
+  );
 
 
   if (!isAuthenticated) {
@@ -261,7 +315,7 @@ export default function FriendRequestsScreen() {
           title={t('friendRequests.loginRequired')}
           action={{
             label: t('settings.login'),
-            onPress: () => router.push({ pathname: '/login', params: { returnTo: pathname } }),
+            onPress: () => router.push({ pathname: '/login', params: { returnTo } }),
           }}
         />
       </Screen>
@@ -269,7 +323,10 @@ export default function FriendRequestsScreen() {
   }
 
 
-  if (feed.loading) {
+  // The full spinner also covers an ErrorState retry in flight
+  // — without the second clause the retry press changed
+  // nothing on screen for the whole request
+  if (feed.loading || (feed.error && feed.refreshing)) {
     return (
       <Screen>
         <View className="flex-1 items-center justify-center">
@@ -298,22 +355,17 @@ export default function FriendRequestsScreen() {
       <FlatList
         data={feed.items}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 16, paddingBottom: 24 }}
-        renderItem={({ item }) => (
-          <RequestRow
-            item={item}
-            action={inFlight.get(item.id) ?? null}
-            onOpen={() =>
-              router.push({ pathname: '/(main)/profile', params: { userId: item.userId } })
-            }
-            onAccept={() => void handleAction(item, 'accept')}
-            onReject={() => void handleAction(item, 'reject')}
-          />
-        )}
+        contentContainerStyle={{
+          flexGrow: 1,
+          paddingHorizontal: 16,
+          // Clears the home indicator on notched devices
+          paddingBottom: insets.bottom + 24,
+        }}
+        renderItem={renderItem}
         refreshControl={
           <RefreshControl
-            refreshing={feed.refreshing}
-            onRefresh={() => void feed.refresh()}
+            refreshing={pullRefreshing}
+            onRefresh={() => void handleRefresh()}
             tintColor={colors.brand}
             colors={[colors.brand]}
           />

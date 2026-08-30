@@ -8,11 +8,18 @@
 //  opens the viewer by id, so re-sent duplicates of the same
 //  URL open at the right position.
 //
-//  RN's Modal keeps children mounted across visible=false, so
-//  both the local index and the Gallery's mount-only
-//  initialIndex freeze at the first open — the resync effect
-//  on [visible, initialIndex] is what makes every reopen land
-//  on the tapped image instead of the previously viewed one.
+//  RN's Modal renders nothing while visible=false — its
+//  children unmount between opens — but this component (and
+//  its index state) stays mounted, so the resync effect on
+//  [visible, initialIndex] is what makes every reopen land on
+//  the tapped image instead of the previously viewed one. The
+//  freshly-mounted rail measures its width AFTER that resync;
+//  the railWidth effect re-centres once the layout lands.
+//
+//  Both the stage and the rail draw with expo-image (the same
+//  memory-disk cache the bubbles' thumbnails already filled),
+//  so the rail downsamples to its 56 px views instead of
+//  decoding full-resolution originals.
 //
 //  The Gallery paints its own black stage; the chrome (close
 //  button, rail backdrop) uses the scrim token, and safe-area
@@ -21,6 +28,7 @@
 //  Split into (root component last):
 //
 //    ViewerImage      — one gallery entry (message id + uri)
+//    StageImage       — fullscreen entry with load/error state
 //    ImageViewerModal — the modal itself (default export)
 // -----------------------------------------------------------
 
@@ -29,9 +37,18 @@ import { useTheme } from '@/hooks/useTheme';
 
 // Primitives and the gallery engine
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FlatList, Image, Modal, Pressable, View } from 'react-native';
+import {
+  AccessibilityInfo,
+  ActivityIndicator,
+  FlatList,
+  Modal,
+  Pressable,
+  Text,
+  View,
+} from 'react-native';
 import Gallery, { type GalleryRef } from 'react-native-awesome-gallery';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -60,6 +77,93 @@ const THUMB_FULL = THUMB_SIZE + THUMB_MARGIN;
 export interface ViewerImage {
   id: string;
   uri: string;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// StageImage
+// -----------------------------------------------------------
+//
+// One fullscreen gallery entry on expo-image: a spinner until
+// the load settles, the real source dimensions handed to the
+// gallery for correct pinch-zoom bounds, and a translated
+// placeholder instead of a blank black stage when the download
+// fails.
+//
+// Used by:
+//   - ImageViewerModal (below)
+// -----------------------------------------------------------
+
+function StageImage({
+  item,
+  label,
+  setImageDimensions,
+}: {
+  item: ViewerImage;
+  label: string;
+  setImageDimensions: (dims: { width: number; height: number }) => void;
+}) {
+
+  const { t } = useTranslation();
+  const { colors } = useTheme();
+
+
+  const [phase, setPhase] = useState<'loading' | 'ready' | 'error'>('loading');
+
+
+  if (phase === 'error') {
+    return (
+      <View
+        className="items-center justify-center"
+        style={{ width: '100%', height: '100%' }}
+        accessible
+        accessibilityLabel={t('chat.imageUnavailable')}
+      >
+        <Ionicons name="image-outline" size={48} color={colors.onBrand} />
+        <Text className="mt-sm font-raleway text-sm" style={{ color: colors.onBrand }}>
+          {t('chat.imageUnavailable')}
+        </Text>
+      </View>
+    );
+  }
+
+
+  return (
+    <View style={{ width: '100%', height: '100%' }}>
+      <Image
+        source={{ uri: item.uri }}
+        style={{ width: '100%', height: '100%' }}
+        contentFit="contain"
+        recyclingKey={item.id}
+        cachePolicy="memory-disk"
+        accessible
+        accessibilityLabel={label}
+        onLoad={(e) => {
+          // Real dimensions give the gallery correct pinch-zoom
+          // bounds for each image
+          if (e.source?.width && e.source?.height) {
+            setImageDimensions({ width: e.source.width, height: e.source.height });
+          }
+          setPhase('ready');
+        }}
+        onError={() => setPhase('error')}
+      />
+      {phase === 'loading' && (
+        <View
+          className="items-center justify-center"
+          style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+          pointerEvents="none"
+        >
+          <ActivityIndicator size="large" color={colors.onBrand} />
+        </View>
+      )}
+    </View>
+  );
 }
 
 
@@ -109,9 +213,10 @@ export default function ImageViewerModal({
   };
 
 
-  // Modal children stay mounted while hidden — resync both the
-  // local index and the Gallery every time the viewer opens on
-  // a (possibly different) image
+  // The component stays mounted across opens (only the Modal's
+  // children unmount) — resync both the local index and the
+  // Gallery every time the viewer opens on a (possibly
+  // different) image
   useEffect(() => {
     if (!visible) return;
 
@@ -123,8 +228,45 @@ export default function ImageViewerModal({
   }, [visible, initialIndex]);
 
 
+  // The rail mounts fresh on every open, so its first measured
+  // width lands AFTER the resync above — re-centre the active
+  // thumbnail once the layout is known
+  useEffect(() => {
+    if (visible && railWidth > 0) centerThumb(index, false);
+    // index changes are centred by onIndexChange already;
+    // centerThumb identity is render-scoped on purpose
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, railWidth]);
+
+
+  // A shrinking image set (unsent photo messages) clamps the
+  // index back into range; an emptied set closes the viewer
+  useEffect(() => {
+    if (!visible) return;
+    if (images.length === 0) {
+      onClose();
+      return;
+    }
+    if (index > images.length - 1) {
+      const clamped = images.length - 1;
+      setIndex(clamped);
+      galleryRef.current?.setIndex(clamped);
+      centerThumb(clamped, false);
+    }
+    // Runs only when the set shrinks under the current index
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, images.length]);
+
+
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      statusBarTranslucent
+      navigationBarTranslucent
+      onRequestClose={onClose}
+    >
       <View className="flex-1">
 
         <Gallery
@@ -137,20 +279,17 @@ export default function ImageViewerModal({
           onIndexChange={(idx) => {
             setIndex(idx);
             centerThumb(idx, true);
+            // Live position for screen readers — the swipe
+            // itself is silent
+            AccessibilityInfo.announceForAccessibility(
+              t('chat.photoIndex', { index: idx + 1, total: images.length }),
+            );
           }}
-          renderItem={({ item, setImageDimensions }) => (
-            <Image
-              source={{ uri: item.uri }}
-              style={{ width: '100%', height: '100%' }}
-              resizeMode="contain"
-              onLoad={(e) => {
-                // Real dimensions give the gallery correct
-                // pinch-zoom bounds for each image
-                const source = e.nativeEvent?.source;
-                if (source?.width && source?.height) {
-                  setImageDimensions({ width: source.width, height: source.height });
-                }
-              }}
+          renderItem={({ item, index: itemIndex, setImageDimensions }) => (
+            <StageImage
+              item={item}
+              label={t('chat.photoIndex', { index: itemIndex + 1, total: images.length })}
+              setImageDimensions={setImageDimensions}
             />
           )}
         />
@@ -191,7 +330,10 @@ export default function ImageViewerModal({
                       centerThumb(idx, true);
                     }}
                     accessibilityRole="imagebutton"
-                    accessibilityLabel={t('chat.photoMessage')}
+                    accessibilityLabel={t('chat.photoIndex', {
+                      index: idx + 1,
+                      total: images.length,
+                    })}
                     accessibilityState={{ selected: isActive }}
                     style={{
                       width: THUMB_SIZE,
@@ -206,7 +348,9 @@ export default function ImageViewerModal({
                     <Image
                       source={{ uri: item.uri }}
                       style={{ width: '100%', height: '100%', opacity: isActive ? 1 : 0.4 }}
-                      resizeMode="cover"
+                      contentFit="cover"
+                      recyclingKey={item.id}
+                      cachePolicy="memory-disk"
                     />
                   </Pressable>
                 );

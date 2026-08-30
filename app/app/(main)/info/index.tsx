@@ -68,6 +68,9 @@ import {
 // Per-language offline cache
 import { cacheGet, cacheKeyInfo, cacheSet, INFO_CACHE_MAX_AGE } from '@/services/cache';
 
+// Clipboard hand-off when a link has no handler
+import * as Clipboard from 'expo-clipboard';
+
 // Icons, linking, scroll primitives
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
@@ -93,6 +96,50 @@ const FAQ_ROW_SHADOW: ViewStyle = {
   shadowOpacity: 0.06,
   shadowRadius: 4,
   elevation: 1,
+};
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// telUrl / mailtoUrl / copyValue
+// -----------------------------------------------------------
+//
+// Strict link builders: backend contact values arrive as
+// display strings ("(8 37) 422 523", names with spaces), so
+// tel: keeps only digits and '+' and the mailto local part is
+// percent-encoded — a raw space would make openURL reject a
+// perfectly good contact. copyValue reverses the build for
+// the clipboard fallback when no handler exists.
+//
+// Used by:
+//   - FacultyCard, ContactsSection (below) — the contact rows
+//   - InfoScreen (below) — the openLink clipboard fallback
+// -----------------------------------------------------------
+
+const telUrl = (phone: string | undefined): string =>
+  `tel:${(phone ?? '').replace(/[^+\d]/g, '')}`;
+
+const mailtoUrl = (email: string | undefined): string => {
+  const value = (email ?? '').trim();
+  const at = value.lastIndexOf('@');
+  if (at < 0) return `mailto:${encodeURIComponent(value)}`;
+  return `mailto:${encodeURIComponent(value.slice(0, at))}@${value.slice(at + 1)}`;
+};
+
+const copyValue = (url: string): string => {
+  if (/^tel:/i.test(url)) return url.slice(4);
+  if (/^mailto:/i.test(url)) {
+    try {
+      return decodeURIComponent(url.slice(7));
+    } catch {
+      return url.slice(7);
+    }
+  }
+  return url;
 };
 
 
@@ -203,8 +250,8 @@ function FacultyCard({
         {general?.phone ? (
           <Pressable
             className="flex-row items-center gap-sm"
-            onPress={() => onOpen(`tel:${general.phone}`)}
-            hitSlop={8}
+            onPress={() => onOpen(telUrl(general.phone))}
+            hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
             accessibilityRole="link"
             accessibilityLabel={general.phone}
           >
@@ -216,8 +263,8 @@ function FacultyCard({
         {general?.email ? (
           <Pressable
             className="flex-row items-center gap-sm"
-            onPress={() => onOpen(`mailto:${general.email}`)}
-            hitSlop={8}
+            onPress={() => onOpen(mailtoUrl(general.email))}
+            hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
             accessibilityRole="link"
             accessibilityLabel={general.email}
           >
@@ -294,8 +341,8 @@ function ContactsSection({
                 {contact.phone ? (
                   <Pressable
                     className="mt-sm flex-row items-center gap-xs"
-                    onPress={() => onOpen(`tel:${contact.phone}`)}
-                    hitSlop={8}
+                    onPress={() => onOpen(telUrl(contact.phone))}
+                    hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
                     accessibilityRole="link"
                     accessibilityLabel={contact.phone}
                   >
@@ -307,8 +354,8 @@ function ContactsSection({
                 {contact.email ? (
                   <Pressable
                     className="mt-sm flex-row items-center gap-xs"
-                    onPress={() => onOpen(`mailto:${contact.email}`)}
-                    hitSlop={8}
+                    onPress={() => onOpen(mailtoUrl(contact.email))}
+                    hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
                     accessibilityRole="link"
                     accessibilityLabel={contact.email}
                   >
@@ -474,7 +521,9 @@ function FaqItem({
     <Pressable
       onPress={onToggle}
       accessibilityRole="button"
-      accessibilityLabel={item.q}
+      // The answer must live in the label — screen readers
+      // never reach the conditional answer Text below
+      accessibilityLabel={expanded ? `${item.q}. ${item.a}` : item.q}
       accessibilityState={{ expanded }}
       className="rounded-xl bg-surface p-md"
       style={({ pressed }) =>
@@ -519,16 +568,18 @@ function FaqItem({
 
 function FaqSection({ faq }: { faq: InfoFaq[] }) {
 
-  // Expanded rows tracked by index — the FAQ order is stable
-  // within one payload, and several rows may be open at once
-  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  // Expanded rows tracked by question text — a refresh may
+  // reorder or trim the payload, and index keys would silently
+  // hand an open answer to a different question; several rows
+  // may be open at once
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
 
-  const toggle = (index: number) => {
+  const toggle = (question: string) => {
     setExpanded((previous) => {
       const next = new Set(previous);
-      if (next.has(index)) next.delete(index);
-      else next.add(index);
+      if (next.has(question)) next.delete(question);
+      else next.add(question);
       return next;
     });
   };
@@ -540,8 +591,8 @@ function FaqSection({ faq }: { faq: InfoFaq[] }) {
         <FaqItem
           key={`${index}-${item.q}`}
           item={item}
-          expanded={expanded.has(index)}
-          onToggle={() => toggle(index)}
+          expanded={expanded.has(item.q)}
+          onToggle={() => toggle(item.q)}
         />
       ))}
     </View>
@@ -560,13 +611,13 @@ function FaqSection({ faq }: { faq: InfoFaq[] }) {
 //
 // Used by:
 //   - app/(main)/_layout.tsx — route /info
-//   - app/(main)/settings/index.tsx — the faculty info link
+//   - app/(main)/tabs/settings.tsx — the faculty info link
 // -----------------------------------------------------------
 
 export default function InfoScreen() {
 
   const { t } = useTranslation();
-  const { language } = useApp();
+  const { language, hydrated } = useApp();
   const { colors } = useTheme();
 
 
@@ -613,6 +664,10 @@ export default function InfoScreen() {
           setData(null);
           setCachedAt(null);
         }
+      } else {
+        // The kept content is fine, but a pull-to-refresh that
+        // failed must still say so
+        showToast('error', t('info.loadError'));
       }
     } finally {
       if (seq === seqRef.current) {
@@ -624,15 +679,21 @@ export default function InfoScreen() {
 
 
   // A language switch is a new resource: spinner, cleared
-  // content, cleared live marker — no stale-language flash
+  // content, cleared live marker — no stale-language flash.
+  // Gated on hydration: mounted as the first route (a web
+  // reload on /info, a deep link), `language` may still be the
+  // pre-hydration placeholder that flips right after mount —
+  // waiting avoids fetching the handbook twice and tearing the
+  // first copy down mid-read
   useEffect(() => {
+    if (!hydrated) return;
     setLoading(true);
     setData(null);
     setCachedAt(null);
     liveLang.current = null;
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [language]);
+  }, [hydrated, language]);
 
 
   // Back online: refetch (cache-served content upgrades to live)
@@ -647,11 +708,24 @@ export default function InfoScreen() {
   };
 
 
-  // tel:/mailto:/https: opens all reject where no handler
-  // exists (emulators, wifi tablets, web) — every open is
-  // caught and surfaced instead of dying silently
+  // Scheme allowlist: https: for the server-supplied link
+  // payloads, plus tel:/mailto: which only ever arrive from
+  // the strict builders above — anything else a compromised
+  // payload could carry (javascript:, intent:, file:) is
+  // refused with the link toast. Opens still reject where no
+  // handler exists (emulators, wifi tablets, web); that path
+  // hands the value over via the clipboard instead of dying
+  // silently
   const openLink = (url: string) => {
-    Linking.openURL(url).catch(() => showToast('error', t('info.linkError')));
+    if (!/^(https:|tel:|mailto:)/i.test(url)) {
+      showToast('error', t('info.linkError'));
+      return;
+    }
+    Linking.openURL(url).catch(() => {
+      Clipboard.setStringAsync(copyValue(url))
+        .then(() => showToast('info', t('info.linkCopied')))
+        .catch(() => showToast('error', t('info.linkError')));
+    });
   };
 
 

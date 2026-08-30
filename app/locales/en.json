@@ -1,0 +1,4 @@
+{
+  "NSCameraUsageDescription": "The camera is needed to scan invitation QR codes.",
+  "NSPhotoLibraryUsageDescription": "Photo library access is needed to share images in posts and messages."
+}

@@ -59,7 +59,9 @@ export default function KitAvatar({
   }
 
 
-  const initial = name.trim().charAt(0).toUpperCase() || '?';
+  // Spread iterates code points, not UTF-16 units — an emoji- or
+  // non-BMP-leading name keeps its whole first glyph
+  const initial = [...name.trim()][0]?.toUpperCase() ?? '?';
 
 
   return (

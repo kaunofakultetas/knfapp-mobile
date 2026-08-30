@@ -32,6 +32,15 @@ import KitAvatar from './KitAvatar';
 import { AVATAR_COLUMN, AVATAR_SIZE } from './metrics';
 
 
+// Typing announcement debounce, held at module level so the
+// bubble's start/stop REMOUNT cycles cannot re-announce: one
+// spoken update per burst, resetting only after the bubble has
+// stayed gone for the same window
+const TYPING_ANNOUNCE_GAP_MS = 4000;
+let typingAnnouncedAt = 0;
+let typingResetTimer: ReturnType<typeof setTimeout> | null = null;
+
+
 // One dot: rises and brightens, then settles, offset per index
 function Dot({ index }: { index: number }) {
 
@@ -88,11 +97,41 @@ export default function TypingBubble({
   const { colors } = useTheme();
 
 
-  // iOS never reads a live region that mounts with its text;
-  // announce it explicitly once
+  // iOS never reads a live region that mounts with its text, so
+  // it gets one explicit announcement — iOS ONLY (the live region
+  // below already covers Android, which would speak twice), only
+  // while VoiceOver is on, and at most once per burst however the
+  // typist set churns or the bubble remounts. VoiceOver is asked
+  // directly here: a cached ref is still false this early in the
+  // bubble's life, and the bubble mounts exactly when the typist
+  // appears
   useEffect(() => {
-    AccessibilityInfo.announceForAccessibility(label);
+    if (typingResetTimer) {
+      clearTimeout(typingResetTimer);
+      typingResetTimer = null;
+    }
+    if (Platform.OS !== 'ios') return;
+    let alive = true;
+    void AccessibilityInfo.isScreenReaderEnabled().then((enabled) => {
+      if (!alive || !enabled) return;
+      const now = Date.now();
+      if (now - typingAnnouncedAt < TYPING_ANNOUNCE_GAP_MS) return;
+      typingAnnouncedAt = now;
+      AccessibilityInfo.announceForAccessibility(label);
+    });
+    return () => {
+      alive = false;
+    };
   }, [label]);
+
+  // The debounce only resets once the bubble has stayed unmounted
+  // (nobody typing) for a while — a quick stop/start keeps quiet
+  useEffect(() => () => {
+    typingResetTimer = setTimeout(() => {
+      typingAnnouncedAt = 0;
+      typingResetTimer = null;
+    }, TYPING_ANNOUNCE_GAP_MS);
+  }, []);
 
 
   return (

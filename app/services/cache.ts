@@ -10,14 +10,18 @@
 //  and must never survive into the next account.
 //
 //  Everything is best-effort: storage failures and corrupt
-//  entries read as cache misses, never as thrown errors.
+//  entries read as cache misses, never as thrown errors —
+//  except cacheClearAll, which reports failure so logout can
+//  retry the one wipe with a privacy consequence.
 //
 //  Split into:
 //
-//    cacheSet / cacheGet — read/write with TTL
+//    cacheEpoch          — wipe fence for in-flight writers
+//    cacheSet / cacheGet — read/write with TTL + eviction
 //    cacheRemove         — evict one entry
+//    cacheSweepPrefix    — drop expired entries under a prefix
 //    cacheClearAll       — wipe everything (logout)
-//    cache keys          — well-known keys + builders
+//    cache keys          — per-account/parameter builders
 //    max ages            — per-resource TTLs
 // -----------------------------------------------------------
 
@@ -28,11 +32,22 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // Namespaces cache entries so cacheClearAll can find them all
 const CACHE_PREFIX = 'cache:';
 
-// On-disk entry shape; cachedAt is ms epoch
+// Bumped whenever the shape of any cached blob changes — a
+// stored entry with a different version reads as a miss
+const CACHE_SCHEMA_VERSION = 1;
+
+// On-disk entry shape; v is CACHE_SCHEMA_VERSION at write
+// time, cachedAt is ms epoch
 interface CacheEntry<T> {
+  v: number;
   data: T;
   cachedAt: number;
 }
+
+// Wipe fence: incremented by cacheClearAll so an in-flight
+// fetch that started before a logout wipe can detect it and
+// skip its late cacheSet (useFeed captures it before fetching)
+export let cacheEpoch = 0;
 
 
 
@@ -51,7 +66,7 @@ interface CacheEntry<T> {
 
 export async function cacheSet<T>(key: string, data: T): Promise<void> {
   try {
-    const entry: CacheEntry<T> = { data, cachedAt: Date.now() };
+    const entry: CacheEntry<T> = { v: CACHE_SCHEMA_VERSION, data, cachedAt: Date.now() };
     await AsyncStorage.setItem(CACHE_PREFIX + key, JSON.stringify(entry));
   } catch {
     // Storage full or unavailable — the cache is optional
@@ -69,11 +84,16 @@ export async function cacheSet<T>(key: string, data: T): Promise<void> {
 // -----------------------------------------------------------
 //
 // Returns null when nothing is stored, the entry is older than
-// maxAgeMs, or the stored blob is not a valid entry (legacy
-// format, corruption) — an unvalidated cachedAt would make the
-// expiry check NaN-compare and serve garbage as fresh. A
-// maxAgeMs of 0 means "always expired", hence the !==
-// undefined check instead of truthiness.
+// maxAgeMs, its schema version is not the current one, or the
+// stored blob is not a valid entry (legacy format, corruption)
+// — an unvalidated cachedAt would make the expiry check
+// NaN-compare and serve garbage as fresh. A maxAgeMs of 0
+// means "always expired", hence the !== undefined check
+// instead of truthiness. A negative age means the clock moved
+// backwards — skew fails toward refetch, never toward stale
+// data (same clamp formatRelative applies). Expired and
+// wrong-version entries are evicted on the way out so dead
+// blobs do not pile up in storage.
 //
 // Used by:
 //   - hooks/useFeed.ts — offline fallback for page 1
@@ -92,7 +112,15 @@ export async function cacheGet<T>(
     if (!entry || typeof entry.cachedAt !== 'number') return null;
 
 
-    if (maxAgeMs !== undefined && Date.now() - entry.cachedAt > maxAgeMs) {
+    if (entry.v !== CACHE_SCHEMA_VERSION) {
+      await cacheRemove(key);
+      return null;
+    }
+
+
+    const age = Date.now() - entry.cachedAt;
+    if (age < 0 || (maxAgeMs !== undefined && age > maxAgeMs)) {
+      await cacheRemove(key);
       return null;
     }
     return { data: entry.data as T, cachedAt: entry.cachedAt };
@@ -112,8 +140,8 @@ export async function cacheGet<T>(
 // -----------------------------------------------------------
 //
 // Used by:
-//   - screens invalidating a single stale resource (e.g. a
-//     schedule combination after a settings change)
+//   - cacheGet (above) — evicting expired and wrong-version
+//     entries as they are read
 // -----------------------------------------------------------
 
 export async function cacheRemove(key: string): Promise<void> {
@@ -131,26 +159,86 @@ export async function cacheRemove(key: string): Promise<void> {
 
 
 // -----------------------------------------------------------
+// cacheSweepPrefix
+// -----------------------------------------------------------
+//
+// Drops every entry under one key prefix whose age exceeds
+// maxAgeMs (corrupt and wrong-version blobs go too). cacheGet
+// only evicts entries it is actually asked for — but schedule
+// browsing writes one row per day/group/semester combination
+// and never re-reads most of them, so without a sweep those
+// rows would sit in AsyncStorage forever. Best-effort like
+// everything here: a failed sweep changes nothing.
+//
+// Used by:
+//   - app/(main)/tabs/schedule.tsx — expired 'schedule:'
+//     entries, once per mount
+// -----------------------------------------------------------
+
+export async function cacheSweepPrefix(prefix: string, maxAgeMs: number): Promise<void> {
+  try {
+    const keys = await AsyncStorage.getAllKeys();
+    const candidates = keys.filter((key) => key.startsWith(CACHE_PREFIX + prefix));
+    if (candidates.length === 0) return;
+
+    const now = Date.now();
+    const dead: string[] = [];
+    for (const key of candidates) {
+      try {
+        const raw = await AsyncStorage.getItem(key);
+        if (!raw) continue;
+        const entry = JSON.parse(raw) as Partial<CacheEntry<unknown>> | null;
+        const cachedAt = entry && typeof entry.cachedAt === 'number' ? entry.cachedAt : NaN;
+        const age = now - cachedAt;
+        // NaN compares false on both bounds, so a corrupt stamp
+        // falls through to the version check and gets swept
+        if (age < 0 || age > maxAgeMs || entry?.v !== CACHE_SCHEMA_VERSION) dead.push(key);
+      } catch {
+        dead.push(key);
+      }
+    }
+    if (dead.length > 0) await AsyncStorage.multiRemove(dead);
+  } catch {
+    // Best-effort — a failed sweep only leaves stale blobs
+  }
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // cacheClearAll
 // -----------------------------------------------------------
 //
 // Removes every 'cache:'-prefixed key, leaving auth and app
-// settings untouched.
+// settings untouched. Bumps cacheEpoch FIRST so an in-flight
+// fetch cannot re-write a wiped entry after the fact, and
+// resolves false (instead of swallowing) when the wipe itself
+// failed, so logout can retry the one storage operation with a
+// privacy consequence.
 //
 // Used by:
-//   - context/AuthContext.tsx — logout (privacy: cached
-//     conversations belong to the departing account)
+//   - context/AuthContext.tsx — logout / establishSession
+//     (privacy: cached conversations belong to the departing
+//     account)
 // -----------------------------------------------------------
 
-export async function cacheClearAll(): Promise<void> {
+export async function cacheClearAll(): Promise<boolean> {
+  cacheEpoch += 1;
+
   try {
     const keys = await AsyncStorage.getAllKeys();
     const cacheKeys = keys.filter((key) => key.startsWith(CACHE_PREFIX));
     if (cacheKeys.length > 0) {
       await AsyncStorage.multiRemove(cacheKeys);
     }
+    return true;
   } catch {
-    // Best-effort — logout must never block on storage
+    // Reported, not thrown — logout must never block on storage
+    return false;
   }
 }
 
@@ -164,21 +252,28 @@ export async function cacheClearAll(): Promise<void> {
 // Cache keys
 // -----------------------------------------------------------
 //
-// Well-known keys and per-parameter builders, kept here so no
-// two screens can collide on a string.
+// Per-parameter builders, kept here so no two screens can
+// collide on a string. Account-private feeds (news wall,
+// conversations) take the viewer's user id so no account —
+// guest included — can ever read another's entry.
 //
 // Used by:
-//   - app/(main)/tabs/news.tsx — CACHE_KEY_NEWS
-//   - app/(main)/tabs/messages.tsx — CACHE_KEY_CONVERSATIONS
+//   - app/(main)/tabs/news.tsx — cacheKeyNews
+//   - app/(main)/tabs/messages.tsx — cacheKeyConversations
 //   - app/(main)/tabs/schedule.tsx — cacheKeySchedule
 //   - app/(main)/info — cacheKeyInfo
 // -----------------------------------------------------------
 
-export const CACHE_KEY_NEWS = 'news:feed';
+// The feed mixes public news with the viewer's wall posts and
+// like state — scope it per account ('guest' when signed out)
+export function cacheKeyNews(userId: string | 'guest'): string {
+  return `news:feed:${userId}`;
+}
 
-export const CACHE_KEY_SOCIAL_FEED = 'social:feed';
-
-export const CACHE_KEY_CONVERSATIONS = 'conversations:list';
+// Conversation previews are private to one account
+export function cacheKeyConversations(userId: string): string {
+  return `conversations:list:${userId}`;
+}
 
 // Day/group/semester each change the result set — '*' keeps
 // the unfiltered variant distinct from filtered ones

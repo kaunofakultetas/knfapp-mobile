@@ -8,11 +8,15 @@
 //  old overlay flashed rgba-white across dark UIs.
 //
 //  Callers pass already-translated `text`; the component
-//  renders no strings of its own.
+//  renders no visible strings of its own — only the a11y
+//  label falls back to common.loading when no text is given.
 // -----------------------------------------------------------
 
 // Spinner and caption primitives
 import { ActivityIndicator, Text, View } from 'react-native';
+
+// Fallback a11y label
+import { useTranslation } from 'react-i18next';
 
 // Brand tint for the active scheme
 import { useTheme } from '@/hooks/useTheme';
@@ -47,6 +51,7 @@ export default function LoadingSpinner({
   overlay = false,
 }: LoadingSpinnerProps) {
 
+  const { t } = useTranslation();
   const { colors } = useTheme();
 
 
@@ -58,19 +63,29 @@ export default function LoadingSpinner({
   );
 
 
+  // One progressbar element either way, labeled with the
+  // caption when there is one
+  const a11yProps = {
+    accessible: true,
+    accessibilityRole: 'progressbar' as const,
+    accessibilityLabel: text ?? t('common.loading'),
+  };
+
+
   // The scrim fill also swallows touches, blocking the UI
   // underneath for the duration of the wait
   if (overlay) {
     return (
-      <View className="absolute inset-0 z-50 items-center justify-center bg-scrim">
+      <View {...a11yProps} className="absolute inset-0 z-50 items-center justify-center bg-scrim">
         <View className="items-center rounded-xl bg-surface px-xl py-lg">{content}</View>
       </View>
     );
   }
 
 
-  return <View className="items-center justify-center p-lg">{content}</View>;
+  return (
+    <View {...a11yProps} className="items-center justify-center p-lg">
+      {content}
+    </View>
+  );
 }
-
-// Named alongside the default so the ui barrel can `export *`
-export { LoadingSpinner };

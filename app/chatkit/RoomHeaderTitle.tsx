@@ -15,6 +15,7 @@ import { Pressable, Text, View } from 'react-native';
 import { fonts } from '@/constants/theme';
 import { useTheme } from '@/hooks/useTheme';
 import KitAvatar from './KitAvatar';
+import { useKitLabels } from './labels';
 import StackedAvatars, { type StackMember } from './StackedAvatars';
 
 
@@ -38,6 +39,7 @@ export default function RoomHeaderTitle({
 }) {
 
   const { colors } = useTheme();
+  const labels = useKitLabels();
 
 
   return (
@@ -56,6 +58,8 @@ export default function RoomHeaderTitle({
         )}
         {online ? (
           <View
+            // The green disc alone says nothing to a screen reader
+            accessibilityLabel={labels.online}
             style={{
               position: 'absolute',
               right: -1,

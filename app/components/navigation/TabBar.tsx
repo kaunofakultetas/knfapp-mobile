@@ -8,18 +8,24 @@
 //  the whole item eases down a touch while pressed. Springs
 //  are critically damped — fluid, never bouncy.
 //
-//  Hidden tabs (expo-router href: null for unpinned surfaces)
-//  never render; the messages tab carries the live unread
-//  badge from useUnreadCount. The bar sits on the surface
-//  color with a hairline top rule and pads itself for the home
-//  indicator, so it reads the same in both schemes.
+//  Unpinned tabs never render — visibility follows the app's
+//  own pinnedTabs setting, the same source AppContext enforces
+//  (the layout's href: null only blocks linking); the messages
+//  tab carries the live unread badge from useUnreadCount. The
+//  bar sits on the surface color with a hairline top rule and
+//  pads itself for the home indicator, so it reads the same in
+//  both schemes.
 //
 //  Split into (root component last):
 //
-//    TAB_ICONS — filled / outline glyph pairs per route
+//    TAB_ICONS — glyph pairs derived from the shared roster
 //    TabItem   — one animated tab
 //    TabBar    — the bar (default export)
 // -----------------------------------------------------------
+
+// The shared tab roster and the pinned-tab setting
+import { TABS } from '@/constants/tabs';
+import { useApp } from '@/context/AppContext';
 
 // Unread badge and theme
 import { useUnreadCount } from '@/hooks/useUnreadCount';
@@ -30,6 +36,7 @@ import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, {
   interpolate,
@@ -41,16 +48,13 @@ import Animated, {
 
 type IoniconName = keyof typeof Ionicons.glyphMap;
 
-// Glyph pairs keyed by route name — a route without an entry
-// falls back to a neutral ellipsis so a new tab still renders
-const TAB_ICONS: Record<string, { filled: IoniconName; outline: IoniconName }> = {
-  news: { filled: 'newspaper', outline: 'newspaper-outline' },
-  messages: { filled: 'chatbubbles', outline: 'chatbubbles-outline' },
-  schedule: { filled: 'calendar', outline: 'calendar-outline' },
-  id: { filled: 'id-card', outline: 'id-card-outline' },
-  map: { filled: 'map', outline: 'map-outline' },
-  settings: { filled: 'settings', outline: 'settings-outline' },
-};
+// Glyph pairs keyed by route name, derived from the shared
+// roster — a route without an entry falls back to a neutral
+// ellipsis so a new tab still renders
+const TAB_ICONS: Record<string, { filled: IoniconName; outline: IoniconName }> =
+  Object.fromEntries(
+    TABS.map((tab) => [tab.key, { filled: tab.iconFilled, outline: tab.icon }]),
+  );
 
 // Critically damped — the pill glides in, the press eases down
 const PILL_SPRING = { damping: 20, stiffness: 240, mass: 0.8, overshootClamping: true };
@@ -94,6 +98,7 @@ function TabItem({
   onLongPress: () => void;
 }) {
 
+  const { t } = useTranslation();
   const { colors } = useTheme();
 
 
@@ -117,6 +122,11 @@ function TabItem({
   const icons = TAB_ICONS[routeName] ?? { filled: 'ellipsis-horizontal', outline: 'ellipsis-horizontal' };
   const badgeText = badge > 99 ? '99+' : String(badge);
 
+  // The badge is visual only; its count rides the tab's own
+  // label so screen readers hear "Žinutės, 3 neskaitytos
+  // žinutės" as one element
+  const a11yLabel = badge > 0 ? `${label}, ${t('tabs.messagesUnread', { count: badge })}` : label;
+
 
   return (
     <Pressable
@@ -132,7 +142,7 @@ function TabItem({
       }}
       accessibilityRole="tab"
       accessibilityState={{ selected: focused }}
-      accessibilityLabel={label}
+      accessibilityLabel={a11yLabel}
       style={{ minHeight: 56 }}
     >
       <Animated.View style={[{ alignItems: 'center' }, itemStyle]}>
@@ -149,25 +159,37 @@ function TabItem({
           <Ionicons
             name={focused ? icons.filled : icons.outline}
             size={24}
-            color={focused ? colors.brand : colors.inkFaint}
+            color={focused ? colors.brand : colors.inkSoft}
           />
           {badge > 0 ? (
             <View
               className="absolute items-center justify-center rounded-full bg-brand px-1"
               style={{ top: -2, right: 6, minWidth: 18, height: 18, borderWidth: 2, borderColor: colors.surface }}
-              accessibilityLabel={badgeText}
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
             >
-              <Text className="font-raleway-bold text-on-brand" style={{ fontSize: 10, lineHeight: 12 }}>
+              {/* Fixed 18px badge — cap accessibility scaling
+                  so the count cannot burst out of the dot */}
+              <Text
+                className="font-raleway-bold text-on-brand"
+                style={{ fontSize: 10, lineHeight: 12 }}
+                maxFontSizeMultiplier={1.2}
+              >
                 {badgeText}
               </Text>
             </View>
           ) : null}
         </View>
 
+        {/* Tab-bar chrome cannot grow much — cap the label's
+            accessibility scaling to keep the bar one line */}
         <Text
-          className={focused ? 'mt-1 font-raleway-bold text-brand' : 'mt-1 font-raleway-medium text-ink-faint'}
-          style={{ fontSize: 11 }}
+          className={focused ? 'mt-1 font-raleway-bold text-brand-text' : 'mt-1 font-raleway-medium text-ink-soft'}
+          style={{ fontSize: 12 }}
           numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.85}
+          maxFontSizeMultiplier={1.2}
         >
           {label}
         </Text>
@@ -195,13 +217,19 @@ export default function TabBar({ state, descriptors, navigation, insets }: Botto
 
   const { colors } = useTheme();
   const { count: unreadCount } = useUnreadCount();
+  const { pinnedTabs } = useApp();
 
 
-  // expo-router translates an `href: null` screen into
-  // tabBarItemStyle { display: 'none' } (the href itself never
-  // reaches the descriptor) — that is the hidden-tab signal
+  // Visibility comes from the app's own pinned-tab setting —
+  // never from sniffing how expo-router happens to represent
+  // `href: null` in the descriptors (an undocumented internal).
+  // A hidden route can still be the focused one (opened from
+  // the drawer while unpinned): keep it in the bar while it is,
+  // so the reader never stands on a screen with no selected tab
   const visibleRoutes = state.routes.filter(
-    (route) => StyleSheet.flatten(descriptors[route.key].options.tabBarItemStyle)?.display !== 'none',
+    (route) =>
+      state.routes[state.index]?.key === route.key ||
+      pinnedTabs.includes(route.name),
   );
 
 

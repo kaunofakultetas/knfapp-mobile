@@ -3,14 +3,17 @@
 //
 //  Owns the long-press reaction picker (which message it aims
 //  at, whether it is open) and the apply/clear actions. Both
-//  actions are optimistic with an EXACT revert: the target's
-//  reactions array is captured before the local rewrite and
-//  restored verbatim if the API call fails, with a toast.
-//
-//  The REST react endpoints return no reactions payload — the
-//  authoritative state arrives on the reaction_update socket
-//  event (handled in useChatMessages), which reconciles the
-//  optimistic guess either way.
+//  actions are optimistic and reconcile in two steps: on
+//  success the REST response's authoritative `reactions`
+//  array lands on the target (bySelf recomputed for this
+//  viewer) — gated by a per-message epoch, so a delayed
+//  response never clobbers a newer reaction_update or a
+//  later local pick that landed while it was in flight; on
+//  failure only the acting user's own membership change is
+//  undone — computed against the CURRENT list, so
+//  reaction_update socket events that arrived while the call
+//  was in flight survive the revert. The socket event
+//  (handled in useChatMessages) stays the cross-client path.
 //
 //  Identity is consistent everywhere: the real user id from
 //  useAuth goes into byUserIds and `bySelf` drives all self
@@ -21,12 +24,18 @@
 //  Split into:
 //
 //    REACTION_OPTIONS       — the fixed picker emoji set
+//    withSelfReaction       — one user's membership rewrite
 //    UseChatReactionsResult — the hook's return shape
 //    useChatReactions       — the hook itself
 // -----------------------------------------------------------
 
-// Reaction REST endpoints (socket reconciles afterwards)
-import { reactToMessageApi, removeReactionApi } from '@/services/api';
+// Reaction REST endpoints — they resolve to the authoritative
+// reactions array (the socket event mirrors it to other clients)
+import { reactToMessageApi, removeReactionApi, type ApiReactionGroup } from '@/services/api';
+
+// Socket reaction events bump the per-message epoch that keeps
+// a delayed REST response from rolling back newer state
+import { onReactionUpdate } from '@/services/socket';
 
 // Self identity for byUserIds/bySelf bookkeeping
 import { useAuth } from '@/context/AuthContext';
@@ -56,6 +65,49 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 // -----------------------------------------------------------
 
 export const REACTION_OPTIONS = ['👍', '❤️', '😂', '😮', '😢', '😡'];
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// withSelfReaction
+// -----------------------------------------------------------
+//
+// Rewrites ONE user's membership across an emoji-group array:
+// strips them from every group, re-adds them to `emoji` (null
+// = none) and recomputes count/bySelf. Serves both the
+// optimistic pass (the new pick) and the failure revert — the
+// inverse of an optimistic apply is this same rewrite with
+// the user's previous emoji.
+//
+// Used by:
+//   - useChatReactions (below)
+// -----------------------------------------------------------
+
+function withSelfReaction(
+  reactions: ChatReaction[],
+  userId: string,
+  emoji: string | null,
+): ChatReaction[] {
+  const stripped = reactions
+    .map((r) => ({ ...r, byUserIds: r.byUserIds.filter((uid) => uid !== userId) }))
+    .filter((r) => r.byUserIds.length > 0);
+
+  if (emoji) {
+    const idx = stripped.findIndex((r) => r.emoji === emoji);
+    if (idx >= 0) stripped[idx] = { ...stripped[idx], byUserIds: [...stripped[idx].byUserIds, userId] };
+    else stripped.push({ emoji, byUserIds: [userId], count: 1, bySelf: true });
+  }
+
+  return stripped.map((r) => ({
+    ...r,
+    count: r.byUserIds.length,
+    bySelf: r.byUserIds.includes(userId),
+  }));
+}
 
 
 
@@ -119,12 +171,39 @@ export function useChatReactions(
   const [pickerTargetId, setPickerTargetId] = useState<string | null>(null);
 
 
-  // Capture source for the exact revert — a ref mirror avoids
-  // reading a stale closure inside the async catch
+  // Capture source for the pre-tap self emoji (what a failure
+  // revert restores) — a ref mirror avoids reading a stale
+  // closure inside the async handlers
   const messagesRef = useRef(messages);
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+
+  // Ordering guard for the REST reconcile: reaction state has
+  // two writers — the socket's reaction_update events (commit
+  // order, applied in useChatMessages) and the REST responses
+  // below, which are NOT ordered against them: a delayed
+  // response can resolve after a newer event already rendered.
+  // Every local dispatch and every socket event for a message
+  // bumps its epoch; applyServer lands only while the epoch
+  // still matches its dispatch-time capture. A room switch
+  // clears the map, so a cross-room straggler can never apply
+  const reactionEpochRef = useRef(new Map<string, number>());
+  useEffect(() => {
+    reactionEpochRef.current.clear();
+    return onReactionUpdate((event) => {
+      if (event.conversationId !== conversationId) return;
+      const epochs = reactionEpochRef.current;
+      epochs.set(event.messageId, (epochs.get(event.messageId) ?? 0) + 1);
+    });
+  }, [conversationId]);
+
+  const bumpEpoch = useCallback((messageId: string) => {
+    const next = (reactionEpochRef.current.get(messageId) ?? 0) + 1;
+    reactionEpochRef.current.set(messageId, next);
+    return next;
+  }, []);
 
 
   const openPicker = useCallback((messageId: string) => {
@@ -139,12 +218,42 @@ export function useChatReactions(
   }, []);
 
 
-  // Restore the captured reactions on the one message the
-  // failed call touched — the exact revert
-  const revert = useCallback(
-    (messageId: string, prior: ChatReaction[]) => {
+  // Undo the acting user's optimistic change against the LIVE
+  // list — never a stale snapshot, so reaction_update events
+  // that landed in flight keep everything they brought
+  const revertSelf = useCallback(
+    (messageId: string, userId: string, priorEmoji: string | null) => {
       setMessages((prev) =>
-        prev.map((m) => (m.id === messageId ? { ...m, reactions: prior } : m)),
+        prev.map((m) =>
+          m.id === messageId ? { ...m, reactions: withSelfReaction(m.reactions, userId, priorEmoji) } : m,
+        ),
+      );
+    },
+    [setMessages],
+  );
+
+
+  // The REST response's authoritative array replaces the guess
+  // on success (bySelf recomputed for this viewer); the socket
+  // event covers the other clients. A moved epoch means newer
+  // state (a socket event, a later local pick) already landed
+  // while this call was in flight — the stale body is dropped
+  const applyServer = useCallback(
+    (messageId: string, userId: string, reactions: ApiReactionGroup[], epoch: number) => {
+      if ((reactionEpochRef.current.get(messageId) ?? 0) !== epoch) return;
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId
+            ? {
+                ...m,
+                reactions: reactions.map((r) => ({
+                  ...r,
+                  count: r.byUserIds.length,
+                  bySelf: r.byUserIds.includes(userId),
+                })),
+              }
+            : m,
+        ),
       );
     },
     [setMessages],
@@ -160,42 +269,33 @@ export function useChatReactions(
       closePicker();
       if (!messageId || !user) return;
 
-      const prior = messagesRef.current.find((m) => m.id === messageId)?.reactions;
-      if (!prior) return;
+      const target = messagesRef.current.find((m) => m.id === messageId);
+      // The target can vanish between long-press and pick (a
+      // resync fresh-head rebuild) — say so instead of closing
+      // the picker and doing nothing
+      if (!target) {
+        showToast('error', t('chat.reactionTargetGone'));
+        return;
+      }
+      // The emoji this user had before the tap (null = none) —
+      // what a failed call re-applies
+      const priorEmoji = target.reactions.find((r) => r.byUserIds.includes(user.id))?.emoji ?? null;
 
       setMessages((prev) =>
-        prev.map((m) => {
-          if (m.id !== messageId) return m;
-
-          const stripped = m.reactions
-            .map((r) => ({ ...r, byUserIds: r.byUserIds.filter((uid) => uid !== user.id) }))
-            .filter((r) => r.byUserIds.length > 0);
-
-          const idx = stripped.findIndex((r) => r.emoji === emoji);
-          if (idx >= 0) {
-            const byUserIds = [...stripped[idx].byUserIds, user.id];
-            stripped[idx] = { emoji, byUserIds, count: byUserIds.length, bySelf: true };
-          } else {
-            stripped.push({ emoji, byUserIds: [user.id], count: 1, bySelf: true });
-          }
-
-          return {
-            ...m,
-            reactions: stripped.map((r) => ({
-              ...r,
-              count: r.byUserIds.length,
-              bySelf: r.byUserIds.includes(user.id),
-            })),
-          };
-        }),
+        prev.map((m) =>
+          m.id === messageId ? { ...m, reactions: withSelfReaction(m.reactions, user.id, emoji) } : m,
+        ),
       );
 
-      reactToMessageApi(conversationId, messageId, emoji).catch(() => {
-        revert(messageId, prior);
-        showToast('error', t('chat.reactionAddError'));
-      });
+      const epoch = bumpEpoch(messageId);
+      reactToMessageApi(conversationId, messageId, emoji)
+        .then((reactions) => applyServer(messageId, user.id, reactions, epoch))
+        .catch(() => {
+          revertSelf(messageId, user.id, priorEmoji);
+          showToast('error', t('chat.reactionAddError'));
+        });
     },
-    [closePicker, conversationId, pickerTargetId, revert, setMessages, t, user],
+    [applyServer, bumpEpoch, closePicker, conversationId, pickerTargetId, revertSelf, setMessages, t, user],
   );
 
 
@@ -205,27 +305,28 @@ export function useChatReactions(
     closePicker();
     if (!messageId || !user) return;
 
-    const prior = messagesRef.current.find((m) => m.id === messageId)?.reactions;
-    if (!prior) return;
+    const target = messagesRef.current.find((m) => m.id === messageId);
+    // Same silent-abort hole as applyReaction — surface it
+    if (!target) {
+      showToast('error', t('chat.reactionTargetGone'));
+      return;
+    }
+    const priorEmoji = target.reactions.find((r) => r.byUserIds.includes(user.id))?.emoji ?? null;
 
     setMessages((prev) =>
-      prev.map((m) => {
-        if (m.id !== messageId) return m;
-
-        const stripped = m.reactions
-          .map((r) => ({ ...r, byUserIds: r.byUserIds.filter((uid) => uid !== user.id) }))
-          .filter((r) => r.byUserIds.length > 0)
-          .map((r) => ({ ...r, count: r.byUserIds.length, bySelf: false }));
-
-        return { ...m, reactions: stripped };
-      }),
+      prev.map((m) =>
+        m.id === messageId ? { ...m, reactions: withSelfReaction(m.reactions, user.id, null) } : m,
+      ),
     );
 
-    removeReactionApi(conversationId, messageId).catch(() => {
-      revert(messageId, prior);
-      showToast('error', t('chat.reactionRemoveError'));
-    });
-  }, [closePicker, conversationId, pickerTargetId, revert, setMessages, t, user]);
+    const epoch = bumpEpoch(messageId);
+    removeReactionApi(conversationId, messageId)
+      .then((reactions) => applyServer(messageId, user.id, reactions, epoch))
+      .catch(() => {
+        revertSelf(messageId, user.id, priorEmoji);
+        showToast('error', t('chat.reactionRemoveError'));
+      });
+  }, [applyServer, bumpEpoch, closePicker, conversationId, pickerTargetId, revertSelf, setMessages, t, user]);
 
 
   return {

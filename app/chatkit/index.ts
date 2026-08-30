@@ -1,4 +1,4 @@
-export { default as Composer } from './Composer';
+export { default as Composer, DEFAULT_MAX_LENGTH } from './Composer';
 export { default as ConversationIntro, type IntroInfo } from './ConversationIntro';
 export { default as KitAvatar } from './KitAvatar';
 export { default as MessageBubble, BubbleBody } from './MessageBubble';

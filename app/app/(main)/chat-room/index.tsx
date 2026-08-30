@@ -18,8 +18,10 @@
 //  useChatReactions the context-menu target and reaction
 //  toggles, useTypingIndicator the typers. This file owns
 //  only screen concerns: the header, keyboard avoidance (iOS
-//  padding offset by the stack header; Android relies on
-//  adjustResize), the timeline built from the messages,
+//  pads by the bare keyboard height — no header offset, the
+//  frame reaches the window bottom; Android leans on the
+//  window's own adjustResize), the timeline built from the
+//  messages,
 //  jump-to-quoted with its highlight, presence polling, and
 //  which overlay is open. Reaction-viewer rows and the
 //  image-viewer dataset are DERIVED from live message state
@@ -37,7 +39,8 @@
 //    MessageSearch  — debounced in-conversation search (overlay)
 //    EmojiQuickRow  — emoji strip above the composer
 //    typingText     — the typers → "X rašo…" line
-//    ChatRoomScreen — the room itself (default export)
+//    ChatRoom       — the room itself (hooks + feed)
+//    ChatRoomScreen — the auth / param gate (default export)
 // -----------------------------------------------------------
 
 // Chat data hooks — list/socket, sends, reactions, typing
@@ -68,14 +71,15 @@ import { confirmAction, EmptyState, ErrorState, LoadingSpinner } from '@/compone
 import { showToast } from '@/context/NetworkContext';
 
 // Search + presence endpoints and render-time helpers
-import { fetchOnlineStatus, getUploadUrl, searchMessagesApi, type MessageSearchResult } from '@/services/api';
+import { fetchOnlineStatus, getUploadUrl, reactToMessageApi, removeReactionApi, searchMessagesApi, type MessageSearchResult } from '@/services/api';
 import { activeLocale, formatDateTime } from '@/services/format';
 
 // Session, theme and navigation
 import { useAuth } from '@/context/AuthContext';
+import { useReturnHref } from '@/hooks/useReturnHref';
 import { useTheme } from '@/hooks/useTheme';
-import { useHeaderHeight } from '@react-navigation/elements';
-import { useLocalSearchParams, useNavigation, usePathname, useRouter } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
+import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 
 // Primitives
 import { Ionicons } from '@expo/vector-icons';
@@ -84,6 +88,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ActivityIndicator,
+  AppState,
   BackHandler,
   FlatList,
   KeyboardAvoidingView,
@@ -107,6 +112,10 @@ const QUICK_EMOJI = ['😀', '😂', '😍', '😮', '😢', '😡', '👍', '�
 const PRESENCE_MS = 30_000;
 const DAY_TICK_MS = 60_000;
 
+// How many older pages a jump-to-search-hit may pull before it
+// gives up (the bail-out cap for very deep hits)
+const JUMP_PAGE_CAP = 20;
+
 
 
 
@@ -118,7 +127,9 @@ const DAY_TICK_MS = 60_000;
 // -----------------------------------------------------------
 //
 // The logged-out body: no fetches, no crash — an invitation to
-// log in that routes back here through ?returnTo.
+// log in that routes back here through ?returnTo. The returnTo
+// carries the full location (pathname + params), so the round
+// trip reopens THIS conversation, not a bare empty room.
 //
 // Used by:
 //   - ChatRoomScreen (below)
@@ -128,7 +139,7 @@ function LoginPrompt() {
 
   const { t } = useTranslation();
   const router = useRouter();
-  const pathname = usePathname();
+  const returnTo = useReturnHref();
 
 
   return (
@@ -139,7 +150,7 @@ function LoginPrompt() {
         hint={t('messages.loginHint')}
         action={{
           label: t('settings.login'),
-          onPress: () => router.push({ pathname: '/login', params: { returnTo: pathname } }),
+          onPress: () => router.push({ pathname: '/login', params: { returnTo } }),
         }}
       />
     </View>
@@ -158,10 +169,13 @@ function LoginPrompt() {
 //
 // The in-conversation search: a debounced (400 ms) query box
 // with a result count line and tappable result rows showing
-// sender + full date-time. Tapping a result closes the search
-// and the screen scrolls the loaded feed to that message (the
-// kit's scrollToMessage); a hit older than the loaded history
-// gets a toast instead.
+// sender + full date-time. The count line honestly reports
+// "shown of total" when the server holds more hits than the
+// 30-row page, and a failed request renders an error + retry
+// line — never a false "no results". Tapping a result closes
+// the search and the screen scrolls the loaded feed to that
+// message (the kit's scrollToMessage), paging older history
+// in as needed.
 //
 // The debounce timer is cleared and in-flight responses are
 // orphaned (sequence bump) on unmount, so closing the search
@@ -188,6 +202,7 @@ function MessageSearch({
   const [results, setResults] = useState<MessageSearchResult[]>([]);
   const [total, setTotal] = useState(0);
   const [searching, setSearching] = useState(false);
+  const [failed, setFailed] = useState(false);
 
 
   // Debounce timer + response sequence; the newest sequence is
@@ -206,6 +221,7 @@ function MessageSearch({
   const runSearch = async (q: string) => {
     const seq = ++seqRef.current;
     setSearching(true);
+    setFailed(false);
     try {
       const resp = await searchMessagesApi(conversationId, q, 30);
       if (seq !== seqRef.current) return;
@@ -215,6 +231,7 @@ function MessageSearch({
       if (seq !== seqRef.current) return;
       setResults([]);
       setTotal(0);
+      setFailed(true);
     } finally {
       if (seq === seqRef.current) setSearching(false);
     }
@@ -232,9 +249,14 @@ function MessageSearch({
       setResults([]);
       setTotal(0);
       setSearching(false);
+      setFailed(false);
       return;
     }
 
+    // Searching flips on BEFORE the debounce timer, so the
+    // summary can never claim "no results" for a query still
+    // waiting to run
+    setSearching(true);
     timerRef.current = setTimeout(() => void runSearch(trimmed), 400);
   };
 
@@ -260,13 +282,29 @@ function MessageSearch({
           />
           {searching && <ActivityIndicator size="small" color={colors.brand} />}
         </View>
-        {showSummary && (
-          <Text className="ml-xs mt-xs font-raleway text-xs text-ink-soft">
-            {total > 0
-              ? t('chat.searchResults', { count: total })
-              : t('chat.noSearchResults')}
+        {failed && !searching ? (
+          <Pressable
+            onPress={() => void runSearch(query.trim())}
+            accessibilityRole="button"
+            accessibilityLabel={`${t('common.searchError')}. ${t('common.tryAgain')}`}
+            className="ml-xs mt-xs flex-row items-center"
+          >
+            <Text className="font-raleway text-xs text-danger">{t('common.searchError')}</Text>
+            <Text className="ml-sm font-raleway-medium text-xs text-brand">{t('common.tryAgain')}</Text>
+          </Pressable>
+        ) : showSummary ? (
+          <Text
+            accessible
+            accessibilityLiveRegion="polite"
+            className="ml-xs mt-xs font-raleway text-xs text-ink-soft"
+          >
+            {total > results.length
+              ? t('chat.searchResultsOf', { shown: results.length, total })
+              : total > 0
+                ? t('chat.searchResults', { count: total })
+                : t('chat.noSearchResults')}
           </Text>
-        )}
+        ) : null}
       </View>
 
       <FlatList
@@ -321,10 +359,15 @@ function MessageSearch({
 function EmojiQuickRow({ onPick }: { onPick: (emoji: string) => void }) {
   return (
     <ScrollView
+      // grow-0 shrink-0 is load-bearing: a ScrollView is flex-
+      // elastic by default, and here it sat in a column next to
+      // the flex-1 message list — so it grew to split the height
+      // with it and opened a tall empty box between the strip
+      // and the composer whenever the strip was shown
       horizontal
       showsHorizontalScrollIndicator={false}
       keyboardShouldPersistTaps="always"
-      className="border-t border-line bg-surface"
+      className="grow-0 shrink-0 border-t border-line bg-surface"
       contentContainerClassName="px-sm py-xs"
     >
       {QUICK_EMOJI.map((emoji) => (
@@ -373,39 +416,40 @@ function typingText(users: TypingUser[], t: (key: string, opts?: Record<string, 
 
 
 // -----------------------------------------------------------
-// ChatRoomScreen (default export)
+// ChatRoom
 // -----------------------------------------------------------
 //
+// The room itself. Mounts only for an authenticated user with
+// a conversation id (the gate below guarantees both), so the
+// data hooks never fetch, join a socket room or arm a presence
+// poll for a guest.
+//
 // Used by:
-//   - app/(main)/_layout.tsx — route /chat-room
-//     (params: conversationId, title, type)
+//   - ChatRoomScreen (below)
 // -----------------------------------------------------------
 
-export default function ChatRoomScreen() {
-
-  const { conversationId, title, type } = useLocalSearchParams<{
-    conversationId: string;
-    title?: string;
-    type?: string;
-  }>();
-  const convId = conversationId ?? '';
+function ChatRoom({ convId, type }: { convId: string; type?: string }) {
 
   const { t } = useTranslation();
   const { colors } = useTheme();
-  const { user, isAuthenticated } = useAuth();
+  const { user } = useAuth();
   const navigation = useNavigation();
-  const headerHeight = useHeaderHeight();
+  const router = useRouter();
+  const isFocused = useIsFocused();
 
 
   const labels = useKitLabels();
   const chat = useChatMessages(convId);
   const composer = useChatComposer(convId, chat.setMessages, chat.messages);
   const reactions = useChatReactions(convId, chat.messages, chat.setMessages);
-  const { typingUsers } = useTypingIndicator(convId);
+  // The member list lets the hook drop typing events from
+  // non-members (client-side defence beside the backend's check)
+  const { typingUsers } = useTypingIndicator(convId, chat.profiles);
   // The hooks return fresh objects each render; the stable members
   // are what the memoised rows may depend on
   const { openPicker, closePicker } = reactions;
   const { setReplyTo } = composer;
+  const { loadOlder } = chat;
 
 
   // Screen-owned panel state
@@ -424,41 +468,57 @@ export default function ChatRoomScreen() {
   // Group chats name senders; a direct chat has only one other
   // voice. The server's conversation row is the truth once the
   // first page lands (a room opened from a push notification has
-  // no route params); the params are the pre-load placeholder
+  // no route params); the `type` param is only the pre-load
+  // hint. The deep-linkable `title` param is deliberately NOT
+  // trusted — the header waits for the room's own name rather
+  // than paint an attacker-chosen one into the burgundy bar
   const isGroup = chat.conversation ? chat.conversation.type === 'group' : type === 'group';
   const others = useMemo(() => chat.profiles.filter((p) => p.id !== user?.id), [chat.profiles, user?.id]);
   const counterpart = !isGroup ? others[0] : undefined;
-  const roomTitle = chat.conversation?.title || counterpart?.displayName || title || t('chat.title');
-  const roomAvatar = counterpart?.avatarUrl ? getUploadUrl(counterpart.avatarUrl) : undefined;
+  const roomTitle = chat.conversation?.title || counterpart?.displayName || t('chat.title');
+  const roomAvatar = counterpart?.avatarUrl ? getUploadUrl(counterpart.avatarUrl) ?? undefined : undefined;
   // Group identity: the other members as a stacked pair
   const members = useMemo(
-    () => others.map((p) => ({ name: p.displayName, uri: p.avatarUrl ? getUploadUrl(p.avatarUrl) : undefined })),
+    () => others.map((p) => ({ name: p.displayName, uri: p.avatarUrl ? getUploadUrl(p.avatarUrl) ?? undefined : undefined })),
     [others],
   );
 
 
-  // Presence of the other party, refreshed while the room is open
+  // Presence of the other party — polled only while this room is
+  // the focused screen (a room buried under the stack stays
+  // quiet) and skipped while the app is backgrounded. Keyed on
+  // the primitive id, not the profile object, so a resync's
+  // fresh array never restarts the poll; a failed poll (null)
+  // keeps the last known state instead of asserting offline.
   const [online, setOnline] = useState(false);
-  useEffect(() => {
-    if (!counterpart) return;
-    let cancelled = false;
-    const poll = async () => {
-      const map = await fetchOnlineStatus([counterpart.id]);
-      if (!cancelled) setOnline(!!map[counterpart.id]);
-    };
-    void poll();
-    const timer = setInterval(() => void poll(), PRESENCE_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [counterpart]);
+  const counterpartId = counterpart?.id;
+  useFocusEffect(
+    useCallback(() => {
+      if (!counterpartId) return;
+      let cancelled = false;
+      const poll = async () => {
+        if (AppState.currentState !== 'active') return;
+        const map = await fetchOnlineStatus([counterpartId]);
+        if (!cancelled && map) setOnline(!!map[counterpartId]);
+      };
+      void poll();
+      const timer = setInterval(() => void poll(), PRESENCE_MS);
+      return () => {
+        cancelled = true;
+        clearInterval(timer);
+      };
+    }, [counterpartId]),
+  );
 
 
   // Header: portrait + name + status on the burgundy bar, and
   // the search toggle
+  // A group shows its member count only once the first page has
+  // named the members — never a false "0 members"
   const subtitle = isGroup
-    ? t('chat.groupMembers', { count: chat.profiles.length })
+    ? chat.profiles.length > 0
+      ? t('chat.groupMembers', { count: chat.profiles.length })
+      : undefined
     : online
       ? t('chat.online')
       : undefined;
@@ -467,7 +527,21 @@ export default function ChatRoomScreen() {
     navigation.setOptions({
       title: roomTitle,
       headerTitle: () => (
-        <RoomHeaderTitle title={roomTitle} subtitle={subtitle} avatarUrl={roomAvatar} isGroup={isGroup} members={members} online={online} />
+        <RoomHeaderTitle
+          title={roomTitle}
+          subtitle={subtitle}
+          avatarUrl={roomAvatar}
+          isGroup={isGroup}
+          members={members}
+          online={online}
+          // A direct chat's header opens the other party's profile
+          // (the friends empty state promises this entry point)
+          onPress={
+            counterpartId
+              ? () => router.push({ pathname: '/(main)/profile', params: { userId: counterpartId } })
+              : undefined
+          }
+        />
       ),
       headerRight: () => (
         <Pressable
@@ -480,7 +554,7 @@ export default function ChatRoomScreen() {
         </Pressable>
       ),
     });
-  }, [navigation, roomTitle, subtitle, roomAvatar, isGroup, members, online, t, searchOpen, toggleSearch, colors.onBrand]);
+  }, [navigation, roomTitle, subtitle, roomAvatar, isGroup, members, online, counterpartId, router, t, searchOpen, toggleSearch, colors.onBrand]);
 
 
   // The kit's rows: grouped runs + time separators. The day key
@@ -491,22 +565,37 @@ export default function ChatRoomScreen() {
     [labels],
   );
   const [dayKey, setDayKey] = useState(() => new Date().toDateString());
-  useEffect(() => {
-    const timer = setInterval(() => {
-      const next = new Date().toDateString();
-      setDayKey((current) => (current === next ? current : next));
-    }, DAY_TICK_MS);
-    return () => clearInterval(timer);
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      // Ticks only while focused; the immediate tick catches a
+      // midnight that passed while the room sat behind another
+      // screen
+      const tick = () => {
+        const next = new Date().toDateString();
+        setDayKey((current) => (current === next ? current : next));
+      };
+      tick();
+      const timer = setInterval(tick, DAY_TICK_MS);
+      return () => clearInterval(timer);
+    }, []),
+  );
+  // hasMore rides along so the kit can suppress the false "pause"
+  // separator above the oldest LOADED message while older history
+  // still exists server-side
   // eslint-disable-next-line react-hooks/exhaustive-deps -- dayKey forces the relabel
-  const timeline = useMemo(() => buildTimeline(chat.messages, timelineLabels), [chat.messages, timelineLabels, dayKey]);
+  const timeline = useMemo(() => buildTimeline(chat.messages, timelineLabels, chat.hasMore), [chat.messages, timelineLabels, chat.hasMore, dayKey]);
 
 
   // The intro card closes the history once there is no older page
   const intro = useMemo(
     () => ({
       title: roomTitle,
-      subtitle: isGroup ? t('chat.groupMembers', { count: chat.profiles.length }) : labels.conversationStart,
+      // A group with no loaded members yet falls back to the
+      // conversation-start line rather than claiming "0 members"
+      subtitle:
+        isGroup && chat.profiles.length > 0
+          ? t('chat.groupMembers', { count: chat.profiles.length })
+          : labels.conversationStart,
       avatarUrl: roomAvatar,
       isGroup,
       members,
@@ -521,7 +610,7 @@ export default function ChatRoomScreen() {
     const label = typingText(typingUsers, t);
     if (!label) return null;
     const first = chat.profiles.find((p) => p.id === typingUsers[0]?.userId);
-    return { label, name: first?.displayName ?? typingUsers[0]?.displayName, avatarUrl: first?.avatarUrl ? getUploadUrl(first.avatarUrl) : undefined };
+    return { label, name: first?.displayName ?? typingUsers[0]?.displayName, avatarUrl: first?.avatarUrl ? getUploadUrl(first.avatarUrl) ?? undefined : undefined };
   }, [typingUsers, chat.profiles, t]);
 
 
@@ -532,16 +621,31 @@ export default function ChatRoomScreen() {
     const rows: ViewerImage[] = [];
     for (let i = chat.messages.length - 1; i >= 0; i--) {
       const m = chat.messages[i];
-      if (m.imageUrl && !m.deleted) rows.push({ id: m.id, uri: getUploadUrl(m.imageUrl) });
+      // clientId ?? id keeps an own send's viewer entry stable
+      // across the temp → server id swap; a refused foreign-origin
+      // URL (getUploadUrl → null) simply never enters the gallery
+      if (m.imageUrl && !m.deleted) {
+        const uri = getUploadUrl(m.imageUrl);
+        if (uri) rows.push({ id: m.clientId ?? m.id, uri });
+      }
     }
     return rows;
   }, [chat.messages]);
-  const viewerIndex = Math.max(0, viewerImages.findIndex((img) => img.id === viewerImageId));
+  const viewerIndex = viewerImages.findIndex((img) => img.id === viewerImageId);
+  // The viewed photo can vanish under the open viewer (unsent):
+  // close it instead of silently jumping to the oldest photo
+  useEffect(() => {
+    if (viewerImageId !== null && viewerIndex < 0) {
+      setViewerImageId(null);
+      showToast('info', t('chat.imageRemoved'));
+    }
+  }, [viewerImageId, viewerIndex, t]);
 
 
   // Reactors sheet rows — derived from LIVE message state, so
-  // the open sheet follows reaction_update events; self is
-  // named from the session (never a raw user id)
+  // the open sheet follows reaction_update events. Names resolve
+  // self → participants map → member profiles → a translated
+  // fallback; a raw user id is never rendered
   const reactorRows = useMemo(() => {
     if (!reactorsMessageId) return [];
     const message = chat.messages.find((m) => m.id === reactorsMessageId);
@@ -551,10 +655,14 @@ export default function ChatRoomScreen() {
       .map((r) => ({
         emoji: r.emoji,
         names: r.byUserIds.map((uid) =>
-          uid === user?.id ? user.displayName : chat.participants[uid] ?? uid,
+          uid === user?.id
+            ? user.displayName
+            : chat.participants[uid] ??
+              chat.profiles.find((p) => p.id === uid)?.displayName ??
+              t('chat.unknownUser'),
         ),
       }));
-  }, [reactorsMessageId, chat.messages, chat.participants, user]);
+  }, [reactorsMessageId, chat.messages, chat.participants, chat.profiles, user, t]);
 
 
   // The context menu aims at the long-pressed message; its own
@@ -570,7 +678,9 @@ export default function ChatRoomScreen() {
   const menuCanAct = !!menuMessage && !menuIsTemp && !menuMessage.deleted;
   const openMenu = useCallback(
     (target: ContextTarget) => {
-      if (target.message.status === 'sending') return;
+      // No 'sending' guard here — canAct (below) is where that
+      // invariant is actually enforced, before the long-press
+      // ever reaches this handler
       setMenuTarget(target);
       openPicker(target.message.id);
     },
@@ -587,12 +697,16 @@ export default function ChatRoomScreen() {
   const pendingReplyRef = useRef<KitMessage | null>(null);
   const onMenuOpened = useCallback((id: string) => setHiddenId(id), []);
   const onMenuClosed = useCallback(() => {
+    // Authoritative cleanup: however the menu went away, no
+    // stale target or open picker may survive its close
     setHiddenId(null);
+    setMenuTarget(null);
+    closePicker();
     if (pendingReplyRef.current) {
       setReplyTo(pendingReplyRef.current);
       pendingReplyRef.current = null;
     }
-  }, [setReplyTo]);
+  }, [setReplyTo, closePicker]);
 
 
   const replyTo = useCallback(
@@ -603,11 +717,38 @@ export default function ChatRoomScreen() {
     [closeMenu],
   );
 
-  const copyText = async (message: KitMessage) => {
-    closeMenu();
-    await Clipboard.setStringAsync(message.text);
-    showToast('success', t('chat.copied'));
-  };
+  // Stable identity: this one reaches the memoized list as the
+  // copy accessibility action, and a fresh arrow per keystroke
+  // would re-render every mounted bubble
+  const copyText = useCallback(
+    async (message: KitMessage) => {
+      closeMenu();
+      try {
+        await Clipboard.setStringAsync(message.text);
+        showToast('success', t('chat.copied'));
+      } catch {
+        showToast('error', t('chat.copyError'));
+      }
+    },
+    [closeMenu, t],
+  );
+
+  // The bubble's accessibility actions go straight to the deed:
+  // copy through the clipboard path above, react as a direct
+  // toggle — the reaction_update echo reconciles the UI
+  const reactDirect = useCallback(
+    (message: KitMessage, emoji: string) => {
+      if (message.id.startsWith(TEMP_ID_PREFIX) || message.deleted) return;
+      const live = chat.messages.find((m) => m.id === message.id);
+      const own = live?.reactions.find((r) => r.bySelf);
+      if (own?.emoji === emoji) {
+        removeReactionApi(convId, message.id).catch(() => showToast('error', t('chat.reactionRemoveError')));
+      } else {
+        reactToMessageApi(convId, message.id, emoji).catch(() => showToast('error', t('chat.reactionAddError')));
+      }
+    },
+    [chat.messages, convId, t],
+  );
 
   const unsend = async (message: KitMessage) => {
     closeMenu();
@@ -627,30 +768,69 @@ export default function ChatRoomScreen() {
 
 
   // Jump to a message (quoted original, search hit): scroll it
-  // into view and wash it; a message outside the loaded history
-  // gets a toast
+  // into view and wash it. A hit older than the loaded history
+  // pages back (bounded by JUMP_PAGE_CAP) behind a spinner
+  // overlay until the row exists; only a truly missing message
+  // gets the toast.
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [jumping, setJumping] = useState(false);
+  const jumpingRef = useRef(false);
+  const hasMoreRef = useRef(chat.hasMore);
+  const messageCountRef = useRef(chat.messages.length);
+  useEffect(() => {
+    hasMoreRef.current = chat.hasMore;
+    messageCountRef.current = chat.messages.length;
+  }, [chat.hasMore, chat.messages.length]);
+  const highlight = useCallback((targetId: string) => {
+    if (highlightTimer.current) clearTimeout(highlightTimer.current);
+    setHighlightedId(targetId);
+    highlightTimer.current = setTimeout(() => setHighlightedId(null), 1500);
+  }, []);
+  // The kit ran out of scrollToIndex retries — it landed near its
+  // estimate, so tell the reader why nothing is highlighted
+  const onJumpFailed = useCallback(() => showToast('info', t('chat.jumpFailed')), [t]);
   const jumpToMessage = useCallback(
-    (targetId: string) => {
-      if (!listRef.current?.scrollToMessage(targetId)) {
-        showToast('info', t('chat.searchNotLoaded'));
+    async (targetId: string) => {
+      if (listRef.current?.scrollToMessage(targetId)) {
+        highlight(targetId);
         return;
       }
-      if (highlightTimer.current) clearTimeout(highlightTimer.current);
-      setHighlightedId(targetId);
-      highlightTimer.current = setTimeout(() => setHighlightedId(null), 1500);
+
+      // Page back until the row lands, history runs out, paging
+      // stalls, or the cap hits
+      if (jumpingRef.current) return;
+      jumpingRef.current = true;
+      setJumping(true);
+      try {
+        for (let page = 0; page < JUMP_PAGE_CAP; page++) {
+          if (!hasMoreRef.current) break;
+          const before = messageCountRef.current;
+          await loadOlder();
+          // A beat for the fresh page to render before retrying
+          await new Promise((resolve) => setTimeout(resolve, 80));
+          if (listRef.current?.scrollToMessage(targetId)) {
+            highlight(targetId);
+            return;
+          }
+          if (messageCountRef.current === before) break;
+        }
+        showToast('info', t('chat.searchNotLoaded'));
+      } finally {
+        jumpingRef.current = false;
+        setJumping(false);
+      }
     },
-    [t],
+    [highlight, loadOlder, t],
   );
   const jumpToQuoted = useCallback(
     (message: KitMessage) => {
-      if (message.replyTo?.id) jumpToMessage(message.replyTo.id);
+      if (message.replyTo?.id) void jumpToMessage(message.replyTo.id);
     },
     [jumpToMessage],
   );
   const jumpFromSearch = (messageId: string) => {
     setSearchOpen(false);
-    jumpToMessage(messageId);
+    void jumpToMessage(messageId);
   };
   useEffect(() => () => {
     if (highlightTimer.current) clearTimeout(highlightTimer.current);
@@ -659,8 +839,11 @@ export default function ChatRoomScreen() {
 
   const toggleTime = useCallback((m: KitMessage) => setRevealedId((current) => (current === m.id ? null : m.id)), []);
   const openReactors = useCallback((m: KitMessage) => setReactorsMessageId(m.id), []);
-  const openImage = useCallback((m: KitMessage) => setViewerImageId(m.id), []);
-  const openLink = useCallback((href: string) => void Linking.openURL(href).catch(() => {}), []);
+  const openImage = useCallback((m: KitMessage) => setViewerImageId(m.clientId ?? m.id), []);
+  const openLink = useCallback(
+    (href: string) => void Linking.openURL(href).catch(() => showToast('error', t('info.linkError'))),
+    [t],
+  );
   // Only rows the server knows can be replied to; the menu also
   // opens on a failed temp (to discard it)
   const canAct = useCallback(
@@ -698,29 +881,38 @@ export default function ChatRoomScreen() {
   }, [searchOpen]);
 
 
-  if (!isAuthenticated) {
-    return <LoginPrompt />;
-  }
-
-
   return (
     <KeyboardAvoidingView
       className="flex-1 bg-surface"
-      // Android's adjustResize handles the keyboard by itself —
-      // 'height' on top of it double-compensated and jumped
+      // iOS pads by the keyboard height with NO header offset:
+      // this screen's layout frame reaches the window bottom, so
+      // the KAV math is already complete — adding the classic
+      // useHeaderHeight() offset floated the composer exactly one
+      // header height above the keys (measured on device).
+      // Android is inert: the window's own adjustResize does the
+      // lifting there, and stacking a behavior on top double-lifts
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? headerHeight : 0}
     >
 
       {/* The search overlays the feed so the feed keeps its scroll
           position and its mounted rows for the jump */}
       {searchOpen ? (
-        <View style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 20 }} className="bg-surface">
+        <View
+          style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 20 }}
+          className="bg-surface"
+          accessibilityViewIsModal
+        >
           <MessageSearch conversationId={convId} onSelect={jumpFromSearch} />
         </View>
       ) : null}
 
-      {
+      {/* While the search overlays them, the feed + composer drop
+          out of the accessibility tree like a real modal */}
+      <View
+        className="flex-1"
+        accessibilityElementsHidden={searchOpen}
+        importantForAccessibility={searchOpen ? 'no-hide-descendants' : 'auto'}
+      >
         <>
           {/* Message area — loading / error / the feed (an empty
               conversation shows just the intro card) */}
@@ -729,7 +921,21 @@ export default function ChatRoomScreen() {
               <LoadingSpinner text={t('common.loading')} />
             </View>
           ) : chat.error && chat.messages.length === 0 ? (
-            <ErrorState message={t('chat.loadError')} onRetry={chat.retry} />
+            chat.error === 'denied' ? (
+              // Terminal: membership is gone (401/403/404), so a
+              // retry can never win — offer the way back instead
+              <EmptyState
+                icon="lock-closed-outline"
+                title={t('chat.accessDenied')}
+                action={{
+                  label: t('common.back'),
+                  onPress: () =>
+                    router.canGoBack() ? router.back() : router.replace('/(main)/tabs/messages'),
+                }}
+              />
+            ) : (
+              <ErrorState message={t('chat.loadError')} onRetry={chat.retry} />
+            )
           ) : (
             <MessageList
               ref={listRef}
@@ -741,6 +947,7 @@ export default function ChatRoomScreen() {
               loadingOlder={chat.loadingOlder}
               hasMore={chat.hasMore}
               onLoadOlder={chat.loadOlder}
+              onJumpFailed={onJumpFailed}
               revealedId={revealedId}
               highlightedId={highlightedId}
               menuTargetId={hiddenId}
@@ -754,6 +961,11 @@ export default function ChatRoomScreen() {
               onPressImage={openImage}
               onRetry={composer.retryMessage}
               onPressLink={openLink}
+              // Unfocused rooms keep quiet for the screen reader
+              isFocused={isFocused}
+              // Direct accessibility actions — no menu detour
+              onCopy={copyText}
+              onReact={reactDirect}
             />
           )}
 
@@ -785,7 +997,18 @@ export default function ChatRoomScreen() {
             onCancelReply={() => setReplyTo(null)}
           />
         </>
-      }
+      </View>
+
+      {/* Spinner overlay while a jump pages older history in */}
+      {jumping ? (
+        <View
+          style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 30 }}
+          pointerEvents="none"
+          className="items-center justify-center"
+        >
+          <LoadingSpinner text={t('common.loading')} />
+        </View>
+      ) : null}
 
       <MessageContextMenu
         target={reactions.pickerOpen ? liveTarget : null}
@@ -819,10 +1042,83 @@ export default function ChatRoomScreen() {
       <ImageViewerModal
         visible={viewerImageId !== null}
         images={viewerImages}
-        initialIndex={viewerIndex}
+        initialIndex={Math.max(0, viewerIndex)}
         onClose={() => setViewerImageId(null)}
       />
 
     </KeyboardAvoidingView>
   );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ChatRoomScreen (default export)
+// -----------------------------------------------------------
+//
+// The thin gate in front of the room: a spinner while the
+// session hydrates, the login prompt for guests — WITHOUT
+// ChatRoom's data hooks ever mounting, so a guest deep link
+// costs no anonymous 401 fetch and no socket work — and an
+// exit back to the list for a missing conversation id. Only
+// conversationId and the `type` hint pass through; a deep
+// link's `title` param is ignored (spoofable — the room
+// resolves its own name from the conversation row).
+//
+// Used by:
+//   - app/(main)/_layout.tsx — route /chat-room
+//     (params: conversationId, type)
+// -----------------------------------------------------------
+
+export default function ChatRoomScreen() {
+
+  const { conversationId, type } = useLocalSearchParams<{
+    conversationId: string;
+    type?: string;
+  }>();
+  const convId = conversationId ?? '';
+
+  const { t } = useTranslation();
+  const { isAuthenticated, hydrated } = useAuth();
+  const router = useRouter();
+
+
+  // Session still hydrating (cold start from a push): a spinner,
+  // never a login-prompt flash at a signed-in user
+  if (!hydrated) {
+    return (
+      <View className="flex-1 items-center justify-center bg-canvas">
+        <LoadingSpinner text={t('common.loading')} />
+      </View>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <LoginPrompt />;
+  }
+
+  // No conversation id (a stripped returnTo, a bad deep link):
+  // an exit back to the list, never a composer aimed at nothing
+  if (!convId) {
+    return (
+      <View className="flex-1 bg-canvas">
+        <EmptyState
+          icon="chatbubbles-outline"
+          title={t('chat.noConversation')}
+          hint={t('chat.noConversationHint')}
+          action={{
+            label: t('tabs.messages'),
+            onPress: () => router.replace('/(main)/tabs/messages'),
+          }}
+        />
+      </View>
+    );
+  }
+
+
+  return <ChatRoom convId={convId} type={type} />;
 }

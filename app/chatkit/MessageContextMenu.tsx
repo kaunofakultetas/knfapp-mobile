@@ -33,8 +33,8 @@ import { useKitLabels } from './labels';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useEffect, useRef, useState } from 'react';
-import { Modal, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
-import Animated, { interpolate, runOnJS, useAnimatedStyle, useSharedValue, withDelay, withSpring, withTiming } from 'react-native-reanimated';
+import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import Animated, { interpolate, runOnJS, useAnimatedStyle, useSharedValue, withDelay, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
 
 // The floating copy
 import { BubbleBody } from './MessageBubble';
@@ -174,23 +174,41 @@ export default function MessageContextMenu({
   const progress = useSharedValue(0);
   // Latest props for the effects below — they key on the target's
   // IDENTITY (its id), not on the object the host rebuilds each
-  // render, so the snapshot is taken once per open
+  // render, so the snapshot is taken once per open. Written in an
+  // effect (declared before the targetId effect, which runs after
+  // it) so a render that never commits cannot leak into the ref
   const latest = useRef({ target, canReact, canReply, canDelete, onOpened, onClosed });
-  latest.current = { target, canReact, canReply, canDelete, onOpened, onClosed };
+  useEffect(() => {
+    latest.current = { target, canReact, canReply, canDelete, onOpened, onClosed };
+  });
   const targetId = target?.message.id ?? null;
+  // The entrance fires once per open, however many times layout
+  // re-measures (keyboard dismiss, rotation)
+  const hasOpenedRef = useRef(false);
   const finishClose = () => {
+    // A reopen can cancel the close timing mid-flight — its
+    // completion callback still lands here and must not tear the
+    // fresh open down
+    if (latest.current.target) return;
+    hasOpenedRef.current = false;
     setShown(null);
     latest.current.onClosed?.();
   };
   useEffect(() => {
     const now = latest.current;
     if (targetId && now.target) {
+      hasOpenedRef.current = false;
       setShown({ target: now.target, canReact: now.canReact, canReply: now.canReply, canDelete: now.canDelete });
       return;
     }
     if (!targetId) {
-      progress.value = withTiming(0, { duration: CLOSE_MS }, (finished) => {
-        if (finished) runOnJS(finishClose)();
+      // Nothing was ever shown (first mount) — no close to run,
+      // and no spurious onClosed to the host
+      if (!shown) return;
+      // Teardown must not depend on the animation reporting
+      // success — finishClose runs either way and guards itself
+      progress.value = withTiming(0, { duration: CLOSE_MS }, () => {
+        runOnJS(finishClose)();
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the target id by design
@@ -209,12 +227,16 @@ export default function MessageContextMenu({
   // the first frame of the Modal has no layout yet, and a spring
   // started before it would aim at a garbage shift
   const layerRef = useRef<View>(null);
+  const copyScrollRef = useRef<ScrollView>(null);
   const [layer, setLayer] = useState({ x: 0, top: 0, width: 0, height: 0 });
   const measureLayer = () => {
     layerRef.current?.measureInWindow((x, y, w, h) => {
       setLayer({ x, top: y, width: w, height: h });
       const now = latest.current;
-      if (now.target) {
+      // Later layouts keep updating the geometry, but the spring
+      // and the host notification fire once per open
+      if (now.target && !hasOpenedRef.current) {
+        hasOpenedRef.current = true;
         progress.value = withSpring(1, OPEN_SPRING);
         now.onOpened?.(now.target.message.id);
       }
@@ -251,6 +273,9 @@ export default function MessageContextMenu({
   const layerWidth = layer.width || 1;
   const layerHeight = layer.height || windowHeight;
   const copyHeight = Math.min(frame.height, Math.max(80, layerHeight - 2 * EDGE - barSpace - menuSpace));
+  // A copy clipped to keep the actions reachable becomes
+  // scrollable, so the reader can still check the whole message
+  const copyClipped = frame.height > copyHeight;
   const stackHeight = barSpace + copyHeight + menuSpace;
   const originalTop = frame.y - layer.top;
   const frameLeft = frame.x - layer.x;
@@ -261,8 +286,10 @@ export default function MessageContextMenu({
     transform: [{ translateY: interpolate(progress.value, [0, 1], [0, shift]) }, { scale: interpolate(progress.value, [0, 1], [1, 1.02]) }],
   }));
 
-  // Bar and menu hug the bubble's outer edge, clamped to the layer
-  const barWidth = reactionOptions.length * 44 + 12;
+  // Bar and menu hug the bubble's outer edge, clamped to the
+  // layer. Each option gets a 50pt slot so the 44pt discs keep
+  // daylight between neighbouring targets
+  const barWidth = reactionOptions.length * 50 + 12;
   const horizontal = (width: number) =>
     own
       ? { right: Math.max(EDGE, layerWidth - (frameLeft + frame.width)) }
@@ -279,7 +306,9 @@ export default function MessageContextMenu({
       // Android back and the web Escape key close the menu
       onRequestClose={onClose}
     >
-    <View ref={layerRef} onLayout={measureLayer} style={{ flex: 1 }}>
+    {/* accessibilityViewIsModal keeps VoiceOver inside the layer —
+        without it the reader can wander back into the dimmed feed */}
+    <View ref={layerRef} onLayout={measureLayer} accessibilityViewIsModal style={{ flex: 1 }}>
 
       <Animated.View style={[StyleSheet.absoluteFill, scrimStyle]}>
         <Pressable style={{ flex: 1, backgroundColor: colors.scrim }} onPress={onClose} accessibilityRole="button" accessibilityLabel={labels.close} />
@@ -313,6 +342,9 @@ export default function MessageContextMenu({
               },
               barStyle,
             ]}
+            // A real role makes the bar an announced group ("Reaguoti")
+            // without collapsing the emoji buttons inside it
+            accessibilityRole="toolbar"
             accessibilityLabel={labels.react}
           >
             {reactionOptions.map((emoji, index) => {
@@ -336,15 +368,28 @@ export default function MessageContextMenu({
           </Animated.View>
           ) : null}
 
-          {/* The floating copy of the pressed bubble */}
+          {/* The floating copy of the pressed bubble. A clipped
+              copy scrolls (the indicator flashes as the
+              affordance) so a long message can be read in full
+              before acting on it; an unclipped one stays inert and
+              lets taps fall through to the scrim */}
           <Animated.View
-            pointerEvents="none"
+            pointerEvents={copyClipped ? 'auto' : 'none'}
             style={[
               { position: 'absolute', top: originalTop, left: frameLeft, width: frame.width, height: copyHeight, overflow: 'hidden' },
               bubbleStyle,
             ]}
           >
-            <BubbleBody message={message} position={shown.target.position} />
+            <ScrollView
+              ref={copyScrollRef}
+              scrollEnabled={copyClipped}
+              showsVerticalScrollIndicator={copyClipped}
+              onLayout={copyClipped ? () => copyScrollRef.current?.flashScrollIndicators() : undefined}
+            >
+              <View pointerEvents="none">
+                <BubbleBody message={message} position={shown.target.position} labels={labels} initialImageRatio={shown.target.imageRatio} />
+              </View>
+            </ScrollView>
           </Animated.View>
 
           {/* Actions */}
@@ -410,7 +455,7 @@ function ReactionOption({
   emoji: string;
   index: number;
   selected: boolean;
-  progress: { value: number };
+  progress: SharedValue<number>;
   label: string;
   onPress: () => void;
 }) {
@@ -435,10 +480,11 @@ function ReactionOption({
         accessibilityRole="button"
         accessibilityLabel={label}
         accessibilityState={{ selected }}
+        // A full 44pt disc — the minimum touch target on both axes
         style={{
-          width: 40,
-          height: 40,
-          borderRadius: 20,
+          width: 44,
+          height: 44,
+          borderRadius: 22,
           alignItems: 'center',
           justifyContent: 'center',
           backgroundColor: selected ? colors.brandSoft : 'transparent',

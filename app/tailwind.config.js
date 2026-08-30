@@ -16,6 +16,7 @@
 module.exports = {
   content: [
     './app/**/*.{js,jsx,ts,tsx}',
+    './chatkit/**/*.{js,jsx,ts,tsx}',
     './components/**/*.{js,jsx,ts,tsx}',
     './context/**/*.{js,jsx,ts,tsx}',
     './hooks/**/*.{js,jsx,ts,tsx}',
@@ -48,6 +49,7 @@ module.exports = {
           strong: 'var(--brand-strong)',
           soft: 'var(--brand-soft)',
           header: 'var(--brand-header)',
+          text: 'var(--brand-text)',
         },
         accent: 'var(--accent)',
         success: {

@@ -1,11 +1,12 @@
 // -----------------------------------------------------------
 //  [*] Main — the bottom tab bar
 //
-//  Six tabs: news, messages, schedule, id, map, settings.
-//  News and messages are hard-pinned by AppContext; the other
-//  four obey the pinned-tab setting through expo-router's
-//  href — an unpinned tab gets href null, which removes it
-//  from the bar and disables linking to it until re-pinned.
+//  The six tabs come from the shared roster in constants/tabs
+//  — one table for this layout, the drawer and the bar. News
+//  and messages are hard-pinned by AppContext; the other four
+//  obey the pinned-tab setting through expo-router's href —
+//  an unpinned tab gets href null, which disables linking to
+//  it until re-pinned (the bar reads pinnedTabs itself).
 //
 //  The bar itself is components/navigation/TabBar — glyphs,
 //  the active pill, the unread badge and the safe-area
@@ -17,8 +18,9 @@
 import { Tabs } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 
-// The custom bar
+// The custom bar and the shared tab roster
 import TabBar from '@/components/navigation/TabBar';
+import { TABS } from '@/constants/tabs';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 
 // Pinned-tab visibility
@@ -48,19 +50,23 @@ export default function MainTabsLayout() {
   const { pinnedTabs } = useApp();
 
 
-  // Unpinned tabs disappear from the bar; news and messages
-  // are hard-pinned by AppContext so they never take the null
+  // Unpinned tabs lose their link; hard-pinned surfaces never
+  // take the null (AppContext keeps them in pinnedTabs anyway)
   const tabHref = (key: string) => (pinnedTabs.includes(key) ? undefined : null);
 
 
   return (
     <Tabs tabBar={renderTabBar} screenOptions={{ headerShown: false, animation: 'shift' }}>
-      <Tabs.Screen name="news" options={{ title: t('tabs.news') }} />
-      <Tabs.Screen name="messages" options={{ title: t('tabs.messages') }} />
-      <Tabs.Screen name="schedule" options={{ title: t('tabs.schedule'), href: tabHref('schedule') }} />
-      <Tabs.Screen name="id" options={{ title: t('tabs.id'), href: tabHref('id') }} />
-      <Tabs.Screen name="map" options={{ title: t('tabs.map'), href: tabHref('map') }} />
-      <Tabs.Screen name="settings" options={{ title: t('tabs.settings'), href: tabHref('settings') }} />
+      {TABS.map((tab) => (
+        <Tabs.Screen
+          key={tab.key}
+          name={tab.key}
+          options={{
+            title: t(`tabs.${tab.key}`),
+            ...(tab.hardPinned ? null : { href: tabHref(tab.key) }),
+          }}
+        />
+      ))}
     </Tabs>
   );
 }

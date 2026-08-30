@@ -14,6 +14,15 @@
 //  response interceptor.
 // -----------------------------------------------------------
 
+// Intl.PluralRules polyfill — Hermes builds may ship without
+// it, and i18next then collapses the Lithuanian _few forms to
+// one/other. Both entries self-guard and no-op when native
+// support exists
+import '@formatjs/intl-getcanonicallocales/polyfill';
+import '@formatjs/intl-pluralrules/polyfill';
+import '@formatjs/intl-pluralrules/locale-data/lt';
+import '@formatjs/intl-pluralrules/locale-data/en';
+
 // i18next core + React bindings
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
@@ -27,8 +36,10 @@ import en from './en.json';
 
 
 // Lithuanian devices start in Lithuanian, everyone else in
-// English; the persisted setting overrides this after hydration
-const deviceLanguage = getLocales()[0]?.languageCode === 'lt' ? 'lt' : 'en';
+// English; the persisted setting overrides this after hydration.
+// Exported so AppContext can seed a fresh install from the same
+// detection instead of re-reading i18n.language
+export const deviceLanguage = getLocales()[0]?.languageCode === 'lt' ? 'lt' : 'en';
 
 i18n.use(initReactI18next).init({
   resources: {

@@ -38,6 +38,3 @@ export default function SectionTitle({ children }: SectionTitleProps) {
     </Text>
   );
 }
-
-// Named alongside the default so the ui barrel can `export *`
-export { SectionTitle };

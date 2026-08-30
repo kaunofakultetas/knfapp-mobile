@@ -28,7 +28,6 @@
 //  Split into (root component last):
 //
 //    WAYPOINTS       — the curated walk (typed steps)
-//    foldForSearch   — lowercase + diacritic-stripping fold
 //    matchesAllTokens— per-token search predicate
 //    RoomRow         — one destination row
 //    DestinationList — search field + grouped room list
@@ -37,7 +36,7 @@
 // -----------------------------------------------------------
 
 // The photo stage this screen drives
-import PanoramaNavigator, { ALIGNED_TOLERANCE_DEG } from '@/components/map/PanoramaNavigator';
+import PanoramaNavigator from '@/components/map/PanoramaNavigator';
 
 // App chrome and shared states
 import { Button, EmptyState, Header, Screen } from '@/components/ui';
@@ -45,14 +44,20 @@ import { Button, EmptyState, Header, Screen } from '@/components/ui';
 // JS-side colors for icons, rows and the search field
 import { useTheme } from '@/hooks/useTheme';
 
+// Shared lowercase + diacritic-stripping search fold
+import { foldForSearch } from '@/services/format';
+
 // Screen primitives
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+  AccessibilityInfo,
+  BackHandler,
   FlatList,
   Keyboard,
+  Platform,
   Pressable,
   Text,
   TextInput,
@@ -64,20 +69,23 @@ import {
 
 
 // One waypoint of the walk: which panorama to stand in, where
-// the next target sits inside it, and the room it leads to.
+// the next target sits inside it, and the room found there.
 // Building and floor stay numeric so the label is translated
-// at render time.
+// at render time; common-noun rooms carry nameKey and render
+// through t(), genuine proper names stay literal.
 interface Waypoint {
   panoSource: ImageSourcePropType;
   targetAzimuth: number;
-  room: { name: string; building: number; floor: number; distanceMeters: number };
+  room: { name: string; nameKey?: string; building: number; floor: number; distanceMeters: number };
 }
 
-// A waypoint joined with its translated floor label, cumulative
-// distance from the entrance and the folded search text
+// A waypoint joined with its translated display name and floor
+// label, cumulative distance from the entrance and the folded
+// search text
 interface Destination {
   waypoint: Waypoint;
   index: number;
+  name: string;
   floorLabel: string;
   distanceFromEntrance: number;
   haystack: string;
@@ -110,9 +118,10 @@ const SHEET_SHADOW: ViewStyle = {
 // routing graph. Each waypoint stands inside one bundled
 // 4096px-wide panorama from assets/navigation/; targetAzimuth
 // says where the next waypoint sits in it (0–360° across the
-// image width); distanceMeters is the leg to that waypoint.
-// Room names are Lithuanian proper names and stay untranslated
-// on purpose.
+// image width); distanceMeters is the leg from this waypoint
+// to the NEXT one, so the walk to waypoint N sums the legs of
+// waypoints 0..N-1. Genuine proper names stay literal; common
+// nouns and department names carry a navigation.rooms.* key.
 //
 // Used by:
 //   - MapScreen (below) — destinations + the route prefix
@@ -122,22 +131,22 @@ const WAYPOINTS: Waypoint[] = [
   {
     panoSource: require('@/assets/navigation/1.1.03.jpg'),
     targetAzimuth: 230,
-    room: { name: 'Viešųjų Ryšių Skyrius', building: 1, floor: 1, distanceMeters: 37 },
+    room: { name: 'Viešųjų Ryšių Skyrius', nameKey: 'navigation.rooms.publicRelations', building: 1, floor: 1, distanceMeters: 37 },
   },
   {
     panoSource: require('@/assets/navigation/1.1.00.jpg'),
     targetAzimuth: 10,
-    room: { name: 'Koridorius', building: 1, floor: 1, distanceMeters: 22 },
+    room: { name: 'Koridorius', nameKey: 'navigation.rooms.corridor', building: 1, floor: 1, distanceMeters: 22 },
   },
   {
     panoSource: require('@/assets/navigation/1.2.01.jpg'),
     targetAzimuth: 190,
-    room: { name: '1 AUD ir 2 AUD', building: 1, floor: 2, distanceMeters: 10 },
+    room: { name: '1 AUD ir 2 AUD', nameKey: 'navigation.rooms.aud1and2', building: 1, floor: 2, distanceMeters: 10 },
   },
   {
     panoSource: require('@/assets/navigation/1.2.05.jpg'),
     targetAzimuth: 225,
-    room: { name: 'Tarptautiniai Ryšiai', building: 1, floor: 2, distanceMeters: 10 },
+    room: { name: 'Tarptautiniai Ryšiai', nameKey: 'navigation.rooms.internationalRelations', building: 1, floor: 2, distanceMeters: 10 },
   },
   {
     panoSource: require('@/assets/navigation/2.2.04.jpg'),
@@ -160,12 +169,6 @@ const WAYPOINTS: Waypoint[] = [
     room: { name: 'Gronsko Auditorija', building: 1, floor: 2, distanceMeters: 10 },
   },
 ];
-
-
-// Fold away diacritics so "rysiai" finds "Ryšiai" — NFD splits
-// the marks off the letters, the regex strips them
-const foldForSearch = (text: string) =>
-  text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
 
 // Every whitespace-separated token must appear somewhere in the
@@ -192,12 +195,20 @@ const tick = () => {
 // One destination: pin tile, room name, floor and distance
 // from the entrance, chevron. Colors come from useTheme
 // because the pressed state needs a JS-side style function.
+// Memoized — the list re-renders per search keystroke and a
+// row only changes with its destination.
 //
 // Used by:
 //   - DestinationList (below)
 // -----------------------------------------------------------
 
-function RoomRow({ destination, onPress }: { destination: Destination; onPress: () => void }) {
+const RoomRow = memo(function RoomRow({
+  destination,
+  onSelect,
+}: {
+  destination: Destination;
+  onSelect: (destination: Destination) => void;
+}) {
 
   const { t } = useTranslation();
   const { colors } = useTheme();
@@ -208,9 +219,9 @@ function RoomRow({ destination, onPress }: { destination: Destination; onPress: 
 
   return (
     <Pressable
-      onPress={onPress}
+      onPress={() => onSelect(destination)}
       accessibilityRole="button"
-      accessibilityLabel={`${destination.waypoint.room.name}, ${subtitle}`}
+      accessibilityLabel={`${destination.name}, ${subtitle}`}
       className="mx-md mb-sm flex-row items-center rounded-xl bg-surface px-md py-3"
       style={({ pressed }) => (pressed ? { backgroundColor: colors.surfaceSoft } : null)}
     >
@@ -220,7 +231,7 @@ function RoomRow({ destination, onPress }: { destination: Destination; onPress: 
 
       <View className="ml-md flex-1">
         <Text className="font-raleway-semibold text-base text-ink" numberOfLines={1}>
-          {destination.waypoint.room.name}
+          {destination.name}
         </Text>
         <Text className="mt-0.5 font-raleway text-xs text-ink-soft" numberOfLines={1}>
           {subtitle}
@@ -230,7 +241,7 @@ function RoomRow({ destination, onPress }: { destination: Destination; onPress: 
       <Ionicons name="chevron-forward" size={18} color={colors.inkFaint} />
     </Pressable>
   );
-}
+});
 
 
 
@@ -270,12 +281,15 @@ function DestinationList({
       ? destinations.filter((d) => matchesAllTokens(d.haystack, folded))
       : destinations;
 
+    // Header keys are positional (the index of the room that
+    // opens the group) so they stay unique even if WAYPOINTS
+    // ever stops being floor-sorted
     const out: ListRow[] = [];
     let lastFloor = '';
     for (const destination of matches) {
       if (destination.floorLabel !== lastFloor) {
         lastFloor = destination.floorLabel;
-        out.push({ type: 'header', key: `h-${lastFloor}`, label: lastFloor });
+        out.push({ type: 'header', key: `h-${destination.index}`, label: lastFloor });
       }
       out.push({ type: 'room', key: `r-${destination.index}`, destination });
     }
@@ -284,6 +298,20 @@ function DestinationList({
 
 
   const matchCount = rows.filter((row) => row.type === 'room').length;
+
+
+  // Stable renderItem so the memoized rows survive keystrokes
+  const renderRow = useCallback(
+    ({ item }: { item: ListRow }) =>
+      item.type === 'header' ? (
+        <Text className="mb-xs mt-sm px-md font-raleway-bold text-xs uppercase tracking-widest text-ink-soft">
+          {item.label}
+        </Text>
+      ) : (
+        <RoomRow destination={item.destination} onSelect={onSelect} />
+      ),
+    [onSelect],
+  );
 
 
   return (
@@ -323,15 +351,7 @@ function DestinationList({
       <FlatList
         data={rows}
         keyExtractor={(row) => row.key}
-        renderItem={({ item }) =>
-          item.type === 'header' ? (
-            <Text className="mb-xs mt-sm px-md font-raleway-bold text-xs uppercase tracking-widest text-ink-soft">
-              {item.label}
-            </Text>
-          ) : (
-            <RoomRow destination={item.destination} onPress={() => onSelect(item.destination)} />
-          )
-        }
+        renderItem={renderRow}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         contentContainerStyle={{ flexGrow: 1, paddingBottom: 24 }}
@@ -362,20 +382,25 @@ function DestinationList({
 // counter and the remaining distance, the current instruction
 // (direction icon + text, "towards <next waypoint>"), and the
 // Back / Next pair — or, at the destination, the arrival card
-// with Done. The instruction follows the angle the stage
-// reports: inside the tolerance it says "go straight".
+// with Done. Both the angle and the aligned flag come from the
+// stage itself, so the sheet and the marker can never disagree
+// at the tolerance boundary; roomLabel/floorLabel name the
+// NEXT waypoint — the one being walked towards, not the one
+// being stood in. Memoized (with stable handlers from the
+// screen) so only its own props re-render it.
 //
 // Used by:
 //   - MapScreen (below) — while a destination is chosen
 // -----------------------------------------------------------
 
-function RouteSheet({
+const RouteSheet = memo(function RouteSheet({
   step,
   totalSteps,
-  waypoint,
+  roomLabel,
   floorLabel,
   remainingMeters,
   deltaDeg,
+  aligned,
   arrived,
   onBack,
   onNext,
@@ -383,10 +408,11 @@ function RouteSheet({
 }: {
   step: number;
   totalSteps: number;
-  waypoint: Waypoint;
+  roomLabel: string;
   floorLabel: string;
   remainingMeters: number;
   deltaDeg: number;
+  aligned: boolean;
   arrived: boolean;
   onBack: () => void;
   onNext: () => void;
@@ -397,7 +423,6 @@ function RouteSheet({
   const { colors } = useTheme();
 
 
-  const aligned = Math.abs(deltaDeg) <= ALIGNED_TOLERANCE_DEG;
   const instruction = aligned
     ? t('navigation.goStraight')
     : deltaDeg < 0
@@ -408,6 +433,25 @@ function RouteSheet({
     : deltaDeg < 0
       ? 'arrow-undo'
       : 'arrow-redo';
+
+
+  // Screen readers hear the guidance too: the live region below
+  // covers Android, and announcements fire on the high-value
+  // transitions (step change, alignment flip, arrival) for both
+  // platforms — announcing every degree of the live delta would
+  // be noise, so the message rides in a ref and only those
+  // transitions trigger it, throttled to one per 1.5 s
+  const announceRef = useRef('');
+  announceRef.current = arrived
+    ? `${t('navigation.arrived')}. ${t('navigation.arrivedHint', { room: roomLabel })}`
+    : instruction;
+  const lastAnnounceRef = useRef(0);
+  useEffect(() => {
+    const now = Date.now();
+    if (now - lastAnnounceRef.current < 1500) return;
+    lastAnnounceRef.current = now;
+    AccessibilityInfo.announceForAccessibility(announceRef.current);
+  }, [step, aligned, arrived]);
 
 
   const progress = totalSteps > 1 ? step / (totalSteps - 1) : 1;
@@ -444,13 +488,17 @@ function RouteSheet({
           />
         </View>
         <View className="ml-md flex-1">
-          <Text className="font-raleway-bold text-lg text-ink" numberOfLines={1}>
+          <Text
+            className="font-raleway-bold text-lg text-ink"
+            numberOfLines={1}
+            accessibilityLiveRegion="polite"
+          >
             {arrived ? t('navigation.arrived') : instruction}
           </Text>
           <Text className="mt-0.5 font-raleway text-sm text-ink-soft" numberOfLines={1}>
             {arrived
-              ? t('navigation.arrivedHint', { room: waypoint.room.name })
-              : `${t('navigation.towards', { room: waypoint.room.name })} · ${floorLabel}`}
+              ? t('navigation.arrivedHint', { room: roomLabel })
+              : `${t('navigation.towards', { room: roomLabel })} · ${floorLabel}`}
           </Text>
         </View>
       </View>
@@ -480,7 +528,7 @@ function RouteSheet({
 
     </View>
   );
-}
+});
 
 
 
@@ -505,63 +553,99 @@ export default function MapScreen() {
   const [destination, setDestination] = useState<Destination | null>(null);
   const [step, setStep] = useState(0);
   const [deltaDeg, setDeltaDeg] = useState(0);
+  const [alignedToTarget, setAlignedToTarget] = useState(true);
   const [stageHeight, setStageHeight] = useState(0);
 
 
-  // Floor labels are translated, so the list is rebuilt when
-  // the language flips; distances accumulate along the walk
+  // Names and floor labels are translated, so the list is
+  // rebuilt when the language flips. A room's distance from
+  // the entrance sums only the legs BEFORE its waypoint, so
+  // the first room — at the entrance itself — lists as 0 m
+  // and its instant arrival is honest. The haystack keeps the
+  // literal Lithuanian name so it stays searchable under EN.
   const destinations = useMemo<Destination[]>(() => {
     let distance = 0;
     return WAYPOINTS.map((waypoint, index) => {
-      distance += waypoint.room.distanceMeters;
+      const name = waypoint.room.nameKey ? t(waypoint.room.nameKey) : waypoint.room.name;
       const floorLabel = t('navigation.floorLabel', {
         building: waypoint.room.building,
         floor: waypoint.room.floor,
       });
-      return {
+      const destination: Destination = {
         waypoint,
         index,
+        name,
         floorLabel,
         distanceFromEntrance: distance,
-        haystack: foldForSearch(`${waypoint.room.name} ${floorLabel}`),
+        haystack: foldForSearch(`${name} ${waypoint.room.name} ${floorLabel}`),
       };
+      distance += waypoint.room.distanceMeters;
+      return destination;
     });
   }, [t]);
 
 
-  // The route is the walk's prefix up to the destination
+  // The route is the walk's prefix up to the destination. The
+  // stage stands in `current`; the sheet names `next` — the
+  // waypoint being walked towards (at arrival the two meet on
+  // the destination). Remaining distance sums the legs still
+  // ahead, so it reaches 0 exactly at arrival.
   const totalSteps = destination ? destination.index + 1 : 0;
-  const current = destination ? WAYPOINTS[Math.min(step, destination.index)] : null;
-  const currentFloorLabel = destination ? destinations[Math.min(step, destination.index)].floorLabel : '';
+  const currentIndex = destination ? Math.min(step, destination.index) : 0;
+  const current = destination ? WAYPOINTS[currentIndex] : null;
+  const next = destination ? destinations[Math.min(step + 1, destination.index)] : null;
   const arrived = destination !== null && step >= destination.index;
   const remainingMeters = destination
-    ? WAYPOINTS.slice(step, destination.index + 1).reduce((sum, w) => sum + w.room.distanceMeters, 0)
+    ? WAYPOINTS.slice(step, destination.index).reduce((sum, w) => sum + w.room.distanceMeters, 0)
     : 0;
 
 
-  const startRoute = (target: Destination) => {
+  const startRoute = useCallback((target: Destination) => {
     tick();
     Keyboard.dismiss();
     setDestination(target);
     setStep(0);
     setDeltaDeg(0);
-  };
+    setAlignedToTarget(true);
+  }, []);
 
-  const endRoute = () => {
+  const endRoute = useCallback(() => {
     setDestination(null);
     setStep(0);
-  };
+  }, []);
 
-  const goBack = () => {
+  // Stable so the memoized RouteSheet only re-renders on its
+  // own data — not on every unrelated screen state change
+  const goBack = useCallback(() => {
     tick();
     setStep((s) => Math.max(0, s - 1));
-  };
+  }, []);
 
-  const goNext = () => {
+  const goNext = useCallback(() => {
     if (!destination) return;
     tick();
     setStep((s) => Math.min(destination.index, s + 1));
-  };
+  }, [destination]);
+
+
+  // The stage reports the rounded angle and its own aligned
+  // flag together, so the sheet never re-derives alignment
+  const handleDeltaChange = useCallback((delta: number, aligned: boolean) => {
+    setDeltaDeg(delta);
+    setAlignedToTarget(aligned);
+  }, []);
+
+
+  // Android back ends the route instead of leaving the screen
+  // — the same pattern the Sidebar drawer uses
+  useEffect(() => {
+    if (!destination || Platform.OS !== 'android') return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      endRoute();
+      return true;
+    });
+    return () => sub.remove();
+  }, [destination, endRoute]);
 
 
   const handleStageLayout = (event: LayoutChangeEvent) => {
@@ -590,7 +674,7 @@ export default function MapScreen() {
     <Screen>
 
       <Header
-        title={destination ? destination.waypoint.room.name : t('navigation.title')}
+        title={destination ? destination.name : t('navigation.title')}
         right={endRouteButton}
       />
 
@@ -599,15 +683,25 @@ export default function MapScreen() {
       ) : (
         <>
           {/* Photo stage — fills what the sheet leaves; deliberately
-              dark in both themes */}
-          <View className="flex-1 overflow-hidden bg-black" onLayout={handleStageLayout}>
+              dark in both themes. To a screen reader it is one
+              labelled image naming where the walk is heading —
+              the sheet's Back / Next remain the control path */}
+          <View
+            className="flex-1 overflow-hidden bg-black"
+            onLayout={handleStageLayout}
+            accessible
+            accessibilityRole="image"
+            accessibilityLabel={t('navigation.stageLabel', { room: next ? next.name : destination.name })}
+          >
             {stageHeight > 0 ? (
               <PanoramaNavigator
                 panoSource={current.panoSource}
                 targetAzimuth={current.targetAzimuth}
                 containerHeight={stageHeight}
+                step={currentIndex}
+                arrived={arrived}
                 stepLabel={t('navigation.stepCounter', { current: step + 1, total: totalSteps })}
-                onDeltaChange={setDeltaDeg}
+                onDeltaChange={handleDeltaChange}
               />
             ) : null}
           </View>
@@ -615,10 +709,11 @@ export default function MapScreen() {
           <RouteSheet
             step={step}
             totalSteps={totalSteps}
-            waypoint={current}
-            floorLabel={currentFloorLabel}
+            roomLabel={next ? next.name : ''}
+            floorLabel={next ? next.floorLabel : ''}
             remainingMeters={remainingMeters}
             deltaDeg={deltaDeg}
+            aligned={alignedToTarget}
             arrived={arrived}
             onBack={goBack}
             onNext={goNext}

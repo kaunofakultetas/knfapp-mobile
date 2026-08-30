@@ -45,4 +45,7 @@ export interface ContextTarget {
   message: KitMessage;
   position: GroupPosition;
   frame: BubbleFrame;
+  // The photo ratio the bubble already measured, so the menu's
+  // floating copy mounts at the real size instead of the 4:3 guess
+  imageRatio?: number;
 }

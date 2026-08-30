@@ -23,6 +23,7 @@
 //  Split into:
 //
 //    parseStamp        — zone-safe Date from a backend stamp
+//    messageStamp      — per-message cached parsed time
 //    GROUP_GAP_MS      — the run-breaking silence
 //    SEPARATOR_GAP_MS  — the stamp-worthy silence
 //    dayKey            — calendar-day identity of an ISO stamp
@@ -40,14 +41,44 @@ export const GROUP_GAP_MS = 3 * 60_000;
 // A silence longer than this earns a centered time stamp
 export const SEPARATOR_GAP_MS = 60 * 60_000;
 
-// Zoneless backend stamps are UTC — same rule as services/format
+// Zoneless backend stamps are UTC — same rule as services/format.
+// SQLite space-form stamps ("2026-08-27 10:05:00") are normalized
+// to the T form first so they get the same UTC treatment, and a
+// microsecond fraction is truncated to milliseconds — Hermes does
+// not parse six fractional digits
 const HAS_ZONE_RE = /(Z|[+-]\d{2}:?\d{2})$/i;
 export function parseStamp(iso: string): Date | null {
-  const normalized = iso.includes('T') && !HAS_ZONE_RE.test(iso) ? iso + 'Z' : iso;
-  const date = new Date(normalized);
+  const t = iso.includes('T') ? iso : iso.replace(' ', 'T');
+  const zoned = t.includes('T') && !HAS_ZONE_RE.test(t) ? t + 'Z' : t;
+  const date = new Date(zoned.replace(/(\.\d{3})\d+/, '$1'));
   return Number.isNaN(date.getTime()) ? null : date;
 }
 const parse = parseStamp;
+
+// buildTimeline touches every stamp ~16 times per rebuild, and it
+// rebuilds on every socket event — the parsed time and local day
+// key are cached per message OBJECT (a replaced object re-parses,
+// which is exactly when it should)
+const STAMP_CACHE = new WeakMap<KitMessage, number>();
+const DAY_KEY_CACHE = new WeakMap<KitMessage, string>();
+
+export function messageStamp(message: KitMessage): number {
+  let value = STAMP_CACHE.get(message);
+  if (value === undefined) {
+    value = parse(message.createdAt)?.getTime() ?? 0;
+    STAMP_CACHE.set(message, value);
+  }
+  return value;
+}
+
+function messageDayKey(message: KitMessage): string {
+  let value = DAY_KEY_CACHE.get(message);
+  if (value === undefined) {
+    value = dayKey(message.createdAt);
+    DAY_KEY_CACHE.set(message, value);
+  }
+  return value;
+}
 
 const localDayKey = (date: Date) => `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
 
@@ -155,26 +186,29 @@ function timeLabel(iso: string, locale: string): string {
 // buildTimeline
 // -----------------------------------------------------------
 //
-//   buildTimeline(messagesNewestFirst, labels) → TimelineItem[]
+//   buildTimeline(messagesNewestFirst, labels, hasMore) → TimelineItem[]
 //
 // Pure and cheap (one pass); the screen memoizes it on the
-// message array.
+// message array. `hasMore` — whether older history exists
+// beyond the loaded window — suppresses the stamp above the
+// oldest LOADED message: that boundary is a paging edge, not
+// a real pause in the conversation.
 //
 // Used by:
 //   - app/(main)/chat-room/index.tsx — feeds MessageList
 // -----------------------------------------------------------
 
-export function buildTimeline(messages: KitMessage[], labels: TimelineLabels): TimelineItem[] {
+export function buildTimeline(messages: KitMessage[], labels: TimelineLabels, hasMore = false): TimelineItem[] {
 
   const items: TimelineItem[] = [];
 
 
-  const stamp = (m: KitMessage) => parse(m.createdAt)?.getTime() ?? 0;
+  const stamp = messageStamp;
 
   // A separator sits between two messages when the day changes
   // or the older one is more than an hour behind
   const separated = (newer: KitMessage, older: KitMessage) =>
-    dayKey(newer.createdAt) !== dayKey(older.createdAt) || stamp(newer) - stamp(older) > SEPARATOR_GAP_MS;
+    messageDayKey(newer) !== messageDayKey(older) || stamp(newer) - stamp(older) > SEPARATOR_GAP_MS;
 
   // Two messages belong to one run when the same person sent
   // both within the gap, with no separator between, and neither
@@ -204,14 +238,20 @@ export function buildTimeline(messages: KitMessage[], labels: TimelineLabels): T
 
     items.push({ type: 'message', key: message.id, message, position });
 
-    // Stamp before the oldest message of a stretch
-    if (!older || separated(message, older)) {
-      items.push({
-        type: 'separator',
-        key: `sep-${message.id}`,
-        day: dayLabel(message.createdAt, labels),
-        time: timeLabel(message.createdAt, labels.locale),
-      });
+    // Stamp before the oldest message of a stretch — but not at
+    // the paging edge (older history exists beyond the window),
+    // and never as a blank row when the stamp does not parse
+    if (older ? separated(message, older) : !hasMore) {
+      const day = dayLabel(message.createdAt, labels);
+      const time = timeLabel(message.createdAt, labels.locale);
+      if (day || time) {
+        items.push({
+          type: 'separator',
+          key: `sep-${message.id}`,
+          day,
+          time,
+        });
+      }
     }
   }
 

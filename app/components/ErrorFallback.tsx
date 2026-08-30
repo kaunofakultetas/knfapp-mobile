@@ -8,9 +8,9 @@
 //  handler), no UI-kit components (Button reads the theme
 //  context), and no className color tokens (their CSS
 //  variables live on the ThemedShell View, which may be the
-//  thing that crashed). Colors come straight from the light
-//  palette; i18n works through the global instance loaded by
-//  the '@/i18n' import chain.
+//  thing that crashed). Colors come straight from the static
+//  palette matching the OS scheme; i18n works through the
+//  global instance loaded by the '@/i18n' import chain.
 //
 //  The translated message leads; the raw technical error text
 //  is shown small underneath so axios/JS internals never
@@ -26,17 +26,27 @@ import { fonts, palettes } from '@/constants/theme';
 // Mail composer for the report button
 import * as Linking from 'expo-linking';
 
+// App version for the crash-report mail body
+import Constants from 'expo-constants';
+
+// The buffered failure trail rides along in the report mail
+import { getErrorLog } from '@/services/log';
+
 import { useTranslation } from 'react-i18next';
-import { Pressable, Text, View } from 'react-native';
+import { Appearance, Platform, Pressable, Text, View } from 'react-native';
 
 
-// Pre-filled support address; the subject is URL-encoded
-const SUPPORT_MAILTO = 'mailto:support@vu.lt?subject=KNF%20App%20Error';
+// Report address; subject and body are built per crash
+const SUPPORT_EMAIL = 'support@vu.lt';
 
-// The crash screen always renders the light palette — the
-// theme context that knows the user's choice may itself be
-// what crashed
-const c = palettes.light;
+// Fallback subject in case i18n itself is what crashed
+const REPORT_SUBJECT_FALLBACK = 'KNF App Error';
+
+// The crash screen follows the OS scheme via the static
+// Appearance API — the theme context that knows the in-app
+// override may itself be what crashed, so the override is
+// deliberately ignored here
+const c = palettes[Appearance.getColorScheme() ?? 'light'];
 
 
 
@@ -113,19 +123,47 @@ export default function ErrorFallback({ error, resetErrorBoundary }: FallbackPro
   const { t } = useTranslation();
 
 
-  // Devices without a mail handler reject openURL — the crash
-  // screen must never crash again, so the rejection is
-  // swallowed on purpose
+  const detail = error instanceof Error ? error.message : null;
+
+
+  // The draft opens pre-filled with what support needs: the
+  // raw error, app version, platform and a timestamp. Devices
+  // without a mail handler reject openURL — the crash screen
+  // must never crash again, so every failure is swallowed
   const reportIssue = async () => {
+
+    // i18n may be the thing that crashed — fall back to the
+    // English literal rather than throwing again
+    let subject = REPORT_SUBJECT_FALLBACK;
     try {
-      await Linking.openURL(SUPPORT_MAILTO);
+      subject = t('error.reportSubject');
+    } catch {
+      // keep the fallback literal
+    }
+
+
+    // The last few logError lines — the swallowed failures
+    // leading up to the crash often name the real cause; capped
+    // so the mailto URL stays within every handler's limits
+    const trail = getErrorLog().slice(-10);
+
+    const body = [
+      detail ?? String(error),
+      `App: ${Constants.expoConfig?.version ?? 'unknown'}`,
+      `OS: ${Platform.OS} ${Platform.Version}`,
+      `Time: ${new Date().toISOString()}`,
+      ...(trail.length ? ['', 'Recent errors:', ...trail] : []),
+    ].join('\n');
+
+
+    try {
+      await Linking.openURL(
+        `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`,
+      );
     } catch {
       // no mail app — nothing more we can do from here
     }
   };
-
-
-  const detail = error instanceof Error ? error.message : null;
 
 
   return (
@@ -161,6 +199,7 @@ export default function ErrorFallback({ error, resetErrorBoundary }: FallbackPro
       </Text>
       {detail ? (
         <Text
+          selectable
           style={{
             fontFamily: fonts.regular,
             fontSize: 12,

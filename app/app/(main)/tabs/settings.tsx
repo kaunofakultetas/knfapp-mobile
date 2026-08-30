@@ -14,6 +14,9 @@
 //  payload dropped the first one). A failed save reverts only
 //  the channels of the failed batch and toasts; a batch still
 //  pending on unmount is flushed as a fire-and-forget request.
+//  A failed LOAD never masquerades as server state — the
+//  switches stay locked behind a compact retry row until a
+//  real GET succeeds.
 //
 //  The push master switch awaits the token registration and
 //  snaps back OFF with a toast when the OS denies permission
@@ -22,9 +25,12 @@
 //  actually registered this session.
 //
 //  Reset restores device-local defaults only — the backend
-//  channel switches are account state and stay. The language
-//  re-sync after reset happens inside AppContext (its i18n
-//  effect follows the language setting), not here.
+//  channel switches are account state and stay. Because the
+//  defaults turn the push master switch back on, reset also
+//  performs the toggle's registration side effect (and snaps
+//  back off on failure). The language re-sync after reset
+//  happens inside AppContext (its i18n effect follows the
+//  language setting), not here.
 //
 //  Split into (root component last):
 //
@@ -43,9 +49,14 @@ import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { showToast } from '@/context/NetworkContext';
 
-// Backend channel switches and push token plumbing
+// Backend channel switches and push token plumbing; the
+// resolved base URL renders in the footer so a misconfigured
+// build is distinguishable from being offline
 import {
+  API_BASE_URL,
+  fetchChatPreview,
   fetchNotificationChannels,
+  updateChatPreview,
   updateNotificationChannels,
   type NotificationChannel,
 } from '@/services/api';
@@ -66,9 +77,12 @@ import {
 } from '@/components/ui';
 import { useTheme } from '@/hooks/useTheme';
 
+// Param-preserving current href for the login returnTo
+import { useReturnHref } from '@/hooks/useReturnHref';
+
 // Icons, navigation, i18n and primitives
 import { Ionicons } from '@expo/vector-icons';
-import { usePathname, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -96,10 +110,12 @@ const DEFAULT_CHANNELS: Record<NotificationChannel, boolean> = {
 // Debounce window for merging rapid channel flips into one save
 const CHANNEL_FLUSH_DELAY_MS = 300;
 
-// One selectable pill of a SegmentedControl
+// One selectable pill of a SegmentedControl; a11yLabel lets a
+// terse visible label ("LT") announce as its full language name
 interface SegmentedOption<T extends string> {
   value: T;
   label: string;
+  a11yLabel?: string;
 }
 
 interface SwitchRowProps {
@@ -218,14 +234,16 @@ function SegmentedControl<T extends string>({
           <Pressable
             key={option.value}
             className={[
-              'h-9 items-center justify-center rounded-sm px-md',
+              // min-h so scaled accessibility text grows the
+              // pill instead of overflowing it
+              'min-h-9 items-center justify-center rounded-sm px-md py-xs',
               fullWidth ? 'flex-1' : '',
               selected ? 'bg-brand' : '',
             ].join(' ')}
             hitSlop={6}
             onPress={() => onChange(option.value)}
             accessibilityRole="button"
-            accessibilityLabel={option.label}
+            accessibilityLabel={option.a11yLabel ?? option.label}
             accessibilityState={{ selected }}
           >
             <Text
@@ -368,13 +386,23 @@ function LinkRow({ icon, label, onPress, divider = false }: LinkRowProps) {
 //
 // The signed-in account card: avatar, display name and email
 // with the logout button. Name + email read to assistive tech
-// as one "logged in as …" element.
+// as one "logged in as …" element. The logout button shows a
+// spinner and locks while the logout runs, so a second tap
+// can't fire it twice.
 //
 // Used by:
 //   - SettingsScreen (below) — account section when signed in
 // -----------------------------------------------------------
 
-function UserCard({ user, onLogout }: { user: User; onLogout: () => void }) {
+function UserCard({
+  user,
+  loggingOut,
+  onLogout,
+}: {
+  user: User;
+  loggingOut: boolean;
+  onLogout: () => void;
+}) {
 
   const { t } = useTranslation();
 
@@ -404,6 +432,8 @@ function UserCard({ user, onLogout }: { user: User; onLogout: () => void }) {
           size="sm"
           fullWidth={false}
           onPress={onLogout}
+          loading={loggingOut}
+          disabled={loggingOut}
         />
       </View>
     </Card>
@@ -433,7 +463,8 @@ function GuestCard() {
   const { t } = useTranslation();
   const { colors } = useTheme();
   const router = useRouter();
-  const pathname = usePathname();
+  // Param-preserving href — usePathname would strip any params
+  const returnTo = useReturnHref();
 
 
   return (
@@ -457,7 +488,7 @@ function GuestCard() {
       <Button
         title={t('settings.login')}
         onPress={() =>
-          router.push({ pathname: '/login', params: { returnTo: pathname } })
+          router.push({ pathname: '/login', params: { returnTo } })
         }
       />
     </Card>
@@ -481,7 +512,7 @@ function GuestCard() {
 export default function SettingsScreen() {
 
   const { theme, language, notifications, setTheme, setLanguage, setNotifications, resetSettings } = useApp();
-  const { isAuthenticated, user, logout } = useAuth();
+  const { isAuthenticated, user, logout, loggingOut } = useAuth();
   const { colors } = useTheme();
   const { t } = useTranslation();
   const router = useRouter();
@@ -493,7 +524,10 @@ export default function SettingsScreen() {
   const [channels, setChannels] =
     useState<Record<NotificationChannel, boolean>>(DEFAULT_CHANNELS);
   const [channelsLoaded, setChannelsLoaded] = useState(false);
+  const [channelsError, setChannelsError] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [chatPreview, setChatPreview] = useState(true);
+  const [chatPreviewLoaded, setChatPreviewLoaded] = useState(false);
   const confirmedRef = useRef<Record<NotificationChannel, boolean>>(DEFAULT_CHANNELS);
   const pendingRef = useRef<Partial<Record<NotificationChannel, boolean>>>({});
   const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -501,15 +535,31 @@ export default function SettingsScreen() {
 
 
   // Stable so the load effect can depend on it; server truth
-  // wins over local state except for flips still pending
+  // wins over local state except for flips still pending. The
+  // preview flag rides the same load: one failure, one retry row
   const loadChannels = useCallback(async () => {
-    const res = await fetchNotificationChannels();
+    const [res, preview] = await Promise.all([
+      fetchNotificationChannels(),
+      fetchChatPreview(),
+    ]);
     confirmedRef.current = res.channels;
     if (mounted.current) {
       setChannels({ ...res.channels, ...pendingRef.current });
       setChannelsLoaded(true);
+      setChannelsError(false);
+      setChatPreview(preview.enabled);
+      setChatPreviewLoaded(true);
     }
   }, []);
+
+
+  // The retry row under a failed load — same GET, same locks
+  const retryChannels = () => {
+    setChannelsError(false);
+    loadChannels().catch(() => {
+      if (mounted.current) setChannelsError(true);
+    });
+  };
 
 
   // Send ONE merged request for everything toggled inside the
@@ -553,10 +603,57 @@ export default function SettingsScreen() {
   };
 
 
+  // The preview toggle: optimistic flip, server answer wins,
+  // failure reverts with the shared save-error toast
+  const handleToggleChatPreview = (value: boolean) => {
+    setChatPreview(value);
+    updateChatPreview(value)
+      .then((res) => {
+        if (mounted.current) setChatPreview(res.enabled);
+      })
+      .catch(() => {
+        if (!mounted.current) return;
+        setChatPreview(!value);
+        showToast('error', t('settings.channelUpdateError'));
+      });
+  };
+
+
+  // registerForPushNotifications historically returned a bare
+  // boolean; the discriminated { ok, reason } result supersedes
+  // it — both shapes are accepted here so the service half can
+  // land independently. Returns whether the switch may stay ON:
+  // a transient network failure keeps it on (the token registers
+  // later), denied permission / unsupported platform snap it off
+  // with their own message.
+  const applyRegisterResult = (result: unknown): boolean => {
+    const asObject =
+      typeof result === 'object' && result !== null
+        ? (result as { ok?: boolean; reason?: string })
+        : null;
+    const ok = asObject ? asObject.ok === true : result === true;
+    if (ok) return true;
+
+    const reason = asObject?.reason;
+    if (reason === 'network' || reason === 'failed') {
+      showToast('error', t('toast.networkError'));
+      return true;
+    }
+    if (reason === 'unsupported') {
+      showToast('error', t('settings.pushUnsupported'));
+    } else {
+      showToast('error', t('settings.pushPermissionDenied'));
+    }
+    return false;
+  };
+
+
   // Master switch: ON awaits token registration and snaps back
   // OFF when the OS denies permission (or the platform has no
   // push); guests only store the preference — login registers.
   // OFF unregisters, a no-op unless a token was registered.
+  // setNotifications persists the flag, which the notification
+  // service re-checks so nothing can re-register it unasked.
   const handleToggleNotifications = async (value: boolean) => {
     setNotifications(value);
 
@@ -567,16 +664,33 @@ export default function SettingsScreen() {
 
     if (!isAuthenticated) return;
 
-    const registered = await registerForPushNotifications();
-    if (!registered) {
+    const result: unknown = await registerForPushNotifications();
+    if (!applyRegisterResult(result) && mounted.current) {
       setNotifications(false);
-      showToast('error', t('settings.pushPermissionDenied'));
     }
   };
 
 
-  // Alert.alert is a no-op on web — confirmAction covers both
+  // A language switch re-registers the push token so the
+  // server-stored copy language never goes stale; deferred a
+  // tick so AppContext's i18n effect applies the new language
+  // first. Best-effort — the register no-ops without a token.
+  const handleLanguageChange = (next: 'lt' | 'en') => {
+    setLanguage(next);
+    if (isAuthenticated && notifications) {
+      setTimeout(() => {
+        void registerForPushNotifications();
+      }, 0);
+    }
+  };
+
+
+  // Alert.alert is a no-op on web — confirmAction covers both.
+  // AuthContext's own `loggingOut` flag drives the guard and the
+  // button's spinner/disabled state, so a second tap during the
+  // teardown is a no-op wherever the logout was started.
   const handleLogout = async () => {
+    if (loggingOut) return;
     const confirmed = await confirmAction({
       title: t('settings.logout'),
       message: t('settings.logoutConfirm'),
@@ -584,22 +698,34 @@ export default function SettingsScreen() {
       cancelLabel: t('common.cancel'),
       destructive: true,
     });
-    if (confirmed) await logout();
+    if (!confirmed) return;
+    await logout();
   };
 
 
-  // Device-local defaults only; AppContext re-syncs i18n when
-  // the language setting snaps back to Lithuanian
+  // Device-local defaults only (tab bar included); AppContext
+  // re-syncs i18n when the language snaps back to Lithuanian.
+  // The defaults flip the push master switch back ON, so the
+  // reset performs the toggle's registration side effect too —
+  // otherwise the switch would claim push without a token.
   const handleReset = async () => {
     const confirmed = await confirmAction({
       title: t('settings.resetDefaults'),
-      message: t('settings.resetConfirm'),
+      message: `${t('settings.resetConfirm')} ${t('settings.resetConfirmTabs')}`,
       confirmLabel: t('settings.reset'),
       cancelLabel: t('common.cancel'),
     });
     if (!confirmed) return;
+    const pushWasOn = notifications;
     resetSettings();
     showToast('success', t('settings.resetDone'));
+
+    if (!pushWasOn && isAuthenticated) {
+      const result: unknown = await registerForPushNotifications();
+      if (!applyRegisterResult(result) && mounted.current) {
+        setNotifications(false);
+      }
+    }
   };
 
 
@@ -626,11 +752,14 @@ export default function SettingsScreen() {
       confirmedRef.current = DEFAULT_CHANNELS;
       setChannels(DEFAULT_CHANNELS);
       setChannelsLoaded(false);
+      setChannelsError(false);
       return;
     }
     loadChannels().catch(() => {
-      // Defaults stay usable — partial saves still work
-      if (mounted.current) setChannelsLoaded(true);
+      // DEFAULT_CHANNELS are placeholders, never server truth —
+      // the switches stay locked behind the retry row until a
+      // real GET succeeds
+      if (mounted.current) setChannelsError(true);
     });
   }, [isAuthenticated, loadChannels]);
 
@@ -679,7 +808,7 @@ export default function SettingsScreen() {
           <SectionTitle>{t('settings.account')}</SectionTitle>
         </View>
         {isAuthenticated && user ? (
-          <UserCard user={user} onLogout={handleLogout} />
+          <UserCard user={user} loggingOut={loggingOut} onLogout={handleLogout} />
         ) : (
           <GuestCard />
         )}
@@ -723,43 +852,82 @@ export default function SettingsScreen() {
             <Text className="flex-1 font-raleway-medium text-base text-ink">
               {t('settings.language')}
             </Text>
-            {/* LT / EN are locale codes, identical in both languages */}
+            {/* LT / EN are locale codes, identical in both
+                languages; screen readers get the full names */}
             <SegmentedControl
               options={[
-                { value: 'lt', label: 'LT' },
-                { value: 'en', label: 'EN' },
+                { value: 'lt', label: 'LT', a11yLabel: 'Lietuvių' },
+                { value: 'en', label: 'EN', a11yLabel: 'English' },
               ]}
               value={language}
-              onChange={setLanguage}
+              onChange={handleLanguageChange}
             />
           </View>
         </Card>
 
         {/* Channel switches — account state, only meaningful
-            while the master switch is on */}
+            while the master switch is on. Until a real GET
+            succeeded the hardcoded defaults are NOT presented
+            as server state: a failed load shows a compact
+            retry row instead of four confident switches. */}
         {isAuthenticated && notifications && (
           <>
             <View className="mb-sm mt-lg">
               <SectionTitle>{t('settings.notificationChannels')}</SectionTitle>
             </View>
             <Card padding="none">
-              {CHANNEL_META.map((channel, index) => (
-                <SwitchRow
-                  key={channel.key}
-                  icon={channel.icon}
-                  label={t(channel.labelKey)}
-                  description={t(channel.descKey)}
-                  value={channels[channel.key]}
-                  disabled={!channelsLoaded}
-                  onToggle={(value) => handleToggleChannel(channel.key, value)}
-                  divider={index < CHANNEL_META.length - 1}
-                />
-              ))}
+              {!channelsLoaded && channelsError ? (
+                <Pressable
+                  onPress={retryChannels}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('common.tryAgain')}
+                  className="flex-row items-center gap-sm px-md py-md"
+                  style={({ pressed }) =>
+                    pressed ? { backgroundColor: colors.surfaceSoft } : undefined
+                  }
+                >
+                  <Ionicons name="cloud-offline-outline" size={20} color={colors.inkSoft} />
+                  <Text className="flex-1 font-raleway text-sm text-ink-soft">
+                    {t('settings.channelsLoadError')}
+                  </Text>
+                  <Text className="font-raleway-semibold text-sm text-brand">
+                    {t('common.tryAgain')}
+                  </Text>
+                </Pressable>
+              ) : (
+                <>
+                  {CHANNEL_META.map((channel) => (
+                    <SwitchRow
+                      key={channel.key}
+                      icon={channel.icon}
+                      label={t(channel.labelKey)}
+                      description={t(channel.descKey)}
+                      value={channels[channel.key]}
+                      disabled={!channelsLoaded}
+                      onToggle={(value) => handleToggleChannel(channel.key, value)}
+                      divider
+                    />
+                  ))}
+                  {/* Privacy, not a subscription: with this off
+                      the push says only "Nauja žinutė" and the
+                      message text never leaves for Expo */}
+                  <SwitchRow
+                    icon="eye-off-outline"
+                    label={t('settings.chatPreview')}
+                    description={t('settings.chatPreviewDesc')}
+                    value={chatPreview}
+                    disabled={!chatPreviewLoaded}
+                    onToggle={handleToggleChatPreview}
+                    divider={false}
+                  />
+                </>
+              )}
             </Card>
           </>
         )}
 
-        {/* Links — faculty info for everyone, admin by role */}
+        {/* Links — faculty info for everyone, admin by role, and
+            the account-deletion path for anyone signed in */}
         <View className="mb-sm mt-lg">
           <SectionTitle>{t('settings.other')}</SectionTitle>
         </View>
@@ -768,13 +936,21 @@ export default function SettingsScreen() {
             icon="information-circle-outline"
             label={t('info.title')}
             onPress={() => router.push('/(main)/info')}
-            divider={isAdminOrCurator}
+            divider={isAdminOrCurator || isAuthenticated}
           />
           {isAdminOrCurator && (
             <LinkRow
               icon="shield-checkmark-outline"
               label={t('admin.title')}
               onPress={() => router.push('/(main)/admin')}
+              divider={isAuthenticated}
+            />
+          )}
+          {isAuthenticated && (
+            <LinkRow
+              icon="trash-outline"
+              label={t('settings.deleteAccount')}
+              onPress={() => router.push('/(main)/delete-account')}
             />
           )}
         </Card>
@@ -786,6 +962,13 @@ export default function SettingsScreen() {
             onPress={handleReset}
           />
         </View>
+
+        {/* The resolved backend address — a misconfigured build
+            (e.g. EXPO_PUBLIC_API_URL unset) is otherwise
+            indistinguishable from being offline */}
+        <Text className="mt-md text-center font-raleway text-xs text-ink-faint">
+          {t('settings.serverAddress', { url: API_BASE_URL })}
+        </Text>
       </ScrollView>
     </Screen>
   );

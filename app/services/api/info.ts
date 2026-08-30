@@ -184,17 +184,21 @@ export interface InfoGeneralContact {
 // payload from a static file, not through the camelCase
 // serializers.
 //
+// Every section is optional: the screen also renders this
+// shape from its per-language cache, and an older cached
+// payload may omit whole sections.
+//
 // Used by:
 //   - fetchFacultyInfo (below)
 //   - app/(main)/info/index.tsx — the whole screen
 // -----------------------------------------------------------
 
 export interface FacultyInfoResponse {
-  contacts: InfoContactCategory[];
-  links: InfoLink[];
-  hours: InfoHours[];
-  programs: InfoProgram[];
-  faq: InfoFaq[];
+  contacts?: InfoContactCategory[];
+  links?: InfoLink[];
+  hours?: InfoHours[];
+  programs?: InfoProgram[];
+  faq?: InfoFaq[];
   general_contact?: InfoGeneralContact;
 }
 

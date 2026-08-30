@@ -5,7 +5,7 @@
 //
 //  Used by:
 //    - chatkit/MessageBubble.tsx, TypingBubble.tsx,
-//      MessageContextMenu.tsx, MessageList.tsx
+//      TimeSeparator.tsx, MessageList.tsx
 // -----------------------------------------------------------
 
 

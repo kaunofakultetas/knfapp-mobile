@@ -11,6 +11,17 @@
 //      combination (mount and deps changes, which also clear
 //      the previous list); refresh() runs silently behind the
 //      shown items with the refreshing flag for RefreshControl;
+//    - refresh('merge') folds the fresh page 1 INTO the loaded
+//      list instead of replacing it: new rows are prepended,
+//      overlapping rows are updated in place, rows the fresh
+//      window covers but no longer lists are dropped, and the
+//      pages behind page 1 stay exactly where they are — a
+//      reader 60 posts deep keeps their place (a replace
+//      shrank the list to one page and the scroll offset
+//      clamped them onto a recent post). Only for feeds whose
+//      order is "newest first" — a ranked or activity-sorted
+//      list must replace; the silentRefreshMode option picks
+//      the strategy for the automatic network-restore refresh;
 //    - on page-1 success with a cacheKey, the items become the
 //      offline copy; on page-1 failure with nothing live to
 //      show, the cached copy is served and cachedAt exposes
@@ -21,24 +32,33 @@
 //      superseded responses are dropped, and a page-1 load
 //      invalidates any load-more in flight — never the other
 //      way around — so out-of-order pages cannot interleave;
+//      superseding (and unmount) also fires an AbortSignal,
+//      handed to fetchPage, so an adapter that forwards it
+//      stops the download instead of finishing it for nothing;
 //    - a cached fallback has no live continuation, so hasMore
 //      is forced off until a real page 1 succeeds;
 //    - setItems(updater) mutates the list in place for
-//      optimistic updates (likes, deletes) without a refetch.
+//      optimistic updates (likes, deletes) without a refetch;
+//      a silent refresh whose response predates such a
+//      mutation is dropped rather than allowed to clobber it.
 //
 //  itemsRef shadows the items state at every mutation point,
 //  so async flows (error semantics, restore spinner mode) read
 //  the truth immediately instead of waiting for a commit.
 // -----------------------------------------------------------
 
-// Offline copy of the first page
-import { cacheGet, cacheSet } from '@/services/cache';
+// Offline copy of the first page; cacheEpoch fences writes
+// against a logout wipe racing an in-flight request
+import { cacheEpoch, cacheGet, cacheSet } from '@/services/cache';
 
 // Automatic refetch when connectivity returns
 import { useNetworkRestore } from '@/hooks/useNetworkRestore';
 
 // Feed state and lifecycle guards
 import { useCallback, useEffect, useRef, useState } from 'react';
+
+// Cache writes wait out animations so a fling never janks
+import { InteractionManager } from 'react-native';
 
 
 
@@ -65,10 +85,18 @@ export interface FeedPage<T> {
   hasMore: boolean;
 }
 
-export interface UseFeedOptions {
+// How a silent refresh lands on a list that is already showing
+export type RefreshStrategy = 'replace' | 'merge';
+
+export interface UseFeedOptions<T = unknown> {
   cacheKey?: string;
   cacheMaxAge?: number;
   deps?: unknown[];
+  // Row identity for the load-more dedupe; defaults to `.id`
+  getId?: (item: T) => string;
+  // Strategy for the automatic network-restore refresh (the
+  // explicit refresh() call picks its own); defaults to replace
+  silentRefreshMode?: RefreshStrategy;
 }
 
 export interface UseFeedResult<T> {
@@ -78,7 +106,7 @@ export interface UseFeedResult<T> {
   loadingMore: boolean;
   error: boolean;
   cachedAt: number | null;
-  refresh: () => Promise<void>;
+  refresh: (strategy?: RefreshStrategy) => Promise<void>;
   loadMore: () => void;
   setItems: (updater: (items: T[]) => T[]) => void;
 }
@@ -102,7 +130,9 @@ export interface UseFeedResult<T> {
 //     items / loading / refreshing / loadingMore / error
 //     cachedAt          — non-null while showing the offline
 //                         copy (CachedBanner timestamp)
-//     refresh()         — RefreshControl onRefresh
+//     refresh()         — RefreshControl onRefresh (replace)
+//     refresh('merge')  — focus-return refresh that keeps the
+//                         reader's place (newest-first feeds)
 //     loadMore()        — FlatList onEndReached
 //     setItems(updater) — optimistic updates with exact revert
 //
@@ -112,10 +142,10 @@ export interface UseFeedResult<T> {
 // -----------------------------------------------------------
 
 export function useFeed<T>(
-  fetchPage: (page: number) => Promise<FeedPage<T>>,
-  opts: UseFeedOptions = {},
+  fetchPage: (page: number, signal?: AbortSignal) => Promise<FeedPage<T>>,
+  opts: UseFeedOptions<T> = {},
 ): UseFeedResult<T> {
-  const { cacheKey, cacheMaxAge, deps = [] } = opts;
+  const { cacheKey, cacheMaxAge, deps = [], getId, silentRefreshMode = 'replace' } = opts;
 
 
   const [items, setItemsState] = useState<T[]>([]);
@@ -131,6 +161,18 @@ export function useFeed<T>(
   const seqRef = useRef(0);
 
 
+  // Optimistic-mutation fence: setItems bumps it, and a page-1
+  // refresh compares its start-of-request snapshot on landing
+  // (see loadFirst) so a stale response never undoes a mutation
+  const mutationSeqRef = useRef(0);
+
+
+  // Abort handle for the requests running under the current
+  // sequence — a superseding page-1 load (or unmount) cancels
+  // their transport instead of only ignoring the results
+  const abortRef = useRef<AbortController | null>(null);
+
+
   // Pagination cursor state that async flows read directly
   const pageRef = useRef(1);
   const hasMoreRef = useRef(true);
@@ -142,6 +184,11 @@ export function useFeed<T>(
   // (see file header)
   const itemsRef = useRef<T[]>([]);
 
+  // Whether the rows on screen are the offline copy — a merge
+  // must never fold a live page into cached rows (the cached
+  // list has no continuation; a real page 1 replaces it)
+  const servingCacheRef = useRef(false);
+
 
   // Latest fetchPage closure — refresh/loadMore long after
   // mount must see current props/state, not mount-time captures
@@ -151,18 +198,82 @@ export function useFeed<T>(
   });
 
 
-  // Single write door for full-list replacement
+  // Row identity for the load-more dedupe — live-ranked
+  // LIMIT/OFFSET windows overlap whenever the backend ordering
+  // moves (or an optimistic prepend shifts it) between requests
+  const resolveId = getId ?? ((item: T) => (item as { id?: string }).id ?? '');
+  const resolveIdRef = useRef(resolveId);
+  useEffect(() => {
+    resolveIdRef.current = resolveId;
+  });
+
+
+  // Single write door for full-list replacement — the
+  // functional form keeps itemsRef and state moving together
+  // in commit order when a concurrent setItems shares a batch
   const replaceItems = (next: T[]) => {
-    itemsRef.current = next;
-    setItemsState(next);
+    setItemsState(() => {
+      itemsRef.current = next;
+      return next;
+    });
+  };
+
+
+  // Fold a fresh page 1 into the list on screen (see the file
+  // header). The "covered depth" is how far down the old list
+  // the fresh window still reaches once the rows it prepended
+  // are accounted for: an old row inside that depth that the
+  // fresh page no longer lists is gone server-side (deleted,
+  // or ranked out) and is dropped; rows deeper than that are
+  // beyond what page 1 can know and are left untouched
+  const mergeFirstPage = (previous: T[], fresh: T[]): T[] => {
+    const idOf = resolveIdRef.current;
+    const freshById = new Map<string, T>();
+    for (const item of fresh) {
+      const key = idOf(item);
+      if (key !== '') freshById.set(key, item);
+    }
+    const previousIds = new Set(previous.map(idOf));
+    const newOnes = fresh.filter((item) => {
+      const key = idOf(item);
+      return key === '' || !previousIds.has(key);
+    });
+    const coveredDepth = Math.max(0, fresh.length - newOnes.length);
+
+    const kept: T[] = [];
+    previous.forEach((item, index) => {
+      const key = idOf(item);
+      const listed = key !== '' && freshById.has(key);
+      if (index < coveredDepth && key !== '' && !listed) return;
+      kept.push(listed ? (freshById.get(key) as T) : item);
+    });
+    return [...newOnes, ...kept];
   };
 
 
   // The page-1 pipeline behind mount, deps changes, refresh
   // and network restore; 'initial' shows the full spinner and
-  // clears the previous list, 'refresh' works silently
-  const loadFirst = async (mode: 'initial' | 'refresh'): Promise<void> => {
+  // clears the previous list, 'refresh' works silently — by
+  // replacing the list or, with the 'merge' strategy, folding
+  // the fresh page into it
+  const loadFirst = async (
+    mode: 'initial' | 'refresh',
+    strategy: RefreshStrategy = 'replace',
+  ): Promise<void> => {
     const seq = ++seqRef.current;
+    // Cancel the superseded transport too — its responses were
+    // already doomed by the seq bump, this stops the download
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    // Wipe fence: cacheClearAll (logout) bumps the epoch, and
+    // a request started before the wipe must not write the
+    // departing account's data back after it
+    const epoch = cacheEpoch;
+    // Mutation fence: a refresh response generated before an
+    // optimistic setItems (like, delete) landed must not put
+    // the pre-mutation rows back on screen
+    const mutationSeq = mutationSeqRef.current;
     firstLoadRef.current = true;
 
     if (mode === 'initial') {
@@ -177,17 +288,44 @@ export function useFeed<T>(
     }
 
     try {
-      const page = await fetchPageRef.current(1);
+      const page = await fetchPageRef.current(1, controller.signal);
       if (seq !== seqRef.current) return;
 
-      replaceItems(page.items);
-      pageRef.current = 1;
-      hasMoreRef.current = page.hasMore;
+      // Drop a refresh snapshot that raced an optimistic
+      // setItems — replacing would flip the mutation back
+      // (a like undone by pre-like rows); the mutation's own
+      // server reconcile or the next refresh catches up
+      if (mode === 'refresh' && mutationSeq !== mutationSeqRef.current) return;
+
+      if (
+        mode === 'refresh' &&
+        strategy === 'merge' &&
+        itemsRef.current.length > 0 &&
+        !servingCacheRef.current
+      ) {
+        // The pages behind page 1 are still on screen, so the
+        // paging cursor and hasMore stay exactly as they were
+        replaceItems(mergeFirstPage(itemsRef.current, page.items));
+      } else {
+        replaceItems(page.items);
+        pageRef.current = 1;
+        hasMoreRef.current = page.hasMore;
+      }
+      servingCacheRef.current = false;
       setError(false);
       setCachedAt(null);
 
-      // Fire-and-forget: this page is now the offline copy
-      if (cacheKey) void cacheSet(cacheKey, page.items);
+      // Fire-and-forget: this page is now the offline copy.
+      // Deferred past interactions (serializing a whole page
+      // mid-fling janks the list), re-checking both fences on
+      // the far side of the deferral
+      if (cacheKey) {
+        InteractionManager.runAfterInteractions(() => {
+          if (seq === seqRef.current && epoch === cacheEpoch) {
+            void cacheSet(cacheKey, page.items);
+          }
+        });
+      }
     } catch {
       if (seq !== seqRef.current) return;
 
@@ -196,10 +334,13 @@ export function useFeed<T>(
       if (cacheKey && itemsRef.current.length === 0) {
         const cached = await cacheGet<T[]>(cacheKey, cacheMaxAge);
         if (seq !== seqRef.current) return;
-        if (cached) {
+        // The epoch check keeps a pre-wipe read from serving
+        // the departing account's copy after logout
+        if (cached && epoch === cacheEpoch) {
           replaceItems(cached.data);
           pageRef.current = 1;
           hasMoreRef.current = false; // no live continuation of a cached page
+          servingCacheRef.current = true;
           setCachedAt(cached.cachedAt);
           setError(false);
           return;
@@ -215,6 +356,22 @@ export function useFeed<T>(
       }
     }
   };
+
+
+  // Latest loadFirst closure, so the stable refresh callback
+  // below never runs a stale capture
+  const loadFirstRef = useRef(loadFirst);
+  useEffect(() => {
+    loadFirstRef.current = loadFirst;
+  });
+
+
+  // Stable identity — screens hand refresh straight to
+  // memoized children and effect deps without ref workarounds
+  const refresh = useCallback(
+    (strategy: RefreshStrategy = 'replace') => loadFirstRef.current('refresh', strategy),
+    [],
+  );
 
 
   // Append the next page. Guards: one at a time, never during
@@ -235,13 +392,22 @@ export function useFeed<T>(
 
     void (async () => {
       try {
-        const page = await fetchPageRef.current(nextPage);
+        // Runs under the current page-1 controller, so the
+        // page-1 load that supersedes it also aborts it
+        const page = await fetchPageRef.current(nextPage, abortRef.current?.signal);
         if (seq !== seqRef.current) return;
 
         // Functional update so a concurrent optimistic
-        // setItems is merged, not overwritten
+        // setItems is merged, not overwritten. Incoming rows
+        // already on screen are dropped — overlapping OFFSET
+        // windows would otherwise become duplicate list keys
         setItemsState((previous) => {
-          const merged = [...previous, ...page.items];
+          const seen = new Set(previous.map(resolveIdRef.current));
+          const fresh = page.items.filter((item) => {
+            const key = resolveIdRef.current(item);
+            return key === '' || !seen.has(key);
+          });
+          const merged = [...previous, ...fresh];
           itemsRef.current = merged;
           return merged;
         });
@@ -250,10 +416,11 @@ export function useFeed<T>(
       } catch {
         // Retryable — see the banner
       } finally {
-        if (seq === seqRef.current) {
-          loadingMoreRef.current = false;
-          setLoadingMore(false);
-        }
+        // Unconditional: a page-1 load that superseded this
+        // request never clears the flags on our behalf, and a
+        // stuck loadingMoreRef would kill pagination for good
+        loadingMoreRef.current = false;
+        setLoadingMore(false);
       }
     })();
   }, []);
@@ -262,6 +429,9 @@ export function useFeed<T>(
   // Optimistic-update door for screens (likes, deletes, pins);
   // the updater form makes exact reverts race-safe
   const setItems = useCallback((updater: (current: T[]) => T[]): void => {
+    // Move the fence, so an in-flight silent refresh knows its
+    // response predates this mutation and drops itself
+    mutationSeqRef.current += 1;
     setItemsState((previous) => {
       const next = updater(previous);
       itemsRef.current = next;
@@ -279,10 +449,21 @@ export function useFeed<T>(
   }, deps);
 
 
+  // Unmount: bump the seq so every in-flight handler drops on
+  // the floor, then cancel the transport itself
+  useEffect(
+    () => () => {
+      seqRef.current += 1;
+      abortRef.current?.abort();
+    },
+    [],
+  );
+
+
   // Back online: refetch page 1 — silently behind the current
   // list, with the full spinner when nothing is on screen
   useNetworkRestore(() => {
-    void loadFirst(itemsRef.current.length === 0 ? 'initial' : 'refresh');
+    void loadFirst(itemsRef.current.length === 0 ? 'initial' : 'refresh', silentRefreshMode);
   });
 
 
@@ -293,7 +474,7 @@ export function useFeed<T>(
     loadingMore,
     error,
     cachedAt,
-    refresh: () => loadFirst('refresh'),
+    refresh,
     loadMore,
     setItems,
   };

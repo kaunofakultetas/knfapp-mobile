@@ -8,9 +8,10 @@
 //  text column up one weight (bold title, ink preview) so they
 //  actually stand out from read rows.
 //
-//  Swiping left reveals pin and delete actions (a long press
-//  on the row toggles the pin too — delete stays swipe-only
-//  and the OWNER confirms it). The age comes from
+//  Swiping left reveals pin and delete/leave actions (a long
+//  press on the row toggles the pin too); screen readers reach
+//  both through the row's accessibility actions, and the list
+//  screen confirms the delete. The age comes from
 //  formatRelative(lastUpdatedMs), never from the backend's
 //  UTC-preformatted `time` field; a conversation with no
 //  messages yet shows no age at all.
@@ -39,18 +40,27 @@ import { useTheme } from '@/hooks/useTheme';
 
 // Row primitives and the swipe container
 import { Ionicons } from '@expo/vector-icons';
+import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Pressable, Text, View } from 'react-native';
+import {
+  Pressable,
+  Text,
+  View,
+  type AccessibilityActionEvent,
+  type AccessibilityActionInfo,
+} from 'react-native';
 import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
 
 
+// Handlers take the row's own conversation so the list screen
+// can hand every row the SAME stable callbacks (memo-friendly)
 interface ConversationRowProps {
   item: ApiConversation;
   currentUserId?: string;
   isOnline: boolean;
-  onPress: () => void;
-  onTogglePin: () => void;
-  onDelete: () => void;
+  onPress: (item: ApiConversation) => void;
+  onTogglePin: (item: ApiConversation) => void;
+  onDelete: (item: ApiConversation) => void;
 }
 
 
@@ -64,9 +74,11 @@ interface ConversationRowProps {
 // -----------------------------------------------------------
 //
 // The panel ReanimatedSwipeable reveals on a left swipe: a
-// neutral pin/unpin column and a danger delete column. Both
-// are real buttons with translated labels, so screen readers
-// reach them without the swipe gesture.
+// neutral pin/unpin column and a danger delete/leave column
+// (groups are LEFT, direct chats deleted — the labels say
+// which). The panel itself is gesture-only, so screen readers
+// act on the row through its accessibility actions instead
+// (see ConversationRow below).
 //
 // Used by:
 //   - ConversationRow (below)
@@ -74,10 +86,12 @@ interface ConversationRowProps {
 
 function RowActions({
   pinned,
+  isGroup,
   onTogglePin,
   onDelete,
 }: {
   pinned: boolean;
+  isGroup: boolean;
   onTogglePin: () => void;
   onDelete: () => void;
 }) {
@@ -87,6 +101,7 @@ function RowActions({
 
 
   const pinLabel = pinned ? t('messages.unpin') : t('messages.pin');
+  const deleteLabel = isGroup ? t('messages.leaveGroup') : t('messages.delete');
 
 
   return (
@@ -108,10 +123,10 @@ function RowActions({
         style={{ width: 72 }}
         onPress={onDelete}
         accessibilityRole="button"
-        accessibilityLabel={t('messages.delete')}
+        accessibilityLabel={deleteLabel}
       >
         <Ionicons name="trash-outline" size={18} color={colors.onBrand} />
-        <Text className="mt-xs font-raleway text-xs text-on-brand">{t('messages.delete')}</Text>
+        <Text className="mt-xs font-raleway text-xs text-on-brand">{deleteLabel}</Text>
       </Pressable>
 
     </View>
@@ -141,10 +156,12 @@ function RowAvatar({
   item,
   currentUserId,
   isOnline,
+  fallbackName,
 }: {
   item: ApiConversation;
   currentUserId?: string;
   isOnline: boolean;
+  fallbackName: string;
 }) {
 
   if (item.type === 'direct') {
@@ -152,7 +169,7 @@ function RowAvatar({
     return (
       <Avatar
         uri={other?.avatarUrl}
-        name={other?.displayName ?? item.title}
+        name={other?.displayName ?? fallbackName}
         size={48}
         online={isOnline}
       />
@@ -185,11 +202,14 @@ function RowAvatar({
 // ConversationRow (default export)
 // -----------------------------------------------------------
 //
+// Memoized: the list screen passes stable handlers, so a row
+// re-renders only when its own conversation's data changes.
+//
 // Used by:
 //   - app/(main)/tabs/messages.tsx — the conversations FlatList
 // -----------------------------------------------------------
 
-export default function ConversationRow({
+function ConversationRow({
   item,
   currentUserId,
   isOnline,
@@ -202,6 +222,32 @@ export default function ConversationRow({
   const { colors } = useTheme();
   const { user } = useAuth();
   const hasUnread = item.unreadCount > 0;
+
+
+  // A direct chat whose counterpart is gone (deleted account)
+  // arrives with no title — fall back to a localized word
+  // instead of the backend's untranslated placeholder
+  const displayTitle = item.title || t('messages.conversationFallback');
+
+
+  // The swipe panel is gesture-only — mirror pin and delete as
+  // named accessibility actions (chatkit/MessageBubble's
+  // pattern) so assistive tech reaches them from the row
+  const pinActionLabel = item.pinned ? t('messages.unpin') : t('messages.pin');
+  const deleteActionLabel =
+    item.type === 'group' ? t('messages.leaveGroup') : t('messages.delete');
+  const accessibilityActions = useMemo<AccessibilityActionInfo[]>(
+    () => [
+      { name: 'pin', label: pinActionLabel },
+      { name: 'delete', label: deleteActionLabel },
+    ],
+    [pinActionLabel, deleteActionLabel],
+  );
+  const onAccessibilityAction = (e: AccessibilityActionEvent) => {
+    const name = e.nativeEvent.actionName;
+    if (name === 'pin') onTogglePin(item);
+    else if (name === 'delete') onDelete(item);
+  };
 
 
   // Previews: an unsent last message shows its placeholder; an
@@ -223,6 +269,15 @@ export default function ConversationRow({
     : t('messages.tapToStart');
 
 
+  // Screen readers get the whole row in one node: title,
+  // preview, age, unread count and — with no accessibilityState
+  // for it — the pinned mark spelled into the label
+  const a11yParts = [displayTitle, preview];
+  if (last) a11yParts.push(formatRelative(item.lastUpdatedMs));
+  if (hasUnread) a11yParts.push(t('messages.unreadCount', { count: item.unreadCount }));
+  if (item.pinned) a11yParts.push(t('messages.pinnedLabel'));
+
+
   return (
     <ReanimatedSwipeable
       friction={2}
@@ -230,13 +285,14 @@ export default function ConversationRow({
       renderRightActions={(_progress, _translation, methods) => (
         <RowActions
           pinned={item.pinned}
+          isGroup={item.type === 'group'}
           onTogglePin={() => {
             methods.close();
-            onTogglePin();
+            onTogglePin(item);
           }}
           onDelete={() => {
             methods.close();
-            onDelete();
+            onDelete(item);
           }}
         />
       )}
@@ -250,14 +306,22 @@ export default function ConversationRow({
           shadowRadius: 3,
           elevation: 1,
         }}
-        onPress={onPress}
-        onLongPress={onTogglePin}
+        onPress={() => onPress(item)}
+        onLongPress={() => onTogglePin(item)}
         accessibilityRole="button"
-        accessibilityLabel={item.title}
+        accessibilityLabel={a11yParts.join(', ')}
+        accessibilityHint={t('messages.rowHint')}
+        accessibilityActions={accessibilityActions}
+        onAccessibilityAction={onAccessibilityAction}
       >
 
         <View className="mr-md">
-          <RowAvatar item={item} currentUserId={currentUserId} isOnline={isOnline} />
+          <RowAvatar
+            item={item}
+            currentUserId={currentUserId}
+            isOnline={isOnline}
+            fallbackName={displayTitle}
+          />
         </View>
 
         {/* Title, preview and (for groups) the member count */}
@@ -270,7 +334,7 @@ export default function ConversationRow({
             }
             numberOfLines={1}
           >
-            {item.title}
+            {displayTitle}
           </Text>
           <Text
             className={
@@ -316,3 +380,6 @@ export default function ConversationRow({
     </ReanimatedSwipeable>
   );
 }
+
+
+export default memo(ConversationRow);

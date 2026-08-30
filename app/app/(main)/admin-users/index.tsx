@@ -8,13 +8,11 @@
 //  NO api call is fired — the old screen 403'd and toasted an
 //  error over that very screen.
 //
-//  Backend gap worth knowing (services/api/admin.ts): the
-//  list and update responses do not echo the `active` flag
-//  yet, so the deactivated pill and the activate action only
-//  appear after a toggle in this session — on reload every
-//  row reads as active again. Deactivation is also advisory
-//  server-side for now (sessions dropped, next login not yet
-//  blocked).
+//  The `active` flag round-trips on both the list and the
+//  update responses (services/api/admin.ts), so the
+//  deactivated pill survives a reload. Deactivation is
+//  enforced server-side: the user's sessions are dropped and
+//  login is refused until re-activation.
 //
 //  The role modal locks its rows while a PATCH is in flight,
 //  and re-picking the user's current role just closes the
@@ -22,7 +20,8 @@
 //
 //  Split into (root component last):
 //
-//    ROLE_LABEL_KEYS  — role → catalog-key map
+//    adminErrorKey    — failure → catalog-key map
+//    fold             — diacritic-insensitive search fold
 //    RoleBadge        — tinted role pill
 //    SearchBar        — filter input + result count
 //    UserCard         — one user row with its actions
@@ -53,16 +52,19 @@ import { useNetworkRestore } from '@/hooks/useNetworkRestore';
 // JS-side colors — icons, placeholder, refresh tint
 import { useTheme } from '@/hooks/useTheme';
 
-// Admin endpoints and the row shape
-import { fetchAdminUsers, updateAdminUser, type AdminUser } from '@/services/api';
+// Shared role → label map (falls back to the raw role name)
+import { roleLabel } from '@/constants/roles';
+
+// Admin endpoints, the row shape and the error type the
+// catch sites branch on
+import { ApiError, deleteAdminUser, fetchAdminUsers, updateAdminUser, type AdminUser } from '@/services/api';
 
 // Keyboard offset under the native stack header
 import { useHeaderHeight } from '@react-navigation/elements';
 
 // Icons, list, modal and keyboard primitives
 import { Ionicons } from '@expo/vector-icons';
-import type { TFunction } from 'i18next';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   FlatList,
@@ -80,6 +82,9 @@ import {
 // The roles a user can be switched to, in picker order
 const ROLE_OPTIONS = ['student', 'teacher', 'curator', 'admin'] as const;
 
+// One picker choice — matches updateAdminUser's role param
+type RoleOption = (typeof ROLE_OPTIONS)[number];
+
 // Badge tint per role — semantic washes only; info has no
 // soft token, so teacher sits on surface-soft
 const ROLE_BADGE_CLASSES: Record<string, { wash: string; text: string }> = {
@@ -96,27 +101,51 @@ const ROLE_BADGE_CLASSES: Record<string, { wash: string; text: string }> = {
 
 
 // -----------------------------------------------------------
-// ROLE_LABEL_KEYS
+// adminErrorKey
 // -----------------------------------------------------------
 //
-// Known roles map to catalog keys; an unknown role from a
-// newer backend renders as its raw name instead of crashing.
+// Maps a failed admin call onto a catalog key: the api
+// layer's timeout/network sentinels translate globally, a 403
+// gets the permissions line, anything else falls back to the
+// action's own error key. 404 is branched at the call sites —
+// it also drops the stale row.
 //
 // Used by:
-//   - roleLabel (below)
+//   - AdminUsersScreen (below) — load / role / active catches
 // -----------------------------------------------------------
 
-const ROLE_LABEL_KEYS: Record<string, string> = {
-  student: 'admin.roleStudent',
-  teacher: 'admin.roleTeacher',
-  curator: 'admin.roleCurator',
-  admin: 'admin.roleAdmin',
+const adminErrorKey = (err: unknown, fallbackKey: string): string => {
+  if (err instanceof ApiError && err.code === 'timeout') return 'toast.timeout';
+  if (err instanceof ApiError && err.code === 'network') return 'toast.networkError';
+  if (err instanceof ApiError && err.status === 403) return 'admin.noPermission';
+  return fallbackKey;
 };
 
-// Translate where a key exists, pass the raw role through
-// where none does
-const roleLabel = (t: TFunction, role: string): string =>
-  ROLE_LABEL_KEYS[role] ? t(ROLE_LABEL_KEYS[role]) : role;
+
+
+
+
+
+
+// -----------------------------------------------------------
+// fold
+// -----------------------------------------------------------
+//
+// Case- and diacritic-insensitive fold for the live filter:
+// NFD splits letters from their combining marks, which are
+// then stripped — so 'simkute' finds 'Šimkutė'.
+//
+// Used by:
+//   - AdminUsersScreen (below) — the search haystack and query
+// -----------------------------------------------------------
+
+const fold = (value: string): string =>
+  value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+
+// Stable list separator — an inline closure would remount
+// every separator on each list re-render
+const Separator = () => <View className="h-sm" />;
 
 
 
@@ -225,33 +254,40 @@ function SearchBar({
 // -----------------------------------------------------------
 //
 // One user row: identity block, role pill, and — for everyone
-// but the signed-in admin — the change-role and activate/
-// deactivate actions. `busy` locks the actions while this
-// row's PATCH is in flight.
+// but the signed-in admin — the change-role, activate/
+// deactivate and erase actions. `busy` locks the actions
+// while this row's request is in flight.
+//
+// Memoized with item-taking handlers — the search field above
+// re-renders the screen per keystroke, and unchanged rows
+// must not re-render with it.
 //
 // Used by:
 //   - AdminUsersScreen (below) — FlatList renderItem
 // -----------------------------------------------------------
 
-function UserCard({
+const UserCard = memo(function UserCard({
   item,
   isSelf,
   busy,
   onChangeRole,
   onToggleActive,
+  onErase,
 }: {
   item: AdminUser;
   isSelf: boolean;
   busy: boolean;
-  onChangeRole: () => void;
-  onToggleActive: () => void;
+  onChangeRole: (item: AdminUser) => void;
+  onToggleActive: (item: AdminUser) => void;
+  onErase: (item: AdminUser) => void;
 }) {
 
   const { t } = useTranslation();
   const { colors } = useTheme();
 
 
-  // `active` is only known after a toggle — see the file header
+  // `active` round-trips on list and update; only an older
+  // backend omits it, and an unknown flag reads as active
   const deactivated = item.active === false;
 
 
@@ -284,11 +320,13 @@ function UserCard({
         <View className="mt-md flex-row gap-sm border-t border-line pt-md">
 
           <Pressable
-            onPress={onChangeRole}
+            onPress={() => onChangeRole(item)}
             disabled={busy}
             hitSlop={6}
             accessibilityRole="button"
-            accessibilityLabel={t('admin.changeRole')}
+            // The subject rides in the label — every row saying
+            // just "Change role" is unnavigable by ear
+            accessibilityLabel={t('admin.changeRoleFor', { name: item.displayName })}
             accessibilityState={{ disabled: busy }}
             className={`flex-row items-center gap-xs rounded-md bg-surface-soft px-md py-sm ${busy ? 'opacity-50' : ''}`}
           >
@@ -297,11 +335,15 @@ function UserCard({
           </Pressable>
 
           <Pressable
-            onPress={onToggleActive}
+            onPress={() => onToggleActive(item)}
             disabled={busy}
             hitSlop={6}
             accessibilityRole="button"
-            accessibilityLabel={deactivated ? t('admin.activate') : t('admin.deactivate')}
+            accessibilityLabel={
+              deactivated
+                ? t('admin.activateUser', { name: item.displayName })
+                : t('admin.deactivateUser', { name: item.displayName })
+            }
             accessibilityState={{ disabled: busy }}
             className={`flex-row items-center gap-xs rounded-md px-md py-sm ${deactivated ? 'bg-success-soft' : 'bg-danger-soft'} ${busy ? 'opacity-50' : ''}`}
           >
@@ -317,12 +359,25 @@ function UserCard({
             </Text>
           </Pressable>
 
+          <Pressable
+            onPress={() => onErase(item)}
+            disabled={busy}
+            hitSlop={6}
+            accessibilityRole="button"
+            accessibilityLabel={t('admin.eraseUserFor', { name: item.displayName })}
+            accessibilityState={{ disabled: busy }}
+            className={`flex-row items-center gap-xs rounded-md bg-danger-soft px-md py-sm ${busy ? 'opacity-50' : ''}`}
+          >
+            <Ionicons name="trash-outline" size={14} color={colors.danger} />
+            <Text className="font-raleway-medium text-xs text-danger">{t('admin.erase')}</Text>
+          </Pressable>
+
         </View>
       )}
 
     </Card>
   );
-}
+});
 
 
 
@@ -334,9 +389,11 @@ function UserCard({
 // RoleModal
 // -----------------------------------------------------------
 //
-// The role picker for one user. Rows disable while `saving`,
-// the current role is marked and selecting it again is a pure
-// dismiss — the short-circuit lives in the root handler.
+// The role picker for one user. Rows disable while `saving` —
+// as do the backdrop and the hardware back, so a PATCH in
+// flight cannot be dismissed under its own toast; the current
+// role is marked and selecting it again is a pure dismiss —
+// the short-circuit lives in the root handler.
 //
 // Used by:
 //   - AdminUsersScreen (below) — mounted once, fed by editingUser
@@ -350,7 +407,7 @@ function RoleModal({
 }: {
   user: AdminUser | null;
   saving: boolean;
-  onSelect: (role: string) => void;
+  onSelect: (role: RoleOption) => void;
   onClose: () => void;
 }) {
 
@@ -359,12 +416,20 @@ function RoleModal({
 
 
   return (
-    <Modal visible={!!user} animationType="fade" transparent onRequestClose={onClose}>
+    <Modal
+      visible={!!user}
+      animationType="fade"
+      transparent
+      statusBarTranslucent
+      navigationBarTranslucent
+      onRequestClose={saving ? () => {} : onClose}
+    >
       <View className="flex-1 items-center justify-center px-lg">
 
         <Pressable
           className="absolute inset-0 bg-scrim"
           onPress={onClose}
+          disabled={saving}
           accessibilityRole="button"
           accessibilityLabel={t('common.close')}
         />
@@ -438,7 +503,7 @@ function RoleModal({
 export default function AdminUsersScreen() {
 
   const { t } = useTranslation();
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, hydrated } = useAuth();
   const { colors } = useTheme();
   const headerHeight = useHeaderHeight();
 
@@ -461,7 +526,13 @@ export default function AdminUsersScreen() {
   const hasData = useRef(false);
 
 
+  // Only the newest request may write — a slow response from
+  // before a refresh, retry or restore is dropped
+  const seqRef = useRef(0);
+
+
   const load = async (showSpinner: boolean): Promise<void> => {
+    const seq = ++seqRef.current;
     if (showSpinner) {
       setLoading(true);
       setFailed(false);
@@ -469,14 +540,17 @@ export default function AdminUsersScreen() {
 
     try {
       const { users: list } = await fetchAdminUsers();
+      if (seq !== seqRef.current) return;
       setUsers(list);
       hasData.current = true;
       setFailed(false);
-    } catch {
-      if (hasData.current) showToast('error', t('admin.loadError'));
+    } catch (err) {
+      if (seq !== seqRef.current) return;
+      if (hasData.current) showToast('error', t(adminErrorKey(err, 'admin.loadError')));
       else setFailed(true);
     }
 
+    if (seq !== seqRef.current) return;
     if (showSpinner) setLoading(false);
   };
 
@@ -496,19 +570,19 @@ export default function AdminUsersScreen() {
   });
 
 
-  // Live client-side filter across every field a row shows
+  // Live client-side filter across every field a row shows —
+  // the VISIBLE role label included ("Dėstytojas" must match,
+  // not just the English slug), everything diacritic-folded
   const filteredUsers = useMemo(() => {
     const list = users ?? [];
-    const query = search.trim().toLowerCase();
+    const query = fold(search.trim());
     if (!query) return list;
-    return list.filter(
-      (u) =>
-        u.username.toLowerCase().includes(query) ||
-        u.displayName.toLowerCase().includes(query) ||
-        u.email.toLowerCase().includes(query) ||
-        u.role.toLowerCase().includes(query),
+    return list.filter((u) =>
+      fold(
+        `${u.username} ${u.displayName} ${u.email} ${u.role} ${roleLabel(t, u.role)}`,
+      ).includes(query),
     );
-  }, [users, search]);
+  }, [users, search, t]);
 
 
   const onRefresh = () => {
@@ -517,7 +591,7 @@ export default function AdminUsersScreen() {
   };
 
 
-  const handleSelectRole = async (role: string): Promise<void> => {
+  const handleSelectRole = async (role: RoleOption): Promise<void> => {
     const target = editingUser;
     if (!target) return;
 
@@ -531,13 +605,20 @@ export default function AdminUsersScreen() {
     setSavingRole(true);
     try {
       const updated = await updateAdminUser(target.id, { role });
-      setUsers((previous) =>
-        (previous ?? []).map((u) => (u.id === target.id ? { ...u, role: updated.role } : u)),
-      );
+      // The PATCH echo is the truth — replace the whole row
+      // rather than merging a locally guessed value
+      setUsers((previous) => (previous ?? []).map((u) => (u.id === target.id ? updated : u)));
       setEditingUser(null);
       showToast('success', t('admin.userUpdated'));
-    } catch {
-      showToast('error', t('admin.userUpdateError'));
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) {
+        // Deleted elsewhere — drop the stale row
+        setUsers((previous) => (previous ?? []).filter((u) => u.id !== target.id));
+        setEditingUser(null);
+        showToast('info', t('admin.userGone'));
+      } else {
+        showToast('error', t(adminErrorKey(err, 'admin.userUpdateError')));
+      }
     } finally {
       setSavingRole(false);
     }
@@ -546,37 +627,127 @@ export default function AdminUsersScreen() {
 
   // Deactivation confirms (destructive, distinct cancel);
   // re-activation is safe and goes straight through
-  const handleToggleActive = async (target: AdminUser): Promise<void> => {
-    if (target.id === currentUser?.id) {
-      showToast('error', t('admin.cannotDeactivateSelf'));
-      return;
-    }
+  const handleToggleActive = useCallback(
+    async (target: AdminUser): Promise<void> => {
+      if (target.id === currentUser?.id) {
+        showToast('error', t('admin.cannotDeactivateSelf'));
+        return;
+      }
 
-    const deactivating = target.active !== false;
-    if (deactivating) {
+      const deactivating = target.active !== false;
+      if (deactivating) {
+        const confirmed = await confirmAction({
+          title: t('admin.deactivate'),
+          message: t('admin.deactivateConfirm'),
+          confirmLabel: t('admin.deactivate'),
+          cancelLabel: t('common.back'),
+          destructive: true,
+        });
+        if (!confirmed) return;
+      }
+
+      setTogglingId(target.id);
+      try {
+        const updated = await updateAdminUser(target.id, { active: !deactivating });
+        // The PATCH echo is the truth — replace the whole row
+        // rather than merging a locally guessed value
+        setUsers((previous) => (previous ?? []).map((u) => (u.id === target.id ? updated : u)));
+        showToast('success', t('admin.userUpdated'));
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 404) {
+          // Deleted elsewhere — drop the stale row
+          setUsers((previous) => (previous ?? []).filter((u) => u.id !== target.id));
+          showToast('info', t('admin.userGone'));
+        } else {
+          showToast('error', t(adminErrorKey(err, 'admin.userUpdateError')));
+        }
+      } finally {
+        setTogglingId(null);
+      }
+    },
+    [currentUser?.id, t],
+  );
+
+
+  // Erasure: confirmed (destructive, irreversible), then the
+  // row leaves the list — the backend keeps an anonymised
+  // shell, but that shell is nobody's account any more
+  const handleErase = useCallback(
+    async (target: AdminUser): Promise<void> => {
+      if (target.id === currentUser?.id) {
+        showToast('error', t('admin.cannotDeactivateSelf'));
+        return;
+      }
+
       const confirmed = await confirmAction({
-        title: t('admin.deactivate'),
-        message: t('admin.deactivateConfirm'),
-        confirmLabel: t('admin.deactivate'),
+        title: t('admin.eraseTitle'),
+        message: t('admin.eraseConfirm'),
+        confirmLabel: t('admin.erase'),
         cancelLabel: t('common.back'),
         destructive: true,
       });
       if (!confirmed) return;
-    }
 
-    setTogglingId(target.id);
-    try {
-      await updateAdminUser(target.id, { active: !deactivating });
-      setUsers((previous) =>
-        (previous ?? []).map((u) => (u.id === target.id ? { ...u, active: !deactivating } : u)),
-      );
-      showToast('success', t('admin.userUpdated'));
-    } catch {
-      showToast('error', t('admin.userUpdateError'));
-    } finally {
-      setTogglingId(null);
-    }
-  };
+      setTogglingId(target.id);
+      try {
+        await deleteAdminUser(target.id);
+        setUsers((previous) => (previous ?? []).filter((u) => u.id !== target.id));
+        showToast('success', t('admin.userErased'));
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 404) {
+          setUsers((previous) => (previous ?? []).filter((u) => u.id !== target.id));
+          showToast('info', t('admin.userGone'));
+        } else {
+          showToast('error', t(adminErrorKey(err, 'admin.userUpdateError')));
+        }
+      } finally {
+        setTogglingId(null);
+      }
+    },
+    [currentUser?.id, t],
+  );
+
+
+  // Stable per-row callbacks so the memoized cards only
+  // re-render when their own user changes
+  const handleChangeRole = useCallback((item: AdminUser) => setEditingUser(item), []);
+
+  const handleToggleRow = useCallback(
+    (item: AdminUser) => void handleToggleActive(item),
+    [handleToggleActive],
+  );
+
+  const handleEraseRow = useCallback(
+    (item: AdminUser) => void handleErase(item),
+    [handleErase],
+  );
+
+  const renderItem = useCallback(
+    ({ item }: { item: AdminUser }) => (
+      <UserCard
+        item={item}
+        isSelf={item.id === currentUser?.id}
+        busy={togglingId === item.id}
+        onChangeRole={handleChangeRole}
+        onToggleActive={handleToggleRow}
+        onErase={handleEraseRow}
+      />
+    ),
+    [currentUser?.id, togglingId, handleChangeRole, handleToggleRow, handleEraseRow],
+  );
+
+
+  // Session restore is still reading storage — judging the
+  // role now would flash the no-access screen at admins
+  if (!hydrated) {
+    return (
+      <Screen>
+        <View className="flex-1 justify-center">
+          <LoadingSpinner />
+        </View>
+      </Screen>
+    );
+  }
 
 
   if (!canView) {
@@ -588,7 +759,9 @@ export default function AdminUsersScreen() {
   }
 
 
-  if (loading) {
+  // The null-users check also covers the first frame after
+  // hydration, before the load effect has committed
+  if (loading || (users === null && !failed)) {
     return (
       <Screen>
         <View className="flex-1 justify-center">
@@ -613,7 +786,9 @@ export default function AdminUsersScreen() {
 
       <KeyboardAvoidingView
         className="flex-1"
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        // Android needs 'height' — undefined leaves the list
+        // stuck under the keyboard
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={headerHeight}
       >
 
@@ -622,15 +797,7 @@ export default function AdminUsersScreen() {
         <FlatList
           data={filteredUsers}
           keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <UserCard
-              item={item}
-              isSelf={item.id === currentUser?.id}
-              busy={togglingId === item.id}
-              onChangeRole={() => setEditingUser(item)}
-              onToggleActive={() => void handleToggleActive(item)}
-            />
-          )}
+          renderItem={renderItem}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -642,7 +809,7 @@ export default function AdminUsersScreen() {
           // The last card must clear the home indicator — this
           // pushed screen has no tab bar below it
           contentContainerStyle={{ paddingTop: 16, paddingBottom: 48 }}
-          ItemSeparatorComponent={() => <View className="h-sm" />}
+          ItemSeparatorComponent={Separator}
           ListEmptyComponent={
             <EmptyState icon="people-outline" title={t('admin.noUsersFound')} />
           }

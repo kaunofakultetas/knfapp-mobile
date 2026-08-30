@@ -11,10 +11,12 @@
 //  is exactly the parallel case.
 //
 //  Endpoints are exclusive: a lesson ending 12:00 does not
-//  conflict with one starting 12:00. Malformed "HH:MM" values
-//  parse to zero-length ranges, which can never overlap — bad
-//  data degrades to "no conflict", never to a crash or a
-//  false red flag.
+//  conflict with one starting 12:00. A value that is not
+//  "HH:MM" parses to NaN and that lesson is explicitly
+//  excluded from the scan — bad data degrades to "no
+//  conflict", never to a crash or a false red flag. Identical
+//  rows (same title, room and times) are duplicates, not
+//  conflicts, and are skipped too.
 //
 //  Split into:
 //
@@ -30,11 +32,12 @@ import { useMemo } from 'react';
 import type { ScheduleLesson } from '@/services/api';
 
 
-// "HH:MM" → minutes since midnight; a missing or garbled part
-// reads as 0, so garbage degrades to a zero-length range
+// "HH:MM" → minutes since midnight; anything else → NaN, and
+// detectConflicts skips lessons whose times did not parse
 function parseTime(hhmm: string): number {
-  const [h, m] = hhmm.split(':').map(Number);
-  return (h || 0) * 60 + (m || 0);
+  const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm);
+  if (!m) return NaN;
+  return Number(m[1]) * 60 + Number(m[2]);
 }
 
 
@@ -66,6 +69,9 @@ function detectConflicts(lessons: ScheduleLesson[]): Set<string> {
     const aStart = parseTime(a.timeStart);
     const aEnd = parseTime(a.timeEnd);
 
+    // Unparseable times are excluded, never flagged
+    if (Number.isNaN(aStart) || Number.isNaN(aEnd)) continue;
+
     for (let j = i + 1; j < lessons.length; j++) {
       const b = lessons[j];
 
@@ -73,7 +79,22 @@ function detectConflicts(lessons: ScheduleLesson[]): Set<string> {
       // same group+semester can truly double-book a student
       if (a.group !== b.group || a.semester !== b.semester) continue;
 
-      if (aStart < parseTime(b.timeEnd) && parseTime(b.timeStart) < aEnd) {
+      // An identical row is a duplicate entry in the source
+      // data, not a lecture the student must be in twice
+      if (
+        a.title === b.title &&
+        a.room === b.room &&
+        a.timeStart === b.timeStart &&
+        a.timeEnd === b.timeEnd
+      ) {
+        continue;
+      }
+
+      const bStart = parseTime(b.timeStart);
+      const bEnd = parseTime(b.timeEnd);
+      if (Number.isNaN(bStart) || Number.isNaN(bEnd)) continue;
+
+      if (aStart < bEnd && bStart < aEnd) {
         conflicts.add(a.id);
         conflicts.add(b.id);
       }

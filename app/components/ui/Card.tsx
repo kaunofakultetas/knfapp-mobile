@@ -26,6 +26,11 @@ interface CardProps {
   onPress?: () => void;
   padding?: CardPadding;
   className?: string;
+  // accessible={false} keeps the Pressable from folding its
+  // children into one screen-reader element — composite cards
+  // (NewsCard, profile rows) expose their own inner targets;
+  // simple childless cards leave it unset and stay grouped
+  accessible?: boolean;
 }
 
 const PADDINGS: Record<CardPadding, string> = {
@@ -63,7 +68,7 @@ const CARD_SHADOW: ViewStyle = {
 //   - app/(main)/admin/ — stat and invitation panels
 // -----------------------------------------------------------
 
-export default function Card({ children, onPress, padding = 'md', className }: CardProps) {
+export default function Card({ children, onPress, padding = 'md', className, accessible }: CardProps) {
 
   const { colors } = useTheme();
 
@@ -89,12 +94,12 @@ export default function Card({ children, onPress, padding = 'md', className }: C
         pressed ? [CARD_SHADOW, { backgroundColor: colors.surfaceSoft }] : CARD_SHADOW
       }
       onPress={onPress}
-      accessibilityRole="button"
+      accessible={accessible}
+      // No button role when the card is opted out of grouping —
+      // the composite child provides its own labeled target
+      accessibilityRole={accessible === false ? undefined : 'button'}
     >
       {children}
     </Pressable>
   );
 }
-
-// Named alongside the default so the ui barrel can `export *`
-export { Card };

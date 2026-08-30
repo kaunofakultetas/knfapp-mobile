@@ -76,8 +76,14 @@ function ToastCard({
   const accent = ACCENTS[kind];
 
 
+  // One accessible alert element per toast — errors interrupt
+  // (assertive), the rest wait their turn; showToast in
+  // NetworkContext also announces the text for iOS VoiceOver
   return (
     <View
+      accessible
+      accessibilityRole="alert"
+      accessibilityLiveRegion={kind === 'error' ? 'assertive' : 'polite'}
       className="flex-row items-center overflow-hidden rounded-lg bg-surface"
       style={{
         width: '92%',

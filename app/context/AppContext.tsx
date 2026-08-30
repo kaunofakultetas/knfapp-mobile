@@ -25,25 +25,30 @@
 //    useApp                   — the consumer hook
 // -----------------------------------------------------------
 
+// The shared tab roster names the keys that stay pinned
+import { HARD_PINNED_TABS } from '@/constants/tabs';
+
 // Settings shape and i18n side-effects
-import i18n from '@/i18n';
+import i18n, { deviceLanguage } from '@/i18n';
 import { AppSettings, ThemeSetting } from '@/types';
+
+// Android channel rename follows the app language
+import { setupNotificationChannel } from '@/services/notifications';
 
 // Persistence and scheme resolution
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, {
   createContext,
   ReactNode,
+  useCallback,
   useContext,
   useEffect,
+  useMemo,
   useReducer,
-  useRef,
+  useState,
 } from 'react';
 import { useColorScheme as useSystemScheme } from 'react-native';
 
-
-// Tabs that can never be unpinned — the app's core surfaces
-const HARD_PINNED = ['news', 'messages'];
 
 // One action per setting plus whole-object hydration; a plain
 // union keeps the reducer exhaustive under TypeScript
@@ -66,6 +71,11 @@ const initialState: AppSettings = {
 
 interface AppContextType extends AppSettings {
   scheme: 'light' | 'dark';
+  // True once the stored settings have been read — before
+  // that, `language` is still the reducer's placeholder and
+  // may flip right after mount, so screens that fetch per
+  // language wait for this to avoid a double load
+  hydrated: boolean;
   setLanguage: (language: 'lt' | 'en') => void;
   setTheme: (theme: ThemeSetting) => void;
   setNotifications: (enabled: boolean) => void;
@@ -77,7 +87,7 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 
 // News and messages stay pinned no matter what the caller passes
 const ensureHardPinned = (tabs: string[]) =>
-  Array.from(new Set([...HARD_PINNED, ...tabs]));
+  Array.from(new Set([...HARD_PINNED_TABS, ...tabs]));
 
 
 
@@ -109,7 +119,9 @@ function appReducer(state: AppSettings, action: AppAction): AppSettings {
     case 'SET_PINNED_TABS':
       return { ...state, pinnedTabs: ensureHardPinned(action.payload) };
     case 'RESET':
-      return initialState;
+      // Fresh copies — handing out the shared initialState by
+      // reference would let a later mutation corrupt the defaults
+      return { ...initialState, pinnedTabs: [...initialState.pinnedTabs] };
     default:
       return state;
   }
@@ -135,7 +147,7 @@ function appReducer(state: AppSettings, action: AppAction): AppSettings {
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(appReducer, initialState);
-  const hydrated = useRef(false);
+  const [hydrated, setHydrated] = useState(false);
   const systemScheme = useSystemScheme();
 
 
@@ -144,9 +156,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     state.theme === 'system' ? (systemScheme ?? 'light') : state.theme;
 
 
-  // Hydrate once; on a fresh install fall back to the device
-  // locale for language (Lithuanian wins for 'lt', everything
-  // else gets English)
+  // Hydrate once; on a fresh install fall back to the DEVICE
+  // locale for language (i18n's deviceLanguage — Lithuanian
+  // devices get lt, everything else en). A corrupt record is
+  // deleted so defaults persist cleanly from then on.
   useEffect(() => {
     (async () => {
       try {
@@ -161,52 +174,91 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 parsed.theme === 'light' || parsed.theme === 'dark'
                   ? parsed.theme
                   : 'system',
-              notifications: parsed.notifications !== false,
+              notifications:
+                typeof parsed.notifications === 'boolean'
+                  ? parsed.notifications
+                  : true,
               pinnedTabs: ensureHardPinned(
                 Array.isArray(parsed.pinnedTabs)
-                  ? parsed.pinnedTabs
+                  ? parsed.pinnedTabs.filter(
+                      (tab): tab is string => typeof tab === 'string',
+                    )
                   : initialState.pinnedTabs,
               ),
             },
           });
         } else {
-          const deviceLanguage = i18n.language === 'lt' ? 'lt' : 'en';
           dispatch({ type: 'SET_LANGUAGE', payload: deviceLanguage });
         }
       } catch {
-        // Unreadable settings — keep defaults
+        // Unreadable settings — keep defaults and drop the record
+        // so the next change persists over a clean slate
+        AsyncStorage.removeItem('app_settings').catch(() => {});
       } finally {
-        hydrated.current = true;
+        setHydrated(true);
       }
     })();
   }, []);
 
 
-  // i18n follows the language setting (covers hydration too)
+  // i18n follows the language setting once hydration has settled
+  // it — the gate is React state (not a ref) so this re-fires
+  // when hydration completes even if the stored language equals
+  // the default. The Android channel is re-created under the
+  // same id afterwards so its user-visible name tracks the app
+  // language.
   useEffect(() => {
-    if (i18n.language !== state.language) {
-      i18n.changeLanguage(state.language);
-    }
-  }, [state.language]);
+    if (!hydrated) return;
+    const applied: Promise<unknown> =
+      i18n.language !== state.language
+        ? i18n.changeLanguage(state.language)
+        : Promise.resolve();
+    applied.then(() => setupNotificationChannel()).catch(() => {});
+  }, [hydrated, state.language]);
 
 
   // Persist after hydration only — see the file header
   useEffect(() => {
-    if (!hydrated.current) return;
+    if (!hydrated) return;
     AsyncStorage.setItem('app_settings', JSON.stringify(state)).catch(() => {});
-  }, [state]);
+  }, [hydrated, state]);
 
 
-  const value: AppContextType = {
-    ...state,
-    scheme,
-    setLanguage: (language) => dispatch({ type: 'SET_LANGUAGE', payload: language }),
-    setTheme: (theme) => dispatch({ type: 'SET_THEME', payload: theme }),
-    setNotifications: (enabled) =>
-      dispatch({ type: 'SET_NOTIFICATIONS', payload: enabled }),
-    setPinnedTabs: (tabs) => dispatch({ type: 'SET_PINNED_TABS', payload: tabs }),
-    resetSettings: () => dispatch({ type: 'RESET' }),
-  };
+  // Stable setter identities (dispatch never changes) and a
+  // memoized value — consumers can list any of these in effect
+  // dependency arrays or hand them to memoized children
+  const setLanguage = useCallback(
+    (language: 'lt' | 'en') => dispatch({ type: 'SET_LANGUAGE', payload: language }),
+    [],
+  );
+  const setTheme = useCallback(
+    (theme: ThemeSetting) => dispatch({ type: 'SET_THEME', payload: theme }),
+    [],
+  );
+  const setNotifications = useCallback(
+    (enabled: boolean) => dispatch({ type: 'SET_NOTIFICATIONS', payload: enabled }),
+    [],
+  );
+  const setPinnedTabs = useCallback(
+    (tabs: string[]) => dispatch({ type: 'SET_PINNED_TABS', payload: tabs }),
+    [],
+  );
+  const resetSettings = useCallback(() => dispatch({ type: 'RESET' }), []);
+
+
+  const value = useMemo<AppContextType>(
+    () => ({
+      ...state,
+      scheme,
+      hydrated,
+      setLanguage,
+      setTheme,
+      setNotifications,
+      setPinnedTabs,
+      resetSettings,
+    }),
+    [state, scheme, hydrated, setLanguage, setTheme, setNotifications, setPinnedTabs, resetSettings],
+  );
 
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

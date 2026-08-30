@@ -27,11 +27,11 @@
 //  Split into (root component last):
 //
 //    POSTS_PER_PAGE     — profile feed page size
-//    ROLE_KEYS          — backend role → catalog label key
 //    StatBlock          — number-over-caption stat
 //    FriendActionButton — one button, four friendship states
 //    ProfileHeader      — portrait, identity, stats, actions
 //    PostRow            — one post card (+ delete when own)
+//    avatarErrorKey     — upload failure → translated message
 //    ProfileScreen      — the page itself (default export)
 // -----------------------------------------------------------
 
@@ -51,12 +51,19 @@ import {
   fetchFriendRequests,
   fetchUserPosts,
   fetchUserProfile,
+  rejectFriendRequest,
+  blockUser,
+  reportTarget,
   sendFriendRequest,
+  unblockUser,
   unfriendUser,
   updateProfile,
   uploadImageApi,
   type UserProfile,
 } from '@/services/api';
+
+// The shared backend-role → label helper
+import { roleLabel } from '@/constants/roles';
 
 // UI kit and theming
 import {
@@ -77,11 +84,15 @@ import { formatDate } from '@/services/format';
 // Domain types
 import type { NewsPost } from '@/types';
 
+// Route param normalisation and the login round-trip href
+import { useReturnHref } from '@/hooks/useReturnHref';
+import { useRouteParam } from '@/hooks/useRouteParam';
+
 // Navigation, i18n and primitives
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { useFocusEffect, useLocalSearchParams, usePathname, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ActivityIndicator,
@@ -91,20 +102,12 @@ import {
   Text,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 
 // Ten posts per page keeps the header visible on first paint;
 // onEndReached pages the rest in
 const POSTS_PER_PAGE = 10;
-
-// Role labels live in the admin section of the catalogs; an
-// unknown backend role falls back to its raw value
-const ROLE_KEYS: Record<string, string> = {
-  student: 'admin.roleStudent',
-  teacher: 'admin.roleTeacher',
-  admin: 'admin.roleAdmin',
-  curator: 'admin.roleCurator',
-};
 
 
 
@@ -139,9 +142,9 @@ function StatBlock({ value, label }: { value: number; label: string }) {
 // FriendActionButton
 // -----------------------------------------------------------
 //
-// The friendship state machine as one button. 'request_sent'
-// renders disabled — there is nothing further to do, so no
-// handler branch exists for that state. The Button's spinner
+// The friendship state machine as one button. Every state is
+// actionable — 'request_sent' cancels the pending request, so
+// a sent request is never a dead end. The Button's spinner
 // inherits the variant's label color, which keeps it visible
 // on the brand background.
 //
@@ -175,7 +178,14 @@ function FriendActionButton({
 
 
   if (status === 'request_sent') {
-    return <Button title={t('profile.requestSent')} onPress={onPress} variant="secondary" disabled />;
+    return (
+      <Button
+        title={t('profile.cancelRequest')}
+        onPress={onPress}
+        variant="secondary"
+        loading={loading}
+      />
+    );
   }
 
 
@@ -209,7 +219,10 @@ function FriendActionButton({
 // posts/friends stats and the action row. The friends stat is
 // pressable ONLY on the own profile, where it actually
 // navigates — on other profiles it is a plain block, never a
-// dead button.
+// dead button. A profile the viewer has BLOCKED swaps the
+// friend/message row for a single unblock button (the backend
+// would 404 a friend request and 403 a message anyway), and a
+// quiet block/report link row sits under the actions.
 //
 // Used by:
 //   - ProfileScreen (below) — FlatList header
@@ -226,6 +239,8 @@ function ProfileHeader({
   onFriendAction,
   onMessage,
   onOpenFriends,
+  onBlockAction,
+  onReport,
 }: {
   profile: UserProfile;
   isOwnProfile: boolean;
@@ -237,13 +252,12 @@ function ProfileHeader({
   onFriendAction: () => void;
   onMessage: () => void;
   onOpenFriends: () => void;
+  onBlockAction: () => void;
+  onReport: () => void;
 }) {
 
   const { t } = useTranslation();
   const { colors } = useTheme();
-
-
-  const roleKey = ROLE_KEYS[profile.role];
 
 
   const portrait = <Avatar uri={profile.avatarUrl} name={profile.displayName} size={88} />;
@@ -279,7 +293,7 @@ function ProfileHeader({
         {profile.displayName}
       </Text>
       <Text className="font-raleway-medium text-sm text-brand">
-        {roleKey ? t(roleKey) : profile.role}
+        {roleLabel(t, profile.role)}
       </Text>
       <Text className="mt-xs font-raleway text-xs text-ink-soft">@{profile.username}</Text>
       <Text className="mt-xs font-raleway text-xs text-ink-faint">
@@ -305,8 +319,19 @@ function ProfileHeader({
       </View>
 
       {/* Friend + message actions — other people's profiles,
-          signed in only */}
-      {canInteract && (
+          signed in only. A blocked profile gets the unblock
+          button instead: every other action would only bounce
+          off the backend's block gates */}
+      {canInteract && profile.blockedByMe ? (
+        <View className="mt-md w-full">
+          <Button
+            title={t('profile.unblock')}
+            onPress={onBlockAction}
+            variant="secondary"
+            loading={actionLoading}
+          />
+        </View>
+      ) : canInteract ? (
         <View className="mt-md w-full flex-row items-center gap-sm">
           <View className="flex-1">
             <FriendActionButton
@@ -322,6 +347,35 @@ function ProfileHeader({
             accessibilityLabel={t('messages.newMessage')}
           >
             <Ionicons name="chatbubble-outline" size={20} color={colors.ink} />
+          </Pressable>
+        </View>
+      ) : null}
+
+      {/* Quiet moderation links — block (when not already) and
+          report, deliberately understated under the main row */}
+      {canInteract && (
+        <View className="mt-sm w-full flex-row items-center justify-center gap-xl">
+          {!profile.blockedByMe && (
+            <Pressable
+              onPress={onBlockAction}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={t('profile.block')}
+            >
+              <Text className="font-raleway-medium text-xs text-ink-faint">
+                {t('profile.block')}
+              </Text>
+            </Pressable>
+          )}
+          <Pressable
+            onPress={onReport}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={t('profile.report')}
+          >
+            <Text className="font-raleway-medium text-xs text-ink-faint">
+              {t('profile.report')}
+            </Text>
           </Pressable>
         </View>
       )}
@@ -351,14 +405,19 @@ function ProfileHeader({
 // One post preview card: title, a 3-line body, like/comment
 // counts and a delete action on the own profile. Title and
 // body arrive already entity-decoded — the api client decodes
-// every response centrally. Deletion is optimistic (the row
-// vanishes immediately), so no per-row spinner exists.
+// every response centrally. The Card is accessible={false} so
+// screen readers reach the inner targets one by one: the text
+// block is the dedicated open-post button and the trash keeps
+// its own stop — grouped, the delete never surfaced at all.
+// Deletion is optimistic (the row vanishes immediately), so no
+// per-row spinner exists. Memoized so a list re-render touches
+// only rows whose props actually moved.
 //
 // Used by:
 //   - ProfileScreen (below) — FlatList rows
 // -----------------------------------------------------------
 
-function PostRow({
+const PostRow = memo(function PostRow({
   post,
   own,
   onOpen,
@@ -366,8 +425,8 @@ function PostRow({
 }: {
   post: NewsPost;
   own: boolean;
-  onOpen: () => void;
-  onDelete: () => void;
+  onOpen: (post: NewsPost) => void;
+  onDelete: (post: NewsPost) => void;
 }) {
 
   const { t } = useTranslation();
@@ -376,10 +435,20 @@ function PostRow({
 
   return (
     <View className="mb-sm px-md">
-      <Card onPress={onOpen}>
+      <Card onPress={() => onOpen(post)} accessible={false}>
 
         <View className="flex-row items-start gap-sm">
-          <View className="flex-1">
+          {/* The open-post target for assistive tech; the stop
+              keeps the tap from also firing the Card press
+              (touches bubble on react-native-web) */}
+          <Pressable
+            className="flex-1"
+            onPress={(event) => {
+              event.stopPropagation();
+              onOpen(post);
+            }}
+            accessibilityRole="button"
+          >
             {post.title ? (
               <Text className="mb-xs font-raleway-bold text-base text-ink" numberOfLines={1}>
                 {post.title}
@@ -388,12 +457,13 @@ function PostRow({
             <Text className="font-raleway text-sm text-ink-soft" numberOfLines={3}>
               {post.content || post.summary}
             </Text>
-          </View>
+          </Pressable>
 
+          {/* hitSlop 13 lifts the 18px glyph to a 44pt target */}
           {own && (
             <Pressable
-              onPress={onDelete}
-              hitSlop={12}
+              onPress={() => onDelete(post)}
+              hitSlop={13}
               accessibilityRole="button"
               accessibilityLabel={t('profile.deletePost')}
             >
@@ -416,6 +486,37 @@ function PostRow({
       </Card>
     </View>
   );
+});
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// avatarErrorKey
+// -----------------------------------------------------------
+//
+// Maps the backend's known upload rejections (file too large,
+// type not allowed, content not a real image) plus the upload
+// timeout to their own translated messages instead of echoing
+// the English backend string; anything unrecognized — the
+// profile PUT included — falls back to the generic avatar
+// error.
+//
+// Used by:
+//   - ProfileScreen (below) — avatar-change failure toast
+// -----------------------------------------------------------
+
+function avatarErrorKey(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.code === 'timeout') return 'upload.timeout';
+    if (err.status === 413 || err.serverCode === 'file_too_large') return 'upload.tooLarge';
+    if (/type not allowed/i.test(err.message)) return 'upload.typeNotAllowed';
+    if (/does not match/i.test(err.message)) return 'upload.invalidContent';
+  }
+  return 'profile.avatarError';
 }
 
 
@@ -436,13 +537,16 @@ function PostRow({
 
 export default function ProfileScreen() {
 
-  const { userId } = useLocalSearchParams<{ userId?: string }>();
+  // useRouteParam owns the honest param shape — a repeated
+  // ?userId= arrives as an array and a deep link can omit it
+  const userId = useRouteParam('userId');
   const { user: me, isAuthenticated, setUser } = useAuth();
   const { isConnected } = useNetwork();
   const { t } = useTranslation();
   const { colors } = useTheme();
   const router = useRouter();
-  const pathname = usePathname();
+  const returnTo = useReturnHref();
+  const insets = useSafeAreaInsets();
 
 
   // No param means "my profile"; logged out that leaves no
@@ -457,16 +561,15 @@ export default function ProfileScreen() {
   const [profile, setProfileState] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const profileRef = useRef<UserProfile | null>(null);
   const profileSeqRef = useRef(0);
 
-  const setProfile = (next: UserProfile | null) => {
+  const setProfile = useCallback((next: UserProfile | null) => {
     profileRef.current = next;
     setProfileState(next);
-  };
+  }, []);
 
 
   // The paginated post list; deps restart it when the target
@@ -485,41 +588,45 @@ export default function ProfileScreen() {
   // pull-to-refresh. Only the newest request may write (the
   // sequence guard), a 404 becomes the not-found body, other
   // failures raise error only when nothing is on screen — and
-  // loading/refreshing clear on every path
-  const loadProfile = async (mode: 'initial' | 'refresh'): Promise<void> => {
-    if (!targetId) return;
-    const seq = ++profileSeqRef.current;
+  // loading clears on every path. useCallback'd so the focus
+  // effect can depend on it directly: the identity moves only
+  // with the target
+  const loadProfile = useCallback(
+    async (mode: 'initial' | 'refresh'): Promise<void> => {
+      if (!targetId) return;
+      const seq = ++profileSeqRef.current;
 
-    if (mode === 'initial') {
-      setLoading(true);
-      setError(false);
-      setProfile(null);
-    } else {
-      setRefreshing(true);
-    }
-
-    try {
-      const data = await fetchUserProfile(targetId);
-      if (seq !== profileSeqRef.current) return;
-      setProfile(data);
-      setError(false);
-    } catch (err) {
-      if (seq !== profileSeqRef.current) return;
-      if (err instanceof ApiError && err.code === 'http' && err.status === 404) {
-        // A real "no such user" — not-found body, not ErrorState
-        setProfile(null);
+      // 'refresh' works silently behind the shown profile —
+      // only the pull gesture drives a visible spinner
+      if (mode === 'initial') {
+        setLoading(true);
         setError(false);
-      } else {
-        // Error only when the screen would otherwise show nothing
-        setError(profileRef.current === null);
+        setProfile(null);
       }
-    } finally {
-      if (seq === profileSeqRef.current) {
-        setLoading(false);
-        setRefreshing(false);
+
+      try {
+        const data = await fetchUserProfile(targetId);
+        if (seq !== profileSeqRef.current) return;
+        setProfile(data);
+        setError(false);
+      } catch (err) {
+        if (seq !== profileSeqRef.current) return;
+        if (err instanceof ApiError && err.code === 'http' && err.status === 404) {
+          // A real "no such user" — not-found body, not ErrorState
+          setProfile(null);
+          setError(false);
+        } else {
+          // Error only when the screen would otherwise show nothing
+          setError(profileRef.current === null);
+        }
+      } finally {
+        if (seq === profileSeqRef.current) {
+          setLoading(false);
+        }
       }
-    }
-  };
+    },
+    [targetId, setProfile],
+  );
 
 
   // First load with spinner; no target clears the flag so the
@@ -527,25 +634,14 @@ export default function ProfileScreen() {
   useEffect(() => {
     if (targetId) void loadProfile('initial');
     else setLoading(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [targetId]);
+  }, [targetId, loadProfile]);
 
 
-  // Latest combined-refetch closure in a ref, so the focus
-  // effect stays dependency-free — depending on the per-render
-  // closures would re-fire it on every render while focused
-  const refetchRef = useRef<() => void>(() => {});
-  useEffect(() => {
-    refetchRef.current = () => {
-      void loadProfile('refresh');
-      void posts.refresh();
-    };
-  });
-
-
-  // Friendship status, counts and posts go stale after actions
-  // on other screens — resync silently on every return; the
-  // first focus rides the mount load and is skipped
+  // Friendship status and counts go stale after actions on
+  // other screens — resync the profile silently on every
+  // return, leaving the paginated posts (and the reader's
+  // scroll position) alone; the first focus rides the mount
+  // load and is skipped
   const focusedOnceRef = useRef(false);
   useFocusEffect(
     useCallback(() => {
@@ -553,9 +649,21 @@ export default function ProfileScreen() {
         focusedOnceRef.current = true;
         return;
       }
-      refetchRef.current();
-    }, []),
+      void loadProfile('refresh');
+    }, [loadProfile]),
   );
+
+
+  // Pull-to-refresh owns this flag ALONE — focus refetches and
+  // network-restore refetches run silently and must not spin
+  // the pull control by themselves
+  const [pullRefreshing, setPullRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setPullRefreshing(true);
+    await Promise.all([loadProfile('refresh'), posts.refresh()]);
+    setPullRefreshing(false);
+  };
 
 
   // Back online: silent refetch behind a shown profile, full
@@ -582,27 +690,30 @@ export default function ProfileScreen() {
 
       setAvatarUploading(true);
       const asset = result.assets[0];
+      // fileSize rides along so a known-oversized pick is
+      // refused before any bytes leave the device
       const upload = await uploadImageApi(
         asset.uri,
         asset.fileName ?? undefined,
         asset.mimeType ?? undefined,
+        asset.fileSize ?? undefined,
       );
       const updated = await updateProfile({ avatar_url: upload.url });
       if (profileRef.current) setProfile({ ...profileRef.current, avatarUrl: upload.url });
       if (me) setUser({ ...me, ...updated });
       showToast('success', t('profile.avatarUpdated'));
-    } catch {
-      showToast('error', t('profile.avatarError'));
+    } catch (err) {
+      showToast('error', t(avatarErrorKey(err)));
     } finally {
       setAvatarUploading(false);
     }
   };
 
 
-  // The three live friendship transitions — 'request_sent'
-  // renders a disabled button and never reaches this handler.
-  // Unfriend confirms first; accepting resolves the request id
-  // on the fly and resyncs when the request is already gone
+  // All four friendship transitions. Unfriend confirms first;
+  // accepting and cancelling resolve the request id on the fly
+  // (the profile payload carries none) and resync when the
+  // request is already gone
   const handleFriendAction = async () => {
     const current = profileRef.current;
     if (!current || actionLoading) return;
@@ -626,6 +737,31 @@ export default function ProfileScreen() {
             friendshipStatus: 'none',
             friendCount: Math.max(0, profileRef.current.friendCount - 1),
           });
+        }
+      } catch {
+        showToast('error', t('profile.actionError'));
+      } finally {
+        setActionLoading(false);
+      }
+      return;
+    }
+
+    if (current.friendshipStatus === 'request_sent') {
+      setActionLoading(true);
+      try {
+        // Resolve the pending request id among the sent rows
+        const { requests } = await fetchFriendRequests('sent');
+        const match = requests.find((request) => request.userId === current.id);
+        if (!match) {
+          // Accepted or expired in the meantime — resync the
+          // status instead of leaving a stuck cancel button
+          await loadProfile('refresh');
+          return;
+        }
+        // The reject endpoint doubles as the sender's cancel
+        await rejectFriendRequest(match.id);
+        if (profileRef.current) {
+          setProfile({ ...profileRef.current, friendshipStatus: 'none' });
         }
       } catch {
         showToast('error', t('profile.actionError'));
@@ -664,49 +800,107 @@ export default function ProfileScreen() {
       return;
     }
 
-    // 'none' — request the friendship
+    // 'none' — request the friendship. The backend auto-accepts
+    // when the other side had already asked (status 'accepted',
+    // no request row), so the response decides the next state
     setActionLoading(true);
     try {
-      await sendFriendRequest(current.id);
+      const result = await sendFriendRequest(current.id);
       if (profileRef.current) {
-        setProfile({ ...profileRef.current, friendshipStatus: 'request_sent' });
+        if (result.status === 'accepted') {
+          setProfile({
+            ...profileRef.current,
+            friendshipStatus: 'friends',
+            friendCount: profileRef.current.friendCount + 1,
+          });
+        } else {
+          setProfile({ ...profileRef.current, friendshipStatus: 'request_sent' });
+        }
       }
-    } catch {
-      showToast('error', t('profile.actionError'));
+    } catch (err) {
+      // A 409 means a request (or the friendship) already
+      // exists — name that, and resync so the button shows the
+      // real state instead of 409ing forever
+      const duplicate = err instanceof ApiError && err.code === 'http' && err.status === 409;
+      showToast('error', t(duplicate ? 'profile.requestAlreadySent' : 'profile.actionError'));
+      if (duplicate) await loadProfile('refresh');
     } finally {
       setActionLoading(false);
     }
   };
 
 
-  // Optimistic own-post delete: capture, remove, call, revert
-  // exactly on failure — the postCount stat moves in lockstep
-  const handleDeletePost = async (post: NewsPost) => {
-    const confirmed = await confirmAction({
-      title: t('profile.deletePost'),
-      message: t('profile.deletePostConfirm'),
-      confirmLabel: t('profile.deletePost'),
-      cancelLabel: t('common.cancel'),
-      destructive: true,
-    });
-    if (!confirmed) return;
+  // Optimistic own-post delete: remove, call, and on failure
+  // revert SURGICALLY — re-insert only the removed post at its
+  // recorded index and bump postCount back functionally. A
+  // whole-list snapshot restore would clobber pages loaded or
+  // rows changed while the request ran
+  const handleDeletePost = useCallback(
+    async (post: NewsPost) => {
+      const confirmed = await confirmAction({
+        title: t('profile.deletePost'),
+        message: t('profile.deletePostConfirm'),
+        confirmLabel: t('profile.deletePost'),
+        cancelLabel: t('common.cancel'),
+        destructive: true,
+      });
+      if (!confirmed) return;
 
-    const previousItems = posts.items;
-    const previousProfile = profileRef.current;
-    posts.setItems((items) => items.filter((item) => item.id !== post.id));
-    if (previousProfile) {
-      setProfile({ ...previousProfile, postCount: Math.max(0, previousProfile.postCount - 1) });
-    }
+      // Recorded inside the updater so it reflects the list
+      // actually mutated, never a stale render snapshot
+      let removedIndex = -1;
+      posts.setItems((items) => {
+        removedIndex = items.findIndex((item) => item.id === post.id);
+        return items.filter((item) => item.id !== post.id);
+      });
+      if (profileRef.current) {
+        setProfile({
+          ...profileRef.current,
+          postCount: Math.max(0, profileRef.current.postCount - 1),
+        });
+      }
 
-    try {
-      await deletePost(post.id);
-      showToast('success', t('profile.postDeleted'));
-    } catch {
-      posts.setItems(() => previousItems);
-      if (previousProfile) setProfile(previousProfile);
-      showToast('error', t('profile.deleteError'));
-    }
-  };
+      try {
+        await deletePost(post.id);
+        showToast('success', t('profile.postDeleted'));
+      } catch {
+        posts.setItems((items) => {
+          if (items.some((item) => item.id === post.id)) return items;
+          const next = [...items];
+          const at = removedIndex < 0 ? next.length : Math.min(removedIndex, next.length);
+          next.splice(at, 0, post);
+          return next;
+        });
+        if (profileRef.current) {
+          setProfile({ ...profileRef.current, postCount: profileRef.current.postCount + 1 });
+        }
+        showToast('error', t('profile.deleteError'));
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- posts.setItems is a stable useFeed callback; the posts object itself is not
+    [posts.setItems, setProfile, t],
+  );
+
+
+  // Stable row handlers — the memoized PostRow re-renders only
+  // when its own post (or the own-profile flag) changes
+  const handleDelete = useCallback(
+    (post: NewsPost) => void handleDeletePost(post),
+    [handleDeletePost],
+  );
+
+  const handleOpenPost = useCallback(
+    (post: NewsPost) =>
+      router.push({ pathname: '/(main)/news-post', params: { postId: post.id } }),
+    [router],
+  );
+
+  const renderItem = useCallback(
+    ({ item }: { item: NewsPost }) => (
+      <PostRow post={item} own={isOwnProfile} onOpen={handleOpenPost} onDelete={handleDelete} />
+    ),
+    [isOwnProfile, handleOpenPost, handleDelete],
+  );
 
 
   const handleMessage = () => {
@@ -716,6 +910,87 @@ export default function ProfileScreen() {
       pathname: '/(main)/new-chat',
       params: { prefillUserId: current.id, prefillName: current.displayName },
     });
+  };
+
+
+  // Block / unblock. Blocking is confirmed (it severs the
+  // friendship server-side, so the local state drops to 'none'
+  // and the count follows); unblocking restores nothing and
+  // needs no ceremony
+  const handleBlockAction = async () => {
+    const current = profileRef.current;
+    if (!current || actionLoading) return;
+
+    if (current.blockedByMe) {
+      setActionLoading(true);
+      try {
+        await unblockUser(current.id);
+        if (profileRef.current) {
+          setProfile({ ...profileRef.current, blockedByMe: false });
+        }
+        showToast('success', t('profile.unblocked'));
+      } catch {
+        showToast('error', t('profile.actionError'));
+      } finally {
+        setActionLoading(false);
+      }
+      return;
+    }
+
+    const confirmed = await confirmAction({
+      title: t('profile.blockTitle'),
+      message: t('profile.blockConfirm', { name: current.displayName }),
+      confirmLabel: t('profile.block'),
+      cancelLabel: t('common.cancel'),
+      destructive: true,
+    });
+    if (!confirmed) return;
+
+    setActionLoading(true);
+    try {
+      await blockUser(current.id);
+      if (profileRef.current) {
+        const wasFriends = profileRef.current.friendshipStatus === 'friends';
+        setProfile({
+          ...profileRef.current,
+          blockedByMe: true,
+          friendshipStatus: 'none',
+          friendCount: wasFriends
+            ? Math.max(0, profileRef.current.friendCount - 1)
+            : profileRef.current.friendCount,
+        });
+      }
+      showToast('success', t('profile.blocked'));
+    } catch {
+      showToast('error', t('profile.actionError'));
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+
+  // Report: a confirm, then one row into the admin-reviewed
+  // ledger — there is no free-text field on this screen, so
+  // the reason is the fixed localized line
+  const handleReport = async () => {
+    const current = profileRef.current;
+    if (!current) return;
+
+    const confirmed = await confirmAction({
+      title: t('profile.reportTitle'),
+      message: t('profile.reportConfirm'),
+      confirmLabel: t('profile.report'),
+      cancelLabel: t('common.cancel'),
+      destructive: true,
+    });
+    if (!confirmed) return;
+
+    try {
+      await reportTarget('user', current.id, t('profile.reportReason'));
+      showToast('success', t('profile.reported'));
+    } catch {
+      showToast('error', t('profile.actionError'));
+    }
   };
 
 
@@ -729,7 +1004,7 @@ export default function ProfileScreen() {
           title={t('profile.notFound')}
           action={{
             label: t('settings.login'),
-            onPress: () => router.push({ pathname: '/login', params: { returnTo: pathname } }),
+            onPress: () => router.push({ pathname: '/login', params: { returnTo } }),
           }}
         />
       </Screen>
@@ -778,7 +1053,12 @@ export default function ProfileScreen() {
       <FlatList
         data={posts.items}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={{ paddingBottom: 24 }}
+        contentContainerStyle={{
+          // flexGrow lets the empty/error states center instead
+          // of collapsing; the inset clears the home indicator
+          flexGrow: 1,
+          paddingBottom: insets.bottom + 24,
+        }}
         onEndReached={posts.loadMore}
         onEndReachedThreshold={0.4}
         ListHeaderComponent={
@@ -793,22 +1073,15 @@ export default function ProfileScreen() {
             onFriendAction={() => void handleFriendAction()}
             onMessage={handleMessage}
             onOpenFriends={() => router.push('/(main)/friends')}
+            onBlockAction={() => void handleBlockAction()}
+            onReport={() => void handleReport()}
           />
         }
-        renderItem={({ item }) => (
-          <PostRow
-            post={item}
-            own={isOwnProfile}
-            onOpen={() =>
-              router.push({ pathname: '/(main)/news-post', params: { postId: item.id } })
-            }
-            onDelete={() => void handleDeletePost(item)}
-          />
-        )}
+        renderItem={renderItem}
         refreshControl={
           <RefreshControl
-            refreshing={refreshing || posts.refreshing}
-            onRefresh={() => refetchRef.current()}
+            refreshing={pullRefreshing}
+            onRefresh={() => void handleRefresh()}
             tintColor={colors.brand}
             colors={[colors.brand]}
           />

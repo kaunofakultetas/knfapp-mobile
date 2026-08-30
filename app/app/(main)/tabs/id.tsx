@@ -29,7 +29,6 @@
 //
 //  Split into (root component last):
 //
-//    ROLE_KEYS       — user.role → admin.role* label keys
 //    CARD_SHADOW     — the card sheet elevation
 //    CardHeader      — the burgundy VU / KNF band
 //    IdPhoto         — avatar pressable with the camera badge
@@ -50,14 +49,20 @@ import { useTheme } from '@/hooks/useTheme';
 import { Ionicons } from '@expo/vector-icons';
 
 // Profile calls — field edits, avatar upload, session refresh
-import { fetchMe, updateProfile, uploadImageApi } from '@/services/api';
+import { ApiError, fetchMe, updateProfile, uploadImageApi } from '@/services/api';
+
+// Server failures render as translated copy, never raw text
+import { apiErrorKey } from '@/services/api/errors';
+
+// Shared role → label map, identical across every screen
+import { roleLabel } from '@/constants/roles';
 
 // Session user shape
 import { User } from '@/types';
 
 // Card primitives — picker, QR renderer, RN plumbing
 import * as ImagePicker from 'expo-image-picker';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ActivityIndicator,
@@ -73,15 +78,6 @@ import {
 } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 
-
-// user.role → the shared admin.role* label keys, so the card
-// and the admin screens name roles identically
-const ROLE_KEYS: Record<User['role'], string> = {
-  student: 'admin.roleStudent',
-  teacher: 'admin.roleTeacher',
-  curator: 'admin.roleCurator',
-  admin: 'admin.roleAdmin',
-};
 
 // Soft elevation for the card sheet — black shadow reads on
 // both schemes ('#000' is the one permitted raw hex)
@@ -367,6 +363,21 @@ function IdCard() {
   const [uploading, setUploading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
+  // The username/email block under the QR is collapsed by
+  // default — the card is held up for OTHERS to scan, so the
+  // address must not sit in the same camera frame unasked
+  const [identityShown, setIdentityShown] = useState(false);
+
+
+  // Async mutations must merge over the LATEST user, never the
+  // render closure that started them — a pull-to-refresh
+  // landing while a save is in flight would otherwise be
+  // re-covered by pre-refresh fields
+  const userRef = useRef(user);
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
+
 
   // LoginRequiredOverlay only renders this while authenticated,
   // and the auth reducer never authenticates without a user —
@@ -378,7 +389,7 @@ function IdCard() {
     setSaving(true);
     try {
       const updated = await updateProfile(fields);
-      setUser({ ...user, ...updated });
+      setUser({ ...(userRef.current ?? user), ...updated });
       setEditing(false);
       showToast('success', t('id.saved'));
     } catch {
@@ -405,14 +416,17 @@ function IdCard() {
         asset.uri,
         asset.fileName ?? undefined,
         asset.mimeType ?? undefined,
+        asset.fileSize ?? undefined,
       );
       // Persist the RELATIVE path — Avatar resolves it with
       // getUploadUrl at render time
       const updated = await updateProfile({ avatar_url: upload.url });
-      setUser({ ...user, ...updated });
+      setUser({ ...(userRef.current ?? user), ...updated });
       showToast('success', t('id.photoUpdated'));
-    } catch {
-      showToast('error', t('id.photoError'));
+    } catch (err) {
+      // API failures explain themselves (too large, timeout,
+      // offline…); only non-API errors keep the generic copy
+      showToast('error', err instanceof ApiError ? t(apiErrorKey(err)) : t('id.photoError'));
     } finally {
       setUploading(false);
     }
@@ -461,10 +475,12 @@ function IdCard() {
         }
       />
 
-      {/* No stack header above this tab, so no vertical offset */}
+      {/* No stack header above this tab, so no vertical offset;
+          Android needs an explicit 'height' — undefined is a
+          no-op there */}
       <KeyboardAvoidingView
         className="flex-1"
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <ScrollView
           keyboardShouldPersistTaps="handled"
@@ -498,7 +514,7 @@ function IdCard() {
                 <View className="mt-xs flex-row">
                   <View className="rounded-md bg-brand-soft px-sm py-xs">
                     <Text className="font-raleway-bold text-sm text-brand">
-                      {t(ROLE_KEYS[user.role])}
+                      {roleLabel(t, user.role)}
                     </Text>
                   </View>
                 </View>
@@ -536,18 +552,49 @@ function IdCard() {
 
             {/* QR — the tile stays white in BOTH schemes on
                 purpose: inverted QR codes fail on many readers,
-                and on-brand is the palette's constant white */}
+                and on-brand is the palette's constant white.
+                The SVG is invisible to screen readers, so the
+                tile itself reads as the holder's card image. */}
             <View className="mx-md items-center border-t border-line py-lg">
-              <View className="rounded-lg border border-line bg-on-brand p-md">
+              <View
+                className="rounded-lg border border-line bg-on-brand p-md"
+                accessible
+                accessibilityRole="image"
+                accessibilityLabel={t('id.qrLabel', { name: user.displayName })}
+              >
                 <QRCode value={qrPayload} size={180} />
               </View>
             </View>
 
-            {/* Account identity — shown to the owner only, and
-                kept OFF the QR payload */}
+            {/* Account identity — kept OFF the QR payload AND
+                collapsed by default: the card is presented to
+                other people, so the email must not sit in the
+                same camera frame as the QR unless the owner
+                reveals it on purpose */}
             <View className="border-t border-line px-md pb-md pt-sm">
-              <Text className="font-raleway text-xs text-ink-soft">@{user.username}</Text>
-              <Text className="mt-xs font-raleway text-xs text-ink-soft">{user.email}</Text>
+              <Pressable
+                className="flex-row items-center justify-between py-1"
+                onPress={() => setIdentityShown((shown) => !shown)}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={identityShown ? t('id.hideAccount') : t('id.showAccount')}
+                accessibilityState={{ expanded: identityShown }}
+              >
+                <Text className="font-raleway-medium text-xs text-ink-soft">
+                  {identityShown ? t('id.hideAccount') : t('id.showAccount')}
+                </Text>
+                <Ionicons
+                  name={identityShown ? 'chevron-up' : 'chevron-down'}
+                  size={14}
+                  color={colors.inkFaint}
+                />
+              </Pressable>
+              {identityShown ? (
+                <>
+                  <Text className="mt-xs font-raleway text-xs text-ink-soft">@{user.username}</Text>
+                  <Text className="mt-xs font-raleway text-xs text-ink-soft">{user.email}</Text>
+                </>
+              ) : null}
             </View>
           </View>
         </ScrollView>

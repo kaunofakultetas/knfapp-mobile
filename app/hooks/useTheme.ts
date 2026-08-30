@@ -18,6 +18,9 @@ import { useApp } from '@/context/AppContext';
 // The palettes themselves — the single source of color truth
 import { palettes, type Palette } from '@/constants/theme';
 
+// Memoized result — stable identity per scheme
+import { useMemo } from 'react';
+
 
 
 
@@ -42,5 +45,7 @@ import { palettes, type Palette } from '@/constants/theme';
 
 export function useTheme(): { scheme: 'light' | 'dark'; colors: Palette } {
   const { scheme } = useApp();
-  return { scheme, colors: palettes[scheme] };
+  // Keyed on scheme so the returned object keeps its identity
+  // between theme changes — safe in effect and memo dependencies
+  return useMemo(() => ({ scheme, colors: palettes[scheme] }), [scheme]);
 }

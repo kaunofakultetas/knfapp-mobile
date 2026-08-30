@@ -52,6 +52,8 @@ describe('socket registry', () => {
     // Subscribed before any socket exists
     const unsubscribe = socket.onNewMessage(listener);
 
+    // The legacy 'auth' blob feeds the FIRST read only — this
+    // doubles as the one-time migration path (contract C1)
     await AsyncStorage.setItem('auth', JSON.stringify({ token: 'tok-1' }));
     const first = await socket.connectSocket();
     first.fire('new_message', { id: 'm1' });
@@ -61,8 +63,17 @@ describe('socket registry', () => {
     expect(await socket.connectSocket()).toBe(first);
     expect(io).toHaveBeenCalledTimes(1);
 
-    // New token → fresh instance, registry still wired
-    await AsyncStorage.setItem('auth', JSON.stringify({ token: 'tok-2' }));
+    // New token → fresh instance, registry still wired. Token
+    // changes flow through services/session (the migrated blob
+    // is never re-read), exactly like a real login
+    const session = require('@/services/session');
+    await session.setStoredSession('tok-2', {
+      id: 'u1',
+      username: 'user',
+      email: 'user@knf.vu.lt',
+      displayName: 'User',
+      role: 'student',
+    });
     const second = await socket.connectSocket();
     expect(second).not.toBe(first);
     expect(first.removeAllListeners).toHaveBeenCalled();

@@ -12,11 +12,19 @@
 //  tracked in a Set keyed by temp id, so retry taps and the
 //  network-restore sweep can never race the same message onto
 //  the wire twice. Temp ids come from a monotonic counter —
-//  never Date.now(), which collides within a millisecond.
+//  never Date.now(), which collides within a millisecond. The
+//  temp's clientId also rides every POST as its idempotency
+//  key, so retrying a timed-out-but-committed send resolves
+//  to the SAME server row instead of a duplicate.
 //
 //  The failed-send queue is a ref map (tempId → payload), and
 //  the restore sweep iterates THAT — state updaters stay pure,
-//  because React may run them twice.
+//  because React may run them twice. Queue and draft are
+//  mirrored to AsyncStorage (outbox:<id> / draft:<id>) so
+//  leaving the room loses neither; only failures that can
+//  heal (network, timeout, 5xx, 429) are queued — a
+//  definitive 4xx leaves the bubble permanently failed with a
+//  specific toast and just the discard affordance.
 //
 //  Typing contract with useTypingIndicator: re-emit at most
 //  every 2 s while keystrokes keep coming (the receiver
@@ -30,12 +38,16 @@
 //
 //  Split into:
 //
+//    isRetryable / sendFailureKey — send-failure triage
 //    UseChatComposerResult — the hook's return shape
 //    useChatComposer       — the hook itself
 // -----------------------------------------------------------
 
-// Send + upload endpoints
-import { sendMessageApi, uploadImageApi } from '@/services/api';
+// Send + upload endpoints, and the error shape triage reads
+import { ApiError, sendMessageApi, uploadImageApi } from '@/services/api';
+
+// Per-conversation outbox + draft persistence
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Typing emits ride the shared socket
 import { emitStopTyping, emitTyping } from '@/services/socket';
@@ -51,6 +63,10 @@ import { useTranslation } from 'react-i18next';
 // Message shape and the optimistic-id marker
 import { TEMP_ID_PREFIX, mapReply } from '@/hooks/chat/useChatMessages';
 import type { ChatMessage } from '@/types';
+
+// The Composer's cap — one shared constant so the emoji strip
+// can never out-type the field's maxLength
+import { DEFAULT_MAX_LENGTH as MAX_MESSAGE_LENGTH } from '@/chatkit/Composer';
 
 // Image picking and lifecycle plumbing
 import * as ImagePicker from 'expo-image-picker';
@@ -71,6 +87,45 @@ const TYPING_IDLE_MS = 3000;
 
 
 // -----------------------------------------------------------
+// isRetryable / sendFailureKey
+// -----------------------------------------------------------
+//
+// Send-failure triage: transport failures and transient
+// server states (5xx, 429) re-queue for tap-to-retry and the
+// restore sweep; a definitive 4xx keeps the bubble failed for
+// good — retrying would only repeat the rejection — and picks
+// a toast that says why.
+//
+// Used by:
+//   - useChatComposer (below) — deliver + uploadAndDeliver
+// -----------------------------------------------------------
+
+const isRetryable = (err: unknown): boolean =>
+  !(err instanceof ApiError) ||
+  err.code === 'network' ||
+  err.code === 'timeout' ||
+  err.status >= 500 ||
+  err.status === 429;
+
+// The generic sendError stays on everything the sweep will
+// re-drive; the backend's only 400 on a non-empty send is the
+// 5000-char cap
+const sendFailureKey = (err: unknown): string => {
+  if (err instanceof ApiError && err.code === 'http') {
+    if (err.status === 400 || err.status === 413) return 'chat.sendTooLong';
+    if (err.status === 401) return 'chat.sessionExpired';
+    if (err.status === 403) return 'chat.sendForbidden';
+  }
+  return 'chat.sendError';
+};
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // UseChatComposerResult
 // -----------------------------------------------------------
 //
@@ -81,12 +136,14 @@ const TYPING_IDLE_MS = 3000;
 
 // What a failed send needs to retry: the body, the uploaded
 // image path — or, when the upload itself failed, the picked
-// asset so the retry uploads again
+// asset so the retry uploads again. createdAt is the bubble's
+// original stamp, persisted so a rehydrated bubble keeps it
 interface FailedPayload {
   text: string;
   imageUrl?: string;
   replyToId?: string;
-  asset?: { uri: string; fileName?: string; mimeType?: string };
+  asset?: { uri: string; fileName?: string; mimeType?: string; fileSize?: number };
+  createdAt?: string;
 }
 
 export interface UseChatComposerResult {
@@ -139,13 +196,19 @@ export function useChatComposer(
 
   // The live list, for the queue: an entry whose temp is gone
   // (the socket echo replaced a failed send, or it was discarded)
-  // must never be re-sent by the restore sweep
+  // must never be re-sent by the restore sweep. Mirrored in an
+  // effect — render bodies stay write-free
   const messagesRef = useRef(messages);
-  messagesRef.current = messages;
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
 
   const [text, setText] = useState('');
-  const [uploadingImage, setUploadingImage] = useState(false);
+  // Uploads in flight by temp id — uploadingImage is derived,
+  // so one upload finishing can never blank another's spinner
+  const [uploadingIds, setUploadingIds] = useState<ReadonlySet<string>>(new Set());
+  const uploadingImage = uploadingIds.size > 0;
   const [replyTo, setReplyToState] = useState<ChatMessage | null>(null);
   const replyToRef = useRef<ChatMessage | null>(null);
 
@@ -160,16 +223,143 @@ export function useChatComposer(
   const tempSeqRef = useRef(0);
 
 
-  // tempId → payload for every failed send; the restore sweep
-  // and tap-to-retry both re-drive from here
+  // tempId → payload for every retryable failed send; the
+  // restore sweep and tap-to-retry both re-drive from here
   const failedQueueRef = useRef(
     new Map<string, FailedPayload>(),
   );
 
 
+  // Rehydrated queue entries whose bubble has not reappeared
+  // yet (useChatMessages restores them with its first load) —
+  // the prune and the sweep must not drop them in that window
+  const rehydratedPendingRef = useRef(new Set<string>());
+
+
   // Temp ids currently on the wire — guards a retry tap racing
   // the automatic restore sweep onto a duplicate request
   const inFlightRef = useRef(new Set<string>());
+
+
+  // Mirror the queue to storage after every mutation, so
+  // failed sends survive leaving the room and app restarts.
+  // The shape is an id → payload map — exactly what
+  // useChatMessages' readOutboxTemps rehydrates into bubbles —
+  // with each entry stamped by its bubble's createdAt
+  const persistQueue = useCallback(() => {
+    const key = `outbox:${conversationId}`;
+    if (failedQueueRef.current.size === 0) {
+      AsyncStorage.removeItem(key).catch(() => {});
+      return;
+    }
+    const record: Record<string, FailedPayload> = {};
+    for (const [tempId, payload] of failedQueueRef.current) {
+      record[tempId] = {
+        ...payload,
+        createdAt: messagesRef.current.find((m) => m.id === tempId)?.createdAt ?? payload.createdAt,
+      };
+    }
+    AsyncStorage.setItem(key, JSON.stringify(record)).catch(() => {});
+  }, [conversationId]);
+
+
+  // Debounced draft mirror (draft:<conversationId>) — the
+  // unmount flush below writes whatever the field last held
+  const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const persistDraft = useCallback(
+    (value: string) => {
+      if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+      draftTimerRef.current = setTimeout(() => {
+        draftTimerRef.current = null;
+        const key = `draft:${conversationId}`;
+        if (value) AsyncStorage.setItem(key, value).catch(() => {});
+        else AsyncStorage.removeItem(key).catch(() => {});
+      }, 400);
+    },
+    [conversationId],
+  );
+
+
+  // Leaving the room flushes the final draft value past the
+  // debounce — a mid-typing unmount loses nothing
+  useEffect(() => {
+    return () => {
+      if (draftTimerRef.current) {
+        clearTimeout(draftTimerRef.current);
+        draftTimerRef.current = null;
+      }
+      const key = `draft:${conversationId}`;
+      const value = textRef.current;
+      if (value) AsyncStorage.setItem(key, value).catch(() => {});
+      else AsyncStorage.removeItem(key).catch(() => {});
+    };
+  }, [conversationId]);
+
+
+  // A mounted instance can be handed a DIFFERENT room (web:
+  // the ?conversationId query changes in place without a
+  // remount) — the composer half of useChatMessages' room-
+  // switch wipe. The old room's draft was already flushed to
+  // ITS key by the effect cleanup above; here the field, the
+  // reply strip and the per-room queue state are cleared
+  // WITHOUT persisting — an empty persistQueue here would
+  // delete the NEW room's stored outbox before the rehydrate
+  // below has landed
+  const shownConvRef = useRef(conversationId);
+  useEffect(() => {
+    if (shownConvRef.current === conversationId) return;
+    shownConvRef.current = conversationId;
+    textRef.current = '';
+    setText('');
+    failedQueueRef.current.clear();
+    rehydratedPendingRef.current.clear();
+    replyToRef.current = null;
+    setReplyToState(null);
+  }, [conversationId]);
+
+
+  // Rehydrate this room's persisted draft and failed-send
+  // queue; queue entries park in rehydratedPendingRef until
+  // their bubbles come back with the first history load
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [draft, outbox] = await Promise.all([
+          AsyncStorage.getItem(`draft:${conversationId}`),
+          AsyncStorage.getItem(`outbox:${conversationId}`),
+        ]);
+        if (cancelled) return;
+        if (draft && !textRef.current) {
+          textRef.current = draft;
+          setText(draft);
+        }
+        if (outbox) {
+          const parsed = JSON.parse(outbox) as Record<string, FailedPayload>;
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            for (const [tempId, payload] of Object.entries(parsed)) {
+              if (!tempId.startsWith(TEMP_ID_PREFIX)) continue;
+              if (!payload || typeof payload !== 'object') continue;
+              if (failedQueueRef.current.has(tempId)) continue;
+              failedQueueRef.current.set(tempId, {
+                text: typeof payload.text === 'string' ? payload.text : '',
+                imageUrl: payload.imageUrl,
+                replyToId: payload.replyToId,
+                asset: payload.asset,
+                createdAt: payload.createdAt,
+              });
+              rehydratedPendingRef.current.add(tempId);
+            }
+          }
+        }
+      } catch {
+        // Unreadable storage never blocks the composer
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [conversationId]);
 
 
   // Typing emit bookkeeping (heartbeat + idle stop)
@@ -198,11 +388,15 @@ export function useChatComposer(
 
 
   // Draft changes drive the typing heartbeat: first keystroke
-  // emits immediately, then at most every TYPING_REEMIT_MS
+  // emits immediately, then at most every TYPING_REEMIT_MS.
+  // The clamp mirrors the field's maxLength — emoji-strip
+  // inserts arrive through here, not through the TextInput cap
   const onChangeText = useCallback(
-    (next: string) => {
+    (raw: string) => {
+      const next = raw.length > MAX_MESSAGE_LENGTH ? raw.slice(0, MAX_MESSAGE_LENGTH) : raw;
       textRef.current = next;
       setText(next);
+      persistDraft(next);
 
       if (next.length === 0) {
         stopTyping();
@@ -219,7 +413,7 @@ export function useChatComposer(
       if (typingIdleTimerRef.current) clearTimeout(typingIdleTimerRef.current);
       typingIdleTimerRef.current = setTimeout(stopTyping, TYPING_IDLE_MS);
     },
-    [conversationId, stopTyping],
+    [conversationId, persistDraft, stopTyping],
   );
 
 
@@ -238,8 +432,11 @@ export function useChatComposer(
       );
 
       try {
-        const resp = await sendMessageApi(conversationId, body, imageUrl, replyToId);
+        // The temp id doubles as the idempotency key — a retry
+        // of a timed-out-but-committed send gets the same row
+        const resp = await sendMessageApi(conversationId, body, imageUrl, replyToId, tempId);
         failedQueueRef.current.delete(tempId);
+        persistQueue();
 
         const sent: ChatMessage = {
           id: resp.message.id,
@@ -265,17 +462,25 @@ export function useChatComposer(
           // bubble does not remount mid-animation
           return prev.map((m) => (m.id === tempId ? { ...sent, clientId: m.clientId ?? tempId, localImageUri: m.localImageUri } : m));
         });
-      } catch {
-        failedQueueRef.current.set(tempId, { text: body, imageUrl, replyToId });
+      } catch (err) {
+        // Only failures that can heal re-queue for the sweep;
+        // a definitive 4xx keeps the bubble failed for good —
+        // just the discard affordance, and a toast saying why
+        if (isRetryable(err)) {
+          failedQueueRef.current.set(tempId, { text: body, imageUrl, replyToId });
+        } else {
+          failedQueueRef.current.delete(tempId);
+        }
+        persistQueue();
         setMessages((prev) =>
           prev.map((m) => (m.id === tempId ? { ...m, status: 'failed' } : m)),
         );
-        showToast('error', t('chat.sendError'));
+        showToast('error', t(sendFailureKey(err)));
       } finally {
         inFlightRef.current.delete(tempId);
       }
     },
-    [conversationId, setMessages, t],
+    [conversationId, persistQueue, setMessages, t],
   );
 
 
@@ -336,56 +541,92 @@ export function useChatComposer(
   );
 
 
+  // Per-temp spinner bookkeeping for concurrent uploads (a
+  // retry racing a fresh attach) — one finishing never blanks
+  // another's spinner
+  const markUploading = useCallback((tempId: string) => {
+    setUploadingIds((prev) => new Set(prev).add(tempId));
+  }, []);
+  const unmarkUploading = useCallback((tempId: string) => {
+    setUploadingIds((prev) => {
+      if (!prev.has(tempId)) return prev;
+      const next = new Set(prev);
+      next.delete(tempId);
+      return next;
+    });
+  }, []);
+
+
   // Upload the picked asset, then deliver the message with the
   // RELATIVE url the server returned (bubbles resolve it with
-  // getUploadUrl at render time). A failed upload parks the
-  // asset in the queue so a retry uploads again
+  // getUploadUrl at render time). A retryably failed upload
+  // parks the asset in the queue so a retry uploads again
   const uploadAndDeliver = useCallback(
     async (tempId: string, asset: NonNullable<FailedPayload['asset']>, replyToId?: string) => {
       // Same guard as deliver: a retry tap and the restore sweep
       // must not start two uploads of one photo
       if (inFlightRef.current.has(tempId)) return;
       inFlightRef.current.add(tempId);
-      setUploadingImage(true);
+      markUploading(tempId);
       setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: 'sending' } : m)));
       try {
-        const upload = await uploadImageApi(asset.uri, asset.fileName, asset.mimeType);
-        setUploadingImage(false);
+        const upload = await uploadImageApi(asset.uri, asset.fileName, asset.mimeType, asset.fileSize);
+        unmarkUploading(tempId);
         // The temp now carries the server path (the echo matcher
         // and the viewer compare it) while still showing the local
         // file until the upload is cached
         setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, imageUrl: upload.url } : m)));
         inFlightRef.current.delete(tempId);
         await deliver(tempId, '', upload.url, replyToId);
-      } catch {
-        setUploadingImage(false);
+      } catch (err) {
+        unmarkUploading(tempId);
         inFlightRef.current.delete(tempId);
-        failedQueueRef.current.set(tempId, { text: '', replyToId, asset });
+        if (isRetryable(err)) {
+          failedQueueRef.current.set(tempId, { text: '', replyToId, asset });
+        } else {
+          failedQueueRef.current.delete(tempId);
+        }
+        persistQueue();
         setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: 'failed' } : m)));
-        showToast('error', t('chat.imageUploadError'));
+        showToast(
+          'error',
+          err instanceof ApiError && err.code === 'timeout' ? t('toast.timeout') : t('chat.imageUploadError'),
+        );
       }
     },
-    [deliver, setMessages, t],
+    [deliver, markUploading, persistQueue, setMessages, t, unmarkUploading],
   );
 
 
   // Send the draft. The ref is cleared before any async work,
-  // so a double-tap's second read sees an empty draft
+  // so a double-tap's second read sees an empty draft. A
+  // whitespace-only draft is cleared, never posted — the send
+  // button visibly acts and nothing lands on the wire
   const sendMessage = useCallback(() => {
     const body = textRef.current.trim();
-    if (!body) return;
+    if (!body) {
+      if (textRef.current) {
+        textRef.current = '';
+        setText('');
+        persistDraft('');
+        stopTyping();
+      }
+      return;
+    }
 
     textRef.current = '';
     setText('');
+    persistDraft('');
     stopTyping();
     startSend(body);
-  }, [startSend, stopTyping]);
+  }, [persistDraft, startSend, stopTyping]);
 
 
-  // The thumbs-up button: a quick 👍 on an empty draft,
-  // otherwise it behaves exactly like send
+  // The thumbs-up button: a quick 👍 on an EMPTY field only —
+  // any visible draft (whitespace included) routes through
+  // sendMessage, so 👍 never fires while text is on screen
   const sendQuickLike = useCallback(() => {
-    if (textRef.current.trim()) {
+    if (textRef.current.length > 0) {
       sendMessage();
       return;
     }
@@ -393,27 +634,47 @@ export function useChatComposer(
   }, [sendMessage, startSend]);
 
 
+  // Re-entry guard set synchronously — uploadingImage flips
+  // only after the picker returns, too late to stop a double
+  // tap opening two pickers
+  const pickingRef = useRef(false);
+
+
   // Pick → upload → send. uploadingImage drives the Composer's
   // spinner and blocks a second pick while the first uploads
   const attachImage = useCallback(async () => {
-    if (uploadingImage) return;
+    if (pickingRef.current || uploadingImage) return;
+    pickingRef.current = true;
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      quality: 0.8,
-    });
-    if (result.canceled || !result.assets?.[0]) return;
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        quality: 0.8,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
 
-    const asset = result.assets[0];
-    const picked = { uri: asset.uri, fileName: asset.fileName || undefined, mimeType: asset.mimeType || undefined };
+      const asset = result.assets[0];
+      const picked = {
+        uri: asset.uri,
+        fileName: asset.fileName || undefined,
+        mimeType: asset.mimeType || undefined,
+        fileSize: asset.fileSize ?? undefined,
+      };
 
-    // The bubble appears at once with the local photo; the
-    // upload and the send follow behind it
-    const temp = createTemp('', undefined, asset.uri);
-    if (!temp) return;
-    await uploadAndDeliver(temp.tempId, picked, temp.replyToId);
-  }, [createTemp, uploadAndDeliver, uploadingImage]);
+      // The bubble appears at once with the local photo; the
+      // upload and the send follow behind it
+      const temp = createTemp('', undefined, asset.uri);
+      if (!temp) return;
+      await uploadAndDeliver(temp.tempId, picked, temp.replyToId);
+    } catch {
+      // A refused or crashed picker must not kill the attach
+      // button silently
+      showToast('error', t('chat.imagePickError'));
+    } finally {
+      pickingRef.current = false;
+    }
+  }, [createTemp, t, uploadAndDeliver, uploadingImage]);
 
 
   // Tap-to-retry on a failed bubble. The queue entry is the
@@ -426,6 +687,7 @@ export function useChatComposer(
       if (!payload) return;
       if (!messagesRef.current.some((m) => m.id === message.id)) {
         failedQueueRef.current.delete(message.id);
+        persistQueue();
         return;
       }
 
@@ -435,22 +697,28 @@ export function useChatComposer(
       }
       void deliver(message.id, payload.text, payload.imageUrl, payload.replyToId);
     },
-    [deliver, uploadAndDeliver],
+    [deliver, persistQueue, uploadAndDeliver],
   );
 
 
   // Connectivity returned — re-drive every queued failure from
-  // the ref snapshot (never from inside a state updater)
+  // the ref snapshot (never from inside a state updater).
+  // Entries still waiting for their rehydrated bubble are
+  // skipped, not dropped
   useNetworkRestore(() => {
     const present = new Set(messagesRef.current.map((m) => m.id));
+    let changed = false;
     for (const [tempId, payload] of Array.from(failedQueueRef.current.entries())) {
       if (!present.has(tempId)) {
+        if (rehydratedPendingRef.current.has(tempId)) continue;
         failedQueueRef.current.delete(tempId);
+        changed = true;
         continue;
       }
       if (payload.asset && !payload.imageUrl) void uploadAndDeliver(tempId, payload.asset, payload.replyToId);
       else void deliver(tempId, payload.text, payload.imageUrl, payload.replyToId);
     }
+    if (changed) persistQueue();
   });
 
 
@@ -460,14 +728,24 @@ export function useChatComposer(
   }, []);
 
 
-  // Prune queue entries whose temp no longer exists
+  // Prune queue entries whose temp no longer exists — except
+  // rehydrated ones still waiting for their bubble, which
+  // graduate the moment the first load lands it
   useEffect(() => {
     if (failedQueueRef.current.size === 0) return;
     const present = new Set(messages.map((m) => m.id));
-    for (const tempId of Array.from(failedQueueRef.current.keys())) {
-      if (!present.has(tempId)) failedQueueRef.current.delete(tempId);
+    for (const tempId of Array.from(rehydratedPendingRef.current)) {
+      if (present.has(tempId)) rehydratedPendingRef.current.delete(tempId);
     }
-  }, [messages]);
+    let changed = false;
+    for (const tempId of Array.from(failedQueueRef.current.keys())) {
+      if (!present.has(tempId) && !rehydratedPendingRef.current.has(tempId)) {
+        failedQueueRef.current.delete(tempId);
+        changed = true;
+      }
+    }
+    if (changed) persistQueue();
+  }, [messages, persistQueue]);
 
 
   // Drop a failed bubble the user gives up on — only temps are
@@ -476,9 +754,11 @@ export function useChatComposer(
     (messageId: string) => {
       if (!messageId.startsWith(TEMP_ID_PREFIX)) return;
       failedQueueRef.current.delete(messageId);
+      rehydratedPendingRef.current.delete(messageId);
+      persistQueue();
       setMessages((prev) => prev.filter((m) => m.id !== messageId));
     },
-    [setMessages],
+    [persistQueue, setMessages],
   );
 
 

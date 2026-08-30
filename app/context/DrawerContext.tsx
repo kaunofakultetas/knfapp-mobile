@@ -14,7 +14,14 @@
 //    useDrawer      — the consumer hook
 // -----------------------------------------------------------
 
-import React, { createContext, ReactNode, useContext, useMemo, useState } from 'react';
+import React, {
+  createContext,
+  ReactNode,
+  useCallback,
+  useContext,
+  useMemo,
+  useState,
+} from 'react';
 
 
 interface DrawerContextType {
@@ -67,10 +74,18 @@ export default function DrawerProvider({ children }: { children: ReactNode }) {
   const [isOpen, setIsOpen] = useState(false);
 
 
-  // Stable identity so headers don't re-render on every toggle
+  // Stable callback identities — the Sidebar's pan gesture and
+  // header effects can list these in deps without rebuilding on
+  // every toggle
+  const open = useCallback(() => setIsOpen(true), []);
+  const close = useCallback(() => setIsOpen(false), []);
+
+
+  // Only the callbacks are stable: consumers still re-render on
+  // every toggle because isOpen is part of the value
   const value = useMemo<DrawerContextType>(
-    () => ({ isOpen, open: () => setIsOpen(true), close: () => setIsOpen(false) }),
-    [isOpen],
+    () => ({ isOpen, open, close }),
+    [isOpen, open, close],
   );
 
 

@@ -50,9 +50,12 @@ export default function EmptyState({ icon, title, hint, action }: EmptyStateProp
   return (
     <View className="flex-1 items-center justify-center px-xl py-2xl">
 
+      {/* Decorative icon — hidden from assistive tech */}
       <View
         className="mb-md items-center justify-center rounded-full bg-surface-soft"
         style={{ width: 72, height: 72 }}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
       >
         <Ionicons name={icon} size={32} color={colors.inkSoft} />
       </View>

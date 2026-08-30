@@ -112,7 +112,14 @@ export default function Header({ title, right, showMenu, inset }: HeaderProps) {
   const bar = (
     <View className="flex-row items-center px-lg" style={{ height: 56 }}>
       {showMenu !== false ? <MenuButton /> : null}
-      <Text className="flex-1 font-raleway-bold text-xl text-on-brand" numberOfLines={1}>
+      <Text
+        accessibilityRole="header"
+        className="flex-1 font-raleway-bold text-xl text-on-brand"
+        numberOfLines={1}
+        // The bar is fixed at 56px chrome — cap the title's
+        // accessibility scaling so it cannot outgrow the bar
+        maxFontSizeMultiplier={1.6}
+      >
         {title}
       </Text>
       {right ? <View className="flex-row items-center">{right}</View> : null}

@@ -4,10 +4,13 @@
 //  Fetches the total unread count when the user is (or
 //  becomes) authenticated, resets to 0 on logout, and tracks
 //  socket traffic in between: a new message from someone else
-//  bumps the count immediately, then a debounced server
-//  re-count (500 ms) reconciles — the message may belong to
-//  the conversation the user currently has open, which the
-//  backend already counts as read.
+//  bumps the count immediately — unless it belongs to the
+//  conversation on screen (hooks/chat/activeConversation),
+//  which the room is marking read as it lands — then a
+//  debounced server re-count (500 ms) reconciles bursts. App
+//  foregrounding, network restore and socket reconnects
+//  re-fetch too, so the badge never depends on live events
+//  alone.
 //
 //  Correctness notes:
 //    - every fetch carries a sequence number, so a slow
@@ -22,19 +25,32 @@
 // Auth reactivity — the count belongs to exactly one user
 import { useAuth } from '@/context/AuthContext';
 
+// The room currently on screen — its messages are being read
+// as they land, never counted
+import { getActiveConversation } from '@/hooks/chat/activeConversation';
+
 // The authoritative server count
 import { fetchTotalUnreadCount } from '@/services/api';
 
-// Live increments and read receipts
+// Live increments, read receipts, unsends and reconnects
 import {
   connectSocket,
+  getSocketStatus,
+  onMessageDeleted,
   onMessagesRead,
   onNewMessage,
+  onSocketStatusChange,
   type SocketMessage,
 } from '@/services/socket';
 
+// Revalidation when connectivity returns
+import { useNetworkRestore } from '@/hooks/useNetworkRestore';
+
 // Local count state and lifecycle guards
 import { useCallback, useEffect, useRef, useState } from 'react';
+
+// Revalidation when the app returns to the foreground
+import { AppState } from 'react-native';
 
 
 
@@ -48,11 +64,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 //
 //   const { count, refresh } = useUnreadCount()
 //     count   — total unread messages; 0 while logged out
-//     refresh — force a server re-count (e.g. after marking a
-//               conversation read via REST)
+//     refresh — force a server re-count; the hook also calls
+//               it on app-active, network restore and every
+//               socket reconnect, so the badge self-heals
+//               without live events
 //
 // Used by:
-//   - app/(main)/tabs/_layout.tsx — Messages tab Badge
+//   - components/navigation/TabBar.tsx — Messages tab Badge
 // -----------------------------------------------------------
 
 export function useUnreadCount(): {
@@ -103,11 +121,12 @@ export function useUnreadCount(): {
     let cancelled = false;
     let unsubscribeMessage: (() => void) | undefined;
     let unsubscribeRead: (() => void) | undefined;
+    let unsubscribeDeleted: (() => void) | undefined;
     let reconcileTimer: ReturnType<typeof setTimeout> | null = null;
 
     // Debounced server re-count: socket bursts collapse into a
-    // single request, and optimistic increments for the open
-    // conversation get corrected instead of drifting
+    // single request, so a run of optimistic increments settles
+    // on the server's number instead of drifting
     const scheduleReconcile = () => {
       if (reconcileTimer) clearTimeout(reconcileTimer);
       reconcileTimer = setTimeout(() => {
@@ -130,11 +149,26 @@ export function useUnreadCount(): {
         // Own outgoing messages echo back over the socket and
         // are never unread
         if (message.senderId === userId) return;
+        // Neither is a message for the room being read — and
+        // no reconcile either: the room's mark-read flush is
+        // slower than the debounce, so a re-count now would
+        // flash the message as unread; the messages_read
+        // receipt below re-counts AFTER the server has
+        // committed the read
+        if (message.conversationId === getActiveConversation()) return;
         setCount((previous) => previous + 1);
         scheduleReconcile();
       });
 
-      unsubscribeRead = onMessagesRead(() => {
+      unsubscribeRead = onMessagesRead(({ readerId }) => {
+        // Only the CURRENT user's reads move their own badge —
+        // this is its self-heal path; someone else reading
+        // your messages changes nothing you count
+        if (readerId === userId) scheduleReconcile();
+      });
+
+      unsubscribeDeleted = onMessageDeleted(() => {
+        // An unsent message may have been unread — re-count
         scheduleReconcile();
       });
     })();
@@ -144,8 +178,39 @@ export function useUnreadCount(): {
       if (reconcileTimer) clearTimeout(reconcileTimer);
       unsubscribeMessage?.();
       unsubscribeRead?.();
+      unsubscribeDeleted?.();
     };
   }, [isAuthenticated, userId, refresh]);
+
+
+  // Revalidation beyond live socket events: foregrounding,
+  // connectivity restore and every reconnect can all have
+  // missed traffic the badge should reflect
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void refresh();
+    });
+    return () => subscription.remove();
+  }, [isAuthenticated, refresh]);
+
+
+  useNetworkRestore(() => {
+    if (isAuthenticated) void refresh();
+  });
+
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    // Only a transition INTO 'connected' re-fetches — a
+    // reconnect emits the status twice (Socket connect + the
+    // Manager's reconnect), and repeats must not double-fetch
+    let last = getSocketStatus();
+    return onSocketStatusChange((status) => {
+      if (status === 'connected' && last !== 'connected') void refresh();
+      last = status;
+    });
+  }, [isAuthenticated, refresh]);
 
 
   return { count, refresh };

@@ -141,7 +141,14 @@ export default function StackHeader({ navigation, route, options }: StackHeaderP
         {typeof options.headerTitle === 'function' ? (
           options.headerTitle({ children: titleText, tintColor: colors.onBrand })
         ) : (
-          <Text className="flex-1 font-raleway-bold text-xl text-on-brand" numberOfLines={1}>
+          <Text
+            className="flex-1 font-raleway-bold text-xl text-on-brand"
+            numberOfLines={1}
+            accessibilityRole="header"
+            // The bar is fixed 56px chrome — cap the title's
+            // accessibility scaling so it cannot outgrow it
+            maxFontSizeMultiplier={1.6}
+          >
             {titleText}
           </Text>
         )}

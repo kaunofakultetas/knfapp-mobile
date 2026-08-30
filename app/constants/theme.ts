@@ -68,6 +68,7 @@ export interface Palette {
   brandStrong: string;   // pressed primary
   brandSoft: string;     // selected-chip and badge wash
   brandHeader: string;   // the burgundy top bar
+  brandText: string;     // brand-colored text on surfaces (AA in both schemes)
   accent: string;        // likes, highlights
   success: string;
   successSoft: string;
@@ -112,18 +113,19 @@ export const palettes: Record<'light' | 'dark', Palette> = {
     surfaceSoft: '#EFEAEC',
     ink: '#221E20',
     inkSoft: '#6E6468',
-    inkFaint: '#857A7F',
+    inkFaint: '#6B6165',
     onBrand: '#FFFFFF',
     line: '#E6E0E2',
-    lineStrong: '#C9C0C4',
+    lineStrong: '#8A8085',
     brand: '#7B003F',
     brandStrong: '#5A002E',
     brandSoft: '#F5E4EC',
     brandHeader: '#7B003F',
-    accent: '#E64164',
+    brandText: '#7B003F',
+    accent: '#C62B4C',
     success: '#2E7D32',
     successSoft: '#E5F2E6',
-    warning: '#B26A00',
+    warning: '#8A5200',
     warningSoft: '#F7EEDF',
     danger: '#C62828',
     dangerSoft: '#F9E5E5',
@@ -146,11 +148,15 @@ export const palettes: Record<'light' | 'dark', Palette> = {
     inkFaint: '#948A8F',
     onBrand: '#FFFFFF',
     line: '#352E32',
-    lineStrong: '#4A4247',
+    lineStrong: '#857A80',
     brand: '#C2447C',
     brandStrong: '#A63363',
     brandSoft: '#3A2130',
     brandHeader: '#2E0F1E',
+    // Brand-as-text needs a lighter pink than the fill brand
+    // to clear AA on the dark surfaces; fills keep `brand` so
+    // onBrand-on-brand stays legible
+    brandText: '#E07AA6',
     accent: '#F0648A',
     success: '#66BB6A',
     successSoft: '#1E2F20',

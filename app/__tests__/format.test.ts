@@ -16,7 +16,7 @@ jest.mock('@/i18n', () => ({
   },
 }));
 
-import { activeLocale, formatDate, formatRelative, formatTime } from '@/services/format';
+import { activeLocale, formatDate, formatDateTime, formatRelative, formatTime, parseIso } from '@/services/format';
 
 
 describe('format', () => {
@@ -32,6 +32,27 @@ describe('format', () => {
     });
     expect(formatTime('2026-08-27T10:05:00')).toBe(expected);
     expect(formatTime('2026-08-27T10:05:00.123456')).toBe(expected);
+  });
+
+  it('treats SQLite space-separated stamps exactly like the T form', () => {
+    // Raw sqlite CURRENT_TIMESTAMP rows ("2026-08-27 10:05:00")
+    // reach the same formatters as isoformat() stamps and must
+    // land on the same UTC instant
+    expect(formatTime('2026-08-27 10:05:00')).toBe(formatTime('2026-08-27T10:05:00Z'));
+    expect(formatDate('2026-08-27 10:05:00')).toBe(formatDate('2026-08-27T10:05:00Z'));
+    expect(formatDateTime('2026-08-27 10:05:00')).toBe(formatDateTime('2026-08-27T10:05:00Z'));
+  });
+
+  it('truncates fractional seconds to milliseconds before parsing', () => {
+    // Hermes' Date does not digest six fractional digits — the
+    // expected instant is computed independently of the runner's
+    // own long-fraction support
+    expect(parseIso('2026-08-27T10:05:00.123456')?.getTime()).toBe(
+      Date.UTC(2026, 7, 27, 10, 5, 0, 123),
+    );
+    expect(parseIso('2026-08-27 10:05:00.123456')?.getTime()).toBe(
+      Date.UTC(2026, 7, 27, 10, 5, 0, 123),
+    );
   });
 
   it('keeps explicit offsets', () => {

@@ -2,8 +2,10 @@
 //  [*] useSocketStatus — live socket connection state
 //
 //  Mirrors the socket service's status ('disconnected' |
-//  'connecting' | 'connected' | 'reconnecting') into React
-//  state. Subscriptions go through the service's module-level
+//  'connecting' | 'connected' | 'reconnecting' |
+//  'unauthorized' — a rejected handshake the messages tab
+//  turns into a "sign in again" prompt) into React state.
+//  Subscriptions go through the service's module-level
 //  listener registry, so they survive the socket instance
 //  being torn down and recreated across reconnects.
 //
@@ -38,7 +40,6 @@ import { useEffect, useState } from 'react';
 //
 // Used by:
 //   - app/(main)/tabs/messages.tsx — connection banner
-//   - app/(main)/chat-room — reconnecting indicator
 // -----------------------------------------------------------
 
 export function useSocketStatus(): SocketStatus {

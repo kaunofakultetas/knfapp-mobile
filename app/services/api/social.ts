@@ -2,7 +2,7 @@
 //  [*] API — social
 //
 //  Profiles, the friendship state machine (request → accept/
-//  reject → unfriend), the friends-only feed and a user's own
+//  reject → unfriend), the community feed and a user's own
 //  posts. Friendship endpoints return the resulting status so
 //  optimistic UI can reconcile without a refetch.
 //
@@ -21,9 +21,15 @@
 //    rejectFriendRequest — decline a request
 //    fetchFriends        — the friends list
 //    unfriendUser        — remove a friendship
-//    fetchSocialFeed     — paged friends-only feed
+//    fetchSocialFeed     — paged community feed
 //    fetchUserPosts      — paged posts of one user
 //    deletePost          — delete an own post
+//    updatePost          — edit an own post
+//    blockUser           — block a user (severs friendship)
+//    unblockUser         — lift an own block
+//    BlockedUser         — one row of the block list
+//    fetchBlockedUsers   — the caller's block list
+//    reportTarget        — report a user / post / message
 // -----------------------------------------------------------
 
 // Shared client core
@@ -33,7 +39,7 @@ import { api, request } from './client';
 import type { NewsFeedResponse } from './news';
 
 // Domain types
-import type { NewsPost, User } from '@/types';
+import type { NewsPost, User, UserRole } from '@/types';
 
 
 
@@ -57,12 +63,13 @@ export interface UserProfile {
   id: string;
   username: string;
   displayName: string;
-  avatarUrl?: string;
-  role: string;
+  avatarUrl?: string | null;
+  role: UserRole;
   createdAt: string;
   postCount: number;
   friendCount: number;
   friendshipStatus: 'none' | 'friends' | 'request_sent' | 'request_received';
+  blockedByMe: boolean;
 }
 
 
@@ -86,7 +93,7 @@ export interface FriendRequest {
   displayName: string;
   username: string;
   avatarUrl?: string;
-  role: string;
+  role: UserRole;
   createdAt: string;
 }
 
@@ -110,7 +117,7 @@ export interface Friend {
   username: string;
   displayName: string;
   avatarUrl?: string;
-  role: string;
+  role: UserRole;
   friendsSince: string;
 }
 
@@ -171,7 +178,7 @@ export interface SocialFeedResponse {
 // -----------------------------------------------------------
 
 export const fetchUserProfile = (userId: string) =>
-  request(api.get<UserProfile>(`/social/profile/${userId}`));
+  request(api.get<UserProfile>(`/social/profile/${encodeURIComponent(userId)}`));
 
 
 
@@ -185,9 +192,11 @@ export const fetchUserProfile = (userId: string) =>
 //
 // avatar_url must be the RELATIVE path from uploadImageApi
 // (resolved with getUploadUrl only at render time). Backend
-// quirk: the response omits the `invited` trust flag — merge
-// the result into the existing user instead of replacing it,
-// or the flag is silently dropped.
+// quirk: the response omits the `invited` trust flag — the
+// Pick return type spells that out, so whole-object setUser
+// assignments fail to compile: merge the result into the
+// existing user instead of replacing it, or the flag is
+// silently dropped.
 //
 // Used by:
 //   - app/(main)/tabs/id.tsx — student-card field edits
@@ -200,7 +209,23 @@ export const updateProfile = (params: {
   student_number?: string | null;
   study_group?: string | null;
   study_program?: string | null;
-}) => request(api.put<User>('/social/profile', params));
+}) =>
+  request(
+    api.put<
+      Pick<
+        User,
+        | 'id'
+        | 'username'
+        | 'email'
+        | 'displayName'
+        | 'avatarUrl'
+        | 'role'
+        | 'studentNumber'
+        | 'studyGroup'
+        | 'studyProgram'
+      >
+    >('/social/profile', params),
+  );
 
 
 
@@ -212,13 +237,17 @@ export const updateProfile = (params: {
 // sendFriendRequest
 // -----------------------------------------------------------
 //
+// status is 'accepted' (no id) when the other side had already
+// asked — the backend auto-accepts instead of stacking two
+// mirrored requests; callers must branch on it.
+//
 // Used by:
 //   - app/(main)/profile/index.tsx — "add friend" action
 // -----------------------------------------------------------
 
 export const sendFriendRequest = (userId: string) =>
   request(
-    api.post<{ id: string; status: string }>('/social/friends/request', {
+    api.post<{ id?: string; status: 'pending' | 'accepted' }>('/social/friends/request', {
       user_id: userId,
     }),
   );
@@ -265,7 +294,11 @@ export const fetchFriendRequests = (direction: 'received' | 'sent' = 'received')
 // -----------------------------------------------------------
 
 export const acceptFriendRequest = (requestId: string) =>
-  request(api.post<{ status: string }>(`/social/friends/requests/${requestId}/accept`));
+  request(
+    api.post<{ status: string }>(
+      `/social/friends/requests/${encodeURIComponent(requestId)}/accept`,
+    ),
+  );
 
 
 
@@ -282,7 +315,11 @@ export const acceptFriendRequest = (requestId: string) =>
 // -----------------------------------------------------------
 
 export const rejectFriendRequest = (requestId: string) =>
-  request(api.post<{ status: string }>(`/social/friends/requests/${requestId}/reject`));
+  request(
+    api.post<{ status: string }>(
+      `/social/friends/requests/${encodeURIComponent(requestId)}/reject`,
+    ),
+  );
 
 
 
@@ -316,7 +353,7 @@ export const fetchFriends = () =>
 // -----------------------------------------------------------
 
 export const unfriendUser = (userId: string) =>
-  request(api.delete<{ status: string }>(`/social/friends/${userId}`));
+  request(api.delete<{ status: string }>(`/social/friends/${encodeURIComponent(userId)}`));
 
 
 
@@ -328,16 +365,23 @@ export const unfriendUser = (userId: string) =>
 // fetchSocialFeed
 // -----------------------------------------------------------
 //
-// Friends-only posts — the community view of the news tab.
+// The community view of the news tab: every PUBLIC community
+// post plus, when signed in, the viewer's own and their
+// friends' non-public posts — guests get the public rows.
+//
+// The optional signal aborts the request in flight — useFeed
+// passes one so a superseded mode switch stops downloading (a
+// canceled request rejects with ApiError code 'canceled').
 //
 // Used by:
 //   - app/(main)/tabs/news.tsx — community source
 // -----------------------------------------------------------
 
-export const fetchSocialFeed = (page = 1, perPage = 20) =>
+export const fetchSocialFeed = (page = 1, perPage = 20, signal?: AbortSignal) =>
   request(
     api.get<SocialFeedResponse>('/social/feed', {
       params: { page, per_page: perPage },
+      signal,
     }),
   );
 
@@ -376,9 +420,116 @@ export const fetchUserPosts = (userId: string, page = 1, perPage = 20) =>
 // someone else's post.
 //
 // Used by:
-//   - app/(main)/profile/index.tsx — own-post delete menu (planned)
+//   - app/(main)/profile/index.tsx — handleDeletePost
 // -----------------------------------------------------------
 
 export async function deletePost(postId: string): Promise<void> {
-  await request(api.delete(`/social/posts/${postId}`));
+  await request(api.delete(`/social/posts/${encodeURIComponent(postId)}`));
+}
+
+
+
+
+// -----------------------------------------------------------
+// updatePost
+// -----------------------------------------------------------
+//
+// Edits the caller's own post (user or faculty source — the
+// backend 404s anything else). Both fields ride together: a
+// title stripped to empty makes the backend re-derive it from
+// the new content, mirroring create.
+//
+// Used by:
+//   - app/(main)/create-post/index.tsx — edit mode submit
+// -----------------------------------------------------------
+
+export async function updatePost(
+  postId: string,
+  params: { title: string; content: string },
+): Promise<void> {
+  await request(api.put(`/social/posts/${encodeURIComponent(postId)}`, params));
+}
+
+
+
+
+// -----------------------------------------------------------
+// blockUser / unblockUser
+// -----------------------------------------------------------
+//
+// Blocking is bidirectional in effect: neither side can start
+// a conversation with, message (in a direct chat), friend-
+// request or find the other in the chat user search until the
+// blocker lifts it. The backend also severs an existing
+// friendship and any pending request — unblocking restores
+// none of that, contact is merely possible again. Unblock is
+// idempotent, so a retried tap cannot error.
+//
+// Used by:
+//   - app/(main)/profile/index.tsx — the block/unblock action
+// -----------------------------------------------------------
+
+export async function blockUser(userId: string): Promise<void> {
+  await request(api.post('/social/blocks', { user_id: userId }));
+}
+
+export async function unblockUser(userId: string): Promise<void> {
+  await request(api.delete(`/social/blocks/${encodeURIComponent(userId)}`));
+}
+
+
+
+
+// -----------------------------------------------------------
+// BlockedUser + fetchBlockedUsers
+// -----------------------------------------------------------
+//
+// The caller's own block list, newest first.
+//
+// Used by:
+//   - nothing renders the list yet — the profile screen works
+//     off profile.blockedByMe; the list waits on a settings
+//     surface
+// -----------------------------------------------------------
+
+export interface BlockedUser {
+  id: string;
+  username: string;
+  displayName: string;
+  avatarUrl?: string | null;
+  role: UserRole;
+  blockedAt: string;
+}
+
+export const fetchBlockedUsers = () =>
+  request(api.get<{ blocked: BlockedUser[] }>('/social/blocks'));
+
+
+
+
+// -----------------------------------------------------------
+// reportTarget
+// -----------------------------------------------------------
+//
+// Files a complaint into the admin-reviewed ledger. The
+// target must exist server-side (404 otherwise) and reason is
+// required — callers without a free-text field send a fixed
+// localized line.
+//
+// Used by:
+//   - app/(main)/profile/index.tsx — the report action
+// -----------------------------------------------------------
+
+export async function reportTarget(
+  targetType: 'user' | 'post' | 'message',
+  targetId: string,
+  reason: string,
+): Promise<void> {
+  await request(
+    api.post('/social/reports', {
+      target_type: targetType,
+      target_id: targetId,
+      reason,
+    }),
+  );
 }

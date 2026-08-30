@@ -9,10 +9,12 @@
 //  danger-strong token).
 //
 //  While `loading` the spinner replaces the whole content and
-//  presses are ignored; the fixed heights keep the swap from
-//  shifting layout. Disabled opacity is applied ONCE, on the
-//  container — the old kit stacked it on the label too and
-//  faded the text to ~36%.
+//  presses are ignored; the min-heights keep the swap from
+//  shifting layout while still letting the box grow when the
+//  user runs large accessibility text sizes — a fixed height
+//  would clip the scaled label. Disabled opacity is applied
+//  ONCE, on the container — the old kit stacked it on the
+//  label too and faded the text to ~36%.
 //
 //  Full width is the default: forms and overlays want
 //  edge-to-edge actions; row placements pass
@@ -41,6 +43,9 @@ interface ButtonProps {
   disabled?: boolean;
   fullWidth?: boolean;
   leftIcon?: keyof typeof Ionicons.glyphMap;
+  // Screen-reader label when the visible title alone is ambiguous
+  // (e.g. "Accept" in a list of requests); defaults to the title
+  accessibilityLabel?: string;
 }
 
 // Container fill per variant; outline keeps a constant-width
@@ -53,11 +58,13 @@ const CONTAINER_VARIANTS: Record<ButtonVariant, string> = {
   danger: 'bg-danger',
 };
 
-// Fixed heights keep the loading-spinner swap jump-free
+// Min-heights keep the loading-spinner swap jump-free; the
+// vertical padding only matters once scaled text outgrows the
+// minimum and the box expands with it
 const CONTAINER_SIZES: Record<ButtonSize, string> = {
-  sm: 'h-10 px-md',
-  md: 'h-12 px-lg',
-  lg: 'h-14 px-xl',
+  sm: 'min-h-10 px-md py-xs',
+  md: 'min-h-12 px-lg py-xs',
+  lg: 'min-h-14 px-xl py-xs',
 };
 
 // Label color mirrors the container fill
@@ -91,6 +98,7 @@ const ICON_SIZES: Record<ButtonSize, number> = { sm: 16, md: 18, lg: 20 };
 // Used by:
 //   - app/login.tsx, app/register.tsx — form submits
 //   - app/(main)/tabs/settings.tsx — account actions
+//   - app/(main)/friend-requests/index.tsx — accept / decline
 //   - components/ui/EmptyState.tsx — the optional action
 //   - components/ui/ErrorState.tsx — the retry action
 //   - components/LoginRequiredOverlay.tsx — the login prompt
@@ -106,6 +114,7 @@ export default function Button({
   disabled = false,
   fullWidth = true,
   leftIcon,
+  accessibilityLabel,
 }: ButtonProps) {
 
   const { colors } = useTheme();
@@ -154,7 +163,7 @@ export default function Button({
       disabled={isDisabled}
       hitSlop={hitSlop}
       accessibilityRole="button"
-      accessibilityLabel={title}
+      accessibilityLabel={accessibilityLabel ?? title}
       accessibilityState={{ disabled: isDisabled, busy: loading }}
     >
       {loading ? (

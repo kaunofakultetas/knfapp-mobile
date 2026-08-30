@@ -33,8 +33,14 @@ const ENTITY_MAP: Record<string, string> = {
   '&nbsp;': '\u00A0',
 };
 
-// One alternation kept in lockstep with ENTITY_MAP
-const ENTITY_RE = /&(?:amp|lt|gt|quot|apos|nbsp|#34|#39|#x27|#x2F|#47);/g;
+// One alternation derived from the map, so adding an entity is
+// a single edit — nothing to keep in lockstep by hand
+const ENTITY_RE = new RegExp(
+  Object.keys(ENTITY_MAP)
+    .map((entity) => entity.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('|'),
+  'g',
+);
 
 
 
@@ -47,7 +53,11 @@ const ENTITY_RE = /&(?:amp|lt|gt|quot|apos|nbsp|#34|#39|#x27|#x2F|#47);/g;
 // -----------------------------------------------------------
 //
 // Non-strings pass through untouched — the interceptor walks
-// arbitrary response shapes and calls this on every leaf.
+// arbitrary response shapes and calls this on every leaf. A
+// string without '&' cannot hold an entity, so it is returned
+// AS THE SAME reference after one indexOf scan — no regex, no
+// allocation — which also lets the interceptor's deep walk
+// keep the original object when nothing changed.
 //
 // Used by:
 //   - services/api/client.ts — response interceptor
@@ -55,5 +65,6 @@ const ENTITY_RE = /&(?:amp|lt|gt|quot|apos|nbsp|#34|#39|#x27|#x2F|#47);/g;
 
 export function decodeHtmlEntities(text: string): string {
   if (!text || typeof text !== 'string') return text;
+  if (text.indexOf('&') < 0) return text;
   return text.replace(ENTITY_RE, (match) => ENTITY_MAP[match] || match);
 }

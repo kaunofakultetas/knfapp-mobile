@@ -16,14 +16,12 @@
 //  Split into:
 //
 //    NewsPost                — a feed article / community post
+//    UserRole                — the backend role enum
 //    User                    — the signed-in account shape
 //    AuthState               — AuthContext reducer state
 //    ThemeSetting            — the three-way theme choice
 //    AppSettings             — device-local settings
 //    LoginForm               — login screen field values
-//    ConversationType        — direct chat or group chat
-//    ConversationParticipant — a member of a conversation
-//    Conversation            — a chat-list row (no messages)
 //    ChatReplyRef            — the quoted message of a reply
 //    ChatReaction            — one emoji group on a message
 //    ChatMessage             — the unified UI message shape
@@ -55,19 +53,40 @@ export interface NewsPost {
   title: string;
   content: string;
   date: string;
-  imageUrl?: string;
-  author?: string;
-  authorId?: string;
+  imageUrl?: string | null;
+  author?: string | null;
+  authorId?: string | null;
   source?: 'knf.vu.lt' | 'vu.lt' | 'faculty' | 'user' | 'app';
-  sourceUrl?: string;
-  summary?: string;
-  postType?: string;
+  sourceUrl?: string | null;
+  summary?: string | null;
+  postType?: 'article' | 'social' | 'announcement' | 'poll' | 'link';
   isPublic?: boolean;
   liked?: boolean;
   likes: number;
   comments: number;
   shares: number;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// UserRole
+// -----------------------------------------------------------
+//
+// The backend's role enum — ONE union for every user-shaped
+// response, so a new role lands in a single place.
+//
+// Used by:
+//   - User (below)
+//   - services/api/chat.ts — SearchUserResult
+//   - services/api/social.ts, services/api/admin.ts — user rows
+// -----------------------------------------------------------
+
+export type UserRole = 'student' | 'teacher' | 'admin' | 'curator';
 
 
 
@@ -95,8 +114,8 @@ export interface User {
   username: string;
   email: string;
   displayName: string;
-  avatarUrl?: string;
-  role: 'student' | 'teacher' | 'admin' | 'curator';
+  avatarUrl?: string | null;
+  role: UserRole;
   invited?: boolean;
   studentNumber?: string | null;
   studyGroup?: string | null;
@@ -201,79 +220,6 @@ export interface LoginForm {
 
 
 // -----------------------------------------------------------
-// ConversationType
-// -----------------------------------------------------------
-//
-// Used by:
-//   - Conversation (below)
-//   - services/api/chat.ts — create/list endpoints
-//   - app/(main)/chat-room/, app/(main)/new-chat/ — route
-//     params and header layout
-// -----------------------------------------------------------
-
-export type ConversationType = 'direct' | 'group';
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// ConversationParticipant
-// -----------------------------------------------------------
-//
-// Used by:
-//   - Conversation (below)
-//   - app/(main)/chat-room/ — header member info
-// -----------------------------------------------------------
-
-export interface ConversationParticipant {
-  id: string;
-  displayName: string;
-  avatarUrl?: string;
-}
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// Conversation
-// -----------------------------------------------------------
-//
-// A chat-list row. Messages are NOT embedded — the room
-// screen pages them separately through services/api/chat.ts,
-// so list refreshes stay cheap.
-//
-// Used by:
-//   - services/api/chat.ts — conversation list responses
-//   - app/(main)/tabs/messages.tsx
-//   - components/chat/ConversationRow.tsx
-// -----------------------------------------------------------
-
-export interface Conversation {
-  id: string;
-  type: ConversationType;
-  // For direct chats derived from the other participant; for
-  // groups it is the group name
-  title: string;
-  participants: ConversationParticipant[];
-  unreadCount?: number;
-  lastUpdatedMs?: number;
-  pinned?: boolean;
-  avatarEmoji?: string;
-}
-
-
-
-
-
-
-
-// -----------------------------------------------------------
 // ChatReaction
 // -----------------------------------------------------------
 //
@@ -320,7 +266,7 @@ export interface ChatReplyRef {
   senderId: string;
   senderName: string;
   text: string;
-  imageUrl?: string;
+  imageUrl?: string | null;
   deleted: boolean;
 }
 
@@ -352,12 +298,16 @@ export interface ChatMessage {
   conversationId: string;
   senderId: string;
   senderName: string;
-  senderAvatar?: string;
+  senderAvatar?: string | null;
   text: string;
   imageUrl?: string;
   createdAt: string;
   isOwn: boolean;
   status: 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
+  // Ids of members who have read an OWN message (the sender's
+  // own id included) — receipts accumulate here so group
+  // bubbles only claim 'read' once every other member has read
+  readBy?: string[];
   reactions: ChatReaction[];
   // Present on replies; the composer builds it optimistically
   replyTo?: ChatReplyRef;

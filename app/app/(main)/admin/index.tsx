@@ -11,10 +11,10 @@
 //  toasted an error over that very screen.
 //
 //  Each active code opens a QR modal encoding
-//  knfapp://register?code=… for a student to scan. Known gap,
-//  documented not fixed here: app/register.tsx does not read
-//  the ?code param yet, so scanning opens registration with
-//  an empty code field.
+//  knfapp://register?code=… for a student to scan;
+//  app/register.tsx reads the ?code param and applies it once
+//  per value, so scanning lands on registration with the code
+//  field already seeded.
 //
 //  The QR plate is pinned to the LIGHT palette in both
 //  schemes on purpose — scanners want dark-on-light, and an
@@ -22,7 +22,7 @@
 //
 //  Split into (root component last):
 //
-//    ROLE_LABEL_KEYS      — role → catalog-key map
+//    adminErrorKey        — failure → catalog-key map
 //    Chip                 — selectable pill for the form pickers
 //    StatCard             — one dashboard counter tile
 //    CreateInvitationForm — role / uses / expiry pickers
@@ -47,6 +47,9 @@ import {
 // Light palette for the scheme-pinned QR plate
 import { palettes } from '@/constants/theme';
 
+// Shared role → label map (falls back to the raw role name)
+import { roleLabel } from '@/constants/roles';
+
 // Session role gate
 import { useAuth } from '@/context/AuthContext';
 
@@ -59,8 +62,10 @@ import { useNetworkRestore } from '@/hooks/useNetworkRestore';
 // JS-side colors — icons and the refresh tint
 import { useTheme } from '@/hooks/useTheme';
 
-// Admin endpoints and their row shapes
+// Admin endpoints, their row shapes and the error type the
+// catch sites branch on
 import {
+  ApiError,
   createInvitation,
   fetchAdminInvitations,
   fetchAdminStats,
@@ -76,8 +81,7 @@ import { formatDateTime } from '@/services/format';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { useRouter } from 'expo-router';
-import type { TFunction } from 'i18next';
-import { useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FlatList, Modal, Pressable, RefreshControl, Text, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
@@ -108,27 +112,25 @@ interface CreateParams {
 
 
 // -----------------------------------------------------------
-// ROLE_LABEL_KEYS
+// adminErrorKey
 // -----------------------------------------------------------
 //
-// Known roles map to catalog keys; an unknown role from a
-// newer backend renders as its raw name instead of crashing.
+// Maps a failed admin call onto a catalog key: the api
+// layer's timeout/network sentinels translate globally, a 403
+// gets the permissions line, anything else falls back to the
+// action's own error key. 404 is branched at the call sites —
+// it also drops the stale row.
 //
 // Used by:
-//   - roleLabel (below)
+//   - AdminScreen (below) — load / create / revoke catches
 // -----------------------------------------------------------
 
-const ROLE_LABEL_KEYS: Record<string, string> = {
-  student: 'admin.roleStudent',
-  teacher: 'admin.roleTeacher',
-  curator: 'admin.roleCurator',
-  admin: 'admin.roleAdmin',
+const adminErrorKey = (err: unknown, fallbackKey: string): string => {
+  if (err instanceof ApiError && err.code === 'timeout') return 'toast.timeout';
+  if (err instanceof ApiError && err.code === 'network') return 'toast.networkError';
+  if (err instanceof ApiError && err.status === 403) return 'admin.noPermission';
+  return fallbackKey;
 };
-
-// Translate where a key exists, pass the raw role through
-// where none does
-const roleLabel = (t: TFunction, role: string): string =>
-  ROLE_LABEL_KEYS[role] ? t(ROLE_LABEL_KEYS[role]) : role;
 
 
 
@@ -238,9 +240,11 @@ function StatCard({
 // -----------------------------------------------------------
 
 function CreateInvitationForm({
+  isAdmin,
   creating,
   onCreate,
 }: {
+  isAdmin: boolean;
   creating: boolean;
   onCreate: (params: CreateParams) => void;
 }) {
@@ -249,6 +253,31 @@ function CreateInvitationForm({
   const [role, setRole] = useState<string>('student');
   const [maxUses, setMaxUses] = useState(1);
   const [expiresHours, setExpiresHours] = useState(24);
+
+
+  // Curators can only mint student/teacher codes — the backend
+  // 403s the rest, so the picker never offers them; the
+  // 'student' default is valid for both role sets
+  const roleOptions = isAdmin ? ROLE_OPTIONS : (['student', 'teacher'] as const);
+
+
+  // Admin/curator codes are credentials, not flyers: the
+  // backend rejects anything but single-use and ≤72 h for them,
+  // so the pickers offer only what will mint, and switching to
+  // such a role snaps the current picks into range
+  const privileged = role === 'admin' || role === 'curator';
+  const usesOptions = privileged ? [1] : MAX_USES_OPTIONS;
+  const expiryOptions = privileged
+    ? EXPIRY_HOURS_OPTIONS.filter((hours) => hours <= 72)
+    : EXPIRY_HOURS_OPTIONS;
+
+  const selectRole = (next: string) => {
+    setRole(next);
+    if (next === 'admin' || next === 'curator') {
+      setMaxUses(1);
+      setExpiresHours((current) => Math.min(current, 72));
+    }
+  };
 
 
   // Sub-day choices read as hours, the rest as days — via the
@@ -264,19 +293,24 @@ function CreateInvitationForm({
 
       <Text className="mb-sm font-raleway-medium text-sm text-ink-soft">{t('admin.role')}</Text>
       <View className="mb-md flex-row flex-wrap gap-sm">
-        {ROLE_OPTIONS.map((option) => (
+        {roleOptions.map((option) => (
           <Chip
             key={option}
             label={roleLabel(t, option)}
             selected={role === option}
-            onPress={() => setRole(option)}
+            onPress={() => selectRole(option)}
           />
         ))}
       </View>
+      {privileged && (
+        <Text className="-mt-sm mb-md font-raleway text-xs text-ink-faint">
+          {t('admin.privilegedCodeHint')}
+        </Text>
+      )}
 
       <Text className="mb-sm font-raleway-medium text-sm text-ink-soft">{t('admin.maxUses')}</Text>
       <View className="mb-md flex-row flex-wrap gap-sm">
-        {MAX_USES_OPTIONS.map((option) => (
+        {usesOptions.map((option) => (
           <Chip
             key={option}
             label={String(option)}
@@ -288,7 +322,7 @@ function CreateInvitationForm({
 
       <Text className="mb-sm font-raleway-medium text-sm text-ink-soft">{t('admin.expires')}</Text>
       <View className="mb-md flex-row flex-wrap gap-sm">
-        {EXPIRY_HOURS_OPTIONS.map((option) => (
+        {expiryOptions.map((option) => (
           <Chip
             key={option}
             label={expiryLabel(option)}
@@ -380,7 +414,7 @@ function DashboardHeader({
         />
       </View>
 
-      {showForm && <CreateInvitationForm creating={creating} onCreate={onCreate} />}
+      {showForm && <CreateInvitationForm isAdmin={isAdmin} creating={creating} onCreate={onCreate} />}
 
       <View className="mb-sm mt-lg">
         <SectionTitle>{t('admin.activeCodes')}</SectionTitle>
@@ -402,14 +436,19 @@ function DashboardHeader({
 //
 // One invitation row: the mono code doubles as the copy
 // target, a spent code (expired or fully used) dims and gains
-// a status pill. QR is offered on any active code; revoking
-// is admin-only.
+// a status pill. QR and copy are offered only on codes the
+// viewer could mint themselves (defense in depth behind the
+// backend's list scoping); revoking is admin-only.
+//
+// Memoized with item-taking handlers — header churn (form
+// toggle, refresh, stats landing) re-renders the screen, and
+// unchanged rows must not re-render with it.
 //
 // Used by:
 //   - AdminScreen (below) — FlatList renderItem
 // -----------------------------------------------------------
 
-function InvitationCard({
+const InvitationCard = memo(function InvitationCard({
   item,
   isAdmin,
   onCopy,
@@ -418,9 +457,9 @@ function InvitationCard({
 }: {
   item: AdminInvitation;
   isAdmin: boolean;
-  onCopy: () => void;
-  onShowQr: () => void;
-  onRevoke: () => void;
+  onCopy: (code: string) => void;
+  onShowQr: (item: AdminInvitation) => void;
+  onRevoke: (item: AdminInvitation) => void;
 }) {
 
   const { t } = useTranslation();
@@ -430,27 +469,38 @@ function InvitationCard({
   const spent = item.expired || item.fullyUsed;
 
 
+  // Non-admin viewers never hand out codes for roles they
+  // cannot mint — the list is filtered upstream, this guards
+  // the actions should a row ever slip through
+  const shareable = isAdmin || item.role === 'student' || item.role === 'teacher';
+
+
   return (
     <Card className="mx-md mb-sm">
 
       <View className="flex-row items-center justify-between">
         <Pressable
-          onPress={onCopy}
-          hitSlop={8}
+          onPress={() => onCopy(item.code)}
+          disabled={!shareable}
+          hitSlop={{ top: 10, bottom: 10 }}
           accessibilityRole="button"
-          accessibilityLabel={t('common.copy')}
+          // Spelled out character by character ahead of the
+          // action — a bare "Copy" would hide WHAT gets copied
+          accessibilityLabel={`${item.code.split('').join(' ')}, ${t('common.copy')}`}
           className="flex-1 flex-row items-center gap-sm"
         >
-          <Text className={spent ? 'font-mono text-lg text-ink-faint' : 'font-mono text-lg text-brand'}>
+          <Text className={spent ? 'font-mono text-lg text-ink-faint' : 'font-mono text-lg text-brand-text'}>
             {item.code}
           </Text>
-          <Ionicons name="copy-outline" size={16} color={spent ? colors.inkFaint : colors.brand} />
+          {shareable && (
+            <Ionicons name="copy-outline" size={16} color={spent ? colors.inkFaint : colors.brand} />
+          )}
         </Pressable>
 
         <View className="flex-row items-center gap-md">
-          {!spent && (
+          {!spent && shareable && (
             <Pressable
-              onPress={onShowQr}
+              onPress={() => onShowQr(item)}
               hitSlop={12}
               accessibilityRole="button"
               accessibilityLabel={t('admin.showQr')}
@@ -460,7 +510,7 @@ function InvitationCard({
           )}
           {!spent && isAdmin && (
             <Pressable
-              onPress={onRevoke}
+              onPress={() => onRevoke(item)}
               hitSlop={12}
               accessibilityRole="button"
               accessibilityLabel={t('admin.revoke')}
@@ -498,7 +548,7 @@ function InvitationCard({
 
     </Card>
   );
-}
+});
 
 
 
@@ -533,7 +583,14 @@ function QrModal({
 
 
   return (
-    <Modal visible={!!invitation} animationType="fade" transparent onRequestClose={onClose}>
+    <Modal
+      visible={!!invitation}
+      animationType="fade"
+      transparent
+      statusBarTranslucent
+      navigationBarTranslucent
+      onRequestClose={onClose}
+    >
       <View className="flex-1 items-center justify-center px-lg">
 
         <Pressable
@@ -561,7 +618,7 @@ function QrModal({
               />
             </View>
 
-            <Text className="mt-md font-mono text-lg text-brand">{invitation.code}</Text>
+            <Text className="mt-md font-mono text-lg text-brand-text">{invitation.code}</Text>
 
             <View className="mt-sm flex-row items-center gap-sm">
               <View className="rounded-full bg-surface-soft px-md py-xs">
@@ -605,13 +662,13 @@ function QrModal({
 //
 // Used by:
 //   - app/(main)/_layout.tsx — route /admin
-//   - app/(main)/settings/index.tsx — the admin panel link
+//   - app/(main)/tabs/settings.tsx — the admin panel link
 // -----------------------------------------------------------
 
 export default function AdminScreen() {
 
   const { t } = useTranslation();
-  const { user } = useAuth();
+  const { user, hydrated } = useAuth();
   const { colors } = useTheme();
   const router = useRouter();
 
@@ -637,9 +694,15 @@ export default function AdminScreen() {
   const hasData = useRef(false);
 
 
+  // Only the newest request may write — a slow response from
+  // before a refresh, retry or restore is dropped
+  const seqRef = useRef(0);
+
+
   // One code path for first load, retry, refresh and restore;
   // stats failures never take the invitation list down
   const load = async (showSpinner: boolean): Promise<void> => {
+    const seq = ++seqRef.current;
     if (showSpinner) {
       setLoading(true);
       setFailed(false);
@@ -647,22 +710,27 @@ export default function AdminScreen() {
 
     try {
       const { invitations: list } = await fetchAdminInvitations();
+      if (seq !== seqRef.current) return;
       setInvitations(list);
       hasData.current = true;
       setFailed(false);
-    } catch {
-      if (hasData.current) showToast('error', t('admin.loadError'));
+    } catch (err) {
+      if (seq !== seqRef.current) return;
+      if (hasData.current) showToast('error', t(adminErrorKey(err, 'admin.loadError')));
       else setFailed(true);
     }
 
     if (isAdmin) {
       try {
-        setStats(await fetchAdminStats());
+        const nextStats = await fetchAdminStats();
+        if (seq !== seqRef.current) return;
+        setStats(nextStats);
       } catch {
         // Tiles simply stay hidden; codes still work
       }
     }
 
+    if (seq !== seqRef.current) return;
     if (showSpinner) setLoading(false);
   };
 
@@ -693,11 +761,19 @@ export default function AdminScreen() {
 
     try {
       const created = await createInvitation(params);
-      setInvitations((previous) => [created, ...(previous ?? [])]);
+      // The 201 body carries only the stored columns — a fresh
+      // code is by definition just-created, unexpired and unused
+      const row: AdminInvitation = {
+        ...created,
+        createdAt: new Date().toISOString(),
+        expired: false,
+        fullyUsed: false,
+      };
+      setInvitations((previous) => [row, ...(previous ?? [])]);
       setShowForm(false);
       showToast('success', t('admin.codeCreated', { code: created.code }));
-    } catch {
-      showToast('error', t('admin.createError'));
+    } catch (err) {
+      showToast('error', t(adminErrorKey(err, 'admin.createError')));
     } finally {
       setCreating(false);
     }
@@ -707,32 +783,101 @@ export default function AdminScreen() {
   // Cancel is 'Grįžti'-style common.back — the LT verb
   // "Atšaukti" would otherwise open BOTH buttons of a
   // destructive confirm
-  const handleRevoke = async (invitation: AdminInvitation): Promise<void> => {
-    const confirmed = await confirmAction({
-      title: t('admin.revokeTitle'),
-      message: t('admin.revokeConfirm'),
-      confirmLabel: t('admin.revoke'),
-      cancelLabel: t('common.back'),
-      destructive: true,
-    });
-    if (!confirmed) return;
+  const handleRevoke = useCallback(
+    async (invitation: AdminInvitation): Promise<void> => {
+      const confirmed = await confirmAction({
+        title: t('admin.revokeTitle'),
+        message: t('admin.revokeConfirm'),
+        confirmLabel: t('admin.revoke'),
+        cancelLabel: t('common.back'),
+        destructive: true,
+      });
+      if (!confirmed) return;
 
-    try {
-      await revokeInvitation(invitation.id);
-      setInvitations((previous) => (previous ?? []).filter((i) => i.id !== invitation.id));
-      showToast('success', t('admin.codeRevoked'));
-    } catch {
-      showToast('error', t('admin.revokeError'));
-    }
-  };
+      try {
+        await revokeInvitation(invitation.id);
+        setInvitations((previous) => (previous ?? []).filter((i) => i.id !== invitation.id));
+        showToast('success', t('admin.codeRevoked'));
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 404) {
+          // Revoked elsewhere already — drop the stale row
+          setInvitations((previous) => (previous ?? []).filter((i) => i.id !== invitation.id));
+          showToast('info', t('admin.codeGone'));
+        } else {
+          showToast('error', t(adminErrorKey(err, 'admin.revokeError')));
+        }
+      }
+    },
+    [t],
+  );
 
 
-  // Toast only after the clipboard actually took the code
-  const handleCopy = (code: string) => {
-    Clipboard.setStringAsync(code)
-      .then(() => showToast('success', t('admin.codeCopied')))
-      .catch(() => {});
-  };
+  // Toast only after the clipboard actually took the code —
+  // and say so when it did not
+  const handleCopy = useCallback(
+    (code: string) => {
+      Clipboard.setStringAsync(code)
+        .then(() => showToast('success', t('admin.codeCopied')))
+        .catch(() => showToast('error', t('toast.genericError')));
+    },
+    [t],
+  );
+
+
+  // Stable per-row callbacks so the memoized cards only
+  // re-render when their own invitation changes
+  const handleShowQr = useCallback((item: AdminInvitation) => setQrInvitation(item), []);
+
+  const handleRevokeRow = useCallback(
+    (item: AdminInvitation) => void handleRevoke(item),
+    [handleRevoke],
+  );
+
+  const renderItem = useCallback(
+    ({ item }: { item: AdminInvitation }) => (
+      <InvitationCard
+        item={item}
+        isAdmin={isAdmin}
+        onCopy={handleCopy}
+        onShowQr={handleShowQr}
+        onRevoke={handleRevokeRow}
+      />
+    ),
+    [isAdmin, handleCopy, handleShowQr, handleRevokeRow],
+  );
+
+
+  // The QR modal sits over everything — close it before the
+  // copy toast so the confirmation is not hidden behind it
+  const handleQrCopy = useCallback(
+    (code: string) => {
+      setQrInvitation(null);
+      handleCopy(code);
+    },
+    [handleCopy],
+  );
+
+
+  // Client-side mirror of the backend's list scoping (defense
+  // in depth): a non-admin viewer never sees codes for roles
+  // they cannot mint, even if a response slips them through
+  const visibleInvitations = useMemo(() => {
+    const list = invitations ?? [];
+    return isAdmin ? list : list.filter((i) => i.role === 'student' || i.role === 'teacher');
+  }, [invitations, isAdmin]);
+
+
+  // Session restore is still reading storage — judging the
+  // role now would flash the no-access screen at admins
+  if (!hydrated) {
+    return (
+      <Screen>
+        <View className="flex-1 justify-center">
+          <LoadingSpinner />
+        </View>
+      </Screen>
+    );
+  }
 
 
   if (!canView) {
@@ -744,7 +889,9 @@ export default function AdminScreen() {
   }
 
 
-  if (loading) {
+  // The null-invitations check also covers the first frame
+  // after hydration, before the load effect has committed
+  if (loading || (invitations === null && !failed)) {
     return (
       <Screen>
         <View className="flex-1 justify-center">
@@ -768,17 +915,9 @@ export default function AdminScreen() {
     <Screen>
 
       <FlatList
-        data={invitations ?? []}
+        data={visibleInvitations}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <InvitationCard
-            item={item}
-            isAdmin={isAdmin}
-            onCopy={() => handleCopy(item.code)}
-            onShowQr={() => setQrInvitation(item)}
-            onRevoke={() => void handleRevoke(item)}
-          />
-        )}
+        renderItem={renderItem}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -806,7 +945,7 @@ export default function AdminScreen() {
 
       <QrModal
         invitation={qrInvitation}
-        onCopy={handleCopy}
+        onCopy={handleQrCopy}
         onClose={() => setQrInvitation(null)}
       />
 

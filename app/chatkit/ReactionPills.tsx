@@ -35,7 +35,9 @@ export default function ReactionPills({
   return (
     <Pressable
       onPress={onPress}
-      hitSlop={6}
+      // The pills row is 22pt tall — the slop leans downward, away
+      // from the bubble the row overlaps
+      hitSlop={{ top: 6, bottom: 11, left: 8, right: 8 }}
       accessibilityRole="button"
       accessibilityLabel={`${label}: ${reactions.map((r) => `${r.emoji} ${r.count}`).join(', ')}`}
       style={{

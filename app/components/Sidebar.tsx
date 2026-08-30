@@ -28,7 +28,8 @@
 //
 //  Split into (root component last):
 //
-//    SECTIONS / MORE — the drawer's row tables
+//    MORE            — the pushed-destination row table
+//                      (sections come from constants/tabs)
 //    IdentityCard    — signed-in header or guest card
 //    SectionRow      — a surface row with its pin toggle
 //    MoreRow         — a plain destination row
@@ -36,11 +37,17 @@
 //    Sidebar         — the animated layer (default export)
 // -----------------------------------------------------------
 
+// The shared tab roster — drawer, bar and layout all derive
+// their surfaces from this one table
+import { TABS, type TabDef } from '@/constants/tabs';
+
 // Drawer state, settings, auth and theme
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { useDrawer } from '@/context/DrawerContext';
+import { useReturnHref } from '@/hooks/useReturnHref';
 import { useTheme } from '@/hooks/useTheme';
+import { roleLabel } from '@/constants/roles';
 import type { ThemeSetting } from '@/types';
 
 // UI kit
@@ -51,7 +58,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
 import { useRouter, usePathname, type Href } from 'expo-router';
-import { useEffect } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { BackHandler, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -62,26 +69,10 @@ import Animated, {
   useSharedValue,
   withSpring,
 } from 'react-native-reanimated';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 
 type IoniconName = keyof typeof Ionicons.glyphMap;
-
-// The six app surfaces in tab-bar order; keys double as the
-// pinnedTabs entries and the tabs.* i18n lookup
-const SECTIONS: { key: string; icon: IoniconName; route: Href }[] = [
-  { key: 'news', icon: 'newspaper-outline', route: '/(main)/tabs/news' },
-  { key: 'messages', icon: 'chatbubbles-outline', route: '/(main)/tabs/messages' },
-  { key: 'schedule', icon: 'calendar-outline', route: '/(main)/tabs/schedule' },
-  { key: 'id', icon: 'id-card-outline', route: '/(main)/tabs/id' },
-  { key: 'map', icon: 'map-outline', route: '/(main)/tabs/map' },
-  { key: 'settings', icon: 'settings-outline', route: '/(main)/tabs/settings' },
-];
-
-// Core surfaces that can never be unpinned — AppContext
-// enforces it in state; here it only swaps the toggle for a
-// muted "always pinned" mark
-const HARD_PINNED = new Set(['news', 'messages']);
 
 // Pushed destinations; `auth` rows need a session, `roles`
 // rows need one of the listed roles
@@ -106,13 +97,6 @@ const THEME_OPTIONS: { key: ThemeSetting; icon: IoniconName; labelKey: string }[
   { key: 'dark', icon: 'moon-outline', labelKey: 'settings.dark' },
   { key: 'system', icon: 'phone-portrait-outline', labelKey: 'settings.system' },
 ];
-
-const ROLE_KEYS: Record<string, string> = {
-  student: 'admin.roleStudent',
-  teacher: 'admin.roleTeacher',
-  curator: 'admin.roleCurator',
-  admin: 'admin.roleAdmin',
-};
 
 // Light selection tick on iOS; Android's own feedback covers taps
 const tick = () => {
@@ -142,13 +126,18 @@ function IdentityCard({ onNavigate }: { onNavigate: (route: Href) => void }) {
   const { t } = useTranslation();
   const { user, isAuthenticated } = useAuth();
   const { colors } = useTheme();
-  const insets = useSafeAreaInsets();
-  const pathname = usePathname();
+  const returnHref = useReturnHref();
 
 
+  // SafeAreaView (native), not the insets hook: the drawer is an
+  // absolute layer, and on at least one Android build the hook
+  // reported 0 here while the tab headers — which use this exact
+  // SafeAreaView — padded correctly, putting the identity card
+  // under the status-bar clock
   if (!isAuthenticated || !user) {
     return (
-      <View className="bg-brand-header px-md pb-md" style={{ paddingTop: insets.top + 12 }}>
+      <SafeAreaView edges={['top']} className="bg-brand-header">
+        <View className="px-md pb-md pt-3">
         <Text className="font-raleway-medium text-xs uppercase tracking-widest text-on-brand opacity-80">
           {t('id.university')}
         </Text>
@@ -161,21 +150,23 @@ function IdentityCard({ onNavigate }: { onNavigate: (route: Href) => void }) {
         <Pressable
           className="mt-sm h-10 self-start justify-center rounded-full bg-on-brand px-lg"
           style={({ pressed }) => (pressed ? { opacity: 0.85 } : null)}
-          onPress={() => onNavigate({ pathname: '/login', params: { returnTo: pathname } } as Href)}
+          onPress={() => onNavigate({ pathname: '/login', params: { returnTo: returnHref } } as Href)}
           accessibilityRole="button"
           accessibilityLabel={t('settings.login')}
         >
           <Text className="font-raleway-bold text-sm text-brand">{t('settings.login')}</Text>
         </Pressable>
-      </View>
+        </View>
+      </SafeAreaView>
     );
   }
 
 
   return (
+    <SafeAreaView edges={['top']} className="bg-brand-header">
     <Pressable
-      className="bg-brand-header px-md pb-md"
-      style={({ pressed }) => [{ paddingTop: insets.top + 12 }, pressed && { opacity: 0.85 }]}
+      className="px-md pb-md pt-3"
+      style={({ pressed }) => (pressed ? { opacity: 0.85 } : null)}
       onPress={() => onNavigate('/(main)/profile')}
       accessibilityRole="button"
       accessibilityLabel={t('menu.myProfile')}
@@ -187,12 +178,13 @@ function IdentityCard({ onNavigate }: { onNavigate: (route: Href) => void }) {
             {user.displayName}
           </Text>
           <Text className="mt-0.5 font-raleway text-sm text-on-brand opacity-80" numberOfLines={1}>
-            {t(ROLE_KEYS[user.role] ?? 'admin.roleStudent')} · @{user.username}
+            {roleLabel(t, user.role)} · @{user.username}
           </Text>
         </View>
         <Ionicons name="chevron-forward" size={18} color={colors.onBrand} style={{ opacity: 0.7 }} />
       </View>
     </Pressable>
+    </SafeAreaView>
   );
 }
 
@@ -223,7 +215,7 @@ function SectionRow({
   onOpen,
   onTogglePin,
 }: {
-  item: (typeof SECTIONS)[number];
+  item: TabDef;
   active: boolean;
   pinned: boolean;
   onOpen: () => void;
@@ -235,7 +227,10 @@ function SectionRow({
 
 
   const label = t(`tabs.${item.key}`);
-  const locked = HARD_PINNED.has(item.key);
+
+  // AppContext enforces the pin in state; the drawer only swaps
+  // the toggle for the muted "always pinned" mark
+  const locked = item.hardPinned;
 
 
   return (
@@ -243,36 +238,49 @@ function SectionRow({
       className={active ? 'flex-row items-center rounded-xl bg-brand-soft px-2 py-2' : 'flex-row items-center rounded-xl px-2 py-2'}
       style={({ pressed }) => (pressed && !active ? { backgroundColor: colors.surfaceSoft } : null)}
       onPress={onOpen}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityState={{ selected: active }}
+      accessible={false}
     >
+      {/* The row itself is a11y-transparent so the pin toggle
+          stays reachable; icon + label form their own element
+          (a screen-reader tap on it bubbles to the row) */}
       <View
-        className={
-          active
-            ? 'h-9 w-9 items-center justify-center rounded-lg bg-brand'
-            : 'h-9 w-9 items-center justify-center rounded-lg bg-surface-soft'
-        }
+        className="flex-1 flex-row items-center"
+        accessible
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        accessibilityState={{ selected: active }}
       >
-        <Ionicons name={item.icon} size={20} color={active ? colors.onBrand : colors.inkSoft} />
+        <View
+          className={
+            active
+              ? 'h-9 w-9 items-center justify-center rounded-lg bg-brand'
+              : 'h-9 w-9 items-center justify-center rounded-lg bg-surface-soft'
+          }
+        >
+          <Ionicons name={item.icon} size={20} color={active ? colors.onBrand : colors.inkSoft} />
+        </View>
+        <Text
+          className={
+            active
+              ? 'ml-3 flex-1 font-raleway-bold text-base text-brand-text'
+              : 'ml-3 flex-1 font-raleway-medium text-base text-ink'
+          }
+        >
+          {label}
+        </Text>
       </View>
-      <Text
-        className={
-          active
-            ? 'ml-3 flex-1 font-raleway-bold text-base text-brand'
-            : 'ml-3 flex-1 font-raleway-medium text-base text-ink'
-        }
-      >
-        {label}
-      </Text>
 
+      {/* The pin is a round FILLED badge with the glyph knocked
+          out: pinned = solid brand circle + white pin, unpinned =
+          soft neutral circle + faint outline pin, always-pinned =
+          the pinned badge dimmed (same family, not a toggle) */}
       {locked ? (
-        <Ionicons
-          name="pin"
-          size={18}
-          color={colors.inkFaint}
+        <View
+          className="h-7 w-7 items-center justify-center rounded-full bg-brand opacity-50"
           accessibilityLabel={t('menu.alwaysPinned')}
-        />
+        >
+          <Ionicons name="pin" size={15} color={colors.onBrand} />
+        </View>
       ) : (
         <Pressable
           onPress={(e) => {
@@ -280,17 +288,25 @@ function SectionRow({
             onTogglePin();
           }}
           hitSlop={10}
-          className="h-9 w-9 items-center justify-center rounded-full"
-          style={({ pressed }) => (pressed ? { backgroundColor: colors.surfaceSoft } : null)}
+          className="h-9 w-9 items-center justify-center"
+          style={({ pressed }) => (pressed ? { opacity: 0.7 } : null)}
           accessibilityRole="switch"
           accessibilityState={{ checked: pinned }}
           accessibilityLabel={pinned ? t('menu.unpinTab', { tab: label }) : t('menu.pinTab', { tab: label })}
         >
-          <Ionicons
-            name={pinned ? 'pin' : 'pin-outline'}
-            size={20}
-            color={pinned ? colors.brand : colors.inkFaint}
-          />
+          <View
+            className={
+              pinned
+                ? 'h-7 w-7 items-center justify-center rounded-full bg-brand'
+                : 'h-7 w-7 items-center justify-center rounded-full bg-surface-soft'
+            }
+          >
+            <Ionicons
+              name={pinned ? 'pin' : 'pin-outline'}
+              size={15}
+              color={pinned ? colors.onBrand : colors.inkFaint}
+            />
+          </View>
         </Pressable>
       )}
     </Pressable>
@@ -359,24 +375,30 @@ function QuickSwitches() {
   const { t } = useTranslation();
   const { colors } = useTheme();
   const { theme, setTheme, language, setLanguage } = useApp();
-  const insets = useSafeAreaInsets();
 
 
   const version = Constants.expoConfig?.version ?? '1.0.0';
 
 
+  // SafeAreaView for the same reason as the identity card: the
+  // hook reported 0 inside this absolute layer on one device
   return (
-    <View className="border-t border-line px-lg pt-md" style={{ paddingBottom: insets.bottom + 16 }}>
+    <SafeAreaView edges={['bottom']} className="border-t border-line px-lg pt-md pb-4">
       <View className="flex-row items-center justify-between">
 
         {/* Theme — icon segments */}
-        <View className="flex-row rounded-full bg-surface-soft p-1">
+        <View
+          className="flex-row rounded-full bg-surface-soft p-1"
+          accessibilityRole="radiogroup"
+          accessibilityLabel={t('settings.theme')}
+        >
           {THEME_OPTIONS.map((option) => {
             const selected = theme === option.key;
             return (
               <Pressable
                 key={option.key}
                 className={selected ? 'h-9 w-11 items-center justify-center rounded-full bg-surface' : 'h-9 w-11 items-center justify-center rounded-full'}
+                hitSlop={{ top: 6, bottom: 6 }}
                 onPress={() => {
                   tick();
                   setTheme(option.key);
@@ -391,21 +413,27 @@ function QuickSwitches() {
           })}
         </View>
 
-        {/* Language — text segments */}
-        <View className="flex-row rounded-full bg-surface-soft p-1">
+        {/* Language — text segments; the labels speak the
+            language's own name, the visible text stays LT / EN */}
+        <View
+          className="flex-row rounded-full bg-surface-soft p-1"
+          accessibilityRole="radiogroup"
+          accessibilityLabel={t('settings.language')}
+        >
           {(['lt', 'en'] as const).map((code) => {
             const selected = language === code;
             return (
               <Pressable
                 key={code}
                 className={selected ? 'h-9 w-12 items-center justify-center rounded-full bg-brand' : 'h-9 w-12 items-center justify-center rounded-full'}
+                hitSlop={{ top: 6, bottom: 6 }}
                 onPress={() => {
                   tick();
                   setLanguage(code);
                 }}
                 accessibilityRole="radio"
                 accessibilityState={{ selected }}
-                accessibilityLabel={code.toUpperCase()}
+                accessibilityLabel={code === 'lt' ? t('settings.languageLithuanian') : t('settings.languageEnglish')}
               >
                 <Text className={selected ? 'font-raleway-bold text-sm text-on-brand' : 'font-raleway-medium text-sm text-ink-soft'}>
                   {code.toUpperCase()}
@@ -419,7 +447,7 @@ function QuickSwitches() {
       <Text className="mt-md font-raleway text-xs text-ink-faint">
         VU KNF · {t('menu.version', { version })}
       </Text>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -442,7 +470,7 @@ export default function Sidebar() {
   const { t } = useTranslation();
   const router = useRouter();
   const pathname = usePathname();
-  const { isOpen, close } = useDrawer();
+  const { isOpen, open, close } = useDrawer();
   const { pinnedTabs, setPinnedTabs } = useApp();
   const { user, isAuthenticated } = useAuth();
   const { colors } = useTheme();
@@ -454,11 +482,30 @@ export default function Sidebar() {
 
   // 0 = closed (panel parked off-screen left), 1 = open. The
   // pan gesture writes it directly so the panel follows the
-  // finger; open/close spring it home.
+  // finger; open/close spring it home. isOpen is mirrored in
+  // here by the effect below, so flag and position can never
+  // end up disagreeing.
   const progress = useSharedValue(0);
+  const dragStart = useSharedValue(0);
   useEffect(() => {
     progress.value = withSpring(isOpen ? 1 : 0, isOpen ? OPEN_SPRING : CLOSE_SPRING);
   }, [isOpen, progress]);
+
+
+  // Navigation this drawer did not start (deep links, pushed
+  // notifications) must not leave it hanging open: any pathname
+  // change closes it. close's identity changes with isOpen, so
+  // it rides a ref and pathname stays the only dependency.
+  const closeRef = useRef(close);
+  closeRef.current = close;
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      return;
+    }
+    closeRef.current();
+  }, [pathname]);
 
 
   // Android back closes the drawer instead of leaving the screen
@@ -472,20 +519,36 @@ export default function Sidebar() {
   }, [isOpen, close]);
 
 
-  // Drag the panel shut: it tracks the finger, then either
-  // flings closed or eases back open on release
-  const pan = Gesture.Pan()
-    .activeOffsetX([-12, 12])
-    .onUpdate((event) => {
-      progress.value = Math.min(1, Math.max(0, 1 + event.translationX / panelWidth));
-    })
-    .onEnd((event) => {
-      if (event.velocityX < FLING_VELOCITY || progress.value < 0.5) {
-        runOnJS(close)();
-      } else {
-        progress.value = withSpring(1, OPEN_SPRING);
-      }
-    });
+  // Drag the panel: it tracks the finger from wherever the
+  // grab caught it, then on release a fast rightward fling
+  // re-opens, a fast leftward fling or a below-half position
+  // closes, anything else eases back open. Both branches write
+  // progress AND the flag so the two stay in step. Memoized —
+  // rebuilding the gesture every render restarts recognition.
+  const pan = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetX([-12, 12])
+        .onBegin(() => {
+          dragStart.value = progress.value;
+        })
+        .onUpdate((event) => {
+          progress.value = Math.min(1, Math.max(0, dragStart.value + event.translationX / panelWidth));
+        })
+        .onEnd((event) => {
+          if (event.velocityX > -FLING_VELOCITY) {
+            progress.value = withSpring(1, OPEN_SPRING);
+            runOnJS(open)();
+          } else if (event.velocityX < FLING_VELOCITY || progress.value < 0.5) {
+            progress.value = withSpring(0, CLOSE_SPRING);
+            runOnJS(close)();
+          } else {
+            progress.value = withSpring(1, OPEN_SPRING);
+            runOnJS(open)();
+          }
+        }),
+    [panelWidth, close, open, progress, dragStart],
+  );
 
 
   const panelStyle = useAnimatedStyle(() => ({
@@ -496,30 +559,30 @@ export default function Sidebar() {
     opacity: progress.value,
   }));
 
-  // The layer swallows touches only while it is visible at all
-  const layerStyle = useAnimatedStyle(() => ({
-    pointerEvents: progress.value > 0.01 ? 'auto' : 'none',
-  }));
-
 
   // Close first, navigate after — the panel is already gliding
-  // out while the new screen mounts. Unpinned surfaces are
-  // pinned on the way (their tab-bar entry has href null).
+  // out while the new screen mounts. Opening a surface never
+  // touches its pin; the tab bar keeps a focused-but-unpinned
+  // route visible on its own.
   const navigate = (route: Href) => {
     close();
     router.navigate(route);
   };
 
-  const openSection = (item: (typeof SECTIONS)[number]) => {
-    if (!pinnedTabs.includes(item.key)) setPinnedTabs([...pinnedTabs, item.key]);
+  const openSection = (item: TabDef) => {
     navigate(item.route);
   };
 
   const togglePin = (key: string) => {
     tick();
-    setPinnedTabs(
-      pinnedTabs.includes(key) ? pinnedTabs.filter((k) => k !== key) : [...pinnedTabs, key],
-    );
+    if (pinnedTabs.includes(key)) {
+      // Unpinning the surface the reader is on would strand the
+      // bar with no selected tab — land on news first
+      if (pathname.endsWith(`/tabs/${key}`)) router.navigate('/(main)/tabs/news');
+      setPinnedTabs(pinnedTabs.filter((k) => k !== key));
+    } else {
+      setPinnedTabs([...pinnedTabs, key]);
+    }
   };
 
 
@@ -532,8 +595,15 @@ export default function Sidebar() {
 
   return (
     <Animated.View
-      style={[StyleSheet.absoluteFill, layerStyle]}
+      style={StyleSheet.absoluteFill}
+      // Touchability and assistive visibility follow the React
+      // flag, not the animation: a closing drawer is already
+      // untouchable and out of the a11y tree, so nothing behind
+      // it is ever blocked by a layer that only looks gone
+      pointerEvents={isOpen ? 'auto' : 'none'}
       accessibilityViewIsModal={isOpen}
+      accessibilityElementsHidden={!isOpen}
+      importantForAccessibility={isOpen ? 'auto' : 'no-hide-descendants'}
     >
 
       {/* Scrim — tap anywhere outside the panel to close */}
@@ -571,7 +641,7 @@ export default function Sidebar() {
               {t('menu.sections')}
             </Text>
             <Text className="mb-xs px-2 font-raleway text-xs text-ink-faint">{t('menu.pinnedHint')}</Text>
-            {SECTIONS.map((item) => (
+            {TABS.map((item) => (
               <SectionRow
                 key={item.key}
                 item={item}

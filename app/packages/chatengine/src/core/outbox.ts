@@ -23,6 +23,8 @@ import { isTempId, type ChatMessage, type ChatUser } from './types';
 
 export const outboxKey = (conversationId: string) => `outbox:${conversationId}`;
 export const draftKey = (conversationId: string) => `draft:${conversationId}`;
+// The quoted message a draft answers, kept beside it
+export const draftReplyKey = (conversationId: string) => `draftreply:${conversationId}`;
 
 
 // A picked asset waiting for its upload
@@ -32,6 +34,8 @@ export interface PickedAsset extends UploadAsset {
   duration?: number;
   // A poster frame the host already extracted (videos)
   posterUri?: string;
+  // A voice note's amplitude bars (0..1, at most 64)
+  waveform?: number[];
 }
 
 // What a failed send needs to retry: the body, the uploaded
@@ -45,7 +49,10 @@ export interface OutboxEntry {
   imageUrl?: string;
   replyToId?: string;
   asset?: PickedAsset;
-  extra?: Pick<OutgoingMessage, 'kind' | 'attachment' | 'media'>;
+  // A gallery send whose uploads did not finish — the retry
+  // uploads every photo again
+  assets?: PickedAsset[];
+  extra?: Pick<OutgoingMessage, 'kind' | 'attachment' | 'media' | 'gallery'>;
   createdAt?: string;
 }
 
@@ -109,9 +116,11 @@ export async function readOutboxTemps(storage: KeyValueStorage, conversationId: 
     text: payload.text,
     imageUrl: payload.imageUrl,
     localImageUri: payload.asset?.kind === 'video' ? undefined : payload.asset?.uri,
-    kind: payload.extra?.kind ?? payload.asset?.kind,
+    kind: payload.extra?.kind ?? payload.asset?.kind ?? (payload.assets ? 'image' : undefined),
     video: payload.asset?.kind === 'video' ? { uri: payload.asset.uri, duration: payload.asset.duration, localThumbnailUri: payload.asset.posterUri } : undefined,
     file: payload.asset?.kind === 'file' ? { name: payload.asset.name ?? '', uri: payload.asset.uri, size: payload.asset.size, mimeType: payload.asset.mimeType } : undefined,
+    audio: payload.asset?.kind === 'audio' ? { uri: payload.asset.uri, duration: payload.asset.duration, size: payload.asset.size, mimeType: payload.asset.mimeType, name: payload.asset.name } : undefined,
+    gallery: payload.extra?.gallery ?? payload.assets?.map((a) => ({ url: a.uri, width: a.width, height: a.height })),
     createdAt: payload.createdAt ?? new Date().toISOString(),
     isOwn: true,
     status: 'failed' as const,

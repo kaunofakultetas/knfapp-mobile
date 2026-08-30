@@ -13,7 +13,13 @@
 
 import { Pressable, Text, View } from 'react-native';
 
+import { PixelRatio } from 'react-native';
+
 import { useKitTheme } from '../provider';
+
+// Larger system text needs a taller pill — clamped so a 200 %
+// setting does not double the tail row
+const PILL_HEIGHT = Math.round(22 * Math.min(1.6, Math.max(1, PixelRatio.getFontScale())));
 import type { KitReaction } from '../core/types';
 
 
@@ -55,7 +61,7 @@ export default function ReactionPills({
           style={{
             flexDirection: 'row',
             alignItems: 'center',
-            height: 22,
+            height: PILL_HEIGHT,
             paddingHorizontal: 6,
             marginRight: 3,
             borderRadius: 11,

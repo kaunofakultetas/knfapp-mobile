@@ -29,10 +29,27 @@ function Room({ id, focused }) {
 }
 ```
 
+## Examples
+
+- **`example/ExampleRoom.tsx`** — the engine driving a bare React Native
+  UI (a `FlatList` and a `TextInput`) over `fakeTransport`: no server, no
+  UI kit, no host. Every hook output a UI consumes is used; a pretend
+  friend types and answers, so echo dedupe, receipts and typing run for
+  real. Paste it into a blank Expo project to see the engine alone.
+- **`example/ExampleAdapter.ts`** — a `ChatTransport` for a generic
+  REST + WebSocket backend (routes listed at the top of the file), with
+  `fetch` and the socket injectable. `example/__tests__/exampleAdapter.contract.test.ts`
+  is the whole recipe for proving an adapter: an in-memory stub of the
+  backend, a harness, one `describeTransportContract` call.
+- **Kit + engine together** — `packages/chatuikit/example/ExampleRoom.tsx`
+  is the reference pairing with `@knf/chatuikit`: two providers, the
+  timeline built from `conversation.messages`, every kit callback answered
+  by an engine action.
+
 ## Why headless
 
-Stream and Sendbird ship an engine welded to their backend; gifted-chat and
-Flyer ship no engine at all. This package is the missing middle: the state
+Hosted chat SDKs ship an engine welded to their own backend; pure UI kits
+ship no engine at all. This package is the missing middle: the state
 logic every chat needs (echo dedupe, resync after a drop, an outbox that
 survives restarts, receipt promotion, epoch-guarded reactions) written once
 against an interface, so changing the backend is writing an adapter — not
@@ -48,6 +65,7 @@ interface ChatTransport {
   removeReaction(conversationId, messageId): Promise<ReactionGroup[]>;
   markRead(conversationId): Promise<void>;
   upload(asset): Promise<UploadResult>;
+  fetchChanges?(conversationId, since): Promise<{ messages, cursor }>;  // optional: edits/unsends since a page cursor
   realtime: {
     connect(): Promise<boolean>; status(); onStatus(cb);
     subscribe(cb: (event: ChatEvent) => void);    // one discriminated union
@@ -71,22 +89,29 @@ know who is looking.
 | `adapters/knf/` | The KNF Flask + Socket.IO adapter: `createKnfTransport({ http, socket })`, `createKnfSocket`, the wire types and mappers |
 | `testing/` | `fakeTransport()` (in-memory backend with `push`, `fail`, `stall`) and `describeTransportContract()` (the conformance suite) |
 
-## Contracts pinned in tests
+## Tests live in the package
 
-- `__tests__/chatengineSurface.test.ts` — the exact export list, the
-  transport method list, the notice codes, limits and retry policy.
-- `__tests__/chatengineContract.test.ts` — `describeTransportContract` run
-  against the fake and against the KNF adapter over a stubbed backend:
+`npm test` here runs every spec under `src/**/__tests__/` with the
+jest-expo preset and this package's own `babel.config.js` — no host
+needed (the host's root jest run picks the same specs up too). Specs sit
+beside what they pin; `testing/` (the fake and
+the conformance suite) ships, `__tests__` does not (`files` in
+package.json).
+
+- `src/__tests__/surface.test.ts` — the exact export list, the transport
+  method list, the notice codes, limits and retry policy.
+- `src/adapters/knf/__tests__/contract.test.ts` — `describeTransportContract`
+  run against the fake and against the KNF adapter over a stubbed backend:
   page order and cursor, idempotent sends, edit/unsend semantics, reaction
   groups, uploads, realtime registration-before-connect, event order,
   unsubscribe, status fan-out.
-- `__tests__/chatengineReducers.test.ts` — every reducer.
-- `__tests__/chatengineConversation/Composer/Reactions/Typing.test.tsx` —
-  the hooks against the fake: echo adoption, resync merge and fresh head,
-  room switch, stale-page guard, paging failure latch, receipt gating and
-  batching, double-tap-once, retry-racing-the-sweep-once, upload retry
-  once, video poster + clip, caps, edit mode, epoch-guarded reactions,
-  typing expiry.
+- `src/core/__tests__/reducers.test.ts` — every reducer.
+- `src/hooks/__tests__/use{Conversation,Composer,Reactions,Typing}.test.tsx`
+  — the hooks against the fake: echo adoption, resync merge and fresh
+  head, room switch, stale-page guard, paging failure latch, receipt
+  gating and batching, double-tap-once, retry-racing-the-sweep-once,
+  upload retry once, video poster + clip, caps, edit mode, epoch-guarded
+  reactions, typing expiry.
 
 To prove your own adapter, call `describeTransportContract('mine', () =>
 harness)` in a jest file — the harness gives the suite a transport, the
@@ -111,8 +136,10 @@ into your realtime channel.
 - **Pickers** — the engine takes an already-picked `PickedAsset`
   (`composer.attach`); the library and document pickers are device
   concerns and stay in the host (this repo: `hooks/chat/useAttachmentPicker.ts`).
-- **`focused`** — pass the navigation focus flag to `useConversation` /
-  `useChatRoom`; only a focused room acknowledges reads.
+- **`focused`** and **`atLatest`** — pass the navigation focus flag and
+  the list's "reader at the newest end" state to `useConversation` /
+  `useChatRoom`; only a focused room whose reader is at the newest end
+  acknowledges reads.
 
 ## Behaviours worth knowing
 
@@ -122,7 +149,9 @@ into your realtime channel.
 - A realtime echo of an own send adopts its temp by `clientId`, falling
   back to content + reply target for backends without the nonce.
 - After a reconnect or a network restore the newest page is fetched and
-  **merged**; a gap wider than a page restarts from the fresh head.
+  **merged** (unchanged rows keep their identity); a gap wider than a
+  page restarts from the fresh head; with a transport that offers
+  `fetchChanges`, edits and unsends further up are applied too.
 - Failed sends that can heal (network, timeout, 5xx, 429) are queued,
   persisted (`outbox:<id>`) and retried on tap or on restore — exactly
   once per attempt even when both race. A definitive 4xx keeps the bubble
@@ -132,3 +161,27 @@ into your realtime channel.
   and the durable `markRead` always go together.
 - Reactions reconcile in two steps with a per-message epoch; a failure
   reverts only the acting user's membership.
+- Edits, unsends and reactions that fail on a healable error join a
+  persisted task queue (`tasks:<id>`) and replay in order on reconnect
+  or network restore.
+- A message beyond the loaded history is reached with `jumpTo(id)`: one
+  `around` window replaces the held rows. While `hasNewer`, the window
+  is detached — arrivals only count for `missedWhileDetached`, read
+  acknowledgements hold — until `loadNewer` walks pages back to the
+  head or `returnToLatest` re-fetches it.
+- A backend that unfurls links after the send patches the row through
+  the `updated` event (`message.linkPreview`).
+- `attachMany` turns a pure multi-photo pick into ONE gallery message
+  (each photo uploaded in pick order); a failure anywhere parks the
+  whole set for retry. Anything mixed falls back to one message per
+  asset.
+- A recorded voice note is just `attach({ kind: 'audio', … })`: the
+  clip uploads, the send carries it as the attachment with its length
+  in `media.duration` (and its bars in `media.waveform`).
+- Uploads report their fraction onto the optimistic bubble; a
+  retryably parked send re-drives itself twice before waiting for a
+  tap or the restore sweep.
+- Pins (`usePins` over the optional transport trio), forwarding
+  (`forwardPayload`) and disappearing messages (`setMessageTtl`, the
+  'conversation' event, the expiry sweep) are all optional transport
+  surface — an adapter without them simply hides the features.

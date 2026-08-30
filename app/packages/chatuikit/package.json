@@ -1,6 +1,6 @@
 {
   "name": "@knf/chatuikit",
-  "version": "1.2.0",
+  "version": "1.9.1",
   "description": "Presentational messaging kit for Expo / React Native — the iMessage / Messenger conversation experience without a SaaS dependency. Bring your own data hooks.",
   "main": "src/index.ts",
   "types": "src/index.ts",
@@ -8,6 +8,7 @@
   "private": true,
   "files": [
     "src",
+    "!src/**/__tests__",
     "README.md",
     "CHANGELOG.md",
     "LICENSE"
@@ -21,11 +22,18 @@
     "react-native-gesture-handler": ">=2",
     "react-native-reanimated": ">=3",
     "react-native-safe-area-context": ">=4",
+    "expo-audio": "*",
     "expo-video": "*"
   },
   "peerDependenciesMeta": {
+    "expo-audio": {
+      "optional": true
+    },
     "expo-video": {
       "optional": true
     }
+  },
+  "scripts": {
+    "test": "jest"
   }
 }

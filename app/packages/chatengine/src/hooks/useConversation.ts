@@ -3,7 +3,9 @@
 //
 //  The data spine of a chat room: loads the newest history
 //  page, keeps it live through the transport's realtime
-//  events, and pages older messages with the before-cursor.
+//  events, pages older messages with the before-cursor, and
+//  re-anchors the window around a message beyond the loaded
+//  history (jumpTo / loadNewer / returnToLatest).
 //  The list is held NEWEST-FIRST — what an inverted list
 //  renders — so "prepend a new message" is an unshift and
 //  "load older" is an append.
@@ -17,7 +19,8 @@
 //
 //  Read acknowledgements are gated and batched: nothing is
 //  acknowledged while the app is backgrounded or the room is
-//  not the focused screen (`focused`); arrivals only mark the
+//  not the focused screen (`focused`) or the reader is scrolled
+//  up into history (`atLatest`); arrivals only mark the
 //  state dirty, and the buffered acknowledgement flushes on
 //  refocus AND when the reader leaves. A burst collapses into
 //  one trailing emit; the realtime signal is volatile, so the
@@ -33,16 +36,20 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 
 import { clearActiveConversation, setActiveConversation } from '../core/activeConversation';
-import { toTransportError } from '../core/errors';
+import { isRetryable, toTransportError } from '../core/errors';
 import { readOutboxTemps } from '../core/outbox';
+import { getTaskQueue, type PendingTask } from '../core/tasks';
 import {
   adoptTemp,
   appendOlderPage,
+  applyChanges,
   applyReceipt,
   findTempFor,
   markDeleted,
   markEdited,
   mergeFirstPage,
+  newerCursor,
+  prependNewerPage,
   mergeResyncPage,
   normalizeForViewer,
   olderCursor,
@@ -82,6 +89,24 @@ export interface UseConversationResult {
   loadOlder: () => Promise<void>;
   loadingOlder: boolean;
   hasMore: boolean;
+  // Jump-to-message beyond the loaded history: the window is
+  // re-anchored around the message in one round trip (the
+  // transport's `around` window). 'loaded' — the row was already
+  // held, nothing changed; 'anchored' — the list now holds a
+  // window around it and `hasNewer` says whether the head is
+  // further down; 'missing' — the message is not in this
+  // conversation (or the fetch failed, with a notice)
+  jumpTo: (messageId: string) => Promise<'loaded' | 'anchored' | 'missing'>;
+  // Newer rows exist beyond the held window (after a jump); the
+  // list is detached from the head until loadNewer walks back
+  // or returnToLatest re-fetches the newest page
+  hasNewer: boolean;
+  loadNewer: () => Promise<void>;
+  loadingNewer: boolean;
+  returnToLatest: () => Promise<void>;
+  // Messages that arrived at the head while the window was
+  // detached — the "new messages" count for a jump-back button
+  missedWhileDetached: number;
   // Optimistic unsend; the original comes back (with a notice)
   // if the backend refuses
   deleteMessage: (messageId: string) => void;
@@ -108,9 +133,13 @@ export interface UseConversationResult {
 //   - the host's chat room screen (directly or via useChatRoom)
 // -----------------------------------------------------------
 
-export function useConversation(conversationId: string, options: { focused?: boolean } = {}): UseConversationResult {
+export function useConversation(conversationId: string, options: { focused?: boolean; atLatest?: boolean } = {}): UseConversationResult {
   const { transport, currentUser, storage, notify, onNetworkRestore } = useChatEngine();
   const focused = options.focused ?? true;
+  // Whether the reader is at the newest end of the list — a room
+  // being read from the middle of its history is not "read"
+  // (the UI reports it: chatuikit's MessageList onAtLatestChange)
+  const atLatest = options.atLatest ?? true;
 
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -125,6 +154,9 @@ export function useConversation(conversationId: string, options: { focused?: boo
   const [error, setError] = useState<'load' | 'denied' | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [hasMore, setHasMore] = useState(false);
+  const [hasNewer, setHasNewer] = useState(false);
+  const [loadingNewer, setLoadingNewer] = useState(false);
+  const [missedWhileDetached, setMissedWhileDetached] = useState(0);
   const [reloadKey, setReloadKey] = useState(0);
 
 
@@ -134,6 +166,16 @@ export function useConversation(conversationId: string, options: { focused?: boo
   const messagesRef = useRef<ChatMessage[]>(messages);
   const hasMoreRef = useRef(false);
   const loadingOlderRef = useRef(false);
+  // Detached: the held window does not reach the head (a jump
+  // landed it in history). Live arrivals are counted, not
+  // inserted — a row with a gap before it would misplace them
+  const hasNewerRef = useRef(false);
+  const loadingNewerRef = useRef(false);
+  const setDetached = useCallback((next: boolean) => {
+    hasNewerRef.current = next;
+    setHasNewer(next);
+    if (!next) setMissedWhileDetached(0);
+  }, []);
   const mountedRef = useRef(true);
   const olderFailedAtRef = useRef(0);
   const olderNotifiedRef = useRef(false);
@@ -141,6 +183,16 @@ export function useConversation(conversationId: string, options: { focused?: boo
   useEffect(() => {
     conversationIdRef.current = conversationId;
   }, [conversationId]);
+  // The change-feed cursor: the server clock of the last page or
+  // feed applied (null until a page carried one)
+  const changesCursorRef = useRef<string | null>(null);
+
+  // The room's offline task queue (edits, unsends, reactions made
+  // while down) — enqueued by any hook, replayed here
+  const taskQueue = getTaskQueue(storage, conversationId);
+  useEffect(() => {
+    void taskQueue.load();
+  }, [taskQueue]);
   useEffect(() => {
     selfIdRef.current = currentUser?.id ?? null;
   }, [currentUser]);
@@ -169,11 +221,11 @@ export function useConversation(conversationId: string, options: { focused?: boo
     setError(null);
     setHasMore(false);
     hasMoreRef.current = false;
+    setDetached(false);
     olderFailedAtRef.current = 0;
     olderNotifiedRef.current = false;
-  }, [conversationId]);
-
-
+    changesCursorRef.current = null;
+  }, [conversationId, setDetached]);
   const mergeParticipants = useCallback((rows: readonly ChatMessage[]) => {
     setParticipants((prev) => {
       let next: Record<string, string> | null = null;
@@ -189,11 +241,13 @@ export function useConversation(conversationId: string, options: { focused?: boo
   const applyPage = useCallback((resp: MessagesPage) => {
     setProfiles(resp.participants);
     setConversation(resp.conversation);
+    if (resp.cursor) changesCursorRef.current = resp.cursor;
   }, []);
 
 
   // Read acknowledgements — see the file header
   const focusedRef = useRef(focused);
+  const atLatestRef = useRef(atLatest);
   // Only a REPORTED background closes the gate — 'unknown' (web, a
   // cold start) and 'active' both count as looking, and so does a
   // non-string value (React Native's jest mock answers a function)
@@ -208,7 +262,7 @@ export function useConversation(conversationId: string, options: { focused?: boo
       readTimerRef.current = null;
     }
     if (!conversationId || !readDirtyRef.current) return;
-    if (!focusedRef.current || !appActiveRef.current) return;
+    if (!focusedRef.current || !appActiveRef.current || !atLatestRef.current || hasNewerRef.current) return;
     readDirtyRef.current = false;
     transport.realtime.markRead(conversationId);
     transport.markRead(conversationId).catch(() => {});
@@ -216,7 +270,7 @@ export function useConversation(conversationId: string, options: { focused?: boo
 
   const scheduleMarkRead = useCallback(() => {
     readDirtyRef.current = true;
-    if (!focusedRef.current || !appActiveRef.current) return;
+    if (!focusedRef.current || !appActiveRef.current || !atLatestRef.current || hasNewerRef.current) return;
     if (readTimerRef.current) return;
     readTimerRef.current = setTimeout(() => {
       readTimerRef.current = null;
@@ -229,6 +283,11 @@ export function useConversation(conversationId: string, options: { focused?: boo
     if (focused) flushMarkRead();
     return flushMarkRead;
   }, [focused, flushMarkRead]);
+  // Returning to the newest end acknowledges what arrived meanwhile
+  useEffect(() => {
+    atLatestRef.current = atLatest;
+    if (atLatest) flushMarkRead();
+  }, [atLatest, flushMarkRead]);
 
   useEffect(() => {
     if (!conversationId || !focused) return;
@@ -333,6 +392,14 @@ export function useConversation(conversationId: string, options: { focused?: boo
         // A live row's status is the viewer's: an own echo is freshly
         // sent (receipts promote it from here), anyone else's is read
         const incoming: ChatMessage = { ...normalized, status: normalized.isOwn ? 'sent' : 'read' };
+        if (hasNewerRef.current) {
+          // Detached: the head is not held, so the row cannot be
+          // placed — it is counted for the jump-back button and
+          // arrives with the forward page / the fresh head
+          if (!incoming.isOwn) setMissedWhileDetached((n) => n + 1);
+          setParticipants((prev) => (prev[raw.senderId] === raw.senderName ? prev : { ...prev, [raw.senderId]: raw.senderName }));
+          return;
+        }
         setMessages((prev) => {
           if (prev.some((m) => m.id === incoming.id)) return prev;
           if (incoming.isOwn) {
@@ -360,6 +427,12 @@ export function useConversation(conversationId: string, options: { focused?: boo
         setMessages((prev) => prev.map((m) => markDeleted(m, event.messageId)));
       } else if (event.type === 'edited') {
         setMessages((prev) => prev.map((m) => markEdited(m, event.messageId, event.text, event.editedAt)));
+      } else if (event.type === 'updated') {
+        setMessages((prev) => prev.map((m) => (m.id === event.messageId && !m.deleted ? { ...m, ...event.patch } : m)));
+      } else if (event.type === 'conversation') {
+        // A room setting moved (the disappearing window) — merge
+        // into the meta every reader of `conversation` holds
+        setConversation((prev) => (prev ? { ...prev, ...event.patch } : prev));
       } else if (event.type === 'read') {
         if (event.readerId === selfId) return;
         const memberCount = profilesRef.current.length;
@@ -393,6 +466,9 @@ export function useConversation(conversationId: string, options: { focused?: boo
   const resync = useCallback(async () => {
     if (!conversationId) return;
     if (resyncingRef.current) return;
+    // A detached window is history; merging the head into it would
+    // yank the reader away — returnToLatest is the way back
+    if (hasNewerRef.current) return;
     resyncingRef.current = true;
     const seq = ++resyncSeqRef.current;
     try {
@@ -413,6 +489,21 @@ export function useConversation(conversationId: string, options: { focused?: boo
       }
       setMessages((prev) => mergeResyncPage(prev, page, resp.hasMore).list);
       mergeParticipants(page);
+
+      // Edits and unsends further up than the newest page: the
+      // change feed since the last cursor, applied to held rows
+      const since = changesCursorRef.current;
+      if (transport.fetchChanges && since) {
+        try {
+          const changes = await transport.fetchChanges(conversationId, since);
+          if (!mountedRef.current || seq !== resyncSeqRef.current || conversationId !== conversationIdRef.current) return;
+          const rows = changes.messages.map((m) => normalizeForViewer(m, selfId));
+          setMessages((prev) => applyChanges(prev, rows));
+          changesCursorRef.current = changes.cursor;
+        } catch {
+          // The feed is best effort; the page cursor stands
+        }
+      }
       applyPage(resp);
       scheduleMarkRead();
     } catch {
@@ -421,6 +512,52 @@ export function useConversation(conversationId: string, options: { focused?: boo
       resyncingRef.current = false;
     }
   }, [conversationId, transport, mergeParticipants, applyPage, scheduleMarkRead]);
+
+  // Replay the offline tasks, oldest first, one at a time: a task
+  // that succeeds leaves the queue, a definitive refusal drops it
+  // (the optimistic state is reverted where the server's answer
+  // says so), a transport failure keeps it for the next restore
+  const replayingRef = useRef(false);
+  const replayTasks = useCallback(async () => {
+    if (replayingRef.current) return;
+    replayingRef.current = true;
+    try {
+      await taskQueue.load();
+      for (const task of taskQueue.list()) {
+        if (!mountedRef.current || conversationId !== conversationIdRef.current) return;
+        try {
+          if (task.type === 'edit') {
+            const saved = await transport.editMessage(conversationId, task.messageId, task.text);
+            setMessages((prev) => prev.map((m) => markEdited(m, task.messageId, saved.text, saved.editedAt)));
+          } else if (task.type === 'delete') {
+            await transport.deleteMessage(conversationId, task.messageId);
+          } else {
+            const groups = task.emoji ? await transport.setReaction(conversationId, task.messageId, task.emoji) : await transport.removeReaction(conversationId, task.messageId);
+            const viewerId = selfIdRef.current;
+            setMessages((prev) => prev.map((m) => (m.id === task.messageId ? { ...m, reactions: reactionsForViewer(groups, viewerId) } : m)));
+          }
+          taskQueue.remove(task);
+        } catch (err) {
+          if (isRetryable(err)) return;
+          taskQueue.remove(task);
+          if (task.type === 'edit') {
+            setMessages((prev) => prev.map((m) => (m.id === task.messageId ? { ...m, text: task.previousText } : m)));
+            notify({ level: 'error', code: 'edit_failed' });
+          } else if (task.type === 'delete') {
+            notify({ level: 'error', code: 'delete_failed' });
+          } else {
+            notify({ level: 'error', code: task.emoji ? 'reaction_add_failed' : 'reaction_remove_failed' });
+          }
+        }
+      }
+    } finally {
+      replayingRef.current = false;
+    }
+  }, [conversationId, transport, taskQueue, notify]);
+  const replayRef = useRef(replayTasks);
+  useEffect(() => {
+    replayRef.current = replayTasks;
+  });
 
   const wasDownRef = useRef(false);
   useEffect(() => {
@@ -432,7 +569,7 @@ export function useConversation(conversationId: string, options: { focused?: boo
       }
       if (wasDownRef.current) {
         wasDownRef.current = false;
-        void resync();
+        void resync().then(() => replayRef.current());
       }
     });
   }, [conversationId, transport, resync]);
@@ -441,7 +578,13 @@ export function useConversation(conversationId: string, options: { focused?: boo
   useEffect(() => {
     resyncRef.current = resync;
   });
-  useEffect(() => onNetworkRestore(() => void resyncRef.current()), [onNetworkRestore]);
+  useEffect(
+    () =>
+      onNetworkRestore(() => {
+        void resyncRef.current().then(() => replayRef.current());
+      }),
+    [onNetworkRestore],
+  );
 
 
   // Older-history paging for the inverted list's onEndReached
@@ -481,22 +624,125 @@ export function useConversation(conversationId: string, options: { focused?: boo
   }, [conversationId, transport, mergeParticipants, notify]);
 
 
+  // Jump beyond the loaded history: one `around` window replaces
+  // the held rows (temps — unsent drafts — stay in front). The
+  // outer flags mirror the page's; hasNewer detaches the window
+  const jumpSeqRef = useRef(0);
+  const jumpTo = useCallback(
+    async (messageId: string): Promise<'loaded' | 'anchored' | 'missing'> => {
+      if (!conversationId) return 'missing';
+      if (messagesRef.current.some((m) => m.id === messageId)) return 'loaded';
+      const seq = ++jumpSeqRef.current;
+      try {
+        const resp = await transport.fetchMessages(conversationId, { around: messageId, limit: 50 });
+        if (!mountedRef.current || seq !== jumpSeqRef.current || conversationId !== conversationIdRef.current) return 'missing';
+        const selfId = selfIdRef.current;
+        const page = resp.messages.map((m) => normalizeForViewer(m, selfId)).reverse();
+        if (!page.some((m) => m.id === messageId)) return 'missing';
+        // The anchored window supersedes any resync in flight
+        resyncSeqRef.current += 1;
+        setMessages((prev) => [...prev.filter((m) => isTempId(m.id)), ...page]);
+        setHasMore(resp.hasMore);
+        hasMoreRef.current = resp.hasMore;
+        setDetached(!!resp.hasNewer);
+        mergeParticipants(page);
+        if (resp.cursor) changesCursorRef.current = resp.cursor;
+        return 'anchored';
+      } catch (err) {
+        if (!mountedRef.current || seq !== jumpSeqRef.current) return 'missing';
+        const e = toTransportError(err);
+        if (e.status !== 404) notify({ level: 'error', code: 'load_older_failed' });
+        return 'missing';
+      }
+    },
+    [conversationId, transport, mergeParticipants, notify, setDetached],
+  );
+  // Forward paging from a detached window; the page that reaches
+  // the head re-attaches the window and a resync catches whatever
+  // landed at the head between the fetch and now
+  const loadNewer = useCallback(async () => {
+    if (!conversationId) return;
+    if (loadingNewerRef.current || !hasNewerRef.current) return;
+    const cursor = newerCursor(messagesRef.current);
+    if (!cursor) return;
+    loadingNewerRef.current = true;
+    setLoadingNewer(true);
+    try {
+      const resp = await transport.fetchMessages(conversationId, { after: { createdAt: cursor.createdAt, id: cursor.id }, limit: 50 });
+      if (!mountedRef.current || conversationId !== conversationIdRef.current || !hasNewerRef.current) return;
+      const selfId = selfIdRef.current;
+      const page = resp.messages.map((m) => normalizeForViewer(m, selfId)).reverse();
+      setMessages((prev) => prependNewerPage(prev, page));
+      mergeParticipants(page);
+      if (resp.cursor) changesCursorRef.current = resp.cursor;
+      if (!resp.hasNewer) {
+        setDetached(false);
+        void resyncRef.current();
+        scheduleMarkRead();
+      }
+    } catch {
+      if (!mountedRef.current || conversationId !== conversationIdRef.current) return;
+      notify({ level: 'error', code: 'load_older_failed' });
+    } finally {
+      loadingNewerRef.current = false;
+      if (mountedRef.current) setLoadingNewer(false);
+    }
+  }, [conversationId, transport, mergeParticipants, notify, setDetached, scheduleMarkRead]);
+  // Straight back to the head: the newest page replaces the
+  // detached window (temps stay), as if the room were opened afresh
+  const returnToLatest = useCallback(async () => {
+    if (!conversationId) return;
+    if (!hasNewerRef.current) return;
+    const seq = ++jumpSeqRef.current;
+    try {
+      const resp = await transport.fetchMessages(conversationId);
+      if (!mountedRef.current || seq !== jumpSeqRef.current || conversationId !== conversationIdRef.current) return;
+      const selfId = selfIdRef.current;
+      const page = resp.messages.map((m) => normalizeForViewer(m, selfId)).reverse();
+      setMessages((prev) => [...prev.filter((m) => isTempId(m.id)), ...page]);
+      setHasMore(resp.hasMore);
+      hasMoreRef.current = resp.hasMore;
+      setDetached(false);
+      mergeParticipants(page);
+      applyPage(resp);
+      scheduleMarkRead();
+    } catch {
+      if (!mountedRef.current || seq !== jumpSeqRef.current) return;
+      notify({ level: 'error', code: 'load_older_failed' });
+    }
+  }, [conversationId, transport, mergeParticipants, applyPage, scheduleMarkRead, notify, setDetached]);
+  // Disappearing messages: every half minute the rows whose
+  // expires_at has passed leave the screen (the server hard-
+  // deletes on its own clock; this one only keeps the list honest
+  // between fetches). The identity check keeps quiet ticks free
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const nowIso = new Date().toISOString();
+      setMessages((prev) => (prev.some((m) => m.expiresAt && m.expiresAt <= nowIso) ? prev.filter((m) => !(m.expiresAt && m.expiresAt <= nowIso)) : prev));
+    }, 30_000);
+    return () => clearInterval(timer);
+  }, [setMessages]);
+
   const retry = useCallback(() => setReloadKey((k) => k + 1), []);
-
-
   const deleteMessage = useCallback(
     (messageId: string) => {
       const target = messagesRef.current.find((m) => m.id === messageId);
       if (!target || target.deleted) return;
       const snapshot = messagesRef.current;
       setMessages((prev) => prev.map((m) => markDeleted(m, messageId)));
-      transport.deleteMessage(conversationId, messageId).catch(() => {
+      transport.deleteMessage(conversationId, messageId).catch((err: unknown) => {
         if (!mountedRef.current) return;
+        // Offline: the placeholder stays and the unsend replays on
+        // restore; a refusal puts the message back
+        if (isRetryable(err)) {
+          taskQueue.add({ type: 'delete', messageId, at: new Date().toISOString() });
+          return;
+        }
         setMessages((prev) => restoreDeleted(prev, snapshot, messageId));
         notify({ level: 'error', code: 'delete_failed' });
       });
     },
-    [conversationId, transport, notify],
+    [conversationId, transport, notify, taskQueue],
   );
 
 
@@ -514,5 +760,11 @@ export function useConversation(conversationId: string, options: { focused?: boo
     loadOlder,
     loadingOlder,
     hasMore,
+    jumpTo,
+    hasNewer,
+    loadNewer,
+    loadingNewer,
+    returnToLatest,
+    missedWhileDetached,
   };
 }

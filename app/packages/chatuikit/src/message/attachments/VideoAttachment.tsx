@@ -87,6 +87,7 @@ function PlayOverlay({ duration, busy }: { duration?: number; busy: boolean }) {
 export default function VideoAttachment({
   video,
   mediaSize,
+  preview,
   initialRatio,
   onRatio,
   labels,
@@ -94,6 +95,8 @@ export default function VideoAttachment({
 }: {
   video: KitVideo;
   mediaSize?: KitMediaSize;
+  // The poster's micro copy (a data URI)
+  preview?: string | null;
   initialRatio?: number;
   onRatio?: (ratio: number) => void;
   labels: KitLabels;
@@ -127,6 +130,7 @@ export default function VideoAttachment({
     <ImageAttachment
       uri={poster}
       mediaSize={mediaSize}
+      preview={preview}
       initialRatio={initialRatio}
       onRatio={onRatio}
       labels={labels}

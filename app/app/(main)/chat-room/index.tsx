@@ -45,20 +45,26 @@
 
 // Chat data hooks — list/socket, sends, reactions, typing
 import { useChatComposer } from '@/hooks/chat/useChatComposer';
+import { useVoiceRecorder } from '@/hooks/chat/useVoiceRecorder';
 import { TEMP_ID_PREFIX, useChatMessages } from '@/hooks/chat/useChatMessages';
 import { useChatReactions } from '@/hooks/chat/useChatReactions';
 import { useTypingIndicator, type TypingUser } from '@/hooks/chat/useTypingIndicator';
 
 // The messaging kit
+import { forwardPayload, usePins, useRealtimeStatus } from '@knf/chatengine';
+
 import {
   buildTimeline,
   Composer,
+  ConnectionBanner,
   MessageContextMenu,
   MessageList,
+  PinnedBanner,
   RoomHeaderTitle,
   useKitLabels,
   KitKeyboardAvoidingView,
   VideoPlayerModal,
+  openHref,
   type ContextTarget,
   type KitMessage,
   type KitMessageAction,
@@ -67,14 +73,16 @@ import {
 
 // Sheets outside the kit's scope
 import ImageViewerModal, { type ViewerImage } from '@/components/chat/ImageViewerModal';
+import OptionSheet, { type OptionRow } from '@/components/chat/OptionSheet';
 import ReactionsViewer from '@/components/chat/ReactionsViewer';
 
 // UI kit states + dialogs
 import { confirmAction, EmptyState, ErrorState, LoadingSpinner } from '@/components/ui';
-import { showToast } from '@/context/NetworkContext';
+import { showToast, useNetwork } from '@/context/NetworkContext';
 
 // Search + presence endpoints and render-time helpers
-import { fetchOnlineStatus, getUploadUrl, reactToMessageApi, removeReactionApi, reportTarget, searchMessagesApi, type MessageSearchResult } from '@/services/api';
+import { fetchConversations, fetchOnlineStatus, getUploadUrl, reactToMessageApi, removeReactionApi, reportTarget, searchMessagesApi, type MessageSearchResult } from '@/services/api';
+import { chatTransport } from '@/services/chatTransport';
 import { activeLocale, formatDateTime } from '@/services/format';
 
 // Session, theme and navigation
@@ -114,9 +122,9 @@ const QUICK_EMOJI = ['😀', '😂', '😍', '😮', '😢', '😡', '👍', '�
 const PRESENCE_MS = 30_000;
 const DAY_TICK_MS = 60_000;
 
-// How many older pages a jump-to-search-hit may pull before it
-// gives up (the bail-out cap for very deep hits)
-const JUMP_PAGE_CAP = 20;
+// How many render beats a jump waits for the anchored window's
+// rows to land before giving up on the scroll
+const JUMP_RENDER_RETRIES = 6;
 
 
 
@@ -441,7 +449,10 @@ function ChatRoom({ convId, type, unreadCount }: { convId: string; type?: string
 
 
   const labels = useKitLabels();
-  const chat = useChatMessages(convId);
+  // Read acknowledgements hold while the reader is scrolled up into
+  // history — the list reports the newest-end state
+  const [atLatest, setAtLatest] = useState(true);
+  const chat = useChatMessages(convId, { atLatest });
   const composer = useChatComposer(convId, chat.setMessages, chat.messages);
   const reactions = useChatReactions(convId, chat.messages, chat.setMessages);
   // The member list lets the hook drop typing events from
@@ -451,7 +462,21 @@ function ChatRoom({ convId, type, unreadCount }: { convId: string; type?: string
   // are what the memoised rows may depend on
   const { openPicker, closePicker } = reactions;
   const { setReplyTo } = composer;
-  const { loadOlder } = chat;
+  const { jumpTo } = chat;
+  const voice = useVoiceRecorder(composer.attach);
+
+  // The polish batch: the realtime door for the banner, the
+  // room's pins, and the three sheets (disappearing window,
+  // forward-to-room, seen-by)
+  const realtimeStatus = useRealtimeStatus();
+  const { isConnected } = useNetwork();
+  const pinsApi = usePins(convId);
+  const [ttlOpen, setTtlOpen] = useState(false);
+  const [forwardTarget, setForwardTarget] = useState<KitMessage | null>(null);
+  const [forwardRooms, setForwardRooms] = useState<OptionRow[]>([]);
+  const [seenByMessageId, setSeenByMessageId] = useState<string | null>(null);
+  const connectionState = !isConnected ? ('offline' as const) : realtimeStatus === 'connecting' || realtimeStatus === 'reconnecting' ? ('connecting' as const) : null;
+  const ttlActive = !!chat.conversation?.messageTtlSeconds;
 
 
   // Screen-owned panel state
@@ -479,6 +504,24 @@ function ChatRoom({ convId, type, unreadCount }: { convId: string; type?: string
   // than paint an attacker-chosen one into the burgundy bar
   const isGroup = chat.conversation ? chat.conversation.type === 'group' : type === 'group';
   const others = useMemo(() => chat.profiles.filter((p) => p.id !== user?.id), [chat.profiles, user?.id]);
+
+  // Mentions: the members feed the composer's @-strip (groups —
+  // in a DM mentioning the only other person is noise) and the
+  // bubbles' highlighted runs; a tapped mention or portrait
+  // opens that member's profile
+  const mentionCandidates = useMemo(() => others.map((p) => ({ id: p.id, name: p.displayName, avatarUrl: p.avatarUrl })), [others]);
+  const mentionNames = useMemo(() => chat.profiles.map((p) => p.displayName), [chat.profiles]);
+  const openMemberProfile = useCallback((userId: string) => {
+    router.push({ pathname: '/(main)/profile', params: { userId } });
+  }, []);
+  const onPressMention = useCallback(
+    (name: string) => {
+      const member = chat.profiles.find((p) => p.displayName === name);
+      if (member) openMemberProfile(member.id);
+    },
+    [chat.profiles, openMemberProfile],
+  );
+  const onPressAvatar = useCallback((m: KitMessage) => openMemberProfile(m.senderId), [openMemberProfile]);
   const counterpart = !isGroup ? others[0] : undefined;
   const roomTitle = chat.conversation?.title || counterpart?.displayName || t('chat.title');
   const roomAvatar = counterpart?.avatarUrl ? getUploadUrl(counterpart.avatarUrl) ?? undefined : undefined;
@@ -549,17 +592,27 @@ function ChatRoom({ convId, type, unreadCount }: { convId: string; type?: string
         />
       ),
       headerRight: () => (
-        <Pressable
-          onPress={toggleSearch}
-          hitSlop={12}
-          accessibilityRole="button"
-          accessibilityLabel={searchOpen ? t('chat.closeSearch') : t('chat.openSearch')}
-        >
-          <Ionicons name={searchOpen ? 'close' : 'search'} size={22} color={colors.onBrand} />
-        </Pressable>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 18 }}>
+          <Pressable
+            onPress={() => setTtlOpen(true)}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel={t('chat.disappearing')}
+          >
+            <Ionicons name="timer-outline" size={22} color={colors.onBrand} style={ttlActive ? undefined : { opacity: 0.75 }} />
+          </Pressable>
+          <Pressable
+            onPress={toggleSearch}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel={searchOpen ? t('chat.closeSearch') : t('chat.openSearch')}
+          >
+            <Ionicons name={searchOpen ? 'close' : 'search'} size={22} color={colors.onBrand} />
+          </Pressable>
+        </View>
       ),
     });
-  }, [navigation, roomTitle, subtitle, roomAvatar, isGroup, members, online, counterpartId, router, t, searchOpen, toggleSearch, colors.onBrand]);
+  }, [navigation, roomTitle, subtitle, roomAvatar, isGroup, members, online, counterpartId, router, t, searchOpen, toggleSearch, ttlActive, colors.onBrand]);
 
 
   // The kit's rows: grouped runs + time separators. The day key
@@ -653,6 +706,15 @@ function ChatRoom({ convId, type, unreadCount }: { convId: string; type?: string
       if (m.imageUrl && !m.deleted) {
         const uri = getUploadUrl(m.imageUrl);
         if (uri) rows.push({ id: m.clientId ?? m.id, uri });
+      }
+      // A gallery contributes one entry per tile, keyed
+      // <rowKey>#<index> — local uris of a still-uploading send
+      // resolve to null and stay out (the kit disables the taps)
+      if (m.gallery && !m.deleted) {
+        m.gallery.forEach((item, index) => {
+          const uri = getUploadUrl(item.url);
+          if (uri) rows.push({ id: `${m.clientId ?? m.id}#${index}`, uri });
+        });
       }
     }
     return rows;
@@ -798,19 +860,13 @@ function ChatRoom({ convId, type, unreadCount }: { convId: string; type?: string
 
 
   // Jump to a message (quoted original, search hit): scroll it
-  // into view and wash it. A hit older than the loaded history
-  // pages back (bounded by JUMP_PAGE_CAP) behind a spinner
-  // overlay until the row exists; only a truly missing message
-  // gets the toast.
+  // into view and wash it. A hit beyond the loaded history is
+  // anchored by the engine in ONE round trip (the transport's
+  // around-window) behind a spinner overlay; only a truly
+  // missing message gets the toast.
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [jumping, setJumping] = useState(false);
   const jumpingRef = useRef(false);
-  const hasMoreRef = useRef(chat.hasMore);
-  const messageCountRef = useRef(chat.messages.length);
-  useEffect(() => {
-    hasMoreRef.current = chat.hasMore;
-    messageCountRef.current = chat.messages.length;
-  }, [chat.hasMore, chat.messages.length]);
   const highlight = useCallback((targetId: string) => {
     if (highlightTimer.current) clearTimeout(highlightTimer.current);
     setHighlightedId(targetId);
@@ -826,23 +882,22 @@ function ChatRoom({ convId, type, unreadCount }: { convId: string; type?: string
         return;
       }
 
-      // Page back until the row lands, history runs out, paging
-      // stalls, or the cap hits
+      // Not held: the engine anchors a window around the target,
+      // then the fresh rows get a few beats to render before the
+      // scroll retries
       if (jumpingRef.current) return;
       jumpingRef.current = true;
       setJumping(true);
       try {
-        for (let page = 0; page < JUMP_PAGE_CAP; page++) {
-          if (!hasMoreRef.current) break;
-          const before = messageCountRef.current;
-          await loadOlder();
-          // A beat for the fresh page to render before retrying
-          await new Promise((resolve) => setTimeout(resolve, 80));
-          if (listRef.current?.scrollToMessage(targetId)) {
-            highlight(targetId);
-            return;
+        const outcome = await jumpTo(targetId);
+        if (outcome !== 'missing') {
+          for (let attempt = 0; attempt < JUMP_RENDER_RETRIES; attempt++) {
+            await new Promise((resolve) => setTimeout(resolve, 80));
+            if (listRef.current?.scrollToMessage(targetId)) {
+              highlight(targetId);
+              return;
+            }
           }
-          if (messageCountRef.current === before) break;
         }
         showToast('info', t('chat.searchNotLoaded'));
       } finally {
@@ -850,7 +905,7 @@ function ChatRoom({ convId, type, unreadCount }: { convId: string; type?: string
         setJumping(false);
       }
     },
-    [highlight, loadOlder, t],
+    [highlight, jumpTo, t],
   );
   const jumpToQuoted = useCallback(
     (message: KitMessage) => {
@@ -870,12 +925,13 @@ function ChatRoom({ convId, type, unreadCount }: { convId: string; type?: string
   const toggleTime = useCallback((m: KitMessage) => setRevealedId((current) => (current === m.id ? null : m.id)), []);
   const openReactors = useCallback((m: KitMessage) => setReactorsMessageId(m.id), []);
   const openImage = useCallback((m: KitMessage) => setViewerImageId(m.clientId ?? m.id), []);
+  const openGalleryImage = useCallback((m: KitMessage, index: number) => setViewerImageId(`${m.clientId ?? m.id}#${index}`), []);
   const openVideo = useCallback((m: KitMessage) => {
     const uri = m.video?.uri ? getUploadUrl(m.video.uri) : null;
     if (uri) setPlayingVideoUri(uri);
   }, []);
   const openLink = useCallback(
-    (href: string) => void Linking.openURL(href).catch(() => showToast('error', t('info.linkError'))),
+    (href: string) => void openHref(href, () => showToast('error', t('info.linkError'))),
     [t],
   );
 
@@ -888,6 +944,66 @@ function ChatRoom({ convId, type, unreadCount }: { convId: string; type?: string
   // memoised on the catalog alone, never on the composer object
   const startEditRef = useRef(composer.startEdit);
   startEditRef.current = composer.startEdit;
+  // Forward: the picker fetches the room list on open (fresh —
+  // rooms come and go), the pick re-sends the content with the
+  // mark; the source room is left out of its own list
+  const openForward = useCallback((m: KitMessage) => {
+    setForwardTarget(m);
+    setForwardRooms([]);
+    void fetchConversations()
+      .then((resp) => {
+        setForwardRooms(
+          resp.conversations
+            .filter((c) => c.id !== convId)
+            .map((c) => ({ id: c.id, label: c.title, detail: c.type === 'group' ? t('chat.groupChat') : undefined })),
+        );
+      })
+      .catch(() => showToast('error', t('common.error')));
+  }, [convId, t]);
+  const pickForwardRoom = useCallback(
+    (roomId: string) => {
+      const target = forwardTarget;
+      setForwardTarget(null);
+      if (!target) return;
+      const nonce = `fwd-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      void chatTransport
+        .sendMessage(roomId, forwardPayload(target, nonce))
+        .then(() => showToast('success', t('chat.forwardSent')))
+        .catch(() => showToast('error', t('common.error')));
+    },
+    [forwardTarget, t],
+  );
+
+  // Seen-by: the receipt holders among the members, sender aside
+  const seenByRows = useMemo<OptionRow[]>(() => {
+    if (!seenByMessageId) return [];
+    const m = chat.messages.find((row) => row.id === seenByMessageId);
+    if (!m) return [];
+    const readers = new Set(m.readBy ?? []);
+    return chat.profiles
+      .filter((p) => p.id !== m.senderId && readers.has(p.id))
+      .map((p) => ({ id: p.id, label: p.displayName }));
+  }, [seenByMessageId, chat.messages, chat.profiles]);
+
+  // Disappearing messages: the room's window, one of four rows
+  const ttlRows = useMemo<OptionRow[]>(() => {
+    const current = chat.conversation?.messageTtlSeconds ?? 0;
+    return [
+      { id: '0', label: t('chat.ttlOff'), active: !current },
+      { id: '3600', label: t('chat.ttl1h'), active: current === 3600 },
+      { id: '86400', label: t('chat.ttl24h'), active: current === 86400 },
+      { id: '604800', label: t('chat.ttl7d'), active: current === 604800 },
+    ];
+  }, [chat.conversation?.messageTtlSeconds, t]);
+  const pickTtl = useCallback(
+    (id: string) => {
+      setTtlOpen(false);
+      const seconds = Number(id) || null;
+      void chatTransport.setMessageTtl?.(convId, seconds)?.catch(() => showToast('error', t('common.error')));
+    },
+    [convId, t],
+  );
+
   const menuActions = useMemo<KitMessageAction[]>(
     () => [
       {
@@ -927,8 +1043,50 @@ function ChatRoom({ convId, type, unreadCount }: { convId: string; type?: string
           })();
         },
       },
+      {
+        // Pin / Unpin: any member, never temps, unsent or system rows
+        id: 'pin',
+        label: t('chat.pin'),
+        icon: 'pin-outline',
+        visible: (m) => pinsApi.supported && !m.pinnedAt && !m.deleted && !m.id.startsWith(TEMP_ID_PREFIX) && (m.kind ?? 'text') !== 'system',
+        onPress: (m) => {
+          closeMenuRef.current();
+          void pinsApi.pin(m.id).catch(() => showToast('error', t('common.error')));
+        },
+      },
+      {
+        id: 'unpin',
+        label: t('chat.unpin'),
+        icon: 'pin',
+        visible: (m) => pinsApi.supported && !!m.pinnedAt && !m.deleted && !m.id.startsWith(TEMP_ID_PREFIX),
+        onPress: (m) => {
+          closeMenuRef.current();
+          void pinsApi.unpin(m.id).catch(() => showToast('error', t('common.error')));
+        },
+      },
+      {
+        id: 'forward',
+        label: t('chat.forward'),
+        icon: 'arrow-redo-outline',
+        visible: (m) => !m.deleted && !m.id.startsWith(TEMP_ID_PREFIX) && (m.kind ?? 'text') !== 'system',
+        onPress: (m) => {
+          closeMenuRef.current();
+          openForward(m);
+        },
+      },
+      {
+        // Who read it — own messages in groups only
+        id: 'seen-by',
+        label: t('chat.seenBy'),
+        icon: 'eye-outline',
+        visible: (m) => isGroup && m.isOwn && !m.deleted && !m.id.startsWith(TEMP_ID_PREFIX),
+        onPress: (m) => {
+          closeMenuRef.current();
+          setSeenByMessageId(m.id);
+        },
+      },
     ],
-    [t],
+    [t, pinsApi, isGroup, openForward],
   );
   // Only rows the server knows can be replied to; the menu also
   // opens on a failed temp (to discard it)
@@ -990,6 +1148,10 @@ function ChatRoom({ convId, type, unreadCount }: { convId: string; type?: string
         importantForAccessibility={searchOpen ? 'no-hide-descendants' : 'auto'}
       >
         <>
+          {/* The realtime door and the room's pins, above the feed */}
+          <ConnectionBanner state={connectionState} />
+          <PinnedBanner pins={pinsApi.pins} onPress={(m) => void jumpToMessage(m.id)} />
+
           {/* Message area — loading / error / the feed (an empty
               conversation shows just the intro card) */}
           {chat.loading && chat.messages.length === 0 ? (
@@ -1023,6 +1185,11 @@ function ChatRoom({ convId, type, unreadCount }: { convId: string; type?: string
               loadingOlder={chat.loadingOlder}
               hasMore={chat.hasMore}
               onLoadOlder={chat.loadOlder}
+              hasNewer={chat.hasNewer}
+              loadingNewer={chat.loadingNewer}
+              onLoadNewer={chat.loadNewer}
+              onReturnToLatest={chat.returnToLatest}
+              missedCount={chat.missedWhileDetached}
               onJumpFailed={onJumpFailed}
               revealedId={revealedId}
               highlightedId={highlightedId}
@@ -1035,7 +1202,12 @@ function ChatRoom({ convId, type, unreadCount }: { convId: string; type?: string
               onPressQuote={jumpToQuoted}
               onPressReactions={openReactors}
               onPressImage={openImage}
+              onPressGalleryImage={openGalleryImage}
+              mentionNames={mentionNames}
+              onPressMention={onPressMention}
+              onPressAvatar={onPressAvatar}
               onPressVideo={openVideo}
+              onAtLatestChange={setAtLatest}
               onRetry={composer.retryMessage}
               onPressLink={openLink}
               // Unfocused rooms keep quiet for the screen reader
@@ -1062,6 +1234,12 @@ function ChatRoom({ convId, type, unreadCount }: { convId: string; type?: string
             emojiOpen={emojiOpen}
             uploadingMedia={composer.uploadingMedia}
             uploadingFile={composer.uploadingFile}
+            onStartRecording={() => void voice.start()}
+            onStopRecording={voice.stop}
+            onCancelRecording={voice.cancel}
+            recording={voice.recording}
+            onAttachCamera={() => void composer.attachCamera()}
+            mentionCandidates={isGroup ? mentionCandidates : undefined}
             replyTo={
               composer.replyTo
                 ? {
@@ -1079,6 +1257,7 @@ function ChatRoom({ convId, type, unreadCount }: { convId: string; type?: string
             onCancelReply={() => setReplyTo(null)}
             editing={composer.editing}
             onCancelEdit={composer.cancelEdit}
+            canSend={composer.canSend}
           />
         </>
       </View>
@@ -1122,6 +1301,31 @@ function ChatRoom({ convId, type, unreadCount }: { convId: string; type?: string
         visible={reactorsMessageId !== null}
         rows={reactorRows}
         onClose={() => setReactorsMessageId(null)}
+      />
+
+      <OptionSheet
+        visible={ttlOpen}
+        title={t('chat.disappearing')}
+        rows={ttlRows}
+        onPick={pickTtl}
+        onClose={() => setTtlOpen(false)}
+      />
+
+      <OptionSheet
+        visible={forwardTarget !== null}
+        title={t('chat.forwardTitle')}
+        rows={forwardRooms}
+        emptyLabel={t('common.loading')}
+        onPick={pickForwardRoom}
+        onClose={() => setForwardTarget(null)}
+      />
+
+      <OptionSheet
+        visible={seenByMessageId !== null}
+        title={t('chat.seenBy')}
+        rows={seenByRows}
+        emptyLabel={t('chat.seenByNone')}
+        onClose={() => setSeenByMessageId(null)}
       />
 
       <ImageViewerModal

@@ -19,7 +19,10 @@
 
 // text | image | video | file | system. Absent on the wire means
 // "text, or image when imageUrl is set"
-export type ChatMessageKind = 'text' | 'image' | 'video' | 'file' | 'system';
+// 'custom' carries a host-defined payload (`custom`) that the UI
+// renders through its own slot; any other kind a newer backend
+// invents reaches the UI unchanged and renders as unsupported
+export type ChatMessageKind = 'text' | 'image' | 'video' | 'file' | 'audio' | 'system' | 'custom';
 
 export type ChatMessageStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
 
@@ -42,6 +45,31 @@ export interface ChatVideo {
   size?: number;
   mimeType?: string;
   name?: string;
+}
+
+// A voice note (kind 'audio'): the stored clip and its length.
+// The uri is local on an optimistic row still uploading
+export interface ChatAudio {
+  uri: string;
+  duration?: number;
+  size?: number;
+  mimeType?: string;
+  name?: string;
+  // Amplitude bars (0..1, at most 64) the player draws
+  waveform?: number[] | null;
+}
+
+// The card of the first URL in a message's text, unfurled by
+// the backend after the send (never by the client — a link must
+// not beacon every reader to a stranger's host). imageUrl is a
+// stored reference like any photo
+export interface ChatLinkPreview {
+  url: string;
+  title: string;
+  description: string;
+  siteName: string;
+  imageUrl?: string | null;
+  imagePreview?: string | null;
 }
 
 export interface ChatReaction {
@@ -99,8 +127,40 @@ export interface ChatMessage {
   editedAt?: string | null;
   file?: ChatFile;
   video?: ChatVideo;
+  audio?: ChatAudio;
   // Natural pixel size of the photo / video frame
   mediaSize?: { width: number; height: number };
+  // A 'custom' message's payload — opaque to the engine
+  custom?: unknown;
+  // Null until the backend's unfurl lands (an 'updated' event)
+  linkPreview?: ChatLinkPreview | null;
+  // Several photos in one message (2+). Each url is a stored
+  // path once sent — or the picked asset's local uri on an
+  // optimistic row still uploading
+  gallery?: ChatGalleryItem[] | null;
+  // The photo's / poster's ~14px micro copy (a data URI) — the
+  // blur every reader draws before the bytes
+  mediaPreview?: string | null;
+  // Re-sent from another room — the mark is the only trace
+  forwarded?: boolean;
+  // Disappearing messages: the hard-delete deadline stamped at
+  // send; clients drop the row by their own clock too
+  expiresAt?: string | null;
+  // Pinned by a member (any member may pin / unpin)
+  pinnedAt?: string | null;
+  pinnedBy?: string | null;
+  // Own optimistic rows only: the running upload's fraction
+  // (0..1) while the bytes go up
+  uploadProgress?: number;
+}
+
+// One photo of a multi-photo message
+export interface ChatGalleryItem {
+  url: string;
+  width?: number | null;
+  height?: number | null;
+  // The ~14px micro copy shown while the tile downloads
+  preview?: string | null;
 }
 
 // The signed-in user as the engine needs them: for optimistic
@@ -125,6 +185,8 @@ export interface ConversationMeta {
   type: 'direct' | 'group';
   title?: string | null;
   avatarEmoji?: string | null;
+  // Disappearing messages: the room's window (null/absent = off)
+  messageTtlSeconds?: number | null;
 }
 
 // A reaction group as backends broadcast it (no viewer-relative

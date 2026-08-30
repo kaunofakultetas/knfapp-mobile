@@ -18,7 +18,7 @@
 import { toTransportError, TransportError } from '../../core/errors';
 import type { ChatTransport, OutgoingMessage, UploadAsset, UploadResult } from '../../core/transport';
 import type { ChatMessage, ReactionGroup } from '../../core/types';
-import { toChatMessage, toMessagesPage, toReactionGroups, type ApiMessage, type ApiMessagesResponse, type ApiReactionGroup, type ApiUploadResponse } from './wire';
+import { toChatMessage, toMessagesPage, toReactionGroups, type ApiChangesResponse, type ApiMessage, type ApiMessagesResponse, type ApiReactionGroup, type ApiUploadResponse } from './wire';
 
 
 export interface HttpRequestOptions {
@@ -26,6 +26,9 @@ export interface HttpRequestOptions {
   timeoutMs?: number;
   // The body is a FormData — the client must send it multipart
   multipart?: boolean;
+  // Hears the request body's upload fraction (0..1) when the
+  // client can observe it (axios can)
+  onUploadProgress?: (fraction: number) => void;
 }
 
 export interface HttpClient {
@@ -41,7 +44,7 @@ export interface KnfRestOptions {
   // takes { uri, name, type }; web needs a Blob — the host knows
   // which it is. Default: the RN object shape
   filePart?: (asset: UploadAsset, name: string, type: string) => Promise<Blob | { uri: string; name: string; type: string }>;
-  uploadTimeoutMs?: { image: number; file: number; video: number };
+  uploadTimeoutMs?: { image: number; file: number; video: number; audio: number };
 }
 
 
@@ -55,7 +58,7 @@ const guard = async <T>(call: () => Promise<T>): Promise<T> => {
   }
 };
 
-const defaultTimeouts = { image: 30_000, file: 45_000, video: 120_000 };
+const defaultTimeouts = { image: 30_000, file: 45_000, video: 120_000, audio: 45_000 };
 
 
 
@@ -80,10 +83,13 @@ export function createKnfRest(options: KnfRestOptions): Omit<ChatTransport, 'rea
     fetchMessages: (conversationId, opts) =>
       guard(async () => {
         const before = opts?.before;
+        const after = opts?.after;
         const resp = await http.get<ApiMessagesResponse>(`/chat/conversations/${enc(conversationId)}/messages`, {
           params: {
             limit: opts?.limit ?? 50,
             ...(before ? { before: before.createdAt, before_id: before.id } : {}),
+            ...(after ? { after: after.createdAt, after_id: after.id } : {}),
+            ...(opts?.around ? { around: opts.around } : {}),
           },
         });
         return toMessagesPage(resp);
@@ -96,8 +102,10 @@ export function createKnfRest(options: KnfRestOptions): Omit<ChatTransport, 'rea
           ...(message.imageUrl ? { imageUrl: message.imageUrl } : {}),
           ...(message.replyToId ? { replyToId: message.replyToId } : {}),
           client_msg_id: message.clientId,
+          ...(message.forwarded ? { forwarded: true } : {}),
           ...(message.attachment ? { attachment: message.attachment } : {}),
           ...(message.media ? { media: message.media } : {}),
+          ...(message.gallery ? { gallery: message.gallery } : {}),
           ...(message.kind ? { kind: message.kind } : {}),
         };
         const resp = await http.post<{ message: ApiMessage }>(`/chat/conversations/${enc(conversationId)}/messages`, body);
@@ -130,7 +138,34 @@ export function createKnfRest(options: KnfRestOptions): Omit<ChatTransport, 'rea
         await http.put(`/chat/conversations/${enc(conversationId)}/read`);
       }),
 
-    upload: (asset: UploadAsset): Promise<UploadResult> =>
+    fetchChanges: (conversationId, since) =>
+      guard(async () => {
+        const resp = await http.get<ApiChangesResponse>(`/chat/conversations/${enc(conversationId)}/changes`, { params: { since } });
+        return { messages: resp.messages.map(toChatMessage), cursor: resp.cursor };
+      }),
+
+    pinMessage: (conversationId, messageId) =>
+      guard(async () => {
+        await http.put(`/chat/conversations/${enc(conversationId)}/messages/${enc(messageId)}/pin`);
+      }),
+
+    unpinMessage: (conversationId, messageId) =>
+      guard(async () => {
+        await http.delete(`/chat/conversations/${enc(conversationId)}/messages/${enc(messageId)}/pin`);
+      }),
+
+    fetchPins: (conversationId) =>
+      guard(async () => {
+        const resp = await http.get<{ pins: ApiMessage[] }>(`/chat/conversations/${enc(conversationId)}/pins`);
+        return (resp.pins ?? []).map(toChatMessage);
+      }),
+
+    setMessageTtl: (conversationId, seconds) =>
+      guard(async () => {
+        await http.put(`/chat/conversations/${enc(conversationId)}/ttl`, { seconds });
+      }),
+
+    upload: (asset: UploadAsset, onProgress?: (fraction: number) => void): Promise<UploadResult> =>
       guard(async () => {
         const name = asset.name || asset.uri.split('/').pop() || (asset.kind === 'video' ? 'video.mp4' : asset.kind === 'file' ? 'file' : 'photo.jpg');
         const type =
@@ -142,7 +177,7 @@ export function createKnfRest(options: KnfRestOptions): Omit<ChatTransport, 'rea
         if (part instanceof Blob) form.append('file', part, name);
         else form.append('file', part as unknown as Blob);
         try {
-          const resp = await http.post<ApiUploadResponse>('/uploads', form, { multipart: true, timeoutMs: timeouts[asset.kind] });
+          const resp = await http.post<ApiUploadResponse>('/uploads', form, { multipart: true, timeoutMs: timeouts[asset.kind], onUploadProgress: onProgress });
           return {
             url: resp.url,
             name: resp.name ?? name,
@@ -150,6 +185,7 @@ export function createKnfRest(options: KnfRestOptions): Omit<ChatTransport, 'rea
             mime: resp.mime ?? type,
             width: resp.width ?? null,
             height: resp.height ?? null,
+            preview: resp.preview ?? null,
           };
         } catch (err) {
           // The backend's size rejection is tagged like a preflight one

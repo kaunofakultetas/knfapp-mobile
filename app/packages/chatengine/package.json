@@ -1,6 +1,6 @@
 {
   "name": "@knf/chatengine",
-  "version": "1.0.0",
+  "version": "1.5.0",
   "description": "Headless chat engine for React Native / Expo — history paging, optimistic sends with an offline outbox, edits, unsends, reactions, read receipts and typing, behind one ChatTransport interface. Bring your own backend adapter; pair with @knf/chatuikit or any UI.",
   "main": "src/index.ts",
   "types": "src/index.ts",
@@ -8,6 +8,7 @@
   "private": true,
   "files": [
     "src",
+    "!src/**/__tests__",
     "README.md",
     "CHANGELOG.md",
     "LICENSE"
@@ -20,5 +21,8 @@
     "socket.io-client": {
       "optional": true
     }
+  },
+  "scripts": {
+    "test": "jest"
   }
 }

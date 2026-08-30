@@ -31,7 +31,13 @@ export type KitIconName = keyof typeof Ionicons.glyphMap;
 // and photos never set it. 'system' rows (joins, renames…) are
 // centred captions: no bubble, no avatar, no receipts, never
 // grouped into a run, never actionable.
-export type KitMessageKind = 'text' | 'image' | 'video' | 'file' | 'system';
+// 'custom' is the extension point: the host renders it through
+// the provider's components.MessageBody; any kind this build does
+// not know renders the unsupported placeholder instead of a blank
+// bubble (forward compatibility with a newer backend)
+export type KitMessageKind = 'text' | 'image' | 'video' | 'file' | 'audio' | 'system' | 'custom';
+
+export const KNOWN_KINDS: readonly string[] = ['text', 'image', 'video', 'file', 'audio', 'system', 'custom'];
 
 // A document attachment: the card shows the name and the size,
 // a tap hands `uri` to the host's link handler
@@ -65,6 +71,17 @@ export interface KitVideo {
 export interface KitMediaSize {
   width: number;
   height: number;
+}
+
+// The card of a text message's first link, unfurled by the host's
+// backend (never by the kit); imageUrl resolves like any stored image
+export interface KitLinkPreview {
+  url: string;
+  title: string;
+  description: string;
+  siteName: string;
+  imageUrl?: string | null;
+  imagePreview?: string | null;
 }
 
 export interface KitReaction {
@@ -120,6 +137,27 @@ export interface KitMessage {
   file?: KitFile;
   // The attachment of a 'video' message
   video?: KitVideo;
+  // A 'custom' message's payload, for the host's MessageBody slot
+  custom?: unknown;
+  // The unfurled card of the first link (null until it lands)
+  linkPreview?: KitLinkPreview | null;
+  // Several photos in one message (2+): stored paths once sent,
+  // the picked assets' local uris while still uploading
+  gallery?: KitGalleryItem[] | null;
+  audio?: KitAudio;
+  // The photo's / poster's ~14px micro copy (a data URI) — the
+  // blur drawn while the real bytes download
+  mediaPreview?: string | null;
+  // Re-sent from another room — the small marker row
+  forwarded?: boolean;
+  // Disappearing messages: the row's hard-delete deadline (the
+  // tiny timer glyph beside the time)
+  expiresAt?: string | null;
+  // Pinned by a member (the banner + the host's menu action)
+  pinnedAt?: string | null;
+  pinnedBy?: string | null;
+  // Own optimistic rows: the running upload's fraction (0..1)
+  uploadProgress?: number;
   // Natural size of the photo / video frame (see KitMediaSize)
   mediaSize?: KitMediaSize;
   // ISO timestamp of the sender's last edit — the bubble adds
@@ -128,10 +166,42 @@ export interface KitMessage {
 }
 
 
+// One photo of a multi-photo message
+export interface KitGalleryItem {
+  url: string;
+  width?: number | null;
+  height?: number | null;
+  // The tile's micro copy (a data URI)
+  preview?: string | null;
+}
+
+
+// A member the composer's mention strip can offer
+export interface KitMentionCandidate {
+  id: string;
+  name: string;
+  avatarUrl?: string | null;
+}
+
+
+// A voice note (kind 'audio'): the clip and its length — a
+// local uri while an own send still uploads
+export interface KitAudio {
+  uri: string;
+  duration?: number;
+  size?: number;
+  mimeType?: string;
+  name?: string;
+  // Amplitude bars (0..1) — drawn instead of the plain track
+  waveform?: number[] | null;
+}
+
+
 export function messageKind(message: KitMessage): KitMessageKind {
   if (message.kind) return message.kind;
   if (message.video) return 'video';
-  if (message.imageUrl || message.localImageUri) return 'image';
+  if (message.audio) return 'audio';
+  if (message.imageUrl || message.localImageUri || message.gallery?.length) return 'image';
   if (message.file) return 'file';
   return 'text';
 }

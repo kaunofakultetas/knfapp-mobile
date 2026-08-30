@@ -21,16 +21,34 @@
 //    NoticeCode / EngineNotice — what the engine tells the host
 // -----------------------------------------------------------
 
-import type { ChatMessage, ConversationMeta, Participant, ReactionGroup } from './types';
+import type { ChatGalleryItem, ChatMessage, ConversationMeta, Participant, ReactionGroup } from './types';
 
 
 // One history page, OLDEST message first (the engine flips it
 // for its newest-first list)
 export interface MessagesPage {
   messages: ChatMessage[];
+  // Older rows exist beyond this page
   hasMore: boolean;
+  // Newer rows exist beyond this page — only an `around` or
+  // `after` window can say true; a transport that never answers
+  // those may leave it out (read as false)
+  hasNewer?: boolean;
   participants: Participant[];
   conversation: ConversationMeta | null;
+  // The server's own clock at the time of the page — the point a
+  // later fetchChanges resumes from. Backends without a change
+  // feed leave it out
+  cursor?: string;
+}
+
+// What changed since a cursor: rows edited or unsent while this
+// client was away, as full rows (an unsent one carries deleted:
+// true), and the new cursor. Rows the client never loaded are
+// harmless — the engine only applies changes to rows it holds
+export interface ChangesPage {
+  messages: ChatMessage[];
+  cursor: string;
 }
 
 // The cursor for older pages: the oldest loaded row's stamp AND
@@ -38,6 +56,13 @@ export interface MessagesPage {
 export interface PageCursor {
   createdAt: string;
   id: string;
+}
+
+export interface MessagesWindow {
+  before?: PageCursor;
+  after?: PageCursor;
+  around?: string;
+  limit?: number;
 }
 
 // What a send carries. clientId is the optimistic temp's id —
@@ -48,9 +73,13 @@ export interface OutgoingMessage {
   imageUrl?: string;
   replyToId?: string;
   clientId: string;
-  kind?: 'text' | 'image' | 'file' | 'video';
+  kind?: 'text' | 'image' | 'file' | 'video' | 'audio';
   attachment?: { url: string; name: string; size: number; mime: string };
-  media?: { width?: number; height?: number; duration?: number; thumbnailUrl?: string };
+  media?: { width?: number; height?: number; duration?: number; thumbnailUrl?: string; preview?: string; waveform?: number[] };
+  // Re-sent from another room (see core/forward.ts)
+  forwarded?: boolean;
+  // Several photos in one message (kind 'image'), uploaded first
+  gallery?: ChatGalleryItem[];
 }
 
 export interface UploadAsset {
@@ -58,7 +87,7 @@ export interface UploadAsset {
   name?: string;
   mimeType?: string;
   size?: number;
-  kind: 'image' | 'file' | 'video';
+  kind: 'image' | 'file' | 'video' | 'audio';
 }
 
 export interface UploadResult {
@@ -70,6 +99,8 @@ export interface UploadResult {
   mime: string;
   width?: number | null;
   height?: number | null;
+  // Photos: the backend's ~14px micro copy (a data URI)
+  preview?: string | null;
 }
 
 
@@ -78,6 +109,10 @@ export type ChatEvent =
   | { type: 'reactions'; conversationId: string; messageId: string; reactions: ReactionGroup[] }
   | { type: 'deleted'; conversationId: string; messageId: string }
   | { type: 'edited'; conversationId: string; messageId: string; text: string; editedAt: string }
+  // The server filled something in after the send (a link
+  // preview card, later maybe a pin) — a partial row to merge
+  | { type: 'updated'; conversationId: string; messageId: string; patch: Partial<Pick<ChatMessage, 'linkPreview' | 'text' | 'editedAt' | 'mediaSize' | 'video' | 'file' | 'pinnedAt' | 'pinnedBy'>> }
+  | { type: 'conversation'; conversationId: string; patch: Partial<Pick<ConversationMeta, 'title' | 'avatarEmoji' | 'messageTtlSeconds'>> }
   | { type: 'read'; conversationId: string; readerId: string; messageIds: string[] }
   | { type: 'typing'; conversationId: string; userId: string; displayName: string; active: boolean };
 
@@ -104,7 +139,15 @@ export interface ChatRealtime {
 
 
 export interface ChatTransport {
-  fetchMessages(conversationId: string, options?: { before?: PageCursor; limit?: number }): Promise<MessagesPage>;
+  // The default window is the newest page. `before` answers the
+  // rows strictly older than the cursor, `after` the rows strictly
+  // newer (walking forward from an anchored window back to the
+  // head), `around` half a page either side of one message, the
+  // anchor included — a search hit or a quoted message beyond the
+  // loaded history in one round trip. The answer is oldest-first
+  // whatever the window. An `around` on a message that is not in
+  // the conversation rejects with status 404
+  fetchMessages(conversationId: string, options?: MessagesWindow): Promise<MessagesPage>;
   sendMessage(conversationId: string, message: OutgoingMessage): Promise<ChatMessage>;
   editMessage(conversationId: string, messageId: string, text: string): Promise<{ id: string; text: string; editedAt: string }>;
   deleteMessage(conversationId: string, messageId: string): Promise<void>;
@@ -113,7 +156,22 @@ export interface ChatTransport {
   // The durable read mark (the realtime markRead is the fast,
   // droppable twin)
   markRead(conversationId: string): Promise<void>;
-  upload(asset: UploadAsset): Promise<UploadResult>;
+  // onProgress, when given, hears the upload's fraction (0..1);
+  // a transport that cannot observe progress may never call it
+  upload(asset: UploadAsset, onProgress?: (fraction: number) => void): Promise<UploadResult>;
+  // Optional: edits and unsends that happened after `since` (a
+  // cursor from MessagesPage / ChangesPage). Without it, a resync
+  // only sees changes inside the newest page — a message edited
+  // or unsent further up while the app was offline stays stale
+  // until the room is reopened
+  fetchChanges?(conversationId: string, since: string): Promise<ChangesPage>;
+  // Optional trio: message pins. Any member pins/unpins; the room
+  // hears an 'updated' event with {pinnedAt, pinnedBy}
+  pinMessage?(conversationId: string, messageId: string): Promise<void>;
+  unpinMessage?(conversationId: string, messageId: string): Promise<void>;
+  fetchPins?(conversationId: string): Promise<ChatMessage[]>;
+  // Optional: disappearing messages — 0/null switches off
+  setMessageTtl?(conversationId: string, seconds: number | null): Promise<void>;
   realtime: ChatRealtime;
 }
 

@@ -33,6 +33,8 @@ export interface ApiMedia {
   height?: number | null;
   duration?: number | null;
   thumbnailUrl?: string | null;
+  preview?: string | null;
+  waveform?: number[] | null;
 }
 
 export interface ApiReply {
@@ -75,13 +77,50 @@ export interface ApiMessage {
   editedAt?: string | null;
   attachment?: ApiAttachment | null;
   media?: ApiMedia | null;
+  linkPreview?: ApiLinkPreview | null;
+  gallery?: { url: string; width?: number | null; height?: number | null; preview?: string | null }[] | null;
+  forwarded?: boolean;
+  expiresAt?: string | null;
+  pinnedAt?: string | null;
+  pinnedBy?: string | null;
+}
+
+export interface ApiLinkPreview {
+  url: string;
+  title: string;
+  description: string;
+  siteName: string;
+  imageUrl?: string | null;
+  imagePreview?: string | null;
+}
+
+// Socket.IO: the server patched a row after the send
+export interface ApiMessageUpdatedEvent {
+  conversationId: string;
+  messageId: string;
+  patch: { linkPreview?: ApiLinkPreview | null; pinnedAt?: string | null; pinnedBy?: string | null };
+}
+
+// Socket.IO: a room setting changed (the disappearing window)
+export interface ApiConversationUpdatedEvent {
+  conversationId: string;
+  patch: { messageTtlSeconds?: number | null };
 }
 
 export interface ApiMessagesResponse {
   messages: ApiMessage[];
   hasMore: boolean;
+  // Newer rows beyond the page — only an around / after window
+  hasNewer?: boolean;
   participants: { id: string; displayName: string; avatarUrl?: string | null }[];
-  conversation: { id: string; type: 'direct' | 'group'; title?: string | null; avatarEmoji?: string | null } | null;
+  conversation: { id: string; type: 'direct' | 'group'; title?: string | null; avatarEmoji?: string | null; messageTtlSeconds?: number | null } | null;
+  // The server clock at the time of the page (v59)
+  cursor?: string;
+}
+
+export interface ApiChangesResponse {
+  messages: ApiMessage[];
+  cursor: string;
 }
 
 export interface ApiUploadResponse {
@@ -92,6 +131,7 @@ export interface ApiUploadResponse {
   mime?: string;
   width?: number | null;
   height?: number | null;
+  preview?: string | null;
 }
 
 // Socket.IO payloads
@@ -152,7 +192,7 @@ export const mapReply = (reply: ApiReply | null | undefined): ChatReplyRef | und
 // A 'video' row's attachment is the video, its media the frame
 // and the poster; a 'file' row's attachment is the document; a
 // photo row only has the frame
-export const mapContent = (m: Pick<ApiMessage, 'kind' | 'editedAt' | 'attachment' | 'media'>): Pick<ChatMessage, 'kind' | 'editedAt' | 'file' | 'video' | 'mediaSize'> => {
+export const mapContent = (m: Pick<ApiMessage, 'kind' | 'editedAt' | 'attachment' | 'media'>): Pick<ChatMessage, 'kind' | 'editedAt' | 'file' | 'video' | 'audio' | 'mediaSize' | 'mediaPreview'> => {
   const kind = m.kind ?? undefined;
   const media = m.media ?? undefined;
   const mediaSize = media && media.width && media.height ? { width: media.width, height: media.height } : undefined;
@@ -166,6 +206,11 @@ export const mapContent = (m: Pick<ApiMessage, 'kind' | 'editedAt' | 'attachment
       kind === 'video' && attachment
         ? { uri: attachment.url, thumbnailUri: media?.thumbnailUrl || undefined, duration: media?.duration ?? undefined, size: attachment.size, mimeType: attachment.mime, name: attachment.name }
         : undefined,
+    audio:
+      kind === 'audio' && attachment
+        ? { uri: attachment.url, duration: media?.duration ?? undefined, size: attachment.size, mimeType: attachment.mime, name: attachment.name, waveform: media?.waveform ?? undefined }
+        : undefined,
+    mediaPreview: media?.preview ?? undefined,
   };
 };
 
@@ -193,6 +238,12 @@ export function toChatMessage(m: ApiMessage): ChatMessage {
     replyTo: mapReply(m.replyTo),
     deleted: !!m.deleted,
     ...mapContent(m),
+    linkPreview: m.linkPreview ?? undefined,
+    gallery: m.gallery ?? undefined,
+    forwarded: !!m.forwarded,
+    expiresAt: m.expiresAt ?? undefined,
+    pinnedAt: m.pinnedAt ?? undefined,
+    pinnedBy: m.pinnedBy ?? undefined,
   };
 }
 
@@ -203,13 +254,15 @@ export const toParticipant = (p: { id: string; displayName: string; avatarUrl?: 
 });
 
 export const toConversationMeta = (c: ApiMessagesResponse['conversation']): ConversationMeta | null =>
-  c ? { id: c.id, type: c.type, title: c.title ?? null, avatarEmoji: c.avatarEmoji ?? null } : null;
+  c ? { id: c.id, type: c.type, title: c.title ?? null, avatarEmoji: c.avatarEmoji ?? null, messageTtlSeconds: c.messageTtlSeconds ?? null } : null;
 
 export function toMessagesPage(resp: ApiMessagesResponse): MessagesPage {
   return {
     messages: resp.messages.map(toChatMessage),
     hasMore: !!resp.hasMore,
+    hasNewer: !!resp.hasNewer,
     participants: (resp.participants ?? []).map(toParticipant),
     conversation: toConversationMeta(resp.conversation),
+    cursor: resp.cursor,
   };
 }

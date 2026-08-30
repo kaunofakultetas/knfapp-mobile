@@ -27,6 +27,7 @@
 // Theme + labels
 import type { KitLabels } from '../provider/labels';
 import { useKitLabels, useKitTheme } from '../provider';
+import { useReducedMotionSafe } from '../hooks/a11y';
 
 // Rendering + motion
 import { Ionicons } from '@expo/vector-icons';
@@ -47,6 +48,9 @@ const MENU_GAP = 8;
 const MENU_WIDTH = 236;
 const ROW_HEIGHT = 46;
 const EDGE = 12;
+// The floating copy never shrinks below this, so the clamp
+// budget for bar + menu is everything else
+const COPY_MIN = 80;
 
 // Soft, critically damped — the stack settles, never bounces
 const OPEN_SPRING = { damping: 24, stiffness: 300, mass: 0.9, overshootClamping: true };
@@ -61,7 +65,7 @@ interface Snapshot {
 }
 
 const tick = () => {
-  if (Platform.OS !== 'web') void Haptics.selectionAsync();
+  if (Platform.OS !== 'web') void Haptics.selectionAsync().catch(() => {});
 };
 
 
@@ -250,6 +254,7 @@ export default function MessageContextMenu({
   // Forward… (see KitMessageAction)
   actions?: KitMessageAction[];
 }) {
+  const reduceMotion = useReducedMotionSafe();
 
   const labels = useKitLabels();
   const { colors } = useKitTheme();
@@ -297,7 +302,7 @@ export default function MessageContextMenu({
       if (!shown) return;
       // Teardown must not depend on the animation reporting
       // success — finishClose runs either way and guards itself
-      progress.value = withTiming(0, { duration: CLOSE_MS }, () => {
+      progress.value = withTiming(0, { duration: reduceMotion ? 0 : CLOSE_MS }, () => {
         runOnJS(finishClose)();
       });
     }
@@ -327,7 +332,7 @@ export default function MessageContextMenu({
       // and the host notification fire once per open
       if (now.target && !hasOpenedRef.current) {
         hasOpenedRef.current = true;
-        progress.value = withSpring(1, OPEN_SPRING);
+        progress.value = reduceMotion ? 1 : withSpring(1, OPEN_SPRING);
         now.onOpened?.(now.target.message.id);
       }
     });
@@ -355,14 +360,21 @@ export default function MessageContextMenu({
   const showReact = !!shown?.canReact;
   const showReply = !!shown?.canReply;
   const showDelete = !!shown?.canDelete;
-  const rows = (showReply ? 1 : 0) + (hasText ? 1 : 0) + (showDelete ? 1 : 0);
-  const menuHeight = rows * ROW_HEIGHT;
+  // The SAME rows the card renders measure the stack — counting
+  // only the kit's own three under-measured every host action
+  // (Edit, Pin, Forward…) and let the card run off the bottom
+  const menuRows = message ? buildMenuRows(message, { showReply, hasText, showDelete, actions, labels, onReply, onCopy, onDelete }) : [];
   const barSpace = showReact ? BAR_HEIGHT + BAR_GAP : 0;
-  const menuSpace = rows ? MENU_GAP + menuHeight : 0;
   const frame = shown?.target.frame ?? { x: 0, y: 0, width: 0, height: 0 };
   const layerWidth = layer.width || 1;
   const layerHeight = layer.height || windowHeight;
-  const copyHeight = Math.min(frame.height, Math.max(80, layerHeight - 2 * EDGE - barSpace - menuSpace));
+  // A menu taller than the room left (a long host action list on
+  // a small screen) is capped and scrolls inside its card
+  const menuMaxHeight = Math.max(ROW_HEIGHT, layerHeight - 2 * EDGE - barSpace - COPY_MIN - MENU_GAP);
+  const menuHeight = Math.min(menuRows.length * ROW_HEIGHT, menuMaxHeight);
+  const menuScrollable = menuRows.length * ROW_HEIGHT > menuMaxHeight;
+  const menuSpace = menuRows.length ? MENU_GAP + menuHeight : 0;
+  const copyHeight = Math.min(frame.height, Math.max(COPY_MIN, layerHeight - 2 * EDGE - barSpace - menuSpace));
   // A copy clipped to keep the actions reachable becomes
   // scrollable, so the reader can still check the whole message
   const copyClipped = frame.height > copyHeight;
@@ -464,9 +476,8 @@ export default function MessageContextMenu({
               before acting on it; an unclipped one stays inert and
               lets taps fall through to the scrim */}
           <Animated.View
-            pointerEvents={copyClipped ? 'auto' : 'none'}
             style={[
-              { position: 'absolute', top: originalTop, left: frameLeft, width: frame.width, height: copyHeight, overflow: 'hidden' },
+              { pointerEvents: copyClipped ? 'auto' : 'none', position: 'absolute', top: originalTop, left: frameLeft, width: frame.width, height: copyHeight, overflow: 'hidden' },
               bubbleStyle,
             ]}
           >
@@ -476,15 +487,16 @@ export default function MessageContextMenu({
               showsVerticalScrollIndicator={copyClipped}
               onLayout={copyClipped ? () => copyScrollRef.current?.flashScrollIndicators() : undefined}
             >
-              <View pointerEvents="none">
+              <View style={{ pointerEvents: 'none' }}>
                 <BubbleBody message={message} position={shown.target.position} labels={labels} initialImageRatio={shown.target.imageRatio} />
               </View>
             </ScrollView>
           </Animated.View>
 
           {/* Actions */}
-          {rows ? (
+          {menuRows.length ? (
           <Animated.View
+            testID="chatuikit-context-menu"
             style={[
               {
                 position: 'absolute',
@@ -505,20 +517,23 @@ export default function MessageContextMenu({
               menuStyle,
             ]}
           >
-            {message
-              ? buildMenuRows(message, { showReply, hasText, showDelete, actions, labels, onReply, onCopy, onDelete }).map(
-                  (row, index, all) => (
-                    <MenuRow
-                      key={row.key}
-                      icon={row.icon}
-                      label={row.label}
-                      danger={row.danger}
-                      last={index === all.length - 1}
-                      onPress={row.onPress}
-                    />
-                  ),
-                )
-              : null}
+            <ScrollView
+              style={{ maxHeight: menuHeight }}
+              bounces={false}
+              scrollEnabled={menuScrollable}
+              showsVerticalScrollIndicator={menuScrollable}
+            >
+              {menuRows.map((row, index, all) => (
+                <MenuRow
+                  key={row.key}
+                  icon={row.icon}
+                  label={row.label}
+                  danger={row.danger}
+                  last={index === all.length - 1}
+                  onPress={row.onPress}
+                />
+              ))}
+            </ScrollView>
           </Animated.View>
           ) : null}
         </>
@@ -560,6 +575,7 @@ function ReactionOption({
   label: string;
   onPress: () => void;
 }) {
+  const reduceMotion = useReducedMotionSafe();
 
   const { colors } = useKitTheme();
 
@@ -567,7 +583,7 @@ function ReactionOption({
   const pop = useSharedValue(0);
   useEffect(() => {
     pop.value = 0;
-    pop.value = withDelay(40 + index * 30, withSpring(1, { damping: 14, stiffness: 320, mass: 0.6 }));
+    pop.value = reduceMotion ? 1 : withDelay(40 + index * 30, withSpring(1, { damping: 14, stiffness: 320, mass: 0.6 }));
   }, [index, pop]);
   const style = useAnimatedStyle(() => ({
     transform: [{ scale: pop.value * Math.min(1, progress.value * 2) }],

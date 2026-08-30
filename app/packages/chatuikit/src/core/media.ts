@@ -7,8 +7,7 @@
 //  previews agree on, so a photo never changes size between
 //  the list and the menu.
 //
-//  The rule (Stream's single-image fit, with Flyer's ratio
-//  clamps): scale the natural size into the box, clamp the
+//  The rule (a single-image fit with ratio clamps): scale the natural size into the box, clamp the
 //  ratio so panoramas and slivers stay readable, and never
 //  fall under the minimums — a tiny sticker still gets a
 //  tappable bubble.
@@ -52,6 +51,18 @@ export const MIN_ASPECT = 0.5;
 
 // The ratio a bubble is laid out with before the bytes tell
 export const DEFAULT_ASPECT = 4 / 3;
+
+// Beyond these a photo is a strip, not a picture (a long
+// screenshot, a panorama): the bubble shows it as a compact row
+// with a thumbnail instead of cropping it
+export const EXTREME_MAX_ASPECT = 10;
+export const EXTREME_MIN_ASPECT = 0.1;
+
+export function isExtremeAspect(source: number | { width: number; height: number } | undefined | null): boolean {
+  const ratio = typeof source === 'number' ? source : source && source.width > 0 && source.height > 0 ? source.width / source.height : NaN;
+  if (!Number.isFinite(ratio) || ratio <= 0) return false;
+  return ratio > EXTREME_MAX_ASPECT || ratio < EXTREME_MIN_ASPECT;
+}
 
 const clamp = (value: number, low: number, high: number) => Math.min(high, Math.max(low, value));
 

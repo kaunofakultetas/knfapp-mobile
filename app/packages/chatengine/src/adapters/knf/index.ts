@@ -47,6 +47,18 @@ export function createKnfRealtime(socket: KnfSocketClient): ChatRealtime {
         socket.on('reaction_update', (e) => listener({ type: 'reactions', conversationId: e.conversationId, messageId: e.messageId, reactions: toReactionGroups(e.reactions) })),
         socket.on('message_deleted', (e) => listener({ type: 'deleted', conversationId: e.conversationId, messageId: e.messageId })),
         socket.on('message_edited', (e) => listener({ type: 'edited', conversationId: e.conversationId, messageId: e.messageId, text: e.text, editedAt: e.editedAt })),
+        socket.on('message_updated', (e) =>
+          listener({
+            type: 'updated',
+            conversationId: e.conversationId,
+            messageId: e.messageId,
+            patch: {
+              ...('linkPreview' in (e.patch ?? {}) ? { linkPreview: e.patch?.linkPreview ?? null } : {}),
+              ...('pinnedAt' in (e.patch ?? {}) ? { pinnedAt: e.patch?.pinnedAt ?? null, pinnedBy: e.patch?.pinnedBy ?? null } : {}),
+            },
+          }),
+        ),
+        socket.on('conversation_updated', (e) => listener({ type: 'conversation', conversationId: e.conversationId, patch: { messageTtlSeconds: e.patch?.messageTtlSeconds ?? null } })),
         socket.on('messages_read', (e) => listener({ type: 'read', conversationId: e.conversationId, readerId: e.readerId, messageIds: e.messageIds ?? [] })),
         socket.on('user_typing', (e) => listener({ type: 'typing', conversationId: e.conversationId, userId: e.userId, displayName: e.displayName, active: true })),
         socket.on('user_stop_typing', (e) => listener({ type: 'typing', conversationId: e.conversationId, userId: e.userId, displayName: '', active: false })),

@@ -26,6 +26,8 @@ export interface UseChatComposerResult extends UseComposerResult {
   attachMedia: () => Promise<void>;
   // Pick a document, then upload + send
   attachFile: () => Promise<void>;
+  // Take a photo with the camera, then upload + send
+  attachCamera: () => Promise<void>;
 }
 
 export function useChatComposer(
@@ -34,6 +36,6 @@ export function useChatComposer(
   messages: ChatMessage[],
 ): UseChatComposerResult {
   const composer = useComposer(conversationId, setMessages, messages);
-  const { pickMedia, pickFile } = useAttachmentPicker(composer.attach);
-  return useMemo(() => ({ ...composer, attachMedia: pickMedia, attachFile: pickFile }), [composer, pickMedia, pickFile]);
+  const { pickMedia, pickFile, pickCamera } = useAttachmentPicker(composer.attach, composer.attachMany);
+  return useMemo(() => ({ ...composer, attachMedia: pickMedia, attachFile: pickFile, attachCamera: pickCamera }), [composer, pickMedia, pickFile, pickCamera]);
 }

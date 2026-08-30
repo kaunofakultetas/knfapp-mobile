@@ -14,8 +14,7 @@
 //  Hosts may also swap whole pieces through `components` — a
 //  custom time separator, typing bubble, intro card, system row,
 //  unread line, unread pill, floating date or scroll-to-latest
-//  button — the way Stream's
-//  components context works, without a render-prop for every
+//  button — a components context, without a render-prop for every
 //  detail. MessageList falls back to the kit's own where a slot
 //  is empty.
 //
@@ -31,6 +30,8 @@
 import type { ComponentProps, ComponentType } from 'react';
 import { createContext, useContext, useMemo, type ReactNode } from 'react';
 
+import type { KitMessage } from '../core/types';
+
 import type ConversationIntro from '../list/ConversationIntro';
 import type FloatingDay from '../list/FloatingDay';
 import { defaultLabels, type KitLabels } from './labels';
@@ -44,6 +45,12 @@ import type UnreadSeparator from '../list/UnreadSeparator';
 
 
 export interface KitComponents {
+  // The list with nothing in it (default: a centred labels.emptyChat)
+  EmptyState: ComponentType<{ label: string }>;
+  // The body of a `kind: 'custom'` message — a poll, a map, a
+  // card…; without it such a message renders the unsupported
+  // placeholder. Receives the message and the bubble's ink
+  MessageBody: ComponentType<{ message: KitMessage; own: boolean; color: string }>;
   TimeSeparator: ComponentType<ComponentProps<typeof TimeSeparator>>;
   TypingBubble: ComponentType<ComponentProps<typeof TypingBubble>>;
   ConversationIntro: ComponentType<ComponentProps<typeof ConversationIntro>>;
@@ -117,20 +124,27 @@ export function ChatUiKitProvider({
   resolveImageUrl,
   formatTime,
   children,
-}: Partial<Omit<KitEnv, 'theme'>> & { theme?: KitTheme; children: ReactNode }) {
+}: Partial<Omit<KitEnv, 'theme' | 'labels'>> & { theme?: KitTheme; labels?: Partial<KitLabels>; children: ReactNode }) {
 
   const resolvedTheme = useMemo(() => (theme ? resolveTheme(theme) : defaultEnv.theme), [theme]);
+
+  // A partial labels object is merged over the kit's own set for
+  // the locale — a host overrides three strings, not fifty
+  const resolvedLabels = useMemo<KitLabels>(() => {
+    const base = (locale ?? defaultEnv.locale).toLowerCase().startsWith('lt') ? defaultLabels.lt : defaultLabels.en;
+    return labels ? { ...base, ...labels } : base;
+  }, [labels, locale]);
 
   const value = useMemo<KitEnv>(
     () => ({
       theme: resolvedTheme,
       components: components ?? defaultEnv.components,
-      labels: labels ?? defaultEnv.labels,
+      labels: resolvedLabels,
       locale: locale ?? defaultEnv.locale,
       resolveImageUrl: resolveImageUrl ?? defaultEnv.resolveImageUrl,
       formatTime: formatTime ?? defaultEnv.formatTime,
     }),
-    [resolvedTheme, components, labels, locale, resolveImageUrl, formatTime],
+    [resolvedTheme, components, resolvedLabels, locale, resolveImageUrl, formatTime],
   );
 
   return <KitContext.Provider value={value}>{children}</KitContext.Provider>;

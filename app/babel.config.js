@@ -16,7 +16,7 @@ module.exports = function (api) {
       [
         'module-resolver',
         {
-          alias: { '@': './', '@knf/chatuikit': './packages/chatuikit/src', '@knf/chatengine': './packages/chatengine/src' },
+          alias: { '@': './', '@knf/chatuikit': './packages/chatuikit/src', '@knf/chatengine': './packages/chatengine/src', '@knf/dataengine': './packages/dataengine/src', '@knf/socialengine': './packages/socialengine/src', '@knf/socialuikit': './packages/socialuikit/src' },
           extensions: ['.ios.js', '.android.js', '.js', '.ts', '.tsx', '.json'],
         },
       ],

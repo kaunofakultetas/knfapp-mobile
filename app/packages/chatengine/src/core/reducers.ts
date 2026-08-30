@@ -20,8 +20,54 @@
 //    restoreDeleted      — the unsend revert
 // -----------------------------------------------------------
 
-import { stampMs } from './time';
+import { parseStamp, stampMs } from './time';
 import { isTempId, type ChatMessage, type ChatReaction, type ChatReplyRef, type ReactionGroup } from './types';
+
+
+// Dev-only ingest checks: a row a backend hands over without an
+// id, a sender or a readable stamp breaks ordering and dedupe in
+// ways that surface far from the cause — say so once per row,
+// never throw (production ingests it as-is)
+const warnedIds = new Set<string>();
+const isDev = (): boolean => typeof __DEV__ !== 'undefined' && __DEV__;
+function warnOnce(key: string, problem: string): void {
+  if (warnedIds.has(key)) return;
+  warnedIds.add(key);
+  console.warn(`[chatengine] ${problem} (${key})`);
+}
+export function validateIngest(message: ChatMessage): void {
+  if (!isDev()) return;
+  const key = String(message.id ?? '?');
+  if (!message.id) warnOnce(`${key}:${message.createdAt}`, 'message without an id');
+  if (!message.senderId) warnOnce(`${key}:sender`, 'message without a senderId');
+  if (!parseStamp(message.createdAt)) warnOnce(`${key}:stamp`, `message with an unreadable createdAt "${message.createdAt}"`);
+  if (!Array.isArray(message.reactions)) warnOnce(`${key}:reactions`, 'message.reactions is not an array');
+}
+
+
+// Two rows the server and the client agree on, field by field
+// that a bubble draws — used to keep the KNOWN object (and its
+// memoised bubble) when a resync page brings nothing new
+export function sameRow(a: ChatMessage, b: ChatMessage): boolean {
+  if (a === b) return true;
+  if (a.id !== b.id || a.text !== b.text || (a.imageUrl ?? null) !== (b.imageUrl ?? null)) return false;
+  if (!!a.deleted !== !!b.deleted || (a.editedAt ?? null) !== (b.editedAt ?? null) || a.status !== b.status) return false;
+  if ((a.kind ?? 'text') !== (b.kind ?? 'text') || a.senderName !== b.senderName || (a.senderAvatar ?? null) !== (b.senderAvatar ?? null)) return false;
+  if ((a.readBy?.length ?? 0) !== (b.readBy?.length ?? 0)) return false;
+  if (a.reactions.length !== b.reactions.length) return false;
+  for (let i = 0; i < a.reactions.length; i++) {
+    const x = a.reactions[i];
+    const y = b.reactions[i];
+    if (x.emoji !== y.emoji || x.count !== y.count || x.bySelf !== y.bySelf || x.byUserIds.length !== y.byUserIds.length) return false;
+  }
+  if ((a.replyTo?.id ?? null) !== (b.replyTo?.id ?? null) || (a.replyTo?.text ?? null) !== (b.replyTo?.text ?? null) || !!a.replyTo?.deleted !== !!b.replyTo?.deleted) return false;
+  if ((a.file?.uri ?? null) !== (b.file?.uri ?? null) || (a.video?.uri ?? null) !== (b.video?.uri ?? null) || (a.video?.thumbnailUri ?? null) !== (b.video?.thumbnailUri ?? null) || (a.audio?.uri ?? null) !== (b.audio?.uri ?? null)) return false;
+  if ((a.linkPreview?.url ?? null) !== (b.linkPreview?.url ?? null) || (a.linkPreview?.imageUrl ?? null) !== (b.linkPreview?.imageUrl ?? null)) return false;
+  if ((a.pinnedAt ?? null) !== (b.pinnedAt ?? null) || !!a.forwarded !== !!b.forwarded) return false;
+  if ((a.gallery?.length ?? 0) !== (b.gallery?.length ?? 0)) return false;
+  if (a.gallery && b.gallery && a.gallery.some((item, i) => item.url !== b.gallery![i].url)) return false;
+  return true;
+}
 
 
 
@@ -53,6 +99,7 @@ export function reactionsForViewer(groups: readonly ReactionGroup[] | readonly C
 }
 
 export function normalizeForViewer(message: ChatMessage, viewerId: string | null): ChatMessage {
+  validateIngest(message);
   const isOwn = !!viewerId && message.senderId === viewerId;
   return {
     ...message,
@@ -208,8 +255,12 @@ export function mergeResyncPage(
     const index = base.findIndex((m) => m.id === row.id);
     if (index >= 0) {
       const known = base[index];
+      // Nothing changed server-side: keep the known object, so the
+      // memoised bubble does not repaint on every reconnect
+      const merged = { ...row, clientId: known.clientId, localImageUri: known.localImageUri };
+      if (sameRow(known, merged)) continue;
       if (!next) next = prev.slice();
-      next[index] = { ...row, clientId: known.clientId, localImageUri: known.localImageUri };
+      next[index] = merged;
       continue;
     }
     const tempIndex = row.isOwn ? findTempFor(base, row) : -1;
@@ -252,6 +303,25 @@ export function appendOlderPage(prev: readonly ChatMessage[], page: readonly Cha
 
 // The oldest REAL row — temps only live at the newest end, but
 // skip them defensively
+// The newest server row — the after-cursor for a forward page
+export function newerCursor(list: readonly ChatMessage[]): ChatMessage | undefined {
+  for (let i = 0; i < list.length; i++) {
+    if (!isTempId(list[i].id)) return list[i];
+  }
+  return undefined;
+}
+
+// A forward page (newest first) lands in front of the held rows;
+// temps stay in front of everything
+export function prependNewerPage(prev: readonly ChatMessage[], page: readonly ChatMessage[]): ChatMessage[] {
+  const known = new Set(prev.map((m) => m.id));
+  const fresh = page.filter((m) => !known.has(m.id));
+  if (fresh.length === 0) return prev as ChatMessage[];
+  const temps = prev.filter((m) => isTempId(m.id));
+  const rows = prev.filter((m) => !isTempId(m.id));
+  return [...temps, ...fresh, ...rows];
+}
+
 export function olderCursor(list: readonly ChatMessage[]): ChatMessage | undefined {
   for (let i = list.length - 1; i >= 0; i--) {
     if (!isTempId(list[i].id)) return list[i];
@@ -398,4 +468,46 @@ export function applyReceipt(
     return { ...m, status, readBy };
   });
   return changed ? next : (list as ChatMessage[]);
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// applyChanges
+// -----------------------------------------------------------
+//
+// A change feed's rows applied to the rows the client HOLDS:
+// a known row takes the server's version (an unsent one is
+// blanked through markDeleted so quotes follow), an unknown
+// row is ignored — it lives outside the loaded window and will
+// arrive with its page. Identity is kept where nothing changed.
+//
+// Used by:
+//   - hooks/useConversation.ts — resync, after the newest page
+// -----------------------------------------------------------
+
+export function applyChanges(prev: readonly ChatMessage[], changes: readonly ChatMessage[]): ChatMessage[] {
+  if (changes.length === 0) return prev as ChatMessage[];
+  const byId = new Map(changes.map((row) => [row.id, row] as const));
+  let next: ChatMessage[] | null = null;
+  const deletedIds: string[] = [];
+  prev.forEach((m, index) => {
+    const change = byId.get(m.id);
+    if (!change) return;
+    if (change.deleted && !m.deleted) {
+      deletedIds.push(m.id);
+      return;
+    }
+    const merged = { ...change, clientId: m.clientId, localImageUri: m.localImageUri };
+    if (sameRow(m, merged)) return;
+    if (!next) next = prev.slice();
+    next[index] = merged;
+  });
+  let list = next ?? (prev as ChatMessage[]);
+  for (const id of deletedIds) list = list.map((m) => markDeleted(m, id));
+  return list;
 }

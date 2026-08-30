@@ -40,10 +40,10 @@ export default function UnreadPill({
       entering={reduceMotion ? undefined : FadeIn.duration(160)}
       exiting={reduceMotion ? undefined : FadeOut.duration(120)}
       style={{ position: 'absolute', top: 10, left: 0, right: 0, alignItems: 'center' }}
-      pointerEvents="box-none"
+      
     >
       <View
-        style={{
+        style={{ pointerEvents: 'box-none',
           flexDirection: 'row',
           alignItems: 'center',
           borderRadius: 18,

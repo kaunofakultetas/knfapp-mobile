@@ -28,7 +28,11 @@ import { ChatUiKitProvider, defaultLabels } from '@knf/chatuikit';
 Every field is optional and falls back to neutral defaults (a system-font
 light palette, English labels, an identity resolver), so tests and demos
 need no ceremony — `example/ExampleConversation.tsx` renders a fake
-conversation with no host at all. In this app the provider is mounted by
+conversation with no host at all, and `example/ExampleRoom.tsx` is the
+reference pairing with `@knf/chatengine` (the engine's hooks over a fake
+transport drawn by this kit — timeline from `conversation.messages`, every
+kit callback answered by an engine action, the context menu's host rows
+carrying Edit). In this app the provider is mounted by
 `components/chat/ChatUiKitHost.tsx`, which maps the KNF palette, Raleway,
 the `chat.*` catalog and `getUploadUrl` onto it.
 
@@ -57,24 +61,42 @@ package (`../../../*` and beyond, and `@/*`, are refused).
 | Area | Kit |
 | --- | --- |
 | Message kinds | text, photo, **video** (poster + play disc + duration, played through `VideoPlayerModal`), **file** (document card with an extension-keyed glyph), **system** (centred caption) — `messageKind()` infers text/photo/video/file from what the message carries, so hosts that only send text and photos set nothing |
-| Media sizing | photos and posters render at their **natural proportions** through one rule, `fitMedia()` (Stream's single-image fit + Flyer's ratio clamps): the box is a share of the viewport, portraits are height-bound, panoramas crop at 2.2:1; a host that passes `mediaSize` gets the final layout on the first frame, one that does not gets a 4:3 guess that settles on load |
+| Media sizing | photos and posters render at their **natural proportions** through one rule, `fitMedia()` (a single-image fit with ratio clamps): the box is a share of the viewport, portraits are height-bound, panoramas crop at 2.2:1; a host that passes `mediaSize` gets the final layout on the first frame, one that does not gets a 4:3 guess that settles on load |
 | Editing | an **edited** mark on the time line (`editedAt`), an **editing strip** in the composer (`editing` / `onCancelEdit`) with the send slot morphing into a check |
+| Guests | `Composer canSend={false}` locks the field and buttons and says why (`labels.signInToChat`) |
+| Kinds | `custom` messages render through `components.MessageBody`; an unknown kind shows the unsupported placeholder, never a blank bubble |
+| Keyboard | `KitKeyboardAvoidingView` handles iOS padding, Android adjustResize AND Android edge-to-edge (pads by the keyboard height when the window did not resize); `keyboardVerticalOffset` for non-root screens |
+| Avatars | per-sender disc colour by hash (`theme.avatarColors`), tappable (`onPressAvatar`) |
+| Empty state | `components.EmptyState` / `labels.emptyChat` once history is known to be empty |
 | Grouping | runs by sender within 3 min, day/time separators, the **unread line** above the first unread row |
 | Overlays | scroll-to-latest with a missed-count badge, the **"N new messages ↑" pill** until the unread line has been seen, the **floating date** while scrolling |
-| Bubble | reply quote (tap → jump + flash), edge-to-edge photos, tappable **URLs, e-mails and phone numbers**, unsent placeholder, reaction pills, receipts, tap-to-reveal time, swipe-to-reply |
+| Detached window | a jump deep into history (`hasNewer`) shows a **"Newer messages" row** at the visual bottom (`onLoadNewer`, auto on reaching the edge) and forces the scroll button, badged with the engine's `missedCount`, its press routed through `onReturnToLatest` |
+| Galleries | 2+ photos in one message tile as an **album** (pair / hero-over-pair / 2×2, a "+N" wash past four), every tile its own tap target (`onPressGalleryImage`), the count spoken (`labels.gallery`) |
+| Voice notes | an **audio row** (play/pause, progress, remaining time; expo-audio as an optional render-time peer) and the composer's **recording bar** (mic button, red dot + elapsed, discard / send) — recording itself stays the host's |
+| Mentions | an **@-completion strip** in the composer (`mentionCandidates`, folded prefix matching) and **highlighted "@Name" runs** in bubbles (`mentionNames`, tap → `onPressMention`) |
+| Screen readers | with TalkBack/VoiceOver running the list goes **upright** (oldest-first, no inverted transform — swipe order reads chronologically), with explicit paging rows instead of edge auto-load |
+| Polish | **blur placeholders** on every picture, an **upload-progress bar** on sending bubbles, **voice waveforms** with tap-to-seek, the **pinned** and **connection** banners, the forwarded mark, the disappearing-messages glyph, a **bubble guard** (a crashing custom renderer degrades to the unsupported row), and the composer's **camera shortcut** |
+| Bubble | reply quote (tap → jump + flash), edge-to-edge photos, tappable **URLs, e-mails and phone numbers**, a **link preview card** when the message carries one (`linkPreview` — image, site name, title, description; tap → `onPressLink`), unsent placeholder, reaction pills, receipts, tap-to-reveal time, swipe-to-reply |
 | Menu | reactions bar + Reply / Copy / **host actions** (`actions` — Report, Pin, Forward…) / Delete, floating copy of the bubble |
 | Composer | photo/video and document attach buttons (each with its own busy state), growing field, emoji toggle, 👍 ⇄ send ⇄ save morph, reply / editing strip, Enter-to-send on web, keyboard-aware inset |
 | Theme | 24 colour tokens, 4 font families, **text styles** (`body / name / caption / time`) |
 | Accessibility | labels + custom actions per gesture, new-message announcements, **reduced-motion** respected |
-| Swap-outs | `components={…}` on the provider for the time separator, typing bubble, intro, system row, unread line, unread pill, floating day, scroll button |
+| Swap-outs | `components={…}` on the provider for the time separator, typing bubble, intro, system row, unread line, unread pill, floating day, scroll button, empty state, custom message body |
+| Escape hatches | `flatListProps` on the list, `textInputProps` on the composer — the kit's own props win where they overlap |
+
+## Tests
+
+`npm test` in this folder runs `src/**/__tests__/` (jest-expo + the
+package's own babel config) without the host app: the pure helpers
+(`linkify`, `buildTimeline`, `fitMedia`, `buildMenuRows`, `replySnippet`,
+`fileGlyph`), the a11y hooks, and render-level pins for `MessageList` /
+`MessageBubble`. `__tests__` is excluded from the published `files`.
 
 ## Design notes
 
-The kit was compared against gifted-chat, Flyer chat-ui, Stream Chat RN and
-Rocket.Chat before 1.1. What it keeps on purpose: a *derived* timeline
-(positions computed once per list, not per row at render, as gifted-chat
-does); one provider seam instead of forty `render*` props; a data-driven
-menu with capability predicates (the Stream / Rocket.Chat pattern); a
+What the kit keeps on purpose: a *derived* timeline (positions computed
+once per list, not per row at render); one provider seam instead of
+forty `render*` props; a data-driven menu with capability predicates; a
 message-kind union so new content types are additive; and zero engine —
 sockets, optimistic state and pagination stay the host's, which is what
 keeps it backend-agnostic.

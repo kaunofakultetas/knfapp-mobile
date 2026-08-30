@@ -27,12 +27,12 @@ export default function FloatingDay({ label, opacity }: { label: string; opacity
   return (
     <Animated.View
       style={[{ position: 'absolute', top: 8, left: 0, right: 0, alignItems: 'center' }, style]}
-      pointerEvents="none"
+      
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
     >
       <View
-        style={{
+        style={{ pointerEvents: 'none',
           paddingHorizontal: 12,
           paddingVertical: 5,
           borderRadius: 14,

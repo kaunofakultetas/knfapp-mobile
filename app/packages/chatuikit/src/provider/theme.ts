@@ -68,6 +68,13 @@ export interface KitTheme {
   fonts: KitFonts;
   // Optional overrides; resolveTheme derives the rest from fonts
   text?: Partial<KitTextStyles>;
+  // Drives the keyboard's appearance and dark-only details;
+  // default 'light'
+  scheme?: 'light' | 'dark';
+  // The discs behind initials: one per sender, picked by a hash
+  // of the sender id so a person keeps their colour across rooms
+  // Default: DEFAULT_AVATAR_COLORS
+  avatarColors?: string[];
 }
 
 // The theme components read: every text style present
@@ -75,7 +82,13 @@ export interface KitResolvedTheme {
   colors: KitColors;
   fonts: KitFonts;
   text: KitTextStyles;
+  scheme: 'light' | 'dark';
+  avatarColors: string[];
 }
+
+// Mid-tone, white-text-safe, distinct from the brand blue and
+// from each other at small sizes
+export const DEFAULT_AVATAR_COLORS = ['#D9534F', '#E07B39', '#B8960B', '#3E9B4F', '#1F9E8F', '#3A7BD5', '#7B5CD6', '#C64F93'];
 
 
 export function resolveTheme(theme: KitTheme): KitResolvedTheme {
@@ -95,6 +108,8 @@ export function resolveTheme(theme: KitTheme): KitResolvedTheme {
       caption: { ...defaults.caption, ...theme.text?.caption },
       time: { ...defaults.time, ...theme.text?.time },
     },
+    scheme: theme.scheme ?? 'light',
+    avatarColors: theme.avatarColors && theme.avatarColors.length > 0 ? theme.avatarColors : DEFAULT_AVATAR_COLORS,
   };
 }
 
@@ -133,5 +148,41 @@ export const defaultTheme: KitTheme = {
     medium: 'System',
     semiBold: 'System',
     bold: 'System',
+  },
+};
+
+
+// The same tokens for a dark canvas — a host with its own dark
+// palette maps that instead; this is the provider-less default
+// and the reference for which tokens change between schemes
+export const darkTheme: KitTheme = {
+  ...defaultTheme,
+  scheme: 'dark',
+  colors: {
+    ...defaultTheme.colors,
+    brand: '#5B8DF6',
+    brandSoft: '#1E2A44',
+    brandText: '#8FB3FF',
+    brandHeader: '#111827',
+    onBrand: '#FFFFFF',
+    onBrandWash: 'rgba(255, 255, 255, 0.18)',
+    accent: '#FB7185',
+    ink: '#F3F4F6',
+    inkSoft: '#B5BCC8',
+    inkFaint: '#6B7280',
+    surface: '#111827',
+    surfaceSoft: '#1F2937',
+    line: '#273244',
+    lineStrong: '#4B5563',
+    danger: '#F87171',
+    dangerSoft: '#3F1D1D',
+    success: '#4ADE80',
+    scrim: 'rgba(0, 0, 0, 0.6)',
+    shadow: '#000000',
+    chatCanvas: '#0B1220',
+    bubbleIn: '#1F2937',
+    bubbleOut: '#2F6FED',
+    quoteWash: 'rgba(255, 255, 255, 0.08)',
+    menuSurface: '#1F2937',
   },
 };

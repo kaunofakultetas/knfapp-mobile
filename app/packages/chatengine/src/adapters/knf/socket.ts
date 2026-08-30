@@ -37,9 +37,11 @@ import { io, type Socket } from 'socket.io-client';
 
 import type { RealtimeStatus } from '../../core/transport';
 import type {
+  ApiConversationUpdatedEvent,
   ApiMessage,
   ApiMessageDeletedEvent,
   ApiMessageEditedEvent,
+  ApiMessageUpdatedEvent,
   ApiMessagesReadEvent,
   ApiReactionUpdate,
   ApiStopTypingEvent,
@@ -47,7 +49,7 @@ import type {
 } from './wire';
 
 
-export type SocketEventName = 'new_message' | 'reaction_update' | 'user_typing' | 'user_stop_typing' | 'messages_read' | 'message_deleted' | 'message_edited';
+export type SocketEventName = 'new_message' | 'reaction_update' | 'user_typing' | 'user_stop_typing' | 'messages_read' | 'message_deleted' | 'message_edited' | 'message_updated' | 'conversation_updated';
 
 export interface SocketEventPayloads {
   new_message: ApiMessage;
@@ -57,9 +59,11 @@ export interface SocketEventPayloads {
   messages_read: ApiMessagesReadEvent;
   message_deleted: ApiMessageDeletedEvent;
   message_edited: ApiMessageEditedEvent;
+  message_updated: ApiMessageUpdatedEvent;
+  conversation_updated: ApiConversationUpdatedEvent;
 }
 
-const FORWARDED_EVENTS: SocketEventName[] = ['new_message', 'reaction_update', 'user_typing', 'user_stop_typing', 'messages_read', 'message_deleted', 'message_edited'];
+const FORWARDED_EVENTS: SocketEventName[] = ['new_message', 'reaction_update', 'user_typing', 'user_stop_typing', 'messages_read', 'message_deleted', 'message_edited', 'message_updated', 'conversation_updated'];
 
 
 export interface KnfSocketOptions {

@@ -12,6 +12,12 @@
 //  back to the sentence, and very long texts are not scanned
 //  at all (the regexes are linear, the render is not).
 //
+//  With mentionNames, "@Display Name" runs that match one of
+//  the room's members (case- and diacritic-insensitively,
+//  longest name first) become mention segments — the names are
+//  matched in place, never re-indexed through normalization,
+//  so Lithuanian diacritics cannot shift a span.
+//
 //  Used by:
 //    - MessageBubble.tsx — the tappable body
 //    - MessageContextMenu.tsx — the floating copy
@@ -21,7 +27,8 @@ export type LinkKind = 'url' | 'email' | 'phone';
 
 export type TextSegment =
   | { type: 'text'; value: string }
-  | { type: 'link'; value: string; href: string; kind?: LinkKind };
+  | { type: 'link'; value: string; href: string; kind?: LinkKind }
+  | { type: 'mention'; value: string; name: string };
 
 
 const MAX_LINKIFY_LENGTH = 2000;
@@ -40,6 +47,43 @@ interface Match {
   value: string;
   href: string;
   kind: LinkKind;
+}
+
+interface MentionMatch {
+  start: number;
+  end: number;
+  value: string;
+  name: string;
+}
+
+
+// Case- and diacritic-insensitive comparison key. Only ever
+// applied to SLICES being compared, never to the whole text —
+// NFD changes string length, which would shift every index
+const fold = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+
+// An @ at a word boundary followed by one of the names, longest
+// name first so "@Vardenis Pavardenis" never stops at a member
+// called "Vardenis"; the run must END at a boundary too, so
+// "@Onaitė" never claims the "Ona" of another member
+function collectMentions(text: string, names: readonly string[]): MentionMatch[] {
+  const sorted = [...new Set(names.filter((name) => name && name.length <= 60))].sort((a, b) => b.length - a.length);
+  if (sorted.length === 0) return [];
+  const found: MentionMatch[] = [];
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] !== '@') continue;
+    if (i > 0 && !/\s/.test(text[i - 1])) continue;
+    for (const name of sorted) {
+      const slice = text.slice(i + 1, i + 1 + name.length);
+      if (slice.length !== name.length || fold(slice) !== fold(name)) continue;
+      const after = text[i + 1 + name.length];
+      if (after !== undefined && /[\p{L}\p{N}_]/u.test(after)) continue;
+      found.push({ start: i, end: i + 1 + name.length, value: text.slice(i, i + 1 + name.length), name });
+      break;
+    }
+  }
+  return found;
 }
 
 
@@ -91,15 +135,29 @@ function collect(text: string): Match[] {
 }
 
 
-export function linkify(text: string): TextSegment[] {
+export function linkify(text: string, options: { mentionNames?: readonly string[] } = {}): TextSegment[] {
   if (text.length > MAX_LINKIFY_LENGTH) return text ? [{ type: 'text', value: text }] : [];
+
+  // Links and mentions share one claim pass: earliest first, the
+  // longer span on a tie, overlaps drop — an e-mail's @ is glued
+  // to its word, so it can never double as a mention
+  const matches: (Match | MentionMatch)[] = [...collect(text), ...collectMentions(text, options.mentionNames ?? [])];
+  matches.sort((a, b) => a.start - b.start || b.end - a.end);
+  const kept: (Match | MentionMatch)[] = [];
+  let claimed = 0;
+  for (const match of matches) {
+    if (match.start < claimed) continue;
+    kept.push(match);
+    claimed = match.end;
+  }
 
   const segments: TextSegment[] = [];
   let cursor = 0;
 
-  for (const match of collect(text)) {
+  for (const match of kept) {
     if (match.start > cursor) segments.push({ type: 'text', value: text.slice(cursor, match.start) });
-    segments.push({ type: 'link', value: match.value, href: match.href, kind: match.kind });
+    if ('name' in match) segments.push({ type: 'mention', value: match.value, name: match.name });
+    else segments.push({ type: 'link', value: match.value, href: match.href, kind: match.kind });
     cursor = match.end;
   }
 

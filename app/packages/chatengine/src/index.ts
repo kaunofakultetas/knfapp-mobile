@@ -8,6 +8,7 @@
 // The domain model and the transport contract
 export type {
   ChatFile,
+  ChatLinkPreview,
   ChatMessage,
   ChatMessageKind,
   ChatMessageStatus,
@@ -24,6 +25,7 @@ export type {
   ChatEvent,
   ChatRealtime,
   ChatTransport,
+  ChangesPage,
   EngineNotice,
   MessagesPage,
   NoticeCode,
@@ -38,6 +40,7 @@ export { parseStamp, stampMs } from './core/time';
 export {
   adoptTemp,
   appendOlderPage,
+  applyChanges,
   applyReceipt,
   findTempFor,
   markDeleted,
@@ -48,9 +51,14 @@ export {
   olderCursor,
   reactionsForViewer,
   restoreDeleted,
+  sameRow,
+  validateIngest,
   withSelfReaction,
 } from './core/reducers';
-export { draftKey, outboxKey, readOutbox, readOutboxTemps, writeOutbox, type OutboxEntry, type PickedAsset } from './core/outbox';
+export { draftKey, draftReplyKey, outboxKey, readOutbox, readOutboxTemps, writeOutbox, type OutboxEntry, type PickedAsset } from './core/outbox';
+export { normalizeAssetName } from './core/assets';
+export { forwardPayload, type ForwardSource } from './core/forward';
+export { TaskQueue, getTaskQueue, taskKey, tasksStorageKey, type PendingTask } from './core/tasks';
 export { clearActiveConversation, getActiveConversation, setActiveConversation } from './core/activeConversation';
 
 // The host seam
@@ -60,6 +68,8 @@ export { memoryStorage, type KeyValueStorage } from './provider/storage';
 // The hooks
 export { useConversation, type UseConversationResult } from './hooks/useConversation';
 export { useComposer, type EditTarget, type ReplyTarget, type RetryTarget, type UseComposerResult } from './hooks/useComposer';
+export { usePins, type UsePinsResult } from './hooks/usePins';
+export { useRealtimeStatus } from './hooks/useRealtimeStatus';
 export { DEFAULT_REACTION_OPTIONS, useReactions, type UseReactionsResult } from './hooks/useReactions';
 export { useTyping, type TypingUser } from './hooks/useTyping';
 export { useChatRoom, type UseChatRoomResult } from './hooks/useChatRoom';

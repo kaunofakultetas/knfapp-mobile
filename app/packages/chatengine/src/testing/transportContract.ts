@@ -97,6 +97,27 @@ export function describeTransportContract(name: string, makeHarness: () => Promi
       expect(older.hasMore).toBe(false);
     });
 
+    it('answers an around-window that holds the anchor, oldest-first, with honest edge flags', async () => {
+      const conv = 'c-around';
+      const ids: string[] = [];
+      for (let i = 0; i < 9; i++) ids.push(await h.seed(baseRow(conv, { text: `m${i}`, createdAt: iso(i) })));
+      const win = await h.transport.fetchMessages(conv, { around: ids[4], limit: 4 });
+      const texts = win.messages.map((m) => m.text);
+      expect(texts).toContain('m4');
+      expect(texts.every((t, i) => i === 0 || texts[i - 1] < t)).toBe(true);
+      expect(win.hasMore).toBe(true);
+      expect(win.hasNewer).toBe(true);
+    });
+
+    it('walks forward from the after-cursor and says when the head is reached', async () => {
+      const conv = 'c-after';
+      const ids: string[] = [];
+      for (let i = 0; i < 4; i++) ids.push(await h.seed(baseRow(conv, { text: `m${i}`, createdAt: iso(i) })));
+      const fwd = await h.transport.fetchMessages(conv, { after: { createdAt: iso(1), id: ids[1] }, limit: 50 });
+      expect(fwd.messages.map((m) => m.text)).toEqual(['m2', 'm3']);
+      expect(!!fwd.hasNewer).toBe(false);
+    });
+
     it('commits a send as the current user and keeps the clientId', async () => {
       const conv = 'c-send';
       const row = await h.transport.sendMessage(conv, { text: 'siunčiu', clientId: 'temp-1-1' });
@@ -145,6 +166,42 @@ export function describeTransportContract(name: string, makeHarness: () => Promi
       expect(replaced).toEqual([{ emoji: '❤️', count: 1, byUserIds: [h.selfId] }]);
       const cleared = await h.transport.removeReaction(conv, id);
       expect(cleared).toEqual([]);
+    });
+
+    it('a change feed, when offered, reports edits and unsends made after the cursor', async () => {
+      const t = h.transport;
+      if (!t.fetchChanges) return;
+      const conv = 'c-changes';
+      const kept = await t.sendMessage(conv, { text: 'lieka', clientId: 'temp-c-1' });
+      const page = await t.fetchMessages(conv);
+      expect(typeof page.cursor).toBe('string');
+      const since = page.cursor as string;
+      const edited = await t.sendMessage(conv, { text: 'senas', clientId: 'temp-c-2' });
+      const gone = await t.sendMessage(conv, { text: 'dings', clientId: 'temp-c-3' });
+      await t.editMessage(conv, edited.id, 'naujas');
+      await t.deleteMessage(conv, gone.id);
+      const changes = await t.fetchChanges(conv, since);
+      const ids = changes.messages.map((m) => m.id);
+      expect(ids).toContain(edited.id);
+      expect(ids).toContain(gone.id);
+      expect(ids).not.toContain(kept.id);
+      expect(changes.messages.find((m) => m.id === edited.id)?.text).toBe('naujas');
+      expect(changes.messages.find((m) => m.id === gone.id)?.deleted).toBe(true);
+      expect(typeof changes.cursor).toBe('string');
+      const nothing = await t.fetchChanges(conv, changes.cursor);
+      expect(nothing.messages).toEqual([]);
+    });
+
+    it('the pin trio, when offered, flips a pin and lists newest first', async () => {
+      const t = h.transport;
+      if (!t.pinMessage || !t.unpinMessage || !t.fetchPins) return;
+      const conv = 'c-pin';
+      const id = await h.seed(baseRow(conv, { text: 'pinme', createdAt: iso(0) }));
+      await t.pinMessage(conv, id);
+      const pinned = await t.fetchPins(conv);
+      expect(pinned.map((m) => m.id)).toContain(id);
+      await t.unpinMessage(conv, id);
+      expect((await t.fetchPins(conv)).map((m) => m.id)).not.toContain(id);
     });
 
     it('uploads answer a stored reference the message can carry', async () => {

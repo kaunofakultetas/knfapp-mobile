@@ -45,6 +45,9 @@ export interface KitLabels {
   latestMessages: string;
   newMessages: (count: number) => string;
   loadOlder: string;
+  loadNewer: string;
+  // Spoken name of a multi-photo message
+  gallery: (count: number) => string;
   conversationStart: string;
   inputPlaceholder: string;
   send: string;
@@ -71,6 +74,34 @@ export interface KitLabels {
   editingMessage: string;
   cancelEdit: string;
   saveEdit: string;
+  // The list with no messages yet
+  emptyChat: string;
+  // The composer while sending is not allowed (a guest)
+  signInToChat: string;
+  // A message kind this build cannot render
+  unsupportedMessage: string;
+  // The portrait's tap (open a profile)
+  openProfile: string;
+  // The unfurled link card's accessibility name
+  linkPreview: string;
+  // Voice notes: the bubble's / snippet's name, the composer's
+  // mic button, the recording bar's controls, playback
+  voiceNote: string;
+  recordVoice: string;
+  sendVoice: string;
+  cancelRecording: string;
+  playVoice: string;
+  pauseVoice: string;
+  // A mention's tap target and the composer strip's rows
+  mentionUser: (name: string) => string;
+  // The connection banner's two states
+  connecting: string;
+  noConnection: string;
+  // The pinned banner's name and the forwarded marker
+  pinnedMessage: string;
+  forwarded: string;
+  // The composer's camera button
+  attachCamera: string;
 }
 
 
@@ -113,6 +144,8 @@ export const defaultLabels: { en: KitLabels; lt: KitLabels } = {
     latestMessages: 'Latest messages',
     newMessages: (count) => (count === 1 ? '1 new message' : `${count} new messages`),
     loadOlder: 'Older messages',
+    loadNewer: 'Newer messages',
+    gallery: (count) => `Album, ${count} photos`,
     conversationStart: 'Start of the conversation',
     inputPlaceholder: 'Type a message…',
     send: 'Send message',
@@ -134,6 +167,23 @@ export const defaultLabels: { en: KitLabels; lt: KitLabels } = {
     editingMessage: 'Editing message',
     cancelEdit: 'Cancel editing',
     saveEdit: 'Save changes',
+    emptyChat: 'No messages yet — say hello',
+    signInToChat: 'Sign in to send messages',
+    unsupportedMessage: 'This message cannot be shown in this version',
+    openProfile: 'Open profile',
+    linkPreview: 'Link preview',
+    voiceNote: 'Voice message',
+    recordVoice: 'Record a voice message',
+    sendVoice: 'Send voice message',
+    cancelRecording: 'Discard recording',
+    playVoice: 'Play voice message',
+    pauseVoice: 'Pause voice message',
+    mentionUser: (name) => `Mention ${name}`,
+    connecting: 'Connecting…',
+    noConnection: 'No connection',
+    pinnedMessage: 'Pinned message',
+    forwarded: 'Forwarded',
+    attachCamera: 'Take a photo',
   },
   lt: {
     today: 'Šiandien',
@@ -164,6 +214,9 @@ export const defaultLabels: { en: KitLabels; lt: KitLabels } = {
     newMessages: (count) =>
       ltPlural(count, `${count} nauja žinutė`, `${count} naujos žinutės`, `${count} naujų žinučių`),
     loadOlder: 'Ankstesnės žinutės',
+    loadNewer: 'Naujesnės žinutės',
+    gallery: (count) =>
+      ltPlural(count, `Albumas, ${count} nuotrauka`, `Albumas, ${count} nuotraukos`, `Albumas, ${count} nuotraukų`),
     conversationStart: 'Pokalbio pradžia',
     inputPlaceholder: 'Įrašykite žinutę…',
     send: 'Siųsti žinutę',
@@ -185,6 +238,23 @@ export const defaultLabels: { en: KitLabels; lt: KitLabels } = {
     editingMessage: 'Redaguojama žinutė',
     cancelEdit: 'Atšaukti redagavimą',
     saveEdit: 'Išsaugoti pakeitimus',
+    emptyChat: 'Žinučių dar nėra — pasisveikinkite',
+    signInToChat: 'Prisijunkite, kad galėtumėte rašyti',
+    unsupportedMessage: 'Šios žinutės ši versija parodyti negali',
+    openProfile: 'Atidaryti profilį',
+    linkPreview: 'Nuorodos peržiūra',
+    voiceNote: 'Balso žinutė',
+    recordVoice: 'Įrašyti balso žinutę',
+    sendVoice: 'Siųsti balso žinutę',
+    cancelRecording: 'Atmesti įrašą',
+    playVoice: 'Paleisti balso žinutę',
+    pauseVoice: 'Pristabdyti balso žinutę',
+    mentionUser: (name) => `Paminėti ${name}`,
+    connecting: 'Jungiamasi…',
+    noConnection: 'Nėra ryšio',
+    pinnedMessage: 'Prisegta žinutė',
+    forwarded: 'Persiųsta',
+    attachCamera: 'Fotografuoti',
   },
 };
 

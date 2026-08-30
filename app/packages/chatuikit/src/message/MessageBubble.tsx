@@ -42,14 +42,14 @@
 // -----------------------------------------------------------
 
 // Theme + upload URL resolution + labels
-import { useKitEnv, useKitTheme } from '../provider';
-import { useReducedMotionSafe } from '../hooks/a11y';
+import { useKitComponents, useKitEnv, useKitTheme } from '../provider';
+import { composeAccessibilityLabel, useReducedMotionSafe } from '../hooks/a11y';
 import type { KitLabels } from '../provider/labels';
 
 // Rendering + gestures
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
+import { Component, memo, useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Platform,
@@ -87,9 +87,12 @@ import {
   RUN_GAP,
 } from '../core/metrics';
 import type { ContextTarget, GroupPosition, KitMessage } from '../core/types';
-import { messageKind } from '../core/types';
+import { KNOWN_KINDS, messageKind } from '../core/types';
 import FileCard from './attachments/FileCard';
+import AudioAttachment from './attachments/AudioAttachment';
+import GalleryAttachment from './attachments/GalleryAttachment';
 import ImageAttachment from './attachments/ImageAttachment';
+import LinkPreviewCard from './attachments/LinkPreviewCard';
 import VideoAttachment from './attachments/VideoAttachment';
 import MessageText from './MessageText';
 import ReactionPills from './ReactionPills';
@@ -110,8 +113,8 @@ const DEFAULT_REACTION_EMOJI = '👍';
 
 const haptic = (kind: 'light' | 'medium' | 'select') => {
   if (isWeb) return;
-  if (kind === 'select') void Haptics.selectionAsync();
-  else void Haptics.impactAsync(kind === 'light' ? Haptics.ImpactFeedbackStyle.Light : Haptics.ImpactFeedbackStyle.Medium);
+  if (kind === 'select') void Haptics.selectionAsync().catch(() => {});
+  else void Haptics.impactAsync(kind === 'light' ? Haptics.ImpactFeedbackStyle.Light : Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
 };
 
 
@@ -159,6 +162,42 @@ export function bubbleRadii(position: GroupPosition, own: boolean): ViewStyle {
 //   - chatuikit/menu/MessageContextMenu.tsx — the floating copy
 // -----------------------------------------------------------
 
+// -----------------------------------------------------------
+// BubbleGuard
+// -----------------------------------------------------------
+//
+// The error boundary around every bubble's body: a crashing
+// renderer — a host's custom MessageBody above all — degrades
+// to the unsupported-message row instead of taking the whole
+// list down. The error is logged once in dev; the row heals on
+// the next remount (a fresh message identity).
+//
+// Used by:
+//   - MessageBubble (below) — around BubbleBody
+// -----------------------------------------------------------
+
+class BubbleGuard extends Component<{ fallback: ReactNode; children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: unknown) {
+    if (__DEV__) console.warn('[chatuikit] a bubble body crashed:', error);
+  }
+
+  render() {
+    return this.state.failed ? this.props.fallback : this.props.children;
+  }
+}
+
+
+
+
+
+
+
 export function BubbleBody({
   message,
   position,
@@ -167,8 +206,10 @@ export function BubbleBody({
   initialImageRatio,
   onPressQuote,
   onPressImage,
+  onPressGalleryImage,
   onPressVideo,
   onPressLink,
+  onPressMention,
   onLongPress,
   onImageRatio,
 }: {
@@ -184,8 +225,12 @@ export function BubbleBody({
   initialImageRatio?: number;
   onPressQuote?: () => void;
   onPressImage?: () => void;
+  // A gallery tile's tap with its index; absent, tiles fall back
+  // to onPressImage
+  onPressGalleryImage?: (index: number) => void;
   onPressVideo?: () => void;
   onPressLink?: (href: string) => void;
+  onPressMention?: (name: string) => void;
   // Inner pressables (quote, photo) hand a long-press back up so
   // the menu opens wherever the finger lands
   onLongPress?: () => void;
@@ -196,21 +241,29 @@ export function BubbleBody({
 
   const { colors, fonts } = useKitTheme();
   const { resolveImageUrl } = useKitEnv();
-
-
+  const { MessageBody } = useKitComponents();
   const own = message.isOwn;
   const failed = message.status === 'failed';
   const deleted = !!message.deleted;
   const kind = messageKind(message);
+  // 'custom' renders through the host's slot; a kind this build
+  // does not know at all renders the placeholder — never a blank
+  // bubble for a newer backend's message
+  const custom = kind === 'custom' && !deleted;
+  const unsupported = !deleted && (!KNOWN_KINDS.includes(kind) || (custom && !MessageBody));
+  // Two or more photos tile as an album; a lone one keeps the
+  // classic full-bleed photo
+  const galleryItems = kind === 'image' && !deleted && message.gallery && message.gallery.length >= 2 ? message.gallery : undefined;
   // A photo send shows the picked file from the first frame — the
   // server path arrives after the upload
-  const photo = kind === 'image' && !deleted;
+  const photo = kind === 'image' && !deleted && !galleryItems;
   const photoUri = photo ? message.localImageUri ?? (message.imageUrl ? resolveImageUrl(message.imageUrl) ?? undefined : undefined) : undefined;
   const video = kind === 'video' && !deleted ? message.video : undefined;
+  const audio = kind === 'audio' && !deleted ? message.audio : undefined;
   const file = kind === 'file' && !deleted ? message.file : undefined;
   // Media fills the bubble edge to edge; the text (a caption)
   // and the quote keep the padding
-  const media = photo || !!video;
+  const media = photo || !!video || !!galleryItems;
   const brandBubble = own && !failed && !deleted;
   const inkColor = brandBubble ? colors.onBrand : colors.ink;
   const linkColor = brandBubble ? colors.onBrand : colors.brandText;
@@ -249,7 +302,7 @@ export function BubbleBody({
   // text message; a file card carries its own text row
   const caption = message.text ? (
     <View style={media ? { paddingHorizontal: BUBBLE_PADDING_H, paddingTop: 6, paddingBottom: BUBBLE_PADDING_V } : undefined}>
-      <MessageText text={message.text} color={inkColor} linkColor={linkColor} labels={labels} segments={segments} onPressLink={onPressLink} />
+      <MessageText text={message.text} color={inkColor} linkColor={linkColor} labels={labels} segments={segments} onPressLink={onPressLink} onPressMention={onPressMention} />
     </View>
   ) : null;
 
@@ -262,7 +315,40 @@ export function BubbleBody({
         </View>
       ) : null}
 
-      {photo ? (
+      {message.forwarded && !deleted ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', ...(media || file ? { paddingHorizontal: BUBBLE_PADDING_H, paddingTop: BUBBLE_PADDING_V } : { paddingBottom: 2 }) }} testID="chatuikit-forwarded">
+          <Ionicons name="arrow-redo-outline" size={12} color={brandBubble ? colors.onBrand : colors.inkSoft} />
+          <Text style={{ marginLeft: 4, fontFamily: fonts.regular, fontStyle: 'italic', fontSize: 12, lineHeight: 15, color: brandBubble ? colors.onBrand : colors.inkSoft, opacity: 0.9 }}>
+            {labels.forwarded}
+          </Text>
+        </View>
+      ) : null}
+
+      {unsupported ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center' }} testID="chatuikit-unsupported">
+          <Ionicons name="help-circle-outline" size={16} color={brandBubble ? colors.onBrand : colors.inkSoft} />
+          <Text style={{ marginLeft: 6, fontFamily: fonts.regular, fontStyle: 'italic', fontSize: 14, lineHeight: 19, color: brandBubble ? colors.onBrand : colors.inkSoft }}>
+            {labels.unsupportedMessage}
+          </Text>
+        </View>
+      ) : custom && MessageBody ? (
+        <>
+          <MessageBody message={message} own={brandBubble} color={inkColor} />
+          {caption}
+        </>
+      ) : galleryItems ? (
+        <>
+          <GalleryAttachment
+            items={galleryItems}
+            labels={labels}
+            onPressItem={onPressGalleryImage ?? (onPressImage ? () => onPressImage() : undefined)}
+            onLongPress={onLongPress}
+            // The viewer has no entries until every upload finished
+            disabled={message.status === 'sending' || message.status === 'failed'}
+          />
+          {caption}
+        </>
+      ) : photo ? (
         <Pressable
           // The viewer has no entry until the upload finished — an
           // unsent or failed photo is disabled so its taps and
@@ -277,6 +363,7 @@ export function BubbleBody({
           <ImageAttachment
             uri={photoUri}
             mediaSize={message.mediaSize}
+            preview={message.mediaPreview}
             initialRatio={initialImageRatio}
             onRatio={onImageRatio}
             labels={labels}
@@ -299,6 +386,7 @@ export function BubbleBody({
           <VideoAttachment
             video={video}
             mediaSize={message.mediaSize}
+            preview={message.mediaPreview}
             initialRatio={initialImageRatio}
             onRatio={onImageRatio}
             labels={labels}
@@ -306,14 +394,30 @@ export function BubbleBody({
           />
           {caption}
         </Pressable>
+      ) : audio ? (
+        <>
+          <AudioAttachment audio={audio} own={brandBubble} labels={labels} />
+          {caption}
+        </>
       ) : file ? (
         <>
           <FileCard file={file} own={brandBubble} labels={labels} onPress={onPressLink ? () => onPressLink(file.uri) : undefined} onLongPress={onLongPress} />
           {caption}
         </>
       ) : (
-        <MessageText text={message.text} color={inkColor} linkColor={linkColor} labels={labels} segments={segments} onPressLink={onPressLink} />
+        <>
+          <MessageText text={message.text} color={inkColor} linkColor={linkColor} labels={labels} segments={segments} onPressLink={onPressLink} onPressMention={onPressMention} />
+          {message.linkPreview ? <LinkPreviewCard preview={message.linkPreview} own={brandBubble} labels={labels} onPress={onPressLink} onLongPress={onLongPress} /> : null}
+        </>
       )}
+
+      {message.status === 'sending' && typeof message.uploadProgress === 'number' ? (
+        // The upload's fraction along the bubble's bottom edge —
+        // overflow:hidden clips it to the radius
+        <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 3, backgroundColor: colors.line, opacity: 0.9 }} testID="chatuikit-upload-progress">
+          <View style={{ width: `${Math.round(message.uploadProgress * 100)}%`, height: 3, backgroundColor: colors.brand }} testID="chatuikit-upload-progress-fill" />
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -402,6 +506,9 @@ function ReceiptLine({
       {showStatus && message.status === 'read' ? (
         <Ionicons name="checkmark-done" size={12} color={colors.brand} style={{ marginRight: 3 }} />
       ) : null}
+      {message.expiresAt && !message.deleted ? (
+        <Ionicons name="timer-outline" size={11} color={colors.inkFaint} style={{ marginRight: 3 }} testID="chatuikit-expiry" />
+      ) : null}
       <Text style={[text.time, { color: colors.inkSoft }]}>
         {parts.join(' · ')}
       </Text>
@@ -445,7 +552,11 @@ function MessageBubbleInner({
   onSwipeReply,
   onPressQuote,
   onPressImage,
+  onPressGalleryImage,
+  mentionNames,
+  onPressMention,
   onPressVideo,
+  onPressAvatar,
   onPressReactions,
   onRetry,
   onPressLink,
@@ -477,8 +588,16 @@ function MessageBubbleInner({
   onSwipeReply: (message: KitMessage) => void;
   onPressQuote: (message: KitMessage) => void;
   onPressImage: (message: KitMessage) => void;
+  // A gallery tile's tap — absent, tiles open via onPressImage
+  onPressGalleryImage?: (message: KitMessage, index: number) => void;
+  // The room's member names — "@Name" runs matching one become
+  // highlighted mentions; onPressMention opens that member
+  mentionNames?: readonly string[];
+  onPressMention?: (name: string, message: KitMessage) => void;
   // A video bubble's tap — optional, hosts without video omit it
   onPressVideo?: (message: KitMessage) => void;
+  // The portrait's tap — optional, portraits are inert without it
+  onPressAvatar?: (message: KitMessage) => void;
   onPressReactions: (message: KitMessage) => void;
   onRetry: (message: KitMessage) => void;
   onPressLink: (href: string) => void;
@@ -488,7 +607,7 @@ function MessageBubbleInner({
   onReact?: (message: KitMessage, emoji: string) => void;
 }) {
 
-  const { colors, text } = useKitTheme();
+  const { colors, fonts, text } = useKitTheme();
   const { resolveImageUrl, formatTime } = useKitEnv();
   // Respect the OS "reduce motion" setting: arriving rows appear
   // in place instead of sliding in
@@ -555,9 +674,9 @@ function MessageBubbleInner({
         })
         .onFinalize(() => {
           armed.value = false;
-          dragX.value = withSpring(0, SWIPE_SPRING);
+          dragX.value = reduceMotion ? 0 : withSpring(0, SWIPE_SPRING);
         }),
-    [swipeable, own, direction, fireSwipeReply, dragX, armed],
+    [swipeable, own, direction, fireSwipeReply, dragX, armed, reduceMotion],
   );
 
   const dragStyle = useAnimatedStyle(() => ({ transform: [{ translateX: dragX.value }] }));
@@ -578,8 +697,9 @@ function MessageBubbleInner({
   useEffect(() => {
     if (!highlighted) return;
     flash.value = 1;
-    flash.value = withTiming(0, { duration: 1400 });
-  }, [highlighted, flash]);
+    // Reduced motion: the wash still marks the row, then clears at once
+    flash.value = withTiming(0, { duration: reduceMotion ? 0 : 1400 });
+  }, [highlighted, flash, reduceMotion]);
   const flashStyle = useAnimatedStyle(() => ({ opacity: flash.value * 0.35 }));
 
 
@@ -596,15 +716,15 @@ function MessageBubbleInner({
   // with ReceiptLine, the segments with MessageText and the link
   // accessibility actions
   const timeText = useMemo(() => formatTime(message.createdAt), [formatTime, message.createdAt]);
-  const segments = useMemo(() => linkify(message.text), [message.text]);
+  const segments = useMemo(() => linkify(message.text, { mentionNames }), [message.text, mentionNames]);
   const links = useMemo(() => segments.filter((seg) => seg.type === 'link'), [segments]);
   const kind = messageKind(message);
   const bodyLabel =
     message.text
-    || (kind === 'video' ? labels.video : kind === 'file' ? `${labels.file}: ${message.file?.name ?? ''}` : labels.photo);
+    || (kind === 'video' ? labels.video : kind === 'audio' ? labels.voiceNote : kind === 'file' ? `${labels.file}: ${message.file?.name ?? ''}` : message.gallery && message.gallery.length >= 2 ? labels.gallery(message.gallery.length) : labels.photo);
   const accessibilityLabel = deleted
-    ? `${message.senderName}, ${labels.deleted}`
-    : `${message.senderName}, ${bodyLabel}, ${timeText}${message.editedAt ? `, ${labels.edited}` : ''}${own && showStatus ? `, ${statusLabel}` : ''}`;
+    ? composeAccessibilityLabel([message.senderName, labels.deleted])
+    : composeAccessibilityLabel([message.senderName, bodyLabel, timeText, message.editedAt ? labels.edited : null, own && showStatus ? statusLabel : null]);
   const accessibilityActions = useMemo<AccessibilityActionInfo[]>(() => {
     if (deleted) return [];
     const list: AccessibilityActionInfo[] = [];
@@ -662,7 +782,14 @@ function MessageBubbleInner({
       {avatarSlot !== 'none' ? (
         <View style={{ width: AVATAR_COLUMN, alignItems: 'flex-start' }}>
           {avatarSlot === 'show' ? (
-            <KitAvatar uri={message.senderAvatar ? resolveImageUrl(message.senderAvatar) : undefined} name={message.senderName} size={AVATAR_SIZE} />
+            <KitAvatar
+              uri={message.senderAvatar ? resolveImageUrl(message.senderAvatar) : undefined}
+              name={message.senderName}
+              colorKey={message.senderId}
+              size={AVATAR_SIZE}
+              onPress={onPressAvatar ? () => onPressAvatar(message) : undefined}
+              accessibilityLabel={composeAccessibilityLabel([labels.openProfile, message.senderName])}
+            />
           ) : null}
         </View>
       ) : null}
@@ -682,9 +809,9 @@ function MessageBubbleInner({
           {/* The reply glyph sits under the bubble's dragged edge and
               is uncovered as the bubble travels */}
           <Animated.View
-            pointerEvents="none"
             style={[
               {
+                pointerEvents: 'none',
                 position: 'absolute',
                 top: 0,
                 bottom: 0,
@@ -716,6 +843,13 @@ function MessageBubbleInner({
                 onAccessibilityAction={onAccessibilityAction}
                 style={{ borderRadius: BUBBLE_RADIUS, overflow: 'visible' }}
               >
+                <BubbleGuard
+                  fallback={
+                    <View style={{ paddingHorizontal: BUBBLE_PADDING_H, paddingVertical: BUBBLE_PADDING_V, borderRadius: 16, backgroundColor: colors.bubbleIn }}>
+                      <Text style={{ fontFamily: fonts.regular, fontStyle: 'italic', fontSize: 14, color: colors.inkSoft }}>{labels.unsupportedMessage}</Text>
+                    </View>
+                  }
+                >
                 <BubbleBody
                   message={message}
                   position={position}
@@ -723,15 +857,17 @@ function MessageBubbleInner({
                   segments={segments}
                   onPressQuote={message.replyTo ? () => onPressQuote(message) : undefined}
                   onPressImage={() => onPressImage(message)}
+                  onPressGalleryImage={onPressGalleryImage ? (index) => onPressGalleryImage(message, index) : undefined}
+                  onPressMention={onPressMention ? (name) => onPressMention(name, message) : undefined}
                   onPressVideo={onPressVideo ? () => onPressVideo(message) : undefined}
                   onPressLink={onPressLink}
                   onLongPress={actionable ? longPress : undefined}
                   onImageRatio={reportImageRatio}
                 />
+                </BubbleGuard>
                 <Animated.View
-                  pointerEvents="none"
                   style={[
-                    { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: colors.accent, ...bubbleRadii(position, own) },
+                    { pointerEvents: 'none', position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: colors.accent, ...bubbleRadii(position, own) },
                     flashStyle,
                   ]}
                 />

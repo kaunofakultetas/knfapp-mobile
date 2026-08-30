@@ -27,23 +27,28 @@ import { type KitLabels } from '../provider/labels';
 // Rendering + motion
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Dimensions,
   Keyboard,
   Platform,
   Pressable,
+  ScrollView,
   Text,
   TextInput,
   View,
   type NativeSyntheticEvent,
   type TextInputKeyPressEventData,
+  type TextInputProps,
 } from 'react-native';
 import Animated, { FadeInDown, FadeOutDown, interpolate, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 
-import type { KitMessage, KitReply } from '../core/types';
+import KitAvatar from '../avatar/KitAvatar';
+import { formatDuration } from '../core/media';
+import type { KitMentionCandidate, KitMessage, KitReply } from '../core/types';
 import { replySnippet } from '../message/ReplyQuote';
 
 
@@ -151,7 +156,7 @@ function AttachButton({
   disabled,
   onPress,
 }: {
-  icon: 'image-outline' | 'attach-outline';
+  icon: 'image-outline' | 'attach-outline' | 'mic-outline';
   label: string;
   busyLabel: string;
   busy: boolean;
@@ -195,9 +200,127 @@ function AttachButton({
 //   - Composer (below)
 // -----------------------------------------------------------
 
+// Case- and diacritic-insensitive match key for the mention
+// strip's filtering (mirrors core/linkify's fold)
+const foldName = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// MentionStrip
+// -----------------------------------------------------------
+//
+// The horizontal row of members above the field while the
+// draft ends in an "@partial" token: portrait + name, a tap
+// replaces the token with the full "@Name ". Taps must land
+// with the keyboard up, hence keyboardShouldPersistTaps.
+//
+// Used by:
+//   - Composer (below)
+// -----------------------------------------------------------
+
+function MentionStrip({ candidates, labels, onPick }: { candidates: KitMentionCandidate[]; labels: KitLabels; onPick: (name: string) => void }) {
+
+  const { colors, fonts } = useKitTheme();
+
+
+  return (
+    <ScrollView
+      horizontal
+      keyboardShouldPersistTaps="always"
+      showsHorizontalScrollIndicator={false}
+      style={{ borderTopWidth: 1, borderTopColor: colors.line }}
+      contentContainerStyle={{ paddingHorizontal: 10, paddingVertical: 6, gap: 6 }}
+      testID="chatuikit-mentions"
+    >
+      {candidates.map((candidate) => (
+        <Pressable
+          key={candidate.id}
+          onPress={() => onPick(candidate.name)}
+          accessibilityRole="button"
+          accessibilityLabel={labels.mentionUser(candidate.name)}
+          testID={`chatuikit-mention-pick-${candidate.id}`}
+          style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 16, backgroundColor: colors.surfaceSoft }}
+        >
+          <KitAvatar uri={candidate.avatarUrl} name={candidate.name} size={22} colorKey={candidate.id} />
+          <Text style={{ marginLeft: 6, fontFamily: fonts.medium, fontSize: 14, color: colors.ink }}>{candidate.name}</Text>
+        </Pressable>
+      ))}
+    </ScrollView>
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// RecordingRow
+// -----------------------------------------------------------
+//
+// The bar while a voice note records: the red dot, the elapsed
+// time, cancel (discards the take) and the brand send button
+// (stops and sends). It replaces the WHOLE composer row, so
+// nothing else can be tapped mid-take.
+//
+// Used by:
+//   - Composer (below)
+// -----------------------------------------------------------
+
+function RecordingRow({ elapsedSeconds, labels, onCancel, onStop }: { elapsedSeconds: number; labels: KitLabels; onCancel: () => void; onStop: () => void }) {
+
+  const { colors, fonts } = useKitTheme();
+
+
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 10 }} testID="chatuikit-recording">
+      <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.danger }} />
+      <Text
+        accessibilityLiveRegion="polite"
+        style={{ marginLeft: 8, fontFamily: fonts.medium, fontSize: 15, color: colors.ink, fontVariant: ['tabular-nums'] }}
+      >
+        {formatDuration(elapsedSeconds)}
+      </Text>
+      <View style={{ flex: 1 }} />
+      <Pressable
+        onPress={onCancel}
+        hitSlop={8}
+        accessibilityRole="button"
+        accessibilityLabel={labels.cancelRecording}
+        testID="chatuikit-recording-cancel"
+        style={{ padding: 8, marginRight: 10 }}
+      >
+        <Ionicons name="trash-outline" size={22} color={colors.inkSoft} />
+      </Pressable>
+      <Pressable
+        onPress={onStop}
+        accessibilityRole="button"
+        accessibilityLabel={labels.sendVoice}
+        testID="chatuikit-recording-send"
+        style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: colors.brand, alignItems: 'center', justifyContent: 'center' }}
+      >
+        <Ionicons name="arrow-up" size={20} color={colors.onBrand} />
+      </Pressable>
+    </View>
+  );
+}
+
+
+
+
+
+
+
 function SendSlot({
   hasText,
   editing,
+  disabled = false,
   labels,
   onSend,
   onQuickLike,
@@ -206,6 +329,8 @@ function SendSlot({
   // Edit mode: the arrow becomes a check and an emptied field
   // cannot save (the thumb never shows)
   editing: boolean;
+  // A guest's slot: drawn dimmed, inert
+  disabled?: boolean;
   labels: KitLabels;
   onSend: () => void;
   onQuickLike: () => void;
@@ -233,16 +358,18 @@ function SendSlot({
   return (
     <Pressable
       onPress={() => {
-        if (editing && !hasText) return;
-        if (!isWeb) void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        if (disabled || (editing && !hasText)) return;
+        if (!isWeb) void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
         if (sendMode) onSend();
         else onQuickLike();
       }}
       hitSlop={6}
+      disabled={disabled}
       accessibilityRole="button"
       accessibilityLabel={editing ? labels.saveEdit : hasText ? labels.send : labels.quickLike}
-      accessibilityState={{ disabled: editing && !hasText }}
-      style={{ width: 38, height: 38, alignItems: 'center', justifyContent: 'center' }}
+      accessibilityState={{ disabled: disabled || (editing && !hasText) }}
+      testID="chatuikit-send"
+      style={{ width: 38, height: 38, alignItems: 'center', justifyContent: 'center', opacity: disabled ? 0.4 : 1 }}
     >
       <Animated.View
         style={[
@@ -289,6 +416,14 @@ export default function Composer({
   editing = null,
   onCancelEdit,
   maxLength,
+  canSend = true,
+  textInputProps,
+  onStartRecording,
+  onStopRecording,
+  onCancelRecording,
+  recording = null,
+  mentionCandidates = null,
+  onAttachCamera,
 }: {
   value: string;
   onChangeText: (text: string) => void;
@@ -312,10 +447,29 @@ export default function Composer({
   editing?: Pick<KitMessage, 'id' | 'text'> | null;
   onCancelEdit?: () => void;
   maxLength?: number;
+  // False for a reader who may not send (a guest): the field and
+  // the buttons disable and a strip says why. Default true
+  canSend?: boolean;
+  // Escape hatch: extra TextInput props (autoFocus, testID,
+  // autoCapitalize…); the kit's own props win where they overlap
+  textInputProps?: Partial<TextInputProps>;
+  // Voice notes — recording is the HOST's (permission, the
+  // recorder); the kit only draws. With onStartRecording the mic
+  // button appears; while `recording` the whole row swaps for the
+  // recording bar
+  onStartRecording?: () => void;
+  onStopRecording?: () => void;
+  onCancelRecording?: () => void;
+  recording?: { elapsedSeconds: number } | null;
+  // The room's members for @-completion — omitted, no strip
+  mentionCandidates?: KitMentionCandidate[] | null;
+  // The camera shortcut inside the field (drawn while the field
+  // is empty) — omitted, no button
+  onAttachCamera?: () => void;
 }) {
 
   const labels = useKitLabels();
-  const { colors, fonts } = useKitTheme();
+  const { colors, fonts, scheme } = useKitTheme();
   const insets = useSafeAreaInsets();
 
 
@@ -335,6 +489,22 @@ export default function Composer({
   }, []);
 
 
+  // A rotation moves the field: the keyboard is dismissed so it
+  // never covers the composer at its new position
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    let landscape = Dimensions.get('window').width > Dimensions.get('window').height;
+    const sub = Dimensions.addEventListener('change', ({ window }) => {
+      const next = window.width > window.height;
+      if (next !== landscape) {
+        landscape = next;
+        Keyboard.dismiss();
+      }
+    });
+    return () => sub.remove();
+  }, []);
+
+
   const limit = maxLength ?? DEFAULT_MAX_LENGTH;
   // What the field visibly shows drives the send morph
   // (Messenger-style) — the send path clears a whitespace-only
@@ -345,6 +515,33 @@ export default function Composer({
 
   // The field follows its content between one and five lines
   const [fieldHeight, setFieldHeight] = useState(FIELD_MIN);
+
+
+  // The cursor, for the mention strip: the active token is the
+  // "@partial" ending exactly at the cursor. Selection events
+  // lag a controlled value by a beat, so the position is clamped
+  // to the current text
+  const [cursorPos, setCursorPos] = useState<number | null>(null);
+  const mentionQuery = useMemo(() => {
+    if (!mentionCandidates?.length || editing) return null;
+    const at = Math.min(cursorPos ?? value.length, value.length);
+    const head = value.slice(0, at);
+    const token = head.match(/(^|\s)@([^\s@]{0,30})$/);
+    return token ? token[2] : null;
+  }, [mentionCandidates, editing, cursorPos, value]);
+  const mentionMatches = useMemo(() => {
+    if (mentionQuery === null || !mentionCandidates) return [];
+    const query = foldName(mentionQuery);
+    const starts = mentionCandidates.filter((c) => foldName(c.name).startsWith(query));
+    const contains = query ? mentionCandidates.filter((c) => !foldName(c.name).startsWith(query) && foldName(c.name).includes(query)) : [];
+    return [...starts, ...contains].slice(0, 5);
+  }, [mentionQuery, mentionCandidates]);
+  const insertMention = (name: string) => {
+    const at = Math.min(cursorPos ?? value.length, value.length);
+    const head = value.slice(0, at).replace(/@[^\s@]{0,30}$/, `@${name} `);
+    onChangeText(head + value.slice(at));
+    setCursorPos(head.length);
+  };
 
 
   // Choosing a reply or starting an edit brings the keyboard up
@@ -382,7 +579,9 @@ export default function Composer({
   // alone. The default is only suppressed when the key is
   // consumed — same emptiness rule as the send button
   const onKeyPress = (e: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
-    if (!isWeb || e.nativeEvent.key !== 'Enter') return;
+    // Read at call time (not the module constant) so a host can
+    // run the web rule in tests that flip Platform.OS
+    if (Platform.OS !== 'web' || e.nativeEvent.key !== 'Enter') return;
     const native = e.nativeEvent as unknown as { shiftKey?: boolean; isComposing?: boolean; keyCode?: number };
     if (native.shiftKey || native.isComposing || native.keyCode === 229) return;
     if (!hasText) return;
@@ -401,7 +600,12 @@ export default function Composer({
       }}
     >
 
-      {editing ? (
+      {!canSend ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginHorizontal: 12, marginTop: 8, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 12, backgroundColor: colors.surfaceSoft }} accessibilityRole="text" testID="chatuikit-composer-locked">
+          <Ionicons name="lock-closed-outline" size={16} color={colors.inkSoft} style={{ marginRight: 8 }} />
+          <Text style={{ flex: 1, fontFamily: fonts.regular, fontSize: 13, lineHeight: 16, color: colors.inkSoft }}>{labels.signInToChat}</Text>
+        </View>
+      ) : editing ? (
         <Strip
           icon="pencil"
           title={labels.editingMessage}
@@ -427,6 +631,18 @@ export default function Composer({
         </Text>
       ) : null}
 
+      {mentionMatches.length > 0 && !recording ? (
+        <MentionStrip candidates={mentionMatches} labels={labels} onPick={insertMention} />
+      ) : null}
+
+      {recording && canSend ? (
+        <RecordingRow
+          elapsedSeconds={recording.elapsedSeconds}
+          labels={labels}
+          onCancel={() => onCancelRecording?.()}
+          onStop={() => onStopRecording?.()}
+        />
+      ) : (
       <View style={{ flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: 8, paddingVertical: 8 }}>
 
         {/* Attachments make no sense while editing a text — the
@@ -436,7 +652,7 @@ export default function Composer({
           label={labels.attachMedia}
           busyLabel={labels.uploadingMedia}
           busy={uploadingMedia}
-          disabled={!!editing}
+          disabled={!!editing || !canSend}
           onPress={onAttachMedia}
         />
         {onAttachFile ? (
@@ -445,8 +661,18 @@ export default function Composer({
             label={labels.attachFile}
             busyLabel={labels.uploadingFile}
             busy={uploadingFile}
-            disabled={!!editing}
+            disabled={!!editing || !canSend}
             onPress={onAttachFile}
+          />
+        ) : null}
+        {onStartRecording ? (
+          <AttachButton
+            icon="mic-outline"
+            label={labels.recordVoice}
+            busyLabel={labels.recordVoice}
+            busy={false}
+            disabled={!!editing || !canSend}
+            onPress={onStartRecording}
           />
         ) : null}
 
@@ -461,8 +687,16 @@ export default function Composer({
           }}
         >
           <TextInput
+            {...textInputProps}
             ref={inputRef}
+            onSelectionChange={(e) => {
+              setCursorPos(e.nativeEvent.selection.end);
+              textInputProps?.onSelectionChange?.(e);
+            }}
             onKeyPress={onKeyPress}
+            editable={canSend && (textInputProps?.editable ?? true)}
+            keyboardAppearance={scheme}
+            testID={textInputProps?.testID ?? 'chatuikit-composer-input'}
             style={{
               // The pill is the focus affordance; drop the browser ring
               ...(isWeb ? ({ outlineStyle: 'none' } as object) : {}),
@@ -490,6 +724,19 @@ export default function Composer({
             maxLength={limit}
             textAlignVertical="center"
           />
+          {onAttachCamera && !hasText && !editing ? (
+            <Pressable
+              onPress={onAttachCamera}
+              hitSlop={6}
+              disabled={!canSend}
+              accessibilityRole="button"
+              accessibilityLabel={labels.attachCamera}
+              testID="chatuikit-camera"
+              style={{ width: 34, height: FIELD_MIN, alignItems: 'center', justifyContent: 'center' }}
+            >
+              <Ionicons name="camera-outline" size={22} color={colors.inkSoft} />
+            </Pressable>
+          ) : null}
           <Pressable
             onPress={onToggleEmoji}
             hitSlop={6}
@@ -502,9 +749,10 @@ export default function Composer({
           </Pressable>
         </View>
 
-        <SendSlot hasText={hasText} editing={!!editing} labels={labels} onSend={onSend} onQuickLike={onQuickLike} />
+        <SendSlot hasText={hasText} editing={!!editing} disabled={!canSend} labels={labels} onSend={onSend} onQuickLike={onQuickLike} />
 
       </View>
+      )}
 
     </View>
   );

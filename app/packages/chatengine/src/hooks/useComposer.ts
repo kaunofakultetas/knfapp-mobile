@@ -42,15 +42,20 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { normalizeAssetName } from '../core/assets';
 import { isRetryable, sendFailureCode, toTransportError } from '../core/errors';
-import { draftKey, readOutbox, writeOutbox, type OutboxEntry, type PickedAsset } from '../core/outbox';
+import { draftKey, draftReplyKey, readOutbox, writeOutbox, type OutboxEntry, type PickedAsset } from '../core/outbox';
 import { markEdited, normalizeForViewer } from '../core/reducers';
+import { getTaskQueue } from '../core/tasks';
 import type { OutgoingMessage } from '../core/transport';
 import { TEMP_ID_PREFIX, isTempId, type ChatMessage } from '../core/types';
 import { useChatEngine } from '../provider';
 
 
 const TYPING_REEMIT_MS = 2000;
+// Self-retries after a retryable park, then the tap / restore
+// sweep take over
+const AUTO_RETRY_DELAYS = [5_000, 20_000];
 const TYPING_IDLE_MS = 3000;
 const DRAFT_DEBOUNCE_MS = 400;
 
@@ -65,6 +70,9 @@ export type ReplyTarget = Pick<ChatMessage, 'id' | 'senderId' | 'senderName' | '
 export interface UseComposerResult {
   text: string;
   onChangeText: (next: string) => void;
+  // False for a guest (no signed-in user): sends are impossible,
+  // the UI disables its controls and says so
+  canSend: boolean;
   // A photo / video upload in flight
   uploadingMedia: boolean;
   // A document upload in flight
@@ -76,6 +84,9 @@ export interface UseComposerResult {
   // Upload and send an already-picked asset (the host's pickers
   // hand it over). Resolves when the send settled either way
   attach: (asset: PickedAsset) => Promise<void>;
+  // Several picked photos as ONE gallery message; anything that
+  // is not a pure multi-photo pick falls back to attach() each
+  attachMany: (assets: PickedAsset[]) => Promise<void>;
   retryMessage: (message: RetryTarget) => void;
   // Drops a failed optimistic bubble that will not be retried
   discardMessage: (messageId: string) => void;
@@ -163,6 +174,19 @@ export function useComposer(
     [conversationId, storage],
   );
 
+  // The reply target is persisted beside the draft, so a quote
+  // survives leaving the room the way the text does
+  const persistReply = useCallback(
+    (target: ReplyTarget | null) => {
+      const key = draftReplyKey(conversationId);
+      const snapshot = target
+        ? { id: target.id, senderId: target.senderId, senderName: target.senderName, text: target.text, imageUrl: target.imageUrl ?? undefined, deleted: !!target.deleted, kind: target.kind, file: target.file }
+        : null;
+      (snapshot ? storage.setItem(key, JSON.stringify(snapshot)) : storage.removeItem(key)).catch(() => {});
+    },
+    [conversationId, storage],
+  );
+
   // Leaving the room flushes the final draft past the debounce
   useEffect(() => {
     return () => {
@@ -200,11 +224,26 @@ export function useComposer(
     let cancelled = false;
     (async () => {
       try {
-        const [draft, outbox] = await Promise.all([storage.getItem(draftKey(conversationId)), readOutbox(storage, conversationId)]);
+        const [draft, outbox, storedReply] = await Promise.all([
+          storage.getItem(draftKey(conversationId)),
+          readOutbox(storage, conversationId),
+          storage.getItem(draftReplyKey(conversationId)),
+        ]);
         if (cancelled) return;
         if (draft && !textRef.current) {
           textRef.current = draft;
           setText(draft);
+        }
+        if (storedReply && !replyToRef.current) {
+          try {
+            const parsed = JSON.parse(storedReply) as ReplyTarget;
+            if (parsed && typeof parsed.id === 'string') {
+              replyToRef.current = parsed;
+              setReplyToState(parsed);
+            }
+          } catch {
+            // A stale or unreadable quote is simply dropped
+          }
         }
         for (const [tempId, payload] of outbox) {
           if (failedQueueRef.current.has(tempId)) continue;
@@ -266,6 +305,56 @@ export function useComposer(
   // One delivery path for fresh sends, retries and the restore
   // sweep: flip the temp to 'sending', send, then swap in the
   // server message — or mark 'failed' and queue for retry
+  // A parked retryable failure re-drives itself a couple of
+  // times before waiting for a tap or the restore sweep — most
+  // outages are seconds long. Manual retries and successes clear
+  // the pending timer; the counter never resets, so a flapping
+  // network cannot loop forever
+  const autoRetryTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const autoRetryCountRef = useRef(new Map<string, number>());
+  const redriveRef = useRef<(tempId: string) => void>(() => {});
+  const clearAutoRetry = useCallback((tempId: string) => {
+    const timer = autoRetryTimersRef.current.get(tempId);
+    if (timer) clearTimeout(timer);
+    autoRetryTimersRef.current.delete(tempId);
+  }, []);
+  const scheduleAutoRetry = useCallback((tempId: string) => {
+    const attempt = autoRetryCountRef.current.get(tempId) ?? 0;
+    if (attempt >= AUTO_RETRY_DELAYS.length) return;
+    autoRetryCountRef.current.set(tempId, attempt + 1);
+    clearAutoRetry(tempId);
+    autoRetryTimersRef.current.set(
+      tempId,
+      setTimeout(() => {
+        autoRetryTimersRef.current.delete(tempId);
+        redriveRef.current(tempId);
+      }, AUTO_RETRY_DELAYS[attempt]),
+    );
+  }, [clearAutoRetry]);
+  useEffect(
+    () => () => {
+      autoRetryTimersRef.current.forEach((timer) => clearTimeout(timer));
+      autoRetryTimersRef.current.clear();
+    },
+    [],
+  );
+
+
+  // The running upload's fraction onto the optimistic bubble —
+  // rounded so a chatty transport cannot render every byte
+  const reportProgress = useCallback(
+    (tempId: string, fraction: number) => {
+      const clamped = Math.round(Math.max(0, Math.min(1, fraction)) * 100) / 100;
+      setMessages((prev) => {
+        const row = prev.find((m) => m.id === tempId);
+        if (!row || row.uploadProgress === clamped) return prev;
+        return prev.map((m) => (m.id === tempId ? { ...m, uploadProgress: clamped } : m));
+      });
+    },
+    [setMessages],
+  );
+
+
   const deliver = useCallback(
     async (tempId: string, body: string, imageUrl?: string, replyToId?: string, extra?: OutboxEntry['extra']) => {
       if (inFlightRef.current.has(tempId)) return;
@@ -275,6 +364,8 @@ export function useComposer(
         const outgoing: OutgoingMessage = { text: body, imageUrl, replyToId, clientId: tempId, ...(extra ?? {}) };
         const row = await transport.sendMessage(conversationId, outgoing);
         failedQueueRef.current.delete(tempId);
+        clearAutoRetry(tempId);
+        autoRetryCountRef.current.delete(tempId);
         persistQueue();
         const sent = normalizeForViewer({ ...row, isOwn: true, status: row.status ?? 'sent' }, currentUser?.id ?? row.senderId);
         setMessages((prev) => {
@@ -294,8 +385,10 @@ export function useComposer(
           );
         });
       } catch (err) {
-        if (isRetryable(err)) failedQueueRef.current.set(tempId, { text: body, imageUrl, replyToId, extra });
-        else failedQueueRef.current.delete(tempId);
+        if (isRetryable(err)) {
+          failedQueueRef.current.set(tempId, { text: body, imageUrl, replyToId, extra });
+          scheduleAutoRetry(tempId);
+        } else failedQueueRef.current.delete(tempId);
         persistQueue();
         setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: 'failed' } : m)));
         notify({ level: 'error', code: sendFailureCode(err) });
@@ -303,18 +396,19 @@ export function useComposer(
         inFlightRef.current.delete(tempId);
       }
     },
-    [conversationId, currentUser, transport, notify, persistQueue, setMessages],
+    [conversationId, currentUser, transport, notify, persistQueue, clearAutoRetry, scheduleAutoRetry, setMessages],
   );
 
 
   // Append the optimistic bubble (newest-first list → unshift);
   // returns its temp id and the consumed reply target
   const createTemp = useCallback(
-    (body: string, imageUrl?: string, localImageUri?: string, content?: Partial<Pick<ChatMessage, 'kind' | 'file' | 'video' | 'mediaSize'>>) => {
+    (body: string, imageUrl?: string, localImageUri?: string, content?: Partial<Pick<ChatMessage, 'kind' | 'file' | 'video' | 'mediaSize' | 'gallery' | 'audio'>>) => {
       if (!currentUser) return null;
       const reply = replyToRef.current;
       replyToRef.current = null;
       setReplyToState(null);
+      if (reply) storage.removeItem(draftReplyKey(conversationId)).catch(() => {});
 
       tempSeqRef.current += 1;
       const tempId = `${TEMP_ID_PREFIX}${tempSeqRef.current}-${Date.now()}`;
@@ -350,7 +444,7 @@ export function useComposer(
       setMessages((prev) => [optimistic, ...prev]);
       return { tempId, replyToId: reply?.id };
     },
-    [conversationId, currentUser, setMessages],
+    [conversationId, currentUser, setMessages, storage],
   );
 
   const startSend = useCallback(
@@ -389,6 +483,7 @@ export function useComposer(
       try {
         if (kind === 'video') {
           let posterUrl: string | undefined;
+          let posterPreview: string | undefined;
           let frame = asset.width && asset.height ? { width: asset.width, height: asset.height } : undefined;
           try {
             const poster = asset.posterUri
@@ -399,18 +494,19 @@ export function useComposer(
             if (poster) {
               const uploaded = await transport.upload({ uri: poster.uri, name: 'poster.jpg', mimeType: 'image/jpeg', kind: 'image' });
               posterUrl = uploaded.url;
+              posterPreview = uploaded.preview ?? undefined;
               if (uploaded.width && uploaded.height) frame = { width: uploaded.width, height: uploaded.height };
               else if (poster.width && poster.height) frame = { width: poster.width, height: poster.height };
             }
           } catch {
             posterUrl = undefined;
           }
-          const upload = await transport.upload({ uri: asset.uri, name: asset.name, mimeType: asset.mimeType, size: asset.size, kind: 'video' });
+          const upload = await transport.upload({ uri: asset.uri, name: asset.name, mimeType: asset.mimeType, size: asset.size, kind: 'video' }, (f) => reportProgress(tempId, f));
           unmarkUploading(tempId);
           const extra: OutboxEntry['extra'] = {
             kind: 'video',
             attachment: { url: upload.url, name: upload.name, size: upload.size, mime: upload.mime },
-            media: { ...(frame ?? {}), duration: asset.duration, thumbnailUrl: posterUrl },
+            media: { ...(frame ?? {}), duration: asset.duration, thumbnailUrl: posterUrl, ...(posterPreview ? { preview: posterPreview } : {}) },
           };
           setMessages((prev) =>
             prev.map((m) =>
@@ -425,7 +521,7 @@ export function useComposer(
         }
 
         if (kind === 'file') {
-          const upload = await transport.upload({ uri: asset.uri, name: asset.name, mimeType: asset.mimeType, size: asset.size, kind: 'file' });
+          const upload = await transport.upload({ uri: asset.uri, name: asset.name, mimeType: asset.mimeType, size: asset.size, kind: 'file' }, (f) => reportProgress(tempId, f));
           unmarkUploading(tempId);
           const extra: OutboxEntry['extra'] = { kind: 'file', attachment: { url: upload.url, name: upload.name, size: upload.size, mime: upload.mime } };
           setMessages((prev) =>
@@ -436,20 +532,38 @@ export function useComposer(
           return;
         }
 
-        const upload = await transport.upload({ uri: asset.uri, name: asset.name, mimeType: asset.mimeType, size: asset.size, kind: 'image' });
+        if (kind === 'audio') {
+          const upload = await transport.upload({ uri: asset.uri, name: asset.name, mimeType: asset.mimeType, size: asset.size, kind: 'audio' }, (f) => reportProgress(tempId, f));
+          unmarkUploading(tempId);
+          const extra: OutboxEntry['extra'] = {
+            kind: 'audio',
+            attachment: { url: upload.url, name: upload.name, size: upload.size, mime: upload.mime },
+            media: { ...(asset.duration ? { duration: asset.duration } : {}), ...(asset.waveform?.length ? { waveform: asset.waveform } : {}) },
+          };
+          setMessages((prev) =>
+            prev.map((m) => (m.id === tempId ? { ...m, audio: { ...(m.audio ?? {}), uri: upload.url, size: upload.size, mimeType: upload.mime, name: upload.name } } : m)),
+          );
+          inFlightRef.current.delete(tempId);
+          await deliver(tempId, '', undefined, replyToId, extra);
+          return;
+        }
+
+        const upload = await transport.upload({ uri: asset.uri, name: asset.name, mimeType: asset.mimeType, size: asset.size, kind: 'image' }, (f) => reportProgress(tempId, f));
         unmarkUploading(tempId);
         const frame = upload.width && upload.height ? { width: upload.width, height: upload.height } : undefined;
-        const extra: OutboxEntry['extra'] | undefined = frame ? { media: frame } : undefined;
+        const extra: OutboxEntry['extra'] | undefined = frame || upload.preview ? { media: { ...(frame ?? {}), ...(upload.preview ? { preview: upload.preview } : {}) } } : undefined;
         setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, imageUrl: upload.url, mediaSize: frame ?? m.mediaSize } : m)));
         inFlightRef.current.delete(tempId);
         await deliver(tempId, '', upload.url, replyToId, extra);
       } catch (err) {
         unmarkUploading(tempId);
         inFlightRef.current.delete(tempId);
-        if (isRetryable(err)) failedQueueRef.current.set(tempId, { text: '', replyToId, asset });
-        else failedQueueRef.current.delete(tempId);
+        if (isRetryable(err)) {
+          failedQueueRef.current.set(tempId, { text: '', replyToId, asset });
+          scheduleAutoRetry(tempId);
+        } else failedQueueRef.current.delete(tempId);
         persistQueue();
-        setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: 'failed' } : m)));
+        setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: 'failed', uploadProgress: undefined } : m)));
         const e = toTransportError(err);
         notify({
           level: 'error',
@@ -458,7 +572,53 @@ export function useComposer(
         });
       }
     },
-    [deliver, makeVideoPoster, markUploading, notify, persistQueue, setMessages, transport, unmarkUploading],
+    [deliver, makeVideoPoster, markUploading, notify, persistQueue, reportProgress, scheduleAutoRetry, setMessages, transport, unmarkUploading],
+  );
+
+
+  // A gallery: every photo uploaded in the order it was picked,
+  // then ONE message carrying the stored list. A failure anywhere
+  // parks the whole picked set — the retry uploads them all again
+  // (uploads are cheap and stateless; half-done sets are not)
+  const uploadGalleryAndDeliver = useCallback(
+    async (tempId: string, assets: PickedAsset[], replyToId?: string) => {
+      if (inFlightRef.current.has(tempId)) return;
+      inFlightRef.current.add(tempId);
+      markUploading(tempId, 'media');
+      setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: 'sending' } : m)));
+      try {
+        const items: NonNullable<ChatMessage['gallery']> = [];
+        for (const [index, asset] of assets.entries()) {
+          // The bubble's ring walks the WHOLE set: photo i of n
+          const upload = await transport.upload(
+            { uri: asset.uri, name: asset.name, mimeType: asset.mimeType, size: asset.size, kind: 'image' },
+            (f) => reportProgress(tempId, (index + f) / assets.length),
+          );
+          items.push({ url: upload.url, width: upload.width ?? asset.width, height: upload.height ?? asset.height, ...(upload.preview ? { preview: upload.preview } : {}) });
+        }
+        unmarkUploading(tempId);
+        const extra: OutboxEntry['extra'] = { kind: 'image', gallery: items };
+        setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, gallery: items } : m)));
+        inFlightRef.current.delete(tempId);
+        await deliver(tempId, '', undefined, replyToId, extra);
+      } catch (err) {
+        unmarkUploading(tempId);
+        inFlightRef.current.delete(tempId);
+        if (isRetryable(err)) {
+          failedQueueRef.current.set(tempId, { text: '', replyToId, assets });
+          scheduleAutoRetry(tempId);
+        } else failedQueueRef.current.delete(tempId);
+        persistQueue();
+        setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: 'failed', uploadProgress: undefined } : m)));
+        const e = toTransportError(err);
+        notify({
+          level: 'error',
+          code: e.kind === 'timeout' ? 'timeout' : e.serverCode === 'file_too_large' || e.status === 413 ? 'upload_too_large' : 'upload_failed',
+          detail: 'image',
+        });
+      }
+    },
+    [deliver, markUploading, notify, persistQueue, reportProgress, scheduleAutoRetry, setMessages, transport, unmarkUploading],
   );
 
 
@@ -485,7 +645,13 @@ export function useComposer(
       transport
         .editMessage(conversationId, target.id, body)
         .then((saved) => setMessages((prev) => prev.map((m) => markEdited(m, target.id, saved.text, saved.editedAt))))
-        .catch(() => {
+        .catch((err: unknown) => {
+          // Offline: the rewrite stays on screen and replays on
+          // restore (core/tasks.ts); a refusal reverts it
+          if (isRetryable(err)) {
+            getTaskQueue(storage, conversationId).add({ type: 'edit', messageId: target.id, text: body, previousText: previous, at: new Date().toISOString() });
+            return;
+          }
           setMessages((prev) => prev.map((m) => (m.id === target.id ? { ...m, text: previous, editedAt: target.editedAt ?? undefined } : m)));
           notify({ level: 'error', code: 'edit_failed' });
         });
@@ -508,7 +674,7 @@ export function useComposer(
     persistDraft('');
     stopTyping();
     startSend(body);
-  }, [conversationId, notify, persistDraft, setMessages, startSend, stopTyping, transport]);
+  }, [conversationId, notify, persistDraft, setMessages, startSend, stopTyping, storage, transport]);
 
 
   const startEdit = useCallback((message: EditTarget) => {
@@ -518,9 +684,10 @@ export function useComposer(
     setEditingState(message);
     replyToRef.current = null;
     setReplyToState(null);
+    persistReply(null);
     textRef.current = message.text;
     setText(message.text);
-  }, []);
+  }, [persistReply]);
 
   const cancelEdit = useCallback(() => {
     if (!editingRef.current) return;
@@ -549,7 +716,9 @@ export function useComposer(
   // The host's pickers hand an asset over; the caps are checked
   // here so a host need not repeat them
   const attach = useCallback(
-    async (asset: PickedAsset) => {
+    async (picked: PickedAsset) => {
+      // The name follows the bytes (an iOS .HEIC handed over as JPEG)
+      const asset: PickedAsset = { ...picked, name: normalizeAssetName(picked) };
       if (asset.kind === 'video') {
         if (asset.duration && asset.duration > limits.maxVideoSeconds + 1) {
           notify({ level: 'error', code: 'upload_too_large', detail: 'video_duration' });
@@ -574,11 +743,59 @@ export function useComposer(
             })
           : asset.kind === 'file'
             ? createTemp('', undefined, undefined, { kind: 'file', file: { name: asset.name ?? '', uri: asset.uri, size: asset.size, mimeType: asset.mimeType } })
-            : createTemp('', undefined, asset.uri, { mediaSize: frame });
+            : asset.kind === 'audio'
+              ? createTemp('', undefined, undefined, { kind: 'audio', audio: { uri: asset.uri, duration: asset.duration, size: asset.size, mimeType: asset.mimeType, name: asset.name, waveform: asset.waveform } })
+              : createTemp('', undefined, asset.uri, { mediaSize: frame });
       if (!temp) return;
       await uploadAndDeliver(temp.tempId, asset, temp.replyToId);
     },
     [createTemp, limits, notify, uploadAndDeliver],
+  );
+
+
+  // The auto-retry timer lands here: the same three-way redrive
+  // the restore sweep runs, against the parked payload
+  const redrive = useCallback(
+    (tempId: string) => {
+      const payload = failedQueueRef.current.get(tempId);
+      if (!payload) return;
+      if (!messagesRef.current.some((m) => m.id === tempId)) return;
+      if (payload.assets && !payload.extra?.gallery) void uploadGalleryAndDeliver(tempId, payload.assets, payload.replyToId);
+      else if (payload.asset && !payload.imageUrl && !payload.extra?.attachment) void uploadAndDeliver(tempId, payload.asset, payload.replyToId);
+      else void deliver(tempId, payload.text, payload.imageUrl, payload.replyToId, payload.extra);
+    },
+    [deliver, uploadAndDeliver, uploadGalleryAndDeliver],
+  );
+  useEffect(() => {
+    redriveRef.current = redrive;
+  });
+
+
+  // Several picks at once. Only a pure multi-photo set becomes a
+  // gallery; one pick — or a set with a video / document in it —
+  // goes through attach() one message each, videos and all
+  const attachMany = useCallback(
+    async (picked: PickedAsset[]) => {
+      if (picked.length === 0) return;
+      if (picked.length === 1 || picked.some((a) => a.kind !== 'image')) {
+        for (const one of picked) await attach(one);
+        return;
+      }
+      const assets = picked.slice(0, 8).map((a) => ({ ...a, name: normalizeAssetName(a) }));
+      for (const asset of assets) {
+        if (typeof asset.size === 'number' && asset.size > limits.maxUploadBytes) {
+          notify({ level: 'error', code: 'upload_too_large', detail: 'image' });
+          return;
+        }
+      }
+      const temp = createTemp('', undefined, undefined, {
+        kind: 'image',
+        gallery: assets.map((a) => ({ url: a.uri, width: a.width, height: a.height })),
+      });
+      if (!temp) return;
+      await uploadGalleryAndDeliver(temp.tempId, assets, temp.replyToId);
+    },
+    [attach, createTemp, limits, notify, uploadGalleryAndDeliver],
   );
 
 
@@ -590,9 +807,14 @@ export function useComposer(
       if (message.status !== 'failed') return;
       const payload = failedQueueRef.current.get(message.id);
       if (!payload) return;
+      clearAutoRetry(message.id);
       if (!messagesRef.current.some((m) => m.id === message.id)) {
         failedQueueRef.current.delete(message.id);
         persistQueue();
+        return;
+      }
+      if (payload.assets && !payload.extra?.gallery) {
+        void uploadGalleryAndDeliver(message.id, payload.assets, payload.replyToId);
         return;
       }
       if (payload.asset && !payload.imageUrl && !payload.extra?.attachment) {
@@ -601,7 +823,7 @@ export function useComposer(
       }
       void deliver(message.id, payload.text, payload.imageUrl, payload.replyToId, payload.extra);
     },
-    [deliver, persistQueue, uploadAndDeliver],
+    [clearAutoRetry, deliver, persistQueue, uploadAndDeliver, uploadGalleryAndDeliver],
   );
 
 
@@ -618,11 +840,12 @@ export function useComposer(
         changed = true;
         continue;
       }
-      if (payload.asset && !payload.imageUrl && !payload.extra?.attachment) void uploadAndDeliver(tempId, payload.asset, payload.replyToId);
+      if (payload.assets && !payload.extra?.gallery) void uploadGalleryAndDeliver(tempId, payload.assets, payload.replyToId);
+      else if (payload.asset && !payload.imageUrl && !payload.extra?.attachment) void uploadAndDeliver(tempId, payload.asset, payload.replyToId);
       else void deliver(tempId, payload.text, payload.imageUrl, payload.replyToId, payload.extra);
     }
     if (changed) persistQueue();
-  }, [deliver, persistQueue, uploadAndDeliver]);
+  }, [deliver, persistQueue, uploadAndDeliver, uploadGalleryAndDeliver]);
   const sweepRef = useRef(sweep);
   useEffect(() => {
     sweepRef.current = sweep;
@@ -630,10 +853,14 @@ export function useComposer(
   useEffect(() => onNetworkRestore(() => sweepRef.current()), [onNetworkRestore]);
 
 
-  const setReplyTo = useCallback((message: ReplyTarget | null) => {
-    replyToRef.current = message;
-    setReplyToState(message);
-  }, []);
+  const setReplyTo = useCallback(
+    (message: ReplyTarget | null) => {
+      replyToRef.current = message;
+      setReplyToState(message);
+      persistReply(message);
+    },
+    [persistReply],
+  );
 
 
   // Prune queue entries whose temp no longer exists — except
@@ -670,11 +897,13 @@ export function useComposer(
   return {
     text,
     onChangeText,
+    canSend: !!currentUser,
     uploadingMedia,
     uploadingFile,
     sendMessage,
     sendQuickLike,
     attach,
+    attachMany,
     retryMessage,
     discardMessage,
     replyTo,

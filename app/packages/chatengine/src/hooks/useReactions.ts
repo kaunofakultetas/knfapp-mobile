@@ -20,7 +20,9 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { isRetryable } from '../core/errors';
 import { reactionsForViewer, withSelfReaction } from '../core/reducers';
+import { getTaskQueue } from '../core/tasks';
 import type { ChatMessage, ReactionGroup } from '../core/types';
 import { useChatEngine } from '../provider';
 
@@ -63,7 +65,7 @@ export function useReactions(
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>,
   options: { reactionOptions?: string[] } = {},
 ): UseReactionsResult {
-  const { transport, currentUser, notify } = useChatEngine();
+  const { transport, currentUser, notify, storage } = useChatEngine();
   const reactionOptions = options.reactionOptions ?? DEFAULT_REACTION_OPTIONS;
 
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -133,12 +135,18 @@ export function useReactions(
       const call = emoji ? transport.setReaction(conversationId, messageId, emoji) : transport.removeReaction(conversationId, messageId);
       call
         .then((groups) => applyServer(messageId, groups, epoch))
-        .catch(() => {
+        .catch((err: unknown) => {
+          // Offline: the pick stays and replays on restore; a
+          // refusal undoes this user's change only
+          if (isRetryable(err)) {
+            getTaskQueue(storage, conversationId).add({ type: 'reaction', messageId, emoji, at: new Date().toISOString() });
+            return;
+          }
           setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, reactions: withSelfReaction(m.reactions, userId, priorEmoji) } : m)));
           notify({ level: 'error', code: emoji ? 'reaction_add_failed' : 'reaction_remove_failed' });
         });
     },
-    [applyServer, bumpEpoch, conversationId, currentUser, notify, setMessages, transport],
+    [applyServer, bumpEpoch, conversationId, currentUser, notify, setMessages, storage, transport],
   );
 
   const applyReaction = useCallback(

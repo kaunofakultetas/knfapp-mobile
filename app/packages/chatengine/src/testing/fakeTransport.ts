@@ -35,7 +35,7 @@ export interface FakeTransportOptions {
   guest?: boolean;
 }
 
-type Method = 'fetchMessages' | 'sendMessage' | 'editMessage' | 'deleteMessage' | 'setReaction' | 'removeReaction' | 'markRead' | 'upload';
+type Method = 'fetchMessages' | 'sendMessage' | 'editMessage' | 'deleteMessage' | 'setReaction' | 'removeReaction' | 'markRead' | 'upload' | 'fetchChanges' | 'pinMessage' | 'unpinMessage' | 'fetchPins' | 'setMessageTtl';
 
 export interface FakeTransport extends ChatTransport {
   // Every request, in order
@@ -54,6 +54,9 @@ export interface FakeTransport extends ChatTransport {
   stall(method: Method): () => void;
   // Reset calls / signals (rows stay)
   reset(): void;
+  // Mark a row changed server-side at the fake's clock (what the
+  // change feed reports since a cursor)
+  touch(messageId: string): void;
 }
 
 
@@ -74,6 +77,12 @@ export function fakeTransport(options: FakeTransportOptions = {}): FakeTransport
   let status: RealtimeStatus = 'disconnected';
   const failures = new Map<Method, { error: unknown; times: number }>();
   const stalls = new Map<Method, Promise<void>>();
+  // A monotonic server clock: every mutation stamps the row, the
+  // change feed compares against it
+  let tick = 0;
+  const now = () => new Date(Date.UTC(2030, 0, 1) + ++tick * 1000).toISOString();
+  const changedAt = new Map<string, string>();
+  const touch = (id: string) => changedAt.set(id, now());
 
   const gate = async (method: Method, args: unknown[]) => {
     calls.push({ method, args });
@@ -115,15 +124,70 @@ export function fakeTransport(options: FakeTransportOptions = {}): FakeTransport
       calls.length = 0;
       signals.length = 0;
     },
+    touch,
 
     async fetchMessages(conversationId, opts): Promise<MessagesPage> {
       await gate('fetchMessages', [conversationId, opts]);
       const mine = rows.filter((m) => m.conversationId === conversationId);
-      const before = opts?.before;
-      const eligible = before ? mine.filter((m) => m.createdAt < before.createdAt || (m.createdAt === before.createdAt && m.id < before.id)) : mine;
       const limit = opts?.limit ?? pageSize;
+      const isOlder = (m: ChatMessage, c: { createdAt: string; id: string }) => m.createdAt < c.createdAt || (m.createdAt === c.createdAt && m.id < c.id);
+      const isNewer = (m: ChatMessage, c: { createdAt: string; id: string }) => m.createdAt > c.createdAt || (m.createdAt === c.createdAt && m.id > c.id);
+      if (opts?.around) {
+        const anchor = mine.find((m) => m.id === opts.around);
+        if (!anchor) throw new TransportError('not found', 'http', 404);
+        const half = Math.max(1, Math.floor(limit / 2));
+        const older = mine.filter((m) => isOlder(m, anchor));
+        const newer = mine.filter((m) => isNewer(m, anchor));
+        const page = [...older.slice(Math.max(0, older.length - (half - 1))), anchor, ...newer.slice(0, half)];
+        return { messages: page, hasMore: older.length > half - 1, hasNewer: newer.length > half, participants, conversation, cursor: now() };
+      }
+      if (opts?.after) {
+        const after = opts.after;
+        const newer = mine.filter((m) => isNewer(m, after));
+        return { messages: newer.slice(0, limit), hasMore: mine.some((m) => !isNewer(m, after)), hasNewer: newer.length > limit, participants, conversation, cursor: now() };
+      }
+      const before = opts?.before;
+      const eligible = before ? mine.filter((m) => isOlder(m, before)) : mine;
       const page = eligible.slice(Math.max(0, eligible.length - limit));
-      return { messages: page, hasMore: eligible.length > limit, participants, conversation };
+      return { messages: page, hasMore: eligible.length > limit, hasNewer: false, participants, conversation, cursor: now() };
+    },
+
+    async fetchChanges(conversationId, since) {
+      await gate('fetchChanges', [conversationId, since]);
+      const changed = rows.filter((m) => m.conversationId === conversationId && (changedAt.get(m.id) ?? '') > since);
+      return { messages: changed, cursor: now() };
+    },
+
+    async pinMessage(conversationId, messageId) {
+      await gate('pinMessage', [conversationId, messageId]);
+      const row = rows.find((m) => m.id === messageId && m.conversationId === conversationId);
+      if (!row || row.deleted) throw new TransportError('not found', 'http', 404);
+      row.pinnedAt = now();
+      row.pinnedBy = self.id;
+      touch(messageId);
+      push({ type: 'updated', conversationId, messageId, patch: { pinnedAt: row.pinnedAt, pinnedBy: row.pinnedBy } });
+    },
+
+    async unpinMessage(conversationId, messageId) {
+      await gate('unpinMessage', [conversationId, messageId]);
+      const row = rows.find((m) => m.id === messageId && m.conversationId === conversationId);
+      if (!row) throw new TransportError('not found', 'http', 404);
+      row.pinnedAt = null;
+      row.pinnedBy = null;
+      touch(messageId);
+      push({ type: 'updated', conversationId, messageId, patch: { pinnedAt: null, pinnedBy: null } });
+    },
+
+    async fetchPins(conversationId) {
+      await gate('fetchPins', [conversationId]);
+      return rows
+        .filter((m) => m.conversationId === conversationId && m.pinnedAt && !m.deleted)
+        .sort((a, b) => ((a.pinnedAt as string) < (b.pinnedAt as string) ? 1 : -1));
+    },
+
+    async setMessageTtl(conversationId, seconds) {
+      await gate('setMessageTtl', [conversationId, seconds]);
+      push({ type: 'conversation', conversationId, patch: { messageTtlSeconds: seconds ?? null } });
     },
 
     async sendMessage(conversationId, message: OutgoingMessage) {
@@ -154,7 +218,11 @@ export function fakeTransport(options: FakeTransportOptions = {}): FakeTransport
         kind: message.kind ?? (message.attachment ? 'file' : message.imageUrl ? 'image' : 'text'),
         file: message.kind === 'file' && message.attachment ? { name: message.attachment.name, uri: message.attachment.url, size: message.attachment.size, mimeType: message.attachment.mime } : undefined,
         video: message.kind === 'video' && message.attachment ? { uri: message.attachment.url, thumbnailUri: message.media?.thumbnailUrl, duration: message.media?.duration, size: message.attachment.size, mimeType: message.attachment.mime, name: message.attachment.name } : undefined,
+        audio: message.kind === 'audio' && message.attachment ? { uri: message.attachment.url, duration: message.media?.duration, size: message.attachment.size, mimeType: message.attachment.mime, name: message.attachment.name, waveform: message.media?.waveform } : undefined,
+        mediaPreview: message.media?.preview,
+        forwarded: !!message.forwarded,
         mediaSize: message.media?.width && message.media?.height ? { width: message.media.width, height: message.media.height } : undefined,
+        gallery: message.gallery,
       };
       rows.push(row);
       if (options.echoSends) push({ type: 'message', message: row });
@@ -168,6 +236,7 @@ export function fakeTransport(options: FakeTransportOptions = {}): FakeTransport
       const editedAt = new Date().toISOString();
       row.text = text;
       row.editedAt = editedAt;
+      touch(messageId);
       return { id: messageId, text, editedAt };
     },
 
@@ -179,6 +248,7 @@ export function fakeTransport(options: FakeTransportOptions = {}): FakeTransport
       row.text = '';
       row.imageUrl = undefined;
       row.reactions = [];
+      touch(messageId);
     },
 
     async setReaction(conversationId, messageId, emoji): Promise<ReactionGroup[]> {
@@ -208,8 +278,12 @@ export function fakeTransport(options: FakeTransportOptions = {}): FakeTransport
       await gate('markRead', [conversationId]);
     },
 
-    async upload(asset: UploadAsset): Promise<UploadResult> {
+    async upload(asset: UploadAsset, onProgress?: (fraction: number) => void): Promise<UploadResult> {
+      // Half before the gate (a stalled upload shows mid-flight
+      // progress), the rest on completion
+      onProgress?.(0.5);
       await gate('upload', [asset]);
+      onProgress?.(1);
       const ext = asset.kind === 'video' ? 'mp4' : asset.kind === 'file' ? 'pdf' : 'jpg';
       return {
         url: `/api/uploads/${nextId('up')}.${ext}`,
@@ -218,6 +292,7 @@ export function fakeTransport(options: FakeTransportOptions = {}): FakeTransport
         mime: asset.mimeType ?? (asset.kind === 'video' ? 'video/mp4' : asset.kind === 'file' ? 'application/pdf' : 'image/jpeg'),
         width: asset.kind === 'image' ? 1200 : null,
         height: asset.kind === 'image' ? 800 : null,
+        preview: asset.kind === 'image' ? 'data:image/jpeg;base64,tiny' : null,
       };
     },
 

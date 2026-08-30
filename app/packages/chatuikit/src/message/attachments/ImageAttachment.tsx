@@ -26,7 +26,7 @@ import { Image as ExpoImage } from 'expo-image';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Text, View, useWindowDimensions } from 'react-native';
 
-import { fitMedia, mediaBoxFor } from '../../core/media';
+import { fitMedia, isExtremeAspect, mediaBoxFor } from '../../core/media';
 import type { KitMediaSize } from '../../core/types';
 
 
@@ -52,7 +52,10 @@ export function useMediaFit(mediaSize: KitMediaSize | undefined, initialRatio: n
   const [measuredRatio, setMeasuredRatio] = useState<number | undefined>(initialRatio);
   const box = mediaBoxFor(viewportWidth);
   const fit = fitMedia(mediaSize ?? measuredRatio, box);
-  return { fit, setMeasuredRatio, known: !!mediaSize };
+  // A strip (a long screenshot, a panorama) is shown as a compact
+  // row instead of a crop — see core/media.ts isExtremeAspect
+  const extreme = isExtremeAspect(mediaSize ?? measuredRatio);
+  return { fit, setMeasuredRatio, known: !!mediaSize, extreme };
 }
 
 
@@ -68,6 +71,7 @@ export function useMediaFit(mediaSize: KitMediaSize | undefined, initialRatio: n
 export default function ImageAttachment({
   uri,
   mediaSize,
+  preview,
   initialRatio,
   onRatio,
   labels,
@@ -77,6 +81,9 @@ export default function ImageAttachment({
   // Already loadable: a resolved upload URL or a picker uri
   uri: string | undefined;
   mediaSize?: KitMediaSize;
+  // The ~14px micro copy (a data URI) drawn blurry-by-upscale
+  // while the real bytes download
+  preview?: string | null;
   // The ratio a previous mount measured (the context menu's copy)
   initialRatio?: number;
   // Reports the settled ratio up
@@ -89,7 +96,7 @@ export default function ImageAttachment({
 }) {
 
   const { colors, fonts } = useKitTheme();
-  const { fit, setMeasuredRatio, known } = useMediaFit(mediaSize, initialRatio);
+  const { fit, setMeasuredRatio, known, extreme } = useMediaFit(mediaSize, initialRatio);
 
 
   // A changed uri (local preview → uploaded path) gets a fresh try
@@ -113,10 +120,30 @@ export default function ImageAttachment({
   }
 
 
+  if (extreme) {
+    // The strip's own proportions are unreadable at bubble size:
+    // a 64 px thumbnail, the word "photo" and its pixel size; the
+    // tap still opens the viewer at full size
+    const dims = mediaSize ? `${mediaSize.width} × ${mediaSize.height}` : '';
+    return (
+      <View style={{ flexDirection: 'row', alignItems: 'center', padding: 8, minWidth: 180 }} testID="chatuikit-image-strip">
+        <ExpoImage testID="chatuikit-image-source" source={{ uri }} style={{ width: 64, height: 64, borderRadius: 10, backgroundColor: colors.surfaceSoft }} contentFit="cover" cachePolicy="memory-disk" recyclingKey={uri} onError={() => setFailed(true)} />
+        <View style={{ marginLeft: 10, flexShrink: 1 }}>
+          <Text style={{ fontFamily: fonts.semiBold, fontSize: 14, lineHeight: 18, color: colors.ink }}>{labels.photo}</Text>
+          {dims ? <Text style={{ fontFamily: fonts.regular, fontSize: 12, lineHeight: 15, color: colors.inkSoft }}>{dims}</Text> : null}
+        </View>
+        {overlay ? <View style={{ position: 'absolute', top: 8, left: 8, width: 64, height: 64, pointerEvents: 'none' }}>{overlay}</View> : null}
+      </View>
+    );
+  }
+
   return (
-    <View style={{ width: fit.width, height: fit.height, backgroundColor: colors.surfaceSoft }}>
+    <View style={{ width: fit.width, height: fit.height, backgroundColor: colors.surfaceSoft }} testID="chatuikit-image">
       <ExpoImage
+        testID="chatuikit-image-source"
         source={{ uri }}
+        placeholder={preview ? { uri: preview } : undefined}
+        placeholderContentFit="cover"
         style={{ width: fit.width, height: fit.height }}
         contentFit="cover"
         transition={120}
@@ -135,7 +162,7 @@ export default function ImageAttachment({
         onError={() => setFailed(true)}
       />
       {overlay ? (
-        <View pointerEvents="none" style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 }}>
+        <View style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, pointerEvents: 'none' }}>
           {overlay}
         </View>
       ) : null}

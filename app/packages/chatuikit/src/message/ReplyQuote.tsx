@@ -40,6 +40,7 @@ export function replySnippet(reply: KitReply, labels: KitLabels): string {
   if (reply.deleted) return labels.deleted;
   if (reply.text) return reply.text;
   if (reply.kind === 'video') return labels.video;
+  if (reply.kind === 'audio') return labels.voiceNote;
   if (reply.kind === 'file') return reply.fileName || labels.file;
   if (reply.imageUrl || reply.kind === 'image') return labels.photo;
   return '';

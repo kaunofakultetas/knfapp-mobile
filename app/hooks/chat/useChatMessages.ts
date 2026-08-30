@@ -26,7 +26,7 @@ export {
 
 export type UseChatMessagesResult = UseConversationResult;
 
-export function useChatMessages(conversationId: string): UseChatMessagesResult {
+export function useChatMessages(conversationId: string, options: { atLatest?: boolean } = {}): UseChatMessagesResult {
   const focused = useIsFocused();
-  return useConversation(conversationId, { focused });
+  return useConversation(conversationId, { focused, atLatest: options.atLatest });
 }

@@ -29,6 +29,14 @@ const http: HttpClient = {
       api.post(path, body, {
         timeout: options?.timeoutMs,
         ...(options?.multipart ? { headers: { 'Content-Type': 'multipart/form-data' } } : {}),
+        // The engine's upload progress: axios reports loaded/total
+        ...(options?.onUploadProgress
+          ? {
+              onUploadProgress: (e: { loaded: number; total?: number }) => {
+                if (e.total) options.onUploadProgress?.(e.loaded / e.total);
+              },
+            }
+          : {}),
       }),
     ),
   put: (path, body, options) => request(api.put(path, body, { timeout: options?.timeoutMs })),

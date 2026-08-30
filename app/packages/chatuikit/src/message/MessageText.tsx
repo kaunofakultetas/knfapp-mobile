@@ -29,6 +29,7 @@ export default function MessageText({
   labels,
   segments: segmentsProp,
   onPressLink,
+  onPressMention,
 }: {
   text: string;
   color: string;
@@ -36,6 +37,9 @@ export default function MessageText({
   labels: KitLabels;
   segments?: TextSegment[];
   onPressLink?: (href: string) => void;
+  // A mention run's tap (open the member's profile) — omitted,
+  // mentions still highlight but stay inert
+  onPressMention?: (name: string) => void;
 }) {
 
   const { fonts, text: textStyles } = useKitTheme();
@@ -54,6 +58,16 @@ export default function MessageText({
             style={{ textDecorationLine: 'underline', fontFamily: fonts.medium, color: linkColor }}
             onPress={onPressLink ? () => onPressLink(segment.href) : undefined}
             accessibilityLabel={`${labels.openLink}: ${segment.value}`}
+          >
+            {segment.value}
+          </Text>
+        ) : segment.type === 'mention' ? (
+          <Text
+            key={index}
+            style={{ fontFamily: fonts.bold, color: linkColor }}
+            onPress={onPressMention ? () => onPressMention(segment.name) : undefined}
+            accessibilityLabel={onPressMention ? labels.mentionUser(segment.name) : undefined}
+            testID="chatuikit-mention"
           >
             {segment.value}
           </Text>

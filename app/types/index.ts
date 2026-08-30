@@ -230,6 +230,7 @@ export interface LoginForm {
 
 export type {
   ChatFile,
+  ChatLinkPreview,
   ChatMessage,
   ChatMessageKind,
   ChatReaction,

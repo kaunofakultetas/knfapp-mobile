@@ -353,4 +353,192 @@ describe('useFeed', () => {
     await h.unmount();
     expect(calls[4].signal?.aborted).toBe(true);
   });
+
+  it('stops paging a stalled backend: a page that dedupes to nothing new ends the chain despite hasMore', async () => {
+    // A backend that ignores its offset serves the same window
+    // with hasMore true forever — the reader must not hammer it
+    const fetchPage = jest.fn(async () => ({ items: [row('a'), row('b')], hasMore: true }));
+    const { wrapper } = harness();
+    const h = await renderHook(() => useFeed<Row>(fetchPage), { wrapper });
+    await waitFor(() => expect(h.result.current.loading).toBe(false));
+
+    await act(async () => {
+      h.result.current.loadMore();
+    });
+    await waitFor(() => expect(h.result.current.loadingMore).toBe(false));
+    expect(h.result.current.items.map((item) => item.id)).toEqual(['a', 'b']);
+
+    // The stall was detected — further loadMore taps fetch nothing
+    await act(async () => {
+      h.result.current.loadMore();
+    });
+    await act(async () => {
+      h.result.current.loadMore();
+    });
+    expect(fetchPage).toHaveBeenCalledTimes(2);
+
+    // A refresh re-arms paging from the fresh response
+    await act(async () => {
+      void h.result.current.refresh();
+    });
+    await waitFor(() => expect(h.result.current.refreshing).toBe(false));
+    await act(async () => {
+      h.result.current.loadMore();
+    });
+    expect(fetchPage).toHaveBeenCalledTimes(4);
+  });
+
+  it('a failed loadMore retries the SAME page — a skipped window would silently lose content', async () => {
+    const { calls, fetchPage } = deferredFetch();
+    const { wrapper } = harness();
+    const h = await renderHook(() => useFeed<Row>(fetchPage), { wrapper });
+    await act(async () => calls[0].resolve({ items: [row('a')], hasMore: true }));
+    await waitFor(() => expect(h.result.current.loading).toBe(false));
+
+    await act(async () => {
+      h.result.current.loadMore();
+    });
+    await act(async () => calls[1].reject(new Error('down')));
+    await waitFor(() => expect(h.result.current.loadingMore).toBe(false));
+    expect(calls[1].page).toBe(2);
+
+    await act(async () => {
+      h.result.current.loadMore();
+    });
+    expect(calls[2].page).toBe(2);
+    await act(async () => calls[2].resolve({ items: [row('b')], hasMore: false }));
+    await waitFor(() => expect(h.result.current.loadingMore).toBe(false));
+    expect(h.result.current.items.map((item) => item.id)).toEqual(['a', 'b']);
+  });
+
+  it('loadMore is single-flight: a burst of onEndReached fires one fetch', async () => {
+    const { calls, fetchPage } = deferredFetch();
+    const { wrapper } = harness();
+    const h = await renderHook(() => useFeed<Row>(fetchPage), { wrapper });
+    await act(async () => calls[0].resolve({ items: [row('a')], hasMore: true }));
+    await waitFor(() => expect(h.result.current.loading).toBe(false));
+
+    await act(async () => {
+      h.result.current.loadMore();
+      h.result.current.loadMore();
+      h.result.current.loadMore();
+    });
+    expect(fetchPage).toHaveBeenCalledTimes(2);
+    await act(async () => calls[1].resolve({ items: [row('b')], hasMore: true }));
+    await waitFor(() => expect(h.result.current.loadingMore).toBe(false));
+  });
+
+  it('a deps change resets the cursor — the new feed pages from ITS OWN page 2', async () => {
+    const log: { page: number; source: string }[] = [];
+    const fetchPage = jest.fn(async (page: number) => {
+      log.push({ page, source: sourceRef });
+      return { items: [row(`${sourceRef}-${page}`)], hasMore: true };
+    });
+    let sourceRef = 'one';
+    const { wrapper } = harness();
+    const h = await renderHook(({ source }: { source: string }) => useFeed<Row>(fetchPage, { deps: [source] }), {
+      wrapper,
+      initialProps: { source: 'one' },
+    });
+    await waitFor(() => expect(h.result.current.loading).toBe(false));
+    await act(async () => {
+      h.result.current.loadMore();
+    });
+    await waitFor(() => expect(h.result.current.loadingMore).toBe(false));
+
+    sourceRef = 'two';
+    await h.rerender({ source: 'two' });
+    await waitFor(() => expect(h.result.current.loading).toBe(false));
+    expect(h.result.current.items.map((item) => item.id)).toEqual(['two-1']);
+
+    await act(async () => {
+      h.result.current.loadMore();
+    });
+    await waitFor(() => expect(h.result.current.loadingMore).toBe(false));
+    expect(log[log.length - 1]).toEqual({ page: 2, source: 'two' });
+    expect(h.result.current.items.map((item) => item.id)).toEqual(['two-1', 'two-2']);
+  });
+
+  it("a zero-overlap merge refresh prepends the whole fresh window and keeps the old rows", async () => {
+    // After a long absence page 1 shares no id with the held
+    // list; the accepted stitch is fresh-then-old, cursor intact
+    let served: FeedPage<Row> = { items: [row('c'), row('d')], hasMore: true };
+    const fetchPage = jest.fn(async () => served);
+    const { wrapper } = harness();
+    const h = await renderHook(() => useFeed<Row>(fetchPage), { wrapper });
+    await waitFor(() => expect(h.result.current.loading).toBe(false));
+
+    served = { items: [row('x'), row('y')], hasMore: true };
+    await act(async () => h.result.current.refresh('merge'));
+    await waitFor(() => expect(h.result.current.refreshing).toBe(false));
+    expect(h.result.current.items.map((item) => item.id)).toEqual(['x', 'y', 'c', 'd']);
+    // The hole between the windows is DATA now, not a silent stitch
+    expect(h.result.current.gapAfterId).toBe('y');
+  });
+
+  it('loadMore fills the hole in place and closes it when it reaches the old tail', async () => {
+    const pages: Record<number, FeedPage<Row>> = {
+      1: { items: [row('c'), row('d')], hasMore: true },
+    };
+    const fetchPage = jest.fn(async (page: number) => pages[page]);
+    const { wrapper } = harness();
+    const h = await renderHook(() => useFeed<Row>(fetchPage), { wrapper });
+    await waitFor(() => expect(h.result.current.loading).toBe(false));
+
+    pages[1] = { items: [row('x'), row('y')], hasMore: true };
+    await act(async () => h.result.current.refresh('merge'));
+    await waitFor(() => expect(h.result.current.refreshing).toBe(false));
+    expect(h.result.current.gapAfterId).toBe('y');
+
+    // Page 2 of the FRESH chain still misses the old tail — the
+    // rows land at the marker and the hole stays open behind them
+    pages[2] = { items: [row('z')], hasMore: true };
+    await act(async () => {
+      h.result.current.loadMore();
+    });
+    await waitFor(() => expect(h.result.current.loadingMore).toBe(false));
+    expect(h.result.current.items.map((item) => item.id)).toEqual(['x', 'y', 'z', 'c', 'd']);
+    expect(h.result.current.gapAfterId).toBe('z');
+
+    // Page 3 overlaps the old tail: continuity re-proven, marker gone
+    pages[3] = { items: [row('w'), row('c')], hasMore: true };
+    await act(async () => {
+      h.result.current.loadMore();
+    });
+    await waitFor(() => expect(h.result.current.loadingMore).toBe(false));
+    expect(h.result.current.items.map((item) => item.id)).toEqual(['x', 'y', 'z', 'w', 'c', 'd']);
+    expect(h.result.current.gapAfterId).toBeNull();
+  });
+
+  it('a zero-overlap page 1 that is the server\u2019s WHOLE memory replaces the ghosts instead of gapping', async () => {
+    let served: FeedPage<Row> = { items: [row('c'), row('d')], hasMore: false };
+    const fetchPage = jest.fn(async () => served);
+    const { wrapper } = harness();
+    const h = await renderHook(() => useFeed<Row>(fetchPage), { wrapper });
+    await waitFor(() => expect(h.result.current.loading).toBe(false));
+
+    served = { items: [row('x')], hasMore: false };
+    await act(async () => h.result.current.refresh('merge'));
+    await waitFor(() => expect(h.result.current.refreshing).toBe(false));
+    expect(h.result.current.items.map((item) => item.id)).toEqual(['x']);
+    expect(h.result.current.gapAfterId).toBeNull();
+  });
+
+  it('an empty page-1 success never wipes a non-empty offline copy', async () => {
+    const { storage, wrapper } = harness();
+    let served: FeedPage<Row> = { items: [row('a'), row('b')], hasMore: false };
+    const fetchPage = jest.fn(async () => served);
+    const h = await renderHook(() => useFeed<Row>(fetchPage, { cacheKey: 'feed:test' }), { wrapper });
+    await waitFor(() => expect(h.result.current.loading).toBe(false));
+    await flushInteractions();
+    expect(storage.dump()['cache:feed:test']).toBeTruthy();
+
+    // A transient hiccup 200s an empty list — the copy survives
+    served = { items: [], hasMore: false };
+    await act(async () => h.result.current.refresh());
+    await waitFor(() => expect(h.result.current.refreshing).toBe(false));
+    await flushInteractions();
+    const kept = JSON.parse(storage.dump()['cache:feed:test']).data as Row[];
+    expect(kept.map((item) => item.id)).toEqual(['a', 'b']);
+  });
 });

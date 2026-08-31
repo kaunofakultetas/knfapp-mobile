@@ -15,12 +15,22 @@
 //  refetched base that already includes the viewer's like adds
 //  zero and can never be double counted.
 //
-//  Failure taxonomy, exactly:
-//    - AbortError     — a newer toggle superseded this one; the
-//                       newer one owns the state, do nothing
-//    - auth (401/403) — revert to the pre-tap intent, route to
-//                       requireAuth()
-//    - anything else  — revert, notify 'like_failed'
+//  Settle discipline (reconciliation lives INSIDE the queue
+//  task, so it runs once per task however many deduped taps
+//  share it):
+//    - success, newer intent queued — record the confirmed
+//      flag, keep the optimistic view and pending standing;
+//      the LAST task writes the final word
+//    - success, last — the confirmed flag lands, pending drops
+//    - failure, newer intent queued — stay quiet; the final
+//      attempt tells the truth
+//    - failure, last — revert to the last server-CONFIRMED
+//      flag (none this session → the field clears and the base
+//      row wins), then requireAuth() for 401/403, else one
+//      'like_failed' notice
+//    - the store epoch moved (account switch) — touch nothing;
+//      the departing viewer's intent must not re-seed the
+//      fresh store
 //
 //  Works on comments too: targetType 'comment' changes the
 //  queue key and the transport target, nothing else.
@@ -33,7 +43,7 @@ import { useCallback, useSyncExternalStore } from 'react';
 
 import { mergePostShadow } from '../core/shadow';
 import { getToggleQueue } from '../core/toggleQueue';
-import { isAuthError } from '../core/transport';
+import { isAuthError, isRetryableError } from '../core/transport';
 import { useSocialEngine } from '../provider';
 
 
@@ -100,34 +110,58 @@ export function useLikeToggle(
 
     // Desired = the opposite of what the viewer SEES (base with
     // the shadow already layered), read from the store directly
-    // so back-to-back taps alternate even before a re-render.
-    // `prev` is the shadow's pre-tap word — undefined means "no
-    // opinion", and reverting to undefined clears the field so
-    // the base row wins again
-    const current = env.postShadows.get(post.id);
-    const prev = current?.liked;
-    const desired = !mergePostShadow(post, current).likedByMe;
-    env.postShadows.patch(post.id, { liked: desired, pending: true });
+    // so back-to-back taps alternate even before a re-render
+    const store = env.postShadows;
+    const epoch = store.epoch();
+    const desired = !mergePostShadow(post, store.get(post.id)).likedByMe;
+    store.patch(post.id, { liked: desired, pending: true });
 
 
     // The queue's desired value is the bare boolean (its dedup
-    // rule compares with Object.is), so the transport's answer
-    // is narrowed to the confirmed flag here. The count in that
+    // rule compares with Object.is). The count in the server's
     // answer is deliberately dropped: the next base refetch is
-    // the count's only source of truth
+    // the count's only source of truth. A replaced queued task
+    // rejects with AbortError and never ran its perform — there
+    // is nothing to undo, so the tail catch only defuses the
+    // promise
     getToggleQueue<boolean>(env.transport, `like:${targetType}:${post.id}`)
-      .run(desired, (d) => env.transport.setLiked({ type: targetType, id: post.id }, d).then((result) => result.liked))
-      .then(
-        (confirmed) => {
-          env.postShadows.patch(post.id, { liked: confirmed, pending: false });
-        },
-        (err: unknown) => {
-          if ((err as { name?: string } | null)?.name === 'AbortError') return;
-          env.postShadows.patch(post.id, { liked: prev, pending: false });
-          if (isAuthError(err)) env.requireAuth();
-          else env.notify({ level: 'error', code: 'like_failed' });
-        },
-      );
+      .run(desired, async (d, ctx) => {
+        try {
+          const result = await env.transport.setLiked({ type: targetType, id: post.id }, d);
+          // The wire answered LIVE — any intent still queued for
+          // this target is stale now and must never replay over
+          // the fresher server word
+          env.taskQueue.remove({ type: 'like', target: { type: targetType, id: post.id }, desired: d, at: '' });
+          if (store.epoch() === epoch) {
+            if (ctx.willContinue()) store.patch(post.id, { confirmedLiked: result.liked, pending: true });
+            else store.patch(post.id, { liked: result.liked, confirmedLiked: result.liked, pending: false });
+          }
+          return result.liked;
+        } catch (err) {
+          if (store.epoch() === epoch) {
+            if (ctx.willContinue()) {
+              store.patch(post.id, { pending: true });
+            } else if (isAuthError(err)) {
+              store.patch(post.id, { liked: store.get(post.id)?.confirmedLiked, pending: false });
+              env.requireAuth();
+            } else if (isRetryableError(err)) {
+              // Offline (or the server is down): the intent
+              // STANDS — the optimistic view stays and the final
+              // word joins the task queue, replayed on restore.
+              // No notice: a queued like is not a failure
+              env.taskQueue.add({ type: 'like', target: { type: targetType, id: post.id }, desired: d, at: new Date().toISOString() });
+              store.patch(post.id, { pending: false });
+            } else {
+              // A dead intent purges its queued twin too
+              env.taskQueue.remove({ type: 'like', target: { type: targetType, id: post.id }, desired: d, at: '' });
+              store.patch(post.id, { liked: store.get(post.id)?.confirmedLiked, pending: false });
+              env.notify({ level: 'error', code: 'like_failed' });
+            }
+          }
+          throw err;
+        }
+      })
+      .catch(() => {});
   };
 
 

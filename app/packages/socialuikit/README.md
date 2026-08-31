@@ -52,7 +52,7 @@ piece by what it does:
 | `comments/` | `CommentRow`, `CommentComposer` |
 | `social/` | `ConnectButton`, `ProfileHeader` |
 | `notifications/` | `NotificationRow` |
-| `feed/` | `FeedList`, `NewPostsPill`, `RowErrorBoundary` |
+| `feed/` | `FeedList`, `NewPostsPill`, `GapRow` (the visible timeline hole, tap-to-fill), `RowErrorBoundary` |
 
 `index.ts` is the public surface, pinned by `src/__tests__/surface.test.ts`;
 an ESLint rule keeps every file inside the package.
@@ -73,6 +73,7 @@ an ESLint rule keeps every file inside the package.
 | Time | `RelativeTime` keeps itself honest on **one** timeout aimed at the next text-change boundary (never sooner than 10 s); `hasFuture` turns it into a countdown; a future stamp without it is treated as clock skew and reads "Ką tik" |
 | Accessibility | cards are `accessible={false}` so the author row, tiles, link and actions stay **separate stops**; an activity row is deliberately **one** target with one spoken sentence (it has exactly one action); spoken action names carry the live tally and flip with state ("Patinka, 12 patiktukų" → "Nebepatinka, …"); every part carries a `socialuikit-*` testID |
 | Theming | 18 colour tokens, 3 font slots, 3 radii; light and dark bases with `resolveTheme` deep-merging a host partial — overriding one colour never costs the rest |
+| Hardening | `parseServerStamp` reads zone-less server stamps as UTC (a SQLite default must never render device-local); `isSafeHref` gates link taps to web schemes; `clampSnippet` never splits an emoji, flag pair or joiner family |
 | Labels — LT first | every string flows through the catalog; **count-taking keys are functions** because Lithuanian declines the noun three ways (1 įrašas / 2 įrašai / 10 įrašų — teens take the third form) and a bare-number template cannot be localised after the fact; `defaultLabels` ships `lt` and `en`, a partial merges over the chosen locale |
 | Slots | `components.Avatar` (every portrait everywhere), `components.PostPoll` (the poll body when the host passes no `pollSlot` — the poll payload rides in `post.custom`, typed only by the host), `components.EmptyState` |
 

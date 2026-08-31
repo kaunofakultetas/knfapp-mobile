@@ -114,4 +114,16 @@ describe('NotificationRow', () => {
     const bare = await render(<NotificationRow notification={base} onPress={jest.fn()} />);
     expect(bare.getByTestId('socialuikit-notification-row').props.accessibilityLabel).toBe(lt.notifLike('Ona', 0));
   });
+
+  it('a tombstoned actor still reads as a person in the line', async () => {
+    const ghost: KitNotification = {
+      key: 'g1',
+      kind: 'like',
+      actors: [{ id: 'gone', displayName: '' }],
+      newestAt: new Date(Date.UTC(2026, 7, 30, 12, 0, 0)).toISOString(),
+      read: true,
+    };
+    const r = await render(<NotificationRow notification={ghost} onPress={() => {}} />);
+    expect(r.getByText(lt.notifLike('Nežinomas narys', 0))).toBeTruthy();
+  });
 });

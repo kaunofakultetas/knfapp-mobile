@@ -67,7 +67,6 @@ const SNIPPET_LENGTH = 90;
 
 
 
-
 // -----------------------------------------------------------
 // StackAvatar
 // -----------------------------------------------------------
@@ -150,7 +149,6 @@ function StackAvatar({ user, index, ringColor }: { user: KitUser; index: number;
 
 
 
-
 // -----------------------------------------------------------
 // lineFor
 // -----------------------------------------------------------
@@ -167,7 +165,9 @@ function StackAvatar({ user, index, ringColor }: { user: KitUser; index: number;
 
 function lineFor(notification: KitNotification, labels: KitLabels): string {
 
-  const first = notification.actors[0]?.displayName ?? '';
+  // A tombstoned author (deleted account, scrape gap) still
+  // reads as a person, never as a blank line in a sentence
+  const first = notification.actors[0]?.displayName.trim() || labels.unknownUser;
   const others = Math.max(0, notification.actors.length - 1);
 
 
@@ -188,7 +188,6 @@ function lineFor(notification: KitNotification, labels: KitLabels): string {
       return labels.notifGeneric(first);
   }
 }
-
 
 
 

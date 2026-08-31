@@ -82,7 +82,6 @@ interface PostCardProps {
 
 
 
-
 // -----------------------------------------------------------
 // CardAvatar
 // -----------------------------------------------------------
@@ -145,7 +144,6 @@ function CardAvatar({ user, size }: { user: KitUser; size: number }) {
     </View>
   );
 }
-
 
 
 
@@ -249,7 +247,7 @@ function PostCard({
           <CardAvatar user={post.author} size={AVATAR_SIZE} />
           <View style={{ flex: 1, marginLeft: 10 }}>
             <Text numberOfLines={1} style={{ fontFamily: fonts.bold, fontSize: 14, color: colors.ink }}>
-              {post.author.displayName}
+              {post.author.displayName.trim() || labels.unknownUser}
             </Text>
             <View style={{ flexDirection: 'row', alignItems: 'baseline', marginTop: 1 }}>
               <RelativeTime iso={post.createdAt} style={{ fontSize: 12 }} />
@@ -327,6 +325,17 @@ function PostCard({
   );
 }
 
-// memo: a feed re-renders on every like toggle — rows whose
-// props didn't change skip their subtree entirely
-export default memo(PostCard);
+// memo with an explicit comparator: a feed re-renders on every
+// like toggle, and rows whose DATA did not change must skip
+// their subtree entirely. Default shallow comparison never
+// skips under the documented wiring (hosts pass inline
+// closures), so callbacks are deliberately IGNORED here — a
+// callback only carries the tap out and must never change what
+// a tap MEANS. post and pollSlot compare by reference (a host
+// that inlines pollSlot JSX re-renders poll rows — memoize the
+// slot to skip those too), the two scalars by value.
+export default memo(PostCard, (prev, next) =>
+  prev.post === next.post &&
+  prev.pollSlot === next.pollSlot &&
+  prev.snippetLength === next.snippetLength &&
+  prev.showSource === next.showSource);

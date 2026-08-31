@@ -39,9 +39,12 @@ describe('createToggleQueue', () => {
     const perform = jest.fn(() => d1.promise);
 
     const p1 = queue.run(true, perform);
-    // Synchronously — no waiting for a tick while idle
+    // busy flips synchronously; perform itself is lifted onto
+    // the microtask queue (rule 5's sync-throw safety)
+    expect(queue.busy()).toBe(true);
+    await flush();
     expect(perform).toHaveBeenCalledTimes(1);
-    expect(perform).toHaveBeenCalledWith(true);
+    expect(perform).toHaveBeenCalledWith(true, expect.objectContaining({ willContinue: expect.any(Function) }));
     expect(queue.busy()).toBe(true);
 
     d1.resolve(true);
@@ -87,7 +90,7 @@ describe('createToggleQueue', () => {
     await expect(p1).resolves.toBe(true);
     await flush();
     expect(perform2).toHaveBeenCalledTimes(1);
-    expect(perform2).toHaveBeenCalledWith(false);
+    expect(perform2).toHaveBeenCalledWith(false, expect.objectContaining({ willContinue: expect.any(Function) }));
     d2.resolve(false);
     await expect(p2).resolves.toBe(false);
   });
@@ -122,7 +125,7 @@ describe('createToggleQueue', () => {
     d1.resolve(true);
     await expect(p1).resolves.toBe(true);
     await flush();
-    expect(perform3).toHaveBeenCalledWith(true);
+    expect(perform3).toHaveBeenCalledWith(true, expect.objectContaining({ willContinue: expect.any(Function) }));
     d3.resolve(true);
     await expect(p3).resolves.toBe(true);
   });
@@ -169,7 +172,7 @@ describe('createToggleQueue', () => {
 
     // The queue kept going — the failure never stalled it
     await flush();
-    expect(perform2).toHaveBeenCalledWith(false);
+    expect(perform2).toHaveBeenCalledWith(false, expect.objectContaining({ willContinue: expect.any(Function) }));
     d2.resolve(false);
     await expect(p2).resolves.toBe(false);
     await flush();
@@ -185,6 +188,7 @@ describe('createToggleQueue', () => {
 
     const perform = jest.fn(() => Promise.resolve(false));
     const p2 = queue.run(false, perform);
+    await flush();
     expect(perform).toHaveBeenCalledTimes(1);
     await expect(p2).resolves.toBe(false);
   });
@@ -223,5 +227,41 @@ describe('getToggleQueue', () => {
     expect(getToggleQueue<boolean>(scopeA, 'like:p1')).toBe(queue);
     expect(getToggleQueue<boolean>(scopeA, 'like:p2')).not.toBe(queue);
     expect(getToggleQueue<boolean>(scopeB, 'like:p1')).not.toBe(queue);
+  });
+
+  it('rule 5 extension: a perform that throws SYNCHRONOUSLY rejects its task and the queue keeps going', async () => {
+    const queue = createToggleQueue<boolean>();
+    const p1 = queue.run(true, () => {
+      throw new Error('sync down');
+    });
+    await expect(p1).rejects.toThrow('sync down');
+    await flush();
+    expect(queue.busy()).toBe(false);
+
+    const perform = jest.fn(() => Promise.resolve(false));
+    await expect(queue.run(false, perform)).resolves.toBe(false);
+    expect(perform).toHaveBeenCalledTimes(1);
+  });
+
+  it('ctx.willContinue tells a task, at settle time, whether a newer intent waits behind it', async () => {
+    const queue = createToggleQueue<boolean>();
+    const d1 = deferred<boolean>();
+    const seen: boolean[] = [];
+    const p1 = queue.run(true, async (d, ctx) => {
+      await d1.promise;
+      seen.push(ctx.willContinue());
+      return d;
+    });
+    await flush();
+    const p2 = queue.run(false, async (d, ctx) => {
+      seen.push(ctx.willContinue());
+      return d;
+    });
+    d1.resolve(true);
+    await expect(p1).resolves.toBe(true);
+    await expect(p2).resolves.toBe(false);
+    // The first task settled with the second queued behind it;
+    // the second settled last
+    expect(seen).toEqual([true, false]);
   });
 });

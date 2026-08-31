@@ -16,11 +16,20 @@
 //  accept/decline/disconnect races is exactly how profiles
 //  drift — the next profile fetch reconciles counts for free.
 //
-//  Failure taxonomy:
-//    - AbortError    — a newer tap superseded this one; the
-//                      newer one owns the state, do nothing
-//    - anything else — revert to the pre-tap intent, notify
-//                      'relationship_failed'
+//  Settle discipline (reconciliation lives INSIDE the queue
+//  task — once per task, however many deduped taps share it):
+//    - success, newer intent queued — record the confirmed
+//      standing, keep the optimistic view and pending up
+//    - success, last — the confirmed standing lands
+//    - failure, newer intent queued — stay quiet; the final
+//      attempt tells the truth
+//    - failure, last — revert to the last server-CONFIRMED
+//      standing (none this session → the field clears and the
+//      base wins), then requireAuth() for 401/403, else one
+//      'relationship_failed' notice
+//    - a replaced queued task (AbortError) never ran — nothing
+//      to undo; a settle from before an account switch (the
+//      store epoch moved) touches nothing
 //
 //  Relationships are optional in the transport: without
 //  setRelationship the hook reports canAct false and act() is
@@ -34,7 +43,7 @@ import { useCallback, useSyncExternalStore } from 'react';
 
 import { mergeRelationship } from '../core/shadow';
 import { getToggleQueue } from '../core/toggleQueue';
-import type { RelationshipAction } from '../core/transport';
+import { isAuthError, isRetryableError, type RelationshipAction } from '../core/transport';
 import type { RelationshipState } from '../core/types';
 import { useSocialEngine } from '../provider';
 
@@ -118,30 +127,54 @@ export function useRelationship(userId: string, base: RelationshipState): UseRel
     if (!setRelationship) return;
 
 
-    // `prev` is the shadow's pre-tap word — undefined means "no
-    // opinion", and reverting to undefined clears the field so
-    // the base row wins again
-    const prev = env.userShadows.get(userId)?.relationship;
-    env.userShadows.patch(userId, { relationship: OPTIMISTIC_TARGET[action], pending: true });
+    const store = env.userShadows;
+    const epoch = store.epoch();
+    store.patch(userId, { relationship: OPTIMISTIC_TARGET[action], pending: true });
 
 
     // The queue coalesces on the ACTION (dedup compares desired
-    // values with Object.is, and action strings compare cleanly);
-    // the value a task settles to is the server's confirmed
-    // STATE. ToggleQueue has one type parameter for both, hence
-    // the union and the two focused narrowings
+    // values with Object.is, and action strings compare cleanly),
+    // so a double-tap maps onto ONE task — and reconciliation
+    // lives inside the task, so it reverts once and notifies
+    // once however many taps shared it. The revert anchor is the
+    // last server-CONFIRMED standing (none this session → the
+    // field clears and the base wins); intermediate settles with
+    // a newer intent queued stay quiet and keep pending up; a
+    // settle from before an account switch touches nothing.
+    // ToggleQueue has one type parameter for the desired action
+    // and the confirmed state alike, hence the union
     getToggleQueue<RelationshipAction | RelationshipState>(env.transport, `rel:${userId}`)
-      .run(action, (a) => setRelationship(userId, a as RelationshipAction))
-      .then(
-        (confirmed) => {
-          env.userShadows.patch(userId, { relationship: confirmed as RelationshipState, pending: false });
-        },
-        (err: unknown) => {
-          if ((err as { name?: string } | null)?.name === 'AbortError') return;
-          env.userShadows.patch(userId, { relationship: prev, pending: false });
-          env.notify({ level: 'error', code: 'relationship_failed' });
-        },
-      );
+      .run(action, async (a, ctx) => {
+        try {
+          const confirmed = await setRelationship(userId, a as RelationshipAction);
+          // A live answer outdates any queued intent for this user
+          env.taskQueue.remove({ type: 'relationship', userId, action: a as RelationshipAction, at: '' });
+          if (store.epoch() === epoch) {
+            if (ctx.willContinue()) store.patch(userId, { confirmedRelationship: confirmed, pending: true });
+            else store.patch(userId, { relationship: confirmed, confirmedRelationship: confirmed, pending: false });
+          }
+          return confirmed;
+        } catch (err) {
+          if (store.epoch() === epoch) {
+            if (ctx.willContinue()) {
+              store.patch(userId, { pending: true });
+            } else if (isAuthError(err)) {
+              store.patch(userId, { relationship: store.get(userId)?.confirmedRelationship, pending: false });
+              env.requireAuth();
+            } else if (isRetryableError(err)) {
+              // Offline: the intent stands and replays on restore
+              env.taskQueue.add({ type: 'relationship', userId, action: a as RelationshipAction, at: new Date().toISOString() });
+              store.patch(userId, { pending: false });
+            } else {
+              env.taskQueue.remove({ type: 'relationship', userId, action: a as RelationshipAction, at: '' });
+              store.patch(userId, { relationship: store.get(userId)?.confirmedRelationship, pending: false });
+              env.notify({ level: 'error', code: 'relationship_failed' });
+            }
+          }
+          throw err;
+        }
+      })
+      .catch(() => {});
   };
 
 

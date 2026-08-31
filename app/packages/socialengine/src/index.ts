@@ -49,6 +49,10 @@ export {
 // Tap-spam coalescing
 export { createToggleQueue, getToggleQueue, type ToggleQueue } from './core/toggleQueue';
 
+// The offline task queue's persistence surface (AsyncStorage-shaped)
+export { memorySocialStorage, type SocialStorage } from './core/storage';
+export { createSocialTaskQueue, socialTaskKey, type PendingSocialTask, type SocialTaskQueue } from './core/tasks';
+
 // Poll arithmetic and gating, pure
 export { pollPercent, pollLeaders, isPollExpired, showPollResults } from './core/poll';
 
@@ -71,4 +75,4 @@ export { describeSocialContract, type SocialTransportHarness } from './testing/s
 
 // The KNF backend adapter (see adapters/knf for what it smooths over)
 export { createKnfSocialTransport, type KnfSocialOptions } from './adapters/knf';
-export { toPoll as knfToPoll, type HttpClient, type HttpRequestOptions } from './adapters/knf/wire';
+export { toPoll as knfToPoll, toSocialNotification as knfToSocialNotification, type HttpClient, type HttpRequestOptions } from './adapters/knf/wire';

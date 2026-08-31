@@ -40,6 +40,7 @@ import {
   showPollResults,
   useLikeToggle,
   usePoll,
+  useSocialEngine,
   useRelationship,
   useUnreadBadge,
   type FakeSocialTransport,
@@ -90,7 +91,6 @@ const POSTS: SocialPost[] = [
 
 
 
-
 // -----------------------------------------------------------
 // useDemoBackend
 // -----------------------------------------------------------
@@ -131,7 +131,6 @@ function useDemoBackend(): FakeSocialTransport {
 
 
 
-
 // -----------------------------------------------------------
 // ActivityBadge
 // -----------------------------------------------------------
@@ -155,7 +154,6 @@ function ActivityBadge() {
     </View>
   );
 }
-
 
 
 
@@ -213,7 +211,6 @@ function ConnectButton({ user, base }: { user: SocialUser; base: RelationshipSta
 
 
 
-
 // -----------------------------------------------------------
 // LikeButton
 // -----------------------------------------------------------
@@ -245,7 +242,6 @@ function LikeButton({ post }: { post: SocialPost }) {
 
 
 
-
 // -----------------------------------------------------------
 // PollBlock
 // -----------------------------------------------------------
@@ -263,6 +259,9 @@ function LikeButton({ post }: { post: SocialPost }) {
 function PollBlock({ pollId }: { pollId: string }) {
 
   const p = usePoll(pollId);
+  // The provider's clock, so a test (or a storybook) can freeze
+  // expiry the same way the hook's own canVote gate freezes
+  const { now } = useSocialEngine();
 
 
   if (p.error) {
@@ -276,7 +275,7 @@ function PollBlock({ pollId }: { pollId: string }) {
 
 
   const poll = p.poll;
-  const results = showPollResults(poll, p.revealed, new Date());
+  const results = showPollResults(poll, p.revealed, now());
 
 
   return (
@@ -310,7 +309,6 @@ function PollBlock({ pollId }: { pollId: string }) {
 
 
 
-
 // -----------------------------------------------------------
 // PostCard
 // -----------------------------------------------------------
@@ -329,7 +327,6 @@ function PostCard({ post }: { post: SocialPost }) {
     </View>
   );
 }
-
 
 
 
@@ -374,7 +371,6 @@ function Screen({ lastNotice }: { lastNotice: SocialNoticeCode | null }) {
     </View>
   );
 }
-
 
 
 

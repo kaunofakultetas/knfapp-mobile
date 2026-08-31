@@ -20,7 +20,19 @@
 //    4. When the active task settles — success OR failure —
 //       the queued task (if any) runs next.
 //    5. A task's failure rejects only its own promise; the
-//       queue itself keeps going.
+//       queue itself keeps going — a perform that throws
+//       SYNCHRONOUSLY is caught the same way (the call is
+//       lifted onto the microtask queue).
+//
+//  perform receives a context beside the desired value:
+//  ctx.willContinue() answers whether a NEWER task is already
+//  waiting behind this one — the hook that owns the shadow
+//  uses it to keep the optimistic view (and the pending flag)
+//  standing until the LAST task settles, instead of letting an
+//  intermediate settle flicker a superseded state onto the
+//  screen. Reconciliation belongs INSIDE perform: it runs
+//  exactly once per task, however many deduped taps share the
+//  task's promise.
 //
 //  Queues are per key (one per post, one per user), looked up
 //  through a registry scoped by object identity — two
@@ -32,8 +44,14 @@
 //    - hooks/useRelationship.ts — one queue per user
 // -----------------------------------------------------------
 
+export interface ToggleContext {
+  // A newer task is queued behind the running one — its intent
+  // supersedes whatever this task settles to
+  willContinue(): boolean;
+}
+
 export interface ToggleQueue<T> {
-  run(desired: T, perform: (desired: T) => Promise<T>): Promise<T>;
+  run(desired: T, perform: (desired: T, ctx: ToggleContext) => Promise<T>): Promise<T>;
   // Whether a task is in flight or waiting (UIs may dim)
   busy(): boolean;
 }
@@ -66,7 +84,7 @@ export function createToggleQueue<T>(): ToggleQueue<T> {
 
   interface Task {
     desired: T;
-    perform: (desired: T) => Promise<T>;
+    perform: (desired: T, ctx: ToggleContext) => Promise<T>;
     resolve: (value: T) => void;
     reject: (err: unknown) => void;
     promise: Promise<T>;
@@ -76,7 +94,7 @@ export function createToggleQueue<T>(): ToggleQueue<T> {
   let queued: Task | null = null;
 
 
-  const makeTask = (desired: T, perform: (desired: T) => Promise<T>): Task => {
+  const makeTask = (desired: T, perform: (desired: T, ctx: ToggleContext) => Promise<T>): Task => {
     let resolve: (value: T) => void = () => {};
     let reject: (err: unknown) => void = () => {};
     const promise = new Promise<T>((res, rej) => {
@@ -89,8 +107,11 @@ export function createToggleQueue<T>(): ToggleQueue<T> {
 
   const runTask = (task: Task) => {
     active = task;
-    task
-      .perform(task.desired)
+    // Lifted onto the microtask queue so a perform that throws
+    // synchronously rejects THIS task instead of deadlocking the
+    // queue for its key (rule 5)
+    Promise.resolve()
+      .then(() => task.perform(task.desired, { willContinue: () => queued !== null }))
       .then(task.resolve, task.reject)
       .finally(() => {
         active = null;

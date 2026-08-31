@@ -181,3 +181,20 @@ ship (`files` in package.json).
   corrupt, expired and wrong-schema entries read as misses, and
   `sweepPrefix` clears the rows a browsing screen wrote but never
   re-read.
+- A `loadMore` page that dedupes to nothing new ends paging even when
+  the adapter claims `hasMore` — a backend that ignores its offset must
+  not be hammered in a loop; any page-1 load re-arms paging.
+- An empty page-1 success never overwrites a non-empty offline copy —
+  a transient hiccup that answers an empty list must not destroy the
+  fallback it exists for.
+- `createCache` takes `maxEntries` — an optional entry cap evicting the
+  oldest writes first, because TTLs alone never bound COUNT and a full
+  storage quota fails silently.
+- A merge refresh that shares NOTHING with the held rows marks the hole
+  (`gapAfterId`) instead of faking continuity; `loadMore` then fills
+  INTO the hole until it reaches the old rows (or the chain exhausts) —
+  unless the fresh window was the server's whole memory, which replaces
+  the ghosts outright.
+- `useFeedFreshness` is the cheap new-posts probe behind a pill: it
+  counts peeked ids AHEAD of the feed's newest row, so deletions and
+  re-rankings never inflate the count.

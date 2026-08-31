@@ -241,4 +241,67 @@ describe('createCache', () => {
     expect(Object.keys(storage.dump())).toEqual(['theirs:k']);
     expect((await theirs.get<number>('k'))?.data).toBe(2);
   });
+
+  it('clearAll without multiRemove keeps going past a rejecting key and reports false', async () => {
+    const store = memoryStorage();
+    const cache = createCache(store);
+    await cache.set('a', 1);
+    await cache.set('b', 2);
+    await cache.set('c', 3);
+
+    const bare: KeyValueStorage = {
+      getItem: (key) => store.getItem(key),
+      setItem: (key, value) => store.setItem(key, value),
+      async removeItem(key) {
+        if (key === 'cache:b') throw new Error('locked row');
+        return store.removeItem(key);
+      },
+      getAllKeys: () => store.getAllKeys(),
+      // no multiRemove — the per-key fallback is the path under test
+    };
+    const fallback = createCache(bare);
+
+    await expect(fallback.clearAll()).resolves.toBe(false);
+    // Every removable key went — only the locked one survived
+    expect(Object.keys(store.dump())).toEqual(['cache:b']);
+  });
+
+  it('a configured maxEntries evicts the oldest writes first and never exceeds the cap', async () => {
+    jest.useFakeTimers();
+    try {
+      jest.setSystemTime(1_000_000);
+      const store = memoryStorage();
+      const cache = createCache(store, { maxEntries: 3 });
+      for (const key of ['a', 'b', 'c']) {
+        await cache.set(key, key);
+        jest.advanceTimersByTime(1000);
+      }
+      await cache.set('d', 'd');
+
+      const keys = Object.keys(store.dump()).sort();
+      expect(keys).toEqual(['cache:b', 'cache:c', 'cache:d']);
+      await expect(cache.get('a')).resolves.toBeNull();
+      await expect(cache.get('d')).resolves.toMatchObject({ data: 'd' });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('overwriting a key refreshes its cachedAt — a re-set entry must not expire on the old clock', async () => {
+    jest.useFakeTimers();
+    try {
+      jest.setSystemTime(1_000_000);
+      const store = memoryStorage();
+      const cache = createCache(store);
+      await cache.set('k', 'v1');
+      jest.advanceTimersByTime(60_000);
+      await cache.set('k', 'v2');
+
+      const hit = await cache.get<string>('k', 30_000);
+      expect(hit?.data).toBe('v2');
+      expect(hit?.cachedAt).toBe(1_060_000);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });

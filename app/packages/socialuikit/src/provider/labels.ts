@@ -35,6 +35,10 @@ export interface KitLabels {
   readMore: string;
   // The badge on media that carries an image description
   altBadge: string;
+  mediaPhotoA11y: string;
+  mediaVideoA11y: string;
+  unknownUser: string;
+  gapRow: string;
   openLink: string;
 
   // Polls: tallies, the countdown, the vote flow
@@ -169,6 +173,10 @@ export const defaultLabels: { lt: KitLabels; en: KitLabels } = {
     deletedPost: 'Įrašas ištrintas',
     readMore: 'Skaityti daugiau',
     altBadge: 'ALT',
+    mediaPhotoA11y: 'Nuotrauka',
+    mediaVideoA11y: 'Vaizdo įrašas',
+    unknownUser: 'Nežinomas narys',
+    gapRow: 'Rodyti praleistus įrašus',
     openLink: 'Atidaryti nuorodą',
 
     pollVotes: (count) => ltPlural(count, `${count} balsas`, `${count} balsai`, `${count} balsų`),
@@ -249,6 +257,10 @@ export const defaultLabels: { lt: KitLabels; en: KitLabels } = {
     deletedPost: 'Post deleted',
     readMore: 'Read more',
     altBadge: 'ALT',
+    mediaPhotoA11y: 'Photo',
+    mediaVideoA11y: 'Video',
+    unknownUser: 'Unknown user',
+    gapRow: 'Show missed posts',
     openLink: 'Open link',
 
     pollVotes: (count) => (count === 1 ? '1 vote' : `${count} votes`),

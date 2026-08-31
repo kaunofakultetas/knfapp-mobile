@@ -14,9 +14,10 @@ describe('@knf/socialuikit surface', () => {
   it('exports exactly these runtime members', () => {
     expect(Object.keys(kit).sort()).toEqual(
       [
-        'ActionRow', 'CommentComposer', 'CommentRow', 'ConnectButton', 'FeedList', 'LinkCard', 'MediaGallery', 'NewPostsPill', 'NotificationRow',
+        'ActionRow', 'CommentComposer', 'CommentRow', 'ConnectButton', 'FeedList', 'GapRow', 'LinkCard', 'MediaGallery', 'NewPostsPill', 'NotificationRow',
         'PollBlock', 'PostCard', 'ProfileHeader', 'RelativeTime', 'RowErrorBoundary', 'SocialUiKitProvider',
-        'clampSnippet', 'darkTheme', 'defaultLabels', 'defaultTheme', 'formatCount', 'gallerySpans', 'resolveTheme',
+        'clampSnippet',
+        'parseServerStamp', 'darkTheme', 'defaultLabels', 'defaultTheme', 'formatCount', 'gallerySpans', 'isSafeHref', 'resolveTheme',
         'useKitComponents', 'useKitEnv', 'useKitLabels', 'useKitTheme',
       ].sort(),
     );

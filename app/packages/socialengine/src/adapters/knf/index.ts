@@ -15,16 +15,25 @@
 //      option answers 409, which the adapter absorbs by
 //      re-fetching the poll — the caller still receives the
 //      current state, exactly what it asked to reach;
-//    - accept/decline address a REQUEST id the engine does not
-//      hold, so the adapter resolves the sender's user id
-//      through the received-requests listing on the way;
-//    - withdrawing an outgoing request has no endpoint — the
-//      adapter refuses 'cancel' definitively (status 501), the
-//      hook reverts, and the conformance harness declares
-//      supportsCancel false;
-//    - comment likes and an activity feed do not exist on this
-//      backend: comment targets refuse with 501 and the three
-//      notification methods are simply not implemented.
+//    - accept/decline/cancel address a REQUEST id the engine
+//      does not hold, so the adapter resolves the other side's
+//      user id through the requests listing on the way
+//      (received for accept/decline, sent for cancel — the
+//      reject route doubles as the withdrawal when the caller
+//      is the sender, and the backend skips the cooldown for
+//      that case);
+//    - disconnect on a pair that is already not friends answers
+//      404 — the state the caller wanted already stands, so the
+//      adapter absorbs it and answers 'none';
+//    - the friend-request COOLDOWN (a declined pair re-asking
+//      too soon) answers 429, which the engine's judgement
+//      reads as retryable-shaped; the hook still reverts and
+//      notifies — no retry loop starts — so the blunt UX is a
+//      toast, not a stuck spinner;
+//    - comment likes do not exist on this backend: comment
+//      targets refuse with a definitive 400 ('unsupported');
+//    - the activity list rides /social/activity with an opaque
+//      "<createdAt>|<id>" cursor the adapter echoes verbatim.
 //
 //  Used by:
 //    - the host app's transport wiring (when the feed screens
@@ -34,7 +43,7 @@
 
 import type { LikeResult, RelationshipAction, SocialTransport } from '../../core/transport';
 import type { Poll, RelationshipState } from '../../core/types';
-import { toPoll, type ApiFriendRequestResponse, type ApiFriendRequestRow, type ApiLikeResponse, type ApiPoll, type HttpClient } from './wire';
+import { toPoll, toSocialNotification, type ApiActivityResponse, type ApiFriendRequestResponse, type ApiFriendRequestRow, type ApiLikeResponse, type ApiPoll, type HttpClient } from './wire';
 
 
 export interface KnfSocialOptions {
@@ -44,8 +53,10 @@ export interface KnfSocialOptions {
 
 const enc = encodeURIComponent;
 
+// 400, not 501: a 5xx would read as retryable-shaped to
+// isRetryableError, and there is nothing here a retry can heal
 const unsupported = (what: string): Error =>
-  Object.assign(new Error(`${what} is not supported by this backend`), { status: 501, code: 'unsupported' });
+  Object.assign(new Error(`${what} is not supported by this backend`), { status: 400, code: 'unsupported' });
 
 const statusOf = (err: unknown): number | null => {
   if (!err || typeof err !== 'object') return null;
@@ -72,11 +83,13 @@ export function createKnfSocialTransport(options: KnfSocialOptions): SocialTrans
   const { http } = options;
 
 
-  // The received-requests listing, asked fresh per resolution:
-  // accept/decline are rare taps and a stale id would 404 anyway
-  const findRequestFrom = async (userId: string): Promise<ApiFriendRequestRow | undefined> => {
+  // The requests listing, asked fresh per resolution:
+  // accept/decline/cancel are rare taps and a stale id would 404
+  // anyway. In BOTH directions the listing's userId is the OTHER
+  // party, so one finder serves all three verbs
+  const findRequest = async (userId: string, direction: 'received' | 'sent'): Promise<ApiFriendRequestRow | undefined> => {
     const resp = await http.get<{ requests: ApiFriendRequestRow[] }>('/social/friends/requests', {
-      params: { direction: 'received' },
+      params: { direction },
     });
     return resp.requests.find((row) => row.userId === userId);
   };
@@ -131,7 +144,7 @@ export function createKnfSocialTransport(options: KnfSocialOptions): SocialTrans
         }
         case 'accept':
         case 'decline': {
-          const request = await findRequestFrom(userId);
+          const request = await findRequest(userId, 'received');
           if (!request) {
             throw Object.assign(new Error('no pending request from this user'), { status: 404 });
           }
@@ -139,13 +152,26 @@ export function createKnfSocialTransport(options: KnfSocialOptions): SocialTrans
           await http.post<{ status: string }>(`/social/friends/requests/${enc(request.id)}/${verb}`);
           return action === 'accept' ? 'connected' : 'none';
         }
-        case 'disconnect':
-          await http.delete<{ status: string }>(`/social/friends/${enc(userId)}`);
+        case 'cancel': {
+          // The reject route doubles as the withdrawal when the
+          // caller is the SENDER (the backend deletes the row and
+          // skips the decline cooldown for that case)
+          const request = await findRequest(userId, 'sent');
+          if (!request) {
+            throw Object.assign(new Error('no pending request to this user'), { status: 404 });
+          }
+          await http.post<{ status: string }>(`/social/friends/requests/${enc(request.id)}/reject`);
           return 'none';
-        case 'cancel':
-          // No withdrawal endpoint exists; a definitive refusal
-          // makes the hook revert to 'outgoing' — honest, if blunt
-          throw unsupported('withdrawing a sent request');
+        }
+        case 'disconnect':
+          try {
+            await http.delete<{ status: string }>(`/social/friends/${enc(userId)}`);
+          } catch (err) {
+            // Already not friends — the state the caller wanted
+            // stands; answer it instead of failing the intent
+            if (statusOf(err) !== 404) throw err;
+          }
+          return 'none';
       }
     },
 
@@ -165,8 +191,24 @@ export function createKnfSocialTransport(options: KnfSocialOptions): SocialTrans
       });
     },
 
-    // No activity-list endpoints exist on this backend yet — the
-    // three notification methods stay unimplemented on purpose,
-    // and useNotifications reports `supported: false`
+    async fetchNotifications(cursor) {
+      const resp = await http.get<ApiActivityResponse>('/social/activity', {
+        params: cursor ? { cursor } : {},
+      });
+      return {
+        notifications: resp.notifications.map(toSocialNotification),
+        hasMore: resp.hasMore,
+        cursor: resp.cursor,
+      };
+    },
+
+    async markNotificationsRead(): Promise<void> {
+      await http.post<{ status: string }>('/social/activity/read');
+    },
+
+    async fetchUnreadCount(): Promise<number> {
+      const resp = await http.get<{ count: number }>('/social/activity/unread');
+      return resp.count;
+    },
   };
 }

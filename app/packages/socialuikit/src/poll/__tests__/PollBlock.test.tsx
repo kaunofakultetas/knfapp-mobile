@@ -18,6 +18,7 @@ import { StyleSheet } from 'react-native';
 
 import type { KitPoll, KitPollOption } from '../../core/types';
 import { SocialUiKitProvider } from '../../provider';
+import { defaultLabels } from '../../provider/labels';
 import PollBlock from '../PollBlock';
 
 
@@ -331,5 +332,43 @@ describe('PollBlock footer', () => {
     const bare = await wrap(<PollBlock {...base} poll={buildPoll({ totalVotes: 2 })} />);
     expect(bare.queryByText('Poll closed')).toBeNull();
     expect(bare.getByText('2 votes')).toBeTruthy();
+  });
+
+  it('resets its ballot, reveal and fold when handed a DIFFERENT poll (recycled row)', async () => {
+    const onVote = jest.fn();
+    const multi = (id: string): KitPoll => ({
+      id,
+      question: 'Kur?',
+      options: [
+        { id: '1', text: 'A', voteCount: 0, votedByMe: false },
+        { id: '2', text: 'B', voteCount: 0, votedByMe: false },
+        { id: '3', text: 'C', voteCount: 0, votedByMe: false },
+      ],
+      answerType: 'multiple',
+      totalVotes: 0,
+      closed: false,
+      votedByMe: false,
+    });
+    const view = await wrap(<PollBlock poll={multi('pa')} canVote onVote={onVote} />);
+    await fireEvent.press(view.getByTestId('socialuikit-poll-option-1'));
+    expect(view.getByTestId('socialuikit-poll-option-1').props.accessibilityState).toMatchObject({ checked: true });
+
+    // The SAME mounted block now shows poll B — nothing ticked,
+    // ballot face up, no inherited reveal
+    await view.rerender(
+      <SocialUiKitProvider locale="en" env={{ now: () => NOW }}>
+        <PollBlock poll={multi('pb')} canVote onVote={onVote} />
+      </SocialUiKitProvider>,
+    );
+    expect(view.getByTestId('socialuikit-poll-option-1').props.accessibilityState).toMatchObject({ checked: false });
+
+    // A reveal on B must not leak to C either
+    await fireEvent.press(view.getByText(defaultLabels.en.pollSeeResults));
+    await view.rerender(
+      <SocialUiKitProvider locale="en" env={{ now: () => NOW }}>
+        <PollBlock poll={multi('pc')} canVote onVote={onVote} />
+      </SocialUiKitProvider>,
+    );
+    expect(view.queryByTestId('socialuikit-poll-bar-1')).toBeNull();
   });
 });

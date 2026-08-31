@@ -138,7 +138,7 @@ describe('useRelationship', () => {
     });
     expect(m.hook.result.current.state).toBe('outgoing');
 
-    m.pending[0].reject(Object.assign(new Error('refused'), { status: 500 }));
+    m.pending[0].reject(Object.assign(new Error('refused'), { status: 422 }));
     await flush();
     expect(m.hook.result.current.state).toBe('none');
     expect(m.hook.result.current.pending).toBe(false);
@@ -228,6 +228,38 @@ describe('useRelationship', () => {
     expect(m.calls).toHaveLength(2);
     expect(m.hook.result.current.state).toBe('none');
     expect(m.hook.result.current.pending).toBe(false);
+    expect(m.notices).toEqual([]);
+  });
+
+  it('a double-tap of the same action that then fails reverts fully and notifies ONCE', async () => {
+    // Both taps dedupe onto one queue task; one wire failure must
+    // produce one revert to the base standing and one notice \u2014
+    // never a re-applied optimistic state or a double toast
+    const m = await mount({ base: 'none' });
+    await act(async () => m.hook.result.current.act('connect'));
+    await act(async () => m.hook.result.current.act('connect'));
+    expect(m.hook.result.current.state).toBe('outgoing');
+    expect(m.calls).toHaveLength(1);
+
+    await act(async () => {
+      m.pending[0].reject(Object.assign(new Error('refused'), { status: 422 }));
+    });
+    await flush();
+
+    expect(m.hook.result.current.state).toBe('none');
+    expect(m.hook.result.current.pending).toBe(false);
+    expect(m.notices).toEqual([{ level: 'error', code: 'relationship_failed' }]);
+  });
+
+  it('an auth refusal reverts and routes to requireAuth instead of a generic notice', async () => {
+    const m = await mount({ base: 'none' });
+    await act(async () => m.hook.result.current.act('connect'));
+    await act(async () => {
+      m.pending[0].reject(Object.assign(new Error('session dead'), { status: 401 }));
+    });
+    await flush();
+    expect(m.hook.result.current.state).toBe('none');
+    expect(m.requireAuth).toHaveBeenCalledTimes(1);
     expect(m.notices).toEqual([]);
   });
 });

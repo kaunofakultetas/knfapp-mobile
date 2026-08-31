@@ -235,4 +235,101 @@ describe('useLikeToggle', () => {
     expect(m.hook.result.current.liked).toBe(true);
     expect(m.hook.result.current.likeCount).toBe(5);
   });
+
+  it('reverts a late failure to the last CONFIRMED flag, not the previous tap\u2019s guess', async () => {
+    // tap1 like (in flight) \u2192 tap2 unlike (queued) \u2192 tap3 like
+    // (replaces tap2). tap1 SUCCEEDS \u2014 server liked \u2014 then tap3
+    // fails: the display must land on the confirmed liked state,
+    // never on aborted tap2's optimistic 'false'
+    const m = await mount();
+    await act(async () => m.hook.result.current.toggle());
+    await act(async () => m.hook.result.current.toggle());
+    await act(async () => m.hook.result.current.toggle());
+
+    await act(async () => {
+      m.pending[0].resolve({ liked: true, likeCount: 5 });
+    });
+    await flush();
+    await act(async () => {
+      m.pending[1].reject(Object.assign(new Error('down'), { status: 422 }));
+    });
+    await flush();
+
+    expect(m.hook.result.current.liked).toBe(true);
+    expect(m.hook.result.current.likeCount).toBe(5);
+    expect(m.notices).toEqual([{ level: 'error', code: 'like_failed' }]);
+    expect(m.calls).toHaveLength(2);
+  });
+
+  it('keeps pending up while the queued final intent is still on the wire', async () => {
+    const m = await mount();
+    await act(async () => m.hook.result.current.toggle());
+    await act(async () => m.hook.result.current.toggle());
+    expect(m.hook.result.current.pending).toBe(true);
+
+    // The first call settles; the queued opposite intent starts \u2014
+    // the button must NOT read settled in between
+    await act(async () => {
+      m.pending[0].resolve({ liked: true, likeCount: 5 });
+    });
+    await flush();
+    expect(m.hook.result.current.pending).toBe(true);
+    expect(m.hook.result.current.liked).toBe(false);
+
+    await act(async () => {
+      m.pending[1].resolve({ liked: false, likeCount: 4 });
+    });
+    await flush();
+    expect(m.hook.result.current.pending).toBe(false);
+  });
+
+  it('an intermediate failure stays quiet \u2014 the final attempt tells the truth', async () => {
+    const m = await mount();
+    await act(async () => m.hook.result.current.toggle());
+    await act(async () => m.hook.result.current.toggle());
+
+    await act(async () => {
+      m.pending[0].reject(Object.assign(new Error('blip'), { status: 422 }));
+    });
+    await flush();
+    expect(m.notices).toEqual([]);
+
+    await act(async () => {
+      m.pending[1].resolve({ liked: false, likeCount: 4 });
+    });
+    await flush();
+    expect(m.hook.result.current.liked).toBe(false);
+    expect(m.hook.result.current.pending).toBe(false);
+    expect(m.notices).toEqual([]);
+  });
+
+  it('a settle from before an account switch touches nothing \u2014 the fresh store stays clean', async () => {
+    const t = stubTransport();
+    const KITAS = { id: 'u2', displayName: 'Kitas' };
+    const view = await render(
+      <SocialEngineProvider transport={t.transport} currentUser={VIEWER}>
+        <LikeBadge testID="badge" post={POST} />
+      </SocialEngineProvider>,
+    );
+    await fireEvent.press(view.getByTestId('badge'));
+    expect(view.getByTestId('badge').props.children).toBe('liked:5');
+
+    // The account changes while the call is on the wire; the
+    // provider wipes the stores (epoch moves)
+    await view.rerender(
+      <SocialEngineProvider transport={t.transport} currentUser={KITAS}>
+        <LikeBadge testID="badge" post={POST} />
+      </SocialEngineProvider>,
+    );
+    await flush();
+    expect(view.getByTestId('badge').props.children).toBe('unliked:4');
+
+    // The departed viewer's call settles \u2014 and must not re-seed
+    // the new account's store
+    await act(async () => {
+      t.pending[0].resolve({ liked: true, likeCount: 5 });
+    });
+    await flush();
+    expect(view.getByTestId('badge').props.children).toBe('unliked:4');
+  });
 });

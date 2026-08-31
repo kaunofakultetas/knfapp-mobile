@@ -196,4 +196,20 @@ describe('CommentComposer', () => {
     expect(bare.getByTestId('socialuikit-comment-input').props.maxLength).toBe(2000);
     expect(bare.getByTestId('socialuikit-comment-input').props.multiline).toBe(true);
   });
+
+  it('absorbs a throwing host as delivered=false: the draft stays, the composer recovers', async () => {
+    const onSubmit = jest.fn(async () => {
+      throw new Error('backend down');
+    });
+    const r = await wrap(<CommentComposer canComment onSubmit={onSubmit} />);
+    await fireEvent.changeText(r.getByTestId('socialuikit-comment-input'), 'Sveiki');
+    await fireEvent.press(r.getByTestId('socialuikit-comment-send'));
+    await flush();
+
+    expect(r.getByTestId('socialuikit-comment-input').props.value).toBe('Sveiki');
+    // Recovered — the next tap submits again
+    await fireEvent.press(r.getByTestId('socialuikit-comment-send'));
+    await flush();
+    expect(onSubmit).toHaveBeenCalledTimes(2);
+  });
 });

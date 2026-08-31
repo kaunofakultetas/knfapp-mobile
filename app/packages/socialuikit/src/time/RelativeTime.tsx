@@ -29,7 +29,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { Text, type StyleProp, type TextStyle } from 'react-native';
 
 import { useKitEnv, useKitLabels, useKitTheme } from '../provider';
-import { defaultLabels, type KitLabels } from '../provider/labels';
+import { parseServerStamp } from '../core/format';
+import type { KitLabels } from '../provider/labels';
 
 
 const SECOND = 1000;
@@ -55,21 +56,16 @@ const clampWait = (ms: number): number => Math.min(Math.max(ms, MIN_WAIT_MS), DA
 // dateLocale
 // -----------------------------------------------------------
 //
-// The provider resolves the label catalog but never exposes
-// which locale picked it, so absolute dates infer the answer
-// from the catalog in use: the English defaults format English
-// dates, anything else (a custom catalog included) falls back
-// to the kit's Lithuanian-first default.
+// The provider's resolved locale, mapped to the BCP 47 tag the
+// date formatter wants. No guessing: the env carries the
+// provider's own word, custom catalogs included.
 //
 // Used by:
 //   - RelativeTime — the absolute band and the a11y datetime
 // -----------------------------------------------------------
 
-function dateLocale(labels: KitLabels): string {
-  const en = defaultLabels.en;
-  return labels.justNow === en.justNow || labels.minutesShort(2) === en.minutesShort(2)
-    ? 'en-GB'
-    : 'lt-LT';
+function dateLocale(locale: 'lt' | 'en'): string {
+  return locale === 'en' ? 'en-GB' : 'lt-LT';
 }
 
 
@@ -178,8 +174,10 @@ export default function RelativeTime({
   const [tick, setTick] = useState(0);
 
 
-  const date = useMemo(() => new Date(iso), [iso]);
-  const locale = dateLocale(labels);
+  // parseServerStamp pins zone-less stamps to UTC — a naive
+  // SQLite default must never read as device-local time
+  const date = useMemo(() => new Date(parseServerStamp(iso)), [iso]);
+  const locale = dateLocale(env.locale);
   const { text, waitMs } = composeStamp(date, env.now(), hasFuture, labels, locale);
 
 

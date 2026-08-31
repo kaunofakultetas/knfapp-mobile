@@ -50,6 +50,10 @@ export interface KitEnv {
   // a silent no-op by default so the kit never imports a linking
   // module itself
   openHref: (href: string) => void;
+  // The locale the provider RESOLVED (its `locale` prop, 'lt'
+  // by default) — components formatting real dates read this
+  // instead of guessing from the catalog
+  locale: 'lt' | 'en';
   // The clock behind relative timestamps and poll countdowns
   now: () => Date;
 }
@@ -67,6 +71,7 @@ interface KitContextValue {
 const defaultEnv: KitEnv = {
   resolveImageUrl: (url) => url,
   openHref: () => {},
+  locale: 'lt',
   now: () => new Date(),
 };
 
@@ -124,9 +129,15 @@ export function SocialUiKitProvider({
     [scheme, theme],
   );
 
+  // Entries carrying an explicit undefined are dropped before
+  // the spread — the same guard the env merge gets field by
+  // field, or a host building its bundle from optional config
+  // would silently erase defaults
   const resolvedLabels = useMemo<KitLabels>(() => {
     const base = locale === 'en' ? defaultLabels.en : defaultLabels.lt;
-    return labels ? { ...base, ...labels } : base;
+    if (!labels) return base;
+    const defined = Object.fromEntries(Object.entries(labels).filter(([, value]) => value !== undefined));
+    return { ...base, ...defined };
   }, [labels, locale]);
 
   // Field-by-field so a host object carrying an explicit
@@ -135,9 +146,10 @@ export function SocialUiKitProvider({
     () => ({
       resolveImageUrl: env?.resolveImageUrl ?? defaultEnv.resolveImageUrl,
       openHref: env?.openHref ?? defaultEnv.openHref,
+      locale: locale === 'en' ? 'en' : 'lt',
       now: env?.now ?? defaultEnv.now,
     }),
-    [env],
+    [env, locale],
   );
 
   const value = useMemo<KitContextValue>(

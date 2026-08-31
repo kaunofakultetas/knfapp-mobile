@@ -140,4 +140,36 @@ describe('MediaGallery', () => {
     // The neighbour keeps its ground until its own bytes arrive
     expect(flat(r.getByTestId('socialuikit-gallery-item-1').props.style).backgroundColor).toBe(defaultTheme.colors.line);
   });
+
+  it('renders exactly the tiles the spans table names, count by count', async () => {
+    for (const n of [1, 2, 3, 4]) {
+      const r = await render(<MediaGallery items={photos(n)} />);
+      const spans = gallerySpans(n);
+      expect(spans).toHaveLength(n);
+      for (let i = 0; i < n; i++) expect(r.getByTestId(`socialuikit-gallery-item-${i}`)).toBeTruthy();
+      expect(r.queryByTestId(`socialuikit-gallery-item-${n}`)).toBeNull();
+      // unmount is async in RNTL 14 — un-awaited it resolves
+      // during the NEXT render and tears the fresh tree down
+      await r.unmount();
+    }
+  });
+
+  it('realises the 3-count arrangement: a lone left tile, two stacked right', async () => {
+    const r = await render(<MediaGallery items={photos(3)} />);
+    const second = r.getByTestId('socialuikit-gallery-item-1');
+    const third = r.getByTestId('socialuikit-gallery-item-2');
+    const first = r.getByTestId('socialuikit-gallery-item-0');
+    // The stacked pair shares a column the tall tile is not in
+    expect(second.parent).toBe(third.parent);
+    expect(first.parent).not.toBe(second.parent);
+  });
+
+  it('a handled tile tap stops propagation — the enclosing card must not also fire', async () => {
+    const onPressItem = jest.fn();
+    const stopPropagation = jest.fn();
+    const r = await render(<MediaGallery items={photos(2)} onPressItem={onPressItem} />);
+    await fireEvent.press(r.getByTestId('socialuikit-gallery-item-1'), { stopPropagation });
+    expect(onPressItem).toHaveBeenCalledWith(1);
+    expect(stopPropagation).toHaveBeenCalled();
+  });
 });

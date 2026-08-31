@@ -16,7 +16,7 @@ describe('@knf/socialengine surface', () => {
       [
         'SocialEngineProvider',
         'createKnfSocialTransport',
-        'createShadowStore',
+        'createShadowStore', 'createSocialTaskQueue', 'memorySocialStorage', 'socialTaskKey',
         'createToggleQueue',
         'describeSocialContract',
         'fakeSocialTransport',
@@ -26,6 +26,7 @@ describe('@knf/socialengine surface', () => {
         'isPollExpired',
         'isRetryableError',
         'knfToPoll',
+        'knfToSocialNotification',
         'mergePostShadow',
         'mergeRelationship',
         'pollLeaders',

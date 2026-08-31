@@ -250,4 +250,33 @@ describe('usePoll', () => {
     expect(h.result.current.canVote).toBe(false);
     await h.unmount();
   });
+
+  it('vote is single-flight: a second vote while one is on the wire never reaches the transport', async () => {
+    let release: (poll: Poll) => void = () => {};
+    const vote = jest.fn(
+      () =>
+        new Promise<Poll>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const h = await renderHook(() => usePoll('p1'), { wrapper: wrapperFor(stubTransport({ fetchPoll: async () => makePoll(), vote })) });
+    await flush();
+
+    await act(async () => {
+      void h.result.current.vote(['o1']);
+    });
+    await act(async () => {
+      void h.result.current.vote(['o2']);
+    });
+    expect(vote).toHaveBeenCalledTimes(1);
+
+    await act(async () => release(makePoll({ votedByMe: true })));
+    await flush();
+    // Settled — the latch reopens for the next deliberate vote
+    await act(async () => {
+      void h.result.current.vote(['o2']);
+    });
+    expect(vote).toHaveBeenCalledTimes(2);
+    await h.unmount();
+  });
 });

@@ -62,7 +62,6 @@ const IDLE: PollFetchState = { poll: null, loading: false, error: false, missing
 
 
 
-
 // -----------------------------------------------------------
 // usePoll
 // -----------------------------------------------------------
@@ -89,6 +88,15 @@ export function usePoll(pollId: string | null | undefined): UsePollResult {
   // Monotonic fetch ticket: a response lands only while its
   // ticket is still the newest
   const seqRef = useRef(0);
+
+  // The poll the hook is on RIGHT NOW — a vote result that
+  // resolves after the hook moved to another poll is dropped,
+  // never written over the new poll's state
+  const pollIdRef = useRef(pollId);
+  pollIdRef.current = pollId;
+
+  // vote()'s re-entrancy latch (state alone lags a render)
+  const submittingRef = useRef(false);
 
 
   const load = useCallback(
@@ -145,19 +153,30 @@ export function usePoll(pollId: string | null | undefined): UsePollResult {
         return;
       }
       if (pollId == null) return;
+      // Single-flight: the hook is the package contract, not the
+      // UI — a host without a disabled state must still never
+      // double-vote (a multiple-answer backend may count both)
+      if (submittingRef.current) return;
+      submittingRef.current = true;
 
 
       setSubmitting(true);
       try {
         const updated = await env.transport.vote(pollId, optionIds);
+        // The hook moved to another poll while the vote was on
+        // the wire — this result belongs to the old poll and is
+        // dropped whole (the new poll's own fetch owns the state)
+        if (pollIdRef.current !== pollId) return;
         // Claim the ticket — an older fetch still in flight must
         // not overwrite the fresher vote result
         seqRef.current += 1;
         setState({ poll: updated, loading: false, error: false, missing: false });
       } catch {
-        // The old poll stays exactly as it was
-        env.notify({ level: 'error', code: 'vote_failed' });
+        // The old poll stays exactly as it was; a failure for a
+        // poll the hook has left is stale context, not news
+        if (pollIdRef.current === pollId) env.notify({ level: 'error', code: 'vote_failed' });
       } finally {
+        submittingRef.current = false;
         setSubmitting(false);
       }
     },

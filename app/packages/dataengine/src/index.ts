@@ -31,3 +31,6 @@ export {
   type UseFeedOptions,
   type UseFeedResult,
 } from './hooks/useFeed';
+
+// The new-posts probe behind a jump-to-top pill
+export { useFeedFreshness, type UseFeedFreshnessResult } from './hooks/useFeedFreshness';

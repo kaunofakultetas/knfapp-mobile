@@ -7,7 +7,8 @@
 //  listing with accept/reject, unfriend, blocks, reports),
 //  plus the mappings the suite cannot see: the 409 vote
 //  absorbed into a refetch, the same-404-for-everything poll
-//  answered as null, and the definitive cancel refusal.
+//  answered as null, the sender-side reject that carries a
+//  cancel, and the already-unfriended 404 absorbed as 'none'.
 // -----------------------------------------------------------
 
 import { describeSocialContract, type SocialTransportHarness } from '../../../testing/socialContract';
@@ -16,14 +17,34 @@ import { createKnfSocialTransport } from '../index';
 import type { ApiPoll, HttpClient } from '../wire';
 
 
+interface RequestRow {
+  id: string;
+  userId: string;
+  displayName: string;
+  username: string;
+  createdAt: string;
+}
+
+interface ActivityRow {
+  id: string;
+  kind: string;
+  actor: { id: string; displayName: string; avatarUrl?: string | null };
+  createdAt: string;
+  read: boolean;
+  subjectId?: string | null;
+  subjectPreview?: string | null;
+}
+
 interface StubBackend {
   http: HttpClient;
   polls: Map<string, ApiPoll & { userVoteBy: string | null }>;
   likes: Map<string, { liked: boolean; count: number }>;
-  received: { id: string; userId: string; displayName: string; username: string; createdAt: string }[];
+  received: RequestRow[];
+  sent: RequestRow[];
   friends: Set<string>;
   blocked: Set<string>;
   reports: { target_type: string; target_id: string; reason: string }[];
+  activity: ActivityRow[];
 }
 
 const reject = (status: number, error: string) => Promise.reject(Object.assign(new Error(error), { status }));
@@ -35,6 +56,8 @@ function stubBackend(): StubBackend {
   const polls = new Map<string, ApiPoll & { userVoteBy: string | null }>();
   const likes = new Map<string, { liked: boolean; count: number }>();
   const received: StubBackend['received'] = [];
+  const sent: StubBackend['sent'] = [];
+  const activity: StubBackend['activity'] = [];
   const friends = new Set<string>();
   const blocked = new Set<string>();
   const reports: StubBackend['reports'] = [];
@@ -48,8 +71,34 @@ function stubBackend(): StubBackend {
         if (!row) return reject(404, 'No poll found for this post') as Promise<T>;
         return { ...row, options: row.options.map((o) => ({ ...o })) } as T;
       }
-      if (path === '/social/friends/requests' && options?.params?.direction === 'received') {
-        return { requests: received.map((row) => ({ ...row })) } as T;
+      if (path === '/social/friends/requests') {
+        const direction = options?.params?.direction;
+        if (direction === 'received') return { requests: received.map((row) => ({ ...row })) } as T;
+        if (direction === 'sent') return { requests: sent.map((row) => ({ ...row })) } as T;
+      }
+
+      if (path === '/social/activity/unread') {
+        return { count: activity.filter((row) => !row.read).length } as T;
+      }
+      if (path === '/social/activity') {
+        // Newest first with the real route's opaque keyset cursor
+        const sorted = [...activity].sort((a, b) => (a.createdAt === b.createdAt ? (a.id < b.id ? 1 : -1) : a.createdAt < b.createdAt ? 1 : -1));
+        const cursor = typeof options?.params?.cursor === 'string' ? options.params.cursor : '';
+        let start = 0;
+        if (cursor.includes('|')) {
+          const [at, id] = cursor.split('|', 2);
+          start = sorted.findIndex((row) => row.createdAt < at || (row.createdAt === at && row.id < id));
+          if (start < 0) start = sorted.length;
+        }
+        const pageSize = 2;
+        const page = sorted.slice(start, start + pageSize);
+        const hasMore = start + page.length < sorted.length;
+        const last = page[page.length - 1];
+        return {
+          notifications: page.map((row) => ({ ...row, actor: { ...row.actor } })),
+          hasMore,
+          ...(hasMore && last ? { cursor: `${last.createdAt}|${last.id}` } : {}),
+        } as T;
       }
       return reject(404, 'not found') as Promise<T>;
     },
@@ -95,7 +144,16 @@ function stubBackend(): StubBackend {
 
       const answer = path.match(/^\/social\/friends\/requests\/([^/]+)\/(accept|reject)$/);
       if (answer) {
-        const index = received.findIndex((row) => row.id === decodeURIComponent(answer[1]));
+        const id = decodeURIComponent(answer[1]);
+        // The real reject route matches EITHER end of the row:
+        // the recipient declines, the SENDER cancels (deleted, no
+        // cooldown) — the stub mirrors that double duty
+        const sentIndex = sent.findIndex((row) => row.id === id);
+        if (answer[2] === 'reject' && sentIndex >= 0) {
+          sent.splice(sentIndex, 1);
+          return { status: 'rejected' } as T;
+        }
+        const index = received.findIndex((row) => row.id === id);
         if (index < 0) return reject(404, 'Request not found') as Promise<T>;
         const [row] = received.splice(index, 1);
         if (answer[2] === 'accept') friends.add(row.userId);
@@ -109,6 +167,12 @@ function stubBackend(): StubBackend {
       if (path === '/social/reports') {
         reports.push(body as StubBackend['reports'][number]);
         return { status: 'reported' } as T;
+      }
+      if (path === '/social/activity/read') {
+        activity.forEach((row) => {
+          row.read = true;
+        });
+        return { status: 'ok' } as T;
       }
       return reject(404, 'not found') as Promise<T>;
     },
@@ -132,7 +196,7 @@ function stubBackend(): StubBackend {
     },
   };
 
-  return { http, polls, likes, received, friends, blocked, reports };
+  return { http, polls, likes, received, sent, friends, blocked, reports, activity };
 }
 
 
@@ -161,21 +225,33 @@ function knfHarness(): SocialTransportHarness & { backend: StubBackend } {
   return {
     backend,
     transport: createKnfSocialTransport({ http: backend.http }),
-    supportsCancel: false,
     async seedPoll(poll) {
       backend.polls.set(poll.id, toApiPoll(poll));
       return poll.id;
     },
-    async seedNotification() {
-      // No activity endpoints exist on this backend; the suite
-      // skips those legs because the methods are absent
-      return `n-${++seededRequests}`;
+    async seedNotification(n) {
+      const id = n.id ?? `act-${++seededRequests}`;
+      backend.activity.push({
+        id,
+        kind: n.kind,
+        actor: { id: n.actor.id, displayName: n.actor.displayName, avatarUrl: n.actor.avatarUrl ?? null },
+        createdAt: n.createdAt,
+        read: n.read,
+        subjectId: n.subjectId ?? null,
+        subjectPreview: n.subjectPreview ?? null,
+      });
+      return id;
     },
     async setRelationship(userId, state) {
       backend.friends.delete(userId);
       const index = backend.received.findIndex((row) => row.userId === userId);
       if (index >= 0) backend.received.splice(index, 1);
+      const sentIndex = backend.sent.findIndex((row) => row.userId === userId);
+      if (sentIndex >= 0) backend.sent.splice(sentIndex, 1);
       if (state === 'connected') backend.friends.add(userId);
+      if (state === 'outgoing') {
+        backend.sent.push({ id: `req-seed-${++seededRequests}`, userId, displayName: 'Ona', username: 'ona', createdAt: new Date(0).toISOString() });
+      }
       if (state === 'incoming') {
         backend.received.push({ id: `req-seed-${++seededRequests}`, userId, displayName: 'Ona', username: 'ona', createdAt: new Date(0).toISOString() });
       }
@@ -223,15 +299,24 @@ describe('KNF adapter mappings', () => {
     await expect(h.transport.vote('post-9', ['a', 'b'])).rejects.toMatchObject({ status: 400 });
   });
 
-  it('refuses cancel definitively — a non-retryable status the hook reverts on', async () => {
+  it('cancels through the sent listing and the sender-side reject route', async () => {
     const h = knfHarness();
-    await expect(h.transport.setRelationship!('u1', 'cancel')).rejects.toMatchObject({ status: 501 });
+    await h.setRelationship('u-sent', 'outgoing');
+    await expect(h.transport.setRelationship!('u-sent', 'cancel')).resolves.toBe('none');
+    expect(h.backend.sent).toHaveLength(0);
+    // Nothing pending any more — a repeat is a definitive 404
+    await expect(h.transport.setRelationship!('u-sent', 'cancel')).rejects.toMatchObject({ status: 404 });
   });
 
-  it('refuses comment likes and comment reports as unsupported', async () => {
+  it('absorbs the already-unfriended 404 — the state the caller wanted stands', async () => {
     const h = knfHarness();
-    await expect(h.transport.setLiked({ type: 'comment', id: 'c1' }, true)).rejects.toMatchObject({ status: 501 });
-    await expect(h.transport.report!({ type: 'comment', id: 'c1' }, 'spam')).rejects.toMatchObject({ status: 501 });
+    await expect(h.transport.setRelationship!('u-gone', 'disconnect')).resolves.toBe('none');
+  });
+
+  it('refuses comment likes and comment reports with a definitive (non-retryable) shape', async () => {
+    const h = knfHarness();
+    await expect(h.transport.setLiked({ type: 'comment', id: 'c1' }, true)).rejects.toMatchObject({ status: 400, code: 'unsupported' });
+    await expect(h.transport.report!({ type: 'comment', id: 'c1' }, 'spam')).rejects.toMatchObject({ status: 400, code: 'unsupported' });
   });
 
   it('resolves accept through the received-requests listing', async () => {

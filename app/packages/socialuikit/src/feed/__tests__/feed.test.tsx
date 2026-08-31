@@ -183,4 +183,29 @@ describe('FeedList', () => {
     const expected = Math.max(1, Math.ceil(Dimensions.get('window').height / 140));
     expect(list.props.initialNumToRender).toBe(expected);
   });
+
+  it('renders the gap row exactly under its named key, tappable, spinner while filling', async () => {
+    const onFillGap = jest.fn();
+    const items = [{ id: 'x' }, { id: 'y' }, { id: 'c' }];
+    const r = await render(
+      <FeedList items={items} keyOf={(item) => item.id} renderItem={(item) => <Text testID={`row-${item.id}`}>{item.id}</Text>} gapAfterKey="y" onFillGap={onFillGap} />,
+    );
+    expect(r.getByTestId('socialuikit-gap-row')).toBeTruthy();
+    await fireEvent.press(r.getByTestId('socialuikit-gap-row'));
+    expect(onFillGap).toHaveBeenCalledTimes(1);
+
+    await r.rerender(
+      <FeedList items={items} keyOf={(item) => item.id} renderItem={(item) => <Text testID={`row-${item.id}`}>{item.id}</Text>} gapAfterKey="y" onFillGap={onFillGap} fillingGap />,
+    );
+    // The spinner seat is a plain View, not a button (firing a
+    // synthetic press here would bubble to the composite's prop —
+    // an RNTL artifact a device never has — so assert structure)
+    const seat = r.getByTestId('socialuikit-gap-row');
+    expect(seat.props.accessibilityRole).toBeUndefined();
+
+    await r.rerender(
+      <FeedList items={items} keyOf={(item) => item.id} renderItem={(item) => <Text testID={`row-${item.id}`}>{item.id}</Text>} gapAfterKey={null} />,
+    );
+    expect(r.queryByTestId('socialuikit-gap-row')).toBeNull();
+  });
 });

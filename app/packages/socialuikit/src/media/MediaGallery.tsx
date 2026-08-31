@@ -30,7 +30,7 @@ import { useKitEnv, useKitLabels, useKitTheme } from '../provider';
 import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
 import { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, Text, View, type GestureResponderEvent } from 'react-native';
 
 import type { KitMediaItem } from '../core/types';
 
@@ -46,11 +46,6 @@ const MAX_TILES = 4;
 const MIN_LONE_ASPECT = 0.5;
 const MAX_LONE_ASPECT = 2.2;
 
-// The catalog carries no generic media noun (only altBadge), so
-// an undescribed tile speaks these fixed Lithuanian fallbacks —
-// matching the kit's provider-less default locale
-const GENERIC_PHOTO = 'Nuotrauka';
-const GENERIC_VIDEO = 'Vaizdo įrašas';
 
 
 
@@ -70,9 +65,15 @@ const GENERIC_VIDEO = 'Vaizdo įrašas';
 // Counts past four answer the four-tile table (the extras never
 // render); zero and junk answer an empty table.
 //
+// MediaGallery's JSX realises the same arrangements as literal
+// rows/columns rather than deriving them from this table (flex
+// wants structure, not spans) — the structural test in
+// __tests__ pins the two against each other, so they cannot
+// drift apart silently.
+//
 // Used by:
-//   - MediaGallery (below) — the shape its rows realise
 //   - hosts and tests reading the layout without a render
+//   - __tests__/MediaGallery.test.tsx — the drift pin
 // -----------------------------------------------------------
 
 export function gallerySpans(count: number): { tall: boolean; wide: boolean }[] {
@@ -99,7 +100,6 @@ export function gallerySpans(count: number): { tall: boolean; wide: boolean }[] 
     { tall: false, wide: false },
   ];
 }
-
 
 
 
@@ -136,7 +136,6 @@ function formatDuration(seconds: number): string {
 
 
 
-
 // -----------------------------------------------------------
 // GalleryTile
 // -----------------------------------------------------------
@@ -163,7 +162,7 @@ function GalleryTile({
   // How many items hide behind this tile (>0 only on the last
   // tile of an over-long album — draws the '+N' wash)
   hiddenCount: number;
-  onPress?: () => void;
+  onPress?: (event: GestureResponderEvent) => void;
 }) {
 
   const { colors, fonts } = useKitTheme();
@@ -183,7 +182,7 @@ function GalleryTile({
       onPress={onPress}
       disabled={!onPress}
       accessibilityRole={onPress ? 'imagebutton' : 'image'}
-      accessibilityLabel={item.alt ?? (item.kind === 'video' ? GENERIC_VIDEO : GENERIC_PHOTO)}
+      accessibilityLabel={item.alt ?? (item.kind === 'video' ? labels.mediaVideoA11y : labels.mediaPhotoA11y)}
       style={{ flex: 1, overflow: 'hidden', backgroundColor: loaded ? 'transparent' : colors.line }}
     >
       <ExpoImage
@@ -203,32 +202,31 @@ function GalleryTile({
           style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}
         >
           <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: colors.overlay, alignItems: 'center', justifyContent: 'center' }}>
-            <Ionicons name="play" size={22} color="#FFFFFF" />
+            <Ionicons name="play" size={22} color={colors.overlayInk} />
           </View>
         </View>
       ) : null}
 
       {item.kind === 'video' && item.duration != null ? (
         <View style={{ position: 'absolute', right: 6, bottom: 6, borderRadius: 4, backgroundColor: colors.overlay, paddingHorizontal: 5, paddingVertical: 2 }}>
-          <Text style={{ fontFamily: fonts.medium, fontSize: 11, lineHeight: 14, color: '#FFFFFF' }}>{formatDuration(item.duration)}</Text>
+          <Text style={{ fontFamily: fonts.medium, fontSize: 11, lineHeight: 14, color: colors.overlayInk }}>{formatDuration(item.duration)}</Text>
         </View>
       ) : null}
 
       {item.alt ? (
         <View style={{ position: 'absolute', left: 6, bottom: 6, borderRadius: 4, backgroundColor: colors.overlay, paddingHorizontal: 5, paddingVertical: 2 }}>
-          <Text style={{ fontFamily: fonts.bold, fontSize: 10, lineHeight: 13, color: '#FFFFFF' }}>{labels.altBadge}</Text>
+          <Text style={{ fontFamily: fonts.bold, fontSize: 10, lineHeight: 13, color: colors.overlayInk }}>{labels.altBadge}</Text>
         </View>
       ) : null}
 
       {hiddenCount > 0 ? (
         <View style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.overlay, pointerEvents: 'none' }}>
-          <Text style={{ fontFamily: fonts.bold, fontSize: 22, lineHeight: 28, color: '#FFFFFF' }}>{`+${hiddenCount}`}</Text>
+          <Text style={{ fontFamily: fonts.bold, fontSize: 22, lineHeight: 28, color: colors.overlayInk }}>{`+${hiddenCount}`}</Text>
         </View>
       ) : null}
     </Pressable>
   );
 }
-
 
 
 
@@ -283,7 +281,16 @@ export default function MediaGallery({
       item={visible[index]}
       index={index}
       hiddenCount={index === visible.length - 1 ? hidden : 0}
-      onPress={onPressItem ? () => onPressItem(index) : undefined}
+      onPress={
+        onPressItem
+          ? (event) => {
+              // A handled tile tap must never ALSO open the card
+              // wrapped around the gallery (touches bubble on web)
+              event.stopPropagation();
+              onPressItem(index);
+            }
+          : undefined
+      }
     />
   );
 

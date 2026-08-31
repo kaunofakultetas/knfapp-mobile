@@ -205,4 +205,27 @@ describe('RelativeTime', () => {
     setSpy.mockRestore();
     clearSpy.mockRestore();
   });
+
+  it('reads a zone-less server stamp as UTC, never as device-local time', async () => {
+    // 90 seconds ago, written the way a SQLite column default
+    // writes it: naive, space-form
+    const naive = new Date(BASE - 90 * SECOND).toISOString().replace('Z', '').replace('T', ' ');
+    const r = await mount(naive);
+    expect(r.getByText('1 min.')).toBeTruthy();
+  });
+
+  it('renders the calm default for an unparseable stamp — never NaN', async () => {
+    const r = await mount('not-a-date');
+    expect(r.getByText('Ką tik')).toBeTruthy();
+    expect(r.queryByText(/NaN/)).toBeNull();
+  });
+
+  it('pins the week flip exactly: 7d shows the absolute date, one hour earlier still counts days', async () => {
+    const almost = await mount(iso(-(7 * DAY - HOUR)));
+    expect(almost.getByText('6 d.')).toBeTruthy();
+
+    const flipped = await mount(iso(-7 * DAY));
+    expect(flipped.queryByText('7 d.')).toBeNull();
+    expect(flipped.queryByText('6 d.')).toBeNull();
+  });
 });

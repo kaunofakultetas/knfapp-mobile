@@ -154,12 +154,13 @@ backend passes with the relationship and activity checks quietly skipped.
 | `provider/` | `SocialEngineProvider` / `useSocialEngine` — transport, viewer, notices, the test-freezable clock, the two shadow stores |
 | `hooks/` | `useLikeToggle`, `usePoll`, `useRelationship`, `useNotifications`, `useUnreadBadge` |
 | `testing/` | `fakeSocialTransport()` (in-memory backend with `fail`, `stall`, seed levers) and `describeSocialContract()` (the conformance suite) |
-| `adapters/knf/` | the KNF backend adapter — `createKnfSocialTransport({ http })` over an injected HttpClient; its banner lists what the mapping smooths over (a toggle-style like route, post-addressed single-answer polls, request-id resolution, no request withdrawal, no activity endpoints) |
+| `adapters/knf/` | the KNF backend adapter — `createKnfSocialTransport({ http })` over an injected HttpClient; its banner lists what the mapping smooths over (a toggle-style like route, post-addressed single-answer polls, request-id resolution for accept/decline/cancel, absorbed already-in-that-state refusals, no activity endpoints) |
 
 Adapter authors start from the fake (the reference implementation) and
 prove theirs with `describeSocialContract()` — the KNF adapter's own
-contract test is the worked example, including how a backend that
-cannot withdraw a request declares `supportsCancel: false`.
+contract test is the worked example. A backend that truly cannot
+withdraw a sent request declares `supportsCancel: false` on its harness
+and the suite skips that leg.
 
 ## Tests live in the package
 
@@ -236,6 +237,14 @@ cannot withdraw a request declares `supportsCancel: false`.
   member does. Unknown kinds still render as standalone rows.
 - `markAllRead` flips every held row optimistically, runs the wire call
   behind it, and on refusal restores exactly the flags it changed.
+- Likes and relationship actions taken OFFLINE keep their optimistic
+  shadows and wait in a persisted task queue (the provider's `storage`);
+  `onNetworkRestore` — or the next signed-in mount — replays the
+  viewer's FINAL intent per target, once. A live settle purges its
+  queued twin; an account switch throws the departing intents away.
+- The KNF adapter serves the activity list from `/social/activity`
+  (opaque keyset cursor, mark-read, the unread probe), so
+  `useNotifications` and `useUnreadBadge` run against the real backend.
 - The unread badge polls only while the app is active; returning to the
   foreground probes immediately and resumes the cadence; a failed probe
   keeps the last shown value; the count caps as `30+` (configurable).

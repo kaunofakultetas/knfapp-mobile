@@ -195,4 +195,59 @@ describe('PostCard', () => {
     expect(both.getByTestId('host-poll')).toBeTruthy();
     expect(both.queryByTestId('fallback-poll')).toBeNull();
   });
+
+  it('memo skips an unchanged row even though the host passes fresh inline callbacks', async () => {
+    let renders = 0;
+    const CountingAvatar = ({ user }: { user: KitUser; size?: number }) => {
+      renders += 1;
+      return <Text testID="probe-avatar">{user.displayName}</Text>;
+    };
+    // The components object stays STABLE across rerenders — a
+    // changing context value would re-render into the memoized
+    // subtree and mask what the comparator does
+    const components = { Avatar: CountingAvatar };
+    const ui = (post: KitPost) => (
+      <SocialUiKitProvider components={components}>
+        <PostCard post={post} onPressLike={() => {}} onPressComment={() => {}} />
+      </SocialUiKitProvider>
+    );
+    const post = base;
+    const view = await render(ui(post));
+    const painted = renders;
+    expect(painted).toBeGreaterThan(0);
+
+    // Same post object, new callback identities — the row skips
+    await view.rerender(ui(post));
+    expect(renders).toBe(painted);
+
+    // A new post object re-renders
+    await view.rerender(ui({ ...post }));
+    expect(renders).toBe(painted + 1);
+  });
+
+  it('a tombstoned author reads as a person, never a blank byline', async () => {
+    const ghost = { ...base, author: { id: 'gone', displayName: '   ' } };
+    const r = await render(<PostCard post={ghost} onPressLike={() => {}} onPressComment={() => {}} />);
+    expect(r.getByText('Nežinomas narys')).toBeTruthy();
+  });
+
+  it('the Avatar slot receives exactly its documented props — nothing more, nothing renamed', async () => {
+    const seen: unknown[] = [];
+    const Probe = (props: { user: KitUser; size: number }) => {
+      seen.push(props);
+      return null;
+    };
+    const components = { Avatar: Probe };
+    await render(
+      <SocialUiKitProvider components={components}>
+        <PostCard post={base} onPressLike={() => {}} onPressComment={() => {}} />
+      </SocialUiKitProvider>,
+    );
+    expect(seen.length).toBeGreaterThan(0);
+    for (const props of seen as { user: KitUser; size: number }[]) {
+      expect(Object.keys(props).sort()).toEqual(['size', 'user']);
+      expect(props.user).toBe(base.author);
+      expect(typeof props.size).toBe('number');
+    }
+  });
 });

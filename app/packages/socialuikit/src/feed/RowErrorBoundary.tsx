@@ -30,7 +30,6 @@ import { Pressable, Text, View } from 'react-native';
 
 
 
-
 // -----------------------------------------------------------
 // FailedRow
 // -----------------------------------------------------------
@@ -74,7 +73,6 @@ function FailedRow({ onReset }: { onReset: () => void }) {
     </View>
   );
 }
-
 
 
 

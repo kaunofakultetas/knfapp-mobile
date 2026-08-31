@@ -30,7 +30,6 @@ import type { Poll, PollOption } from './types';
 
 
 
-
 // -----------------------------------------------------------
 // pollPercent
 // -----------------------------------------------------------
@@ -50,9 +49,11 @@ export function pollPercent(option: PollOption, poll: Poll): number {
 
 
   if (denominator <= 0) return 0;
-  return (option.voteCount / denominator) * 100;
+  // Clamped to the promised 0..100 — inconsistent host data (a
+  // voterCount lagging the option sums, a negative count) must
+  // not hand a bar renderer an overflowing width
+  return Math.min(100, Math.max(0, (option.voteCount / denominator) * 100));
 }
-
 
 
 
@@ -89,7 +90,6 @@ export function pollLeaders(poll: Poll): string[] {
 
 
 
-
 // -----------------------------------------------------------
 // isPollExpired
 // -----------------------------------------------------------
@@ -115,7 +115,6 @@ export function isPollExpired(poll: Poll, now: Date): boolean {
   // rather than killing it
   return new Date(poll.expiresAt).getTime() < now.getTime();
 }
-
 
 
 

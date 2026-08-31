@@ -20,7 +20,7 @@
 //    - adapters/knf/__tests__ — shape fixtures
 // -----------------------------------------------------------
 
-import type { Poll } from '../../core/types';
+import type { Poll, SocialNotification } from '../../core/types';
 
 
 export interface HttpRequestOptions {
@@ -59,6 +59,24 @@ export interface ApiLikeResponse {
 export interface ApiFriendRequestResponse {
   id?: string;
   status: 'pending' | 'accepted';
+}
+
+// One row of GET /social/activity
+export interface ApiActivityRow {
+  id: string;
+  kind: string;
+  actor: { id: string; displayName: string; avatarUrl?: string | null };
+  createdAt: string;
+  read: boolean;
+  subjectId?: string | null;
+  subjectPreview?: string | null;
+}
+
+// GET /social/activity
+export interface ApiActivityResponse {
+  notifications: ApiActivityRow[];
+  hasMore: boolean;
+  cursor?: string;
 }
 
 // One row of GET /social/friends/requests
@@ -111,3 +129,39 @@ export function toPoll(api: ApiPoll): Poll {
     votedByMe: api.userVote !== null,
   };
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// toSocialNotification
+// -----------------------------------------------------------
+//
+// The wire's kinds are already the engine's well-known ones
+// (like / comment / connect_request / connect_accept), and the
+// engine's kind is open-ended past those — an unknown value
+// rides through and renders as the generic line.
+//
+// Used by:
+//   - adapters/knf/index.ts — fetchNotifications
+// -----------------------------------------------------------
+
+export function toSocialNotification(api: ApiActivityRow): SocialNotification {
+  return {
+    id: api.id,
+    kind: api.kind,
+    actor: {
+      id: api.actor.id,
+      displayName: api.actor.displayName,
+      avatarUrl: api.actor.avatarUrl ?? null,
+    },
+    createdAt: api.createdAt,
+    read: api.read,
+    subjectId: api.subjectId ?? null,
+    subjectPreview: api.subjectPreview ?? null,
+  };
+}
+

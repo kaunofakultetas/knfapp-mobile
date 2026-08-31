@@ -204,7 +204,7 @@ export default function CommentRow({
             onPress={onPressAuthor ? () => onPressAuthor(comment.author) : undefined}
             style={{ flexShrink: 1, fontFamily: fonts.bold, fontSize: 13, color: colors.brand }}
           >
-            {comment.author.displayName}
+            {comment.author.displayName.trim() || labels.unknownUser}
           </Text>
           <RelativeTime iso={comment.createdAt} style={{ marginLeft: 8, fontSize: 11 }} />
         </View>

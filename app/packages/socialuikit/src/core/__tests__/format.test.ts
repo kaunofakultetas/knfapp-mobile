@@ -6,7 +6,7 @@
 //  clampSnippet's word-boundary cut.
 // -----------------------------------------------------------
 
-import { clampSnippet, formatCount } from '../format';
+import { clampSnippet, formatCount, parseServerStamp } from '../format';
 
 
 describe('formatCount', () => {
@@ -100,5 +100,55 @@ describe('clampSnippet', () => {
     const tokens = out.slice(0, -1).split(' ');
     expect(tokens.length).toBeGreaterThan(0);
     for (const token of tokens) expect(token).toBe('žodis');
+  });
+
+  it('formatCount has a rung for every magnitude — a viral count never prints a 4-digit mantissa', () => {
+    expect(formatCount(1_500_000_000)).toBe('1.5B');
+    expect(formatCount(999_999_999)).toBe('999.9M');
+    expect(formatCount(12_000_000_000)).toBe('12B');
+  });
+
+  it('clampSnippet never leaves a lone surrogate before the ellipsis', () => {
+    const hearts = '\u{1F49A}'.repeat(100); // 200 UTF-16 units, no whitespace
+    const out = clampSnippet(hearts, 149);
+    const body = out.slice(0, -1);
+    expect(out.endsWith('\u2026')).toBe(true);
+    expect(/[\uD800-\uDBFF]$/.test(body)).toBe(false);
+    // Only whole hearts survive
+    expect(body.length % 2).toBe(0);
+    expect([...body].every((ch) => ch === '\u{1F49A}')).toBe(true);
+  });
+
+  it('clampSnippet keeps flags whole — regional indicators travel in pairs', () => {
+    const flags = '\u{1F1F1}\u{1F1F9}'.repeat(50); // 🇱🇹 ×50 = 200 units
+    const out = clampSnippet(flags, 150);
+    const body = out.slice(0, -1);
+    const indicators = body.match(/[\uD83C][\uDDE6-\uDDFF]/g) ?? [];
+    expect(indicators.length % 2).toBe(0);
+    expect(indicators.length).toBeGreaterThan(0);
+  });
+
+  it('clampSnippet drops a severed joiner family wholly, never half of one', () => {
+    const family = '\u{1F469}\u200D\u{1F4BB}'; // 5 units per family
+    const out = clampSnippet(family.repeat(40), 152); // cuts mid-family
+    const body = out.slice(0, -1);
+    // Whatever survives is a whole number of complete families
+    expect(body.length % 5).toBe(0);
+    expect(body.split(family).join('')).toBe('');
+  });
+
+  it('parseServerStamp reads zone-less stamps as UTC and space-form as datetimes', () => {
+    const aware = Date.parse('2026-08-31T10:00:00Z');
+    expect(parseServerStamp('2026-08-31T10:00:00')).toBe(aware);
+    expect(parseServerStamp('2026-08-31 10:00:00')).toBe(aware);
+    expect(parseServerStamp('2026-08-31T10:00:00+00:00')).toBe(aware);
+    expect(parseServerStamp('2026-08-31T13:00:00+03:00')).toBe(aware);
+    expect(parseServerStamp('2026-08-31T10:00:00.123Z')).toBe(aware + 123);
+  });
+
+  it('parseServerStamp answers NaN for junk — callers show their calm default', () => {
+    expect(Number.isNaN(parseServerStamp(''))).toBe(true);
+    expect(Number.isNaN(parseServerStamp('not a date'))).toBe(true);
+    expect(Number.isNaN(parseServerStamp(undefined as unknown as string))).toBe(true);
   });
 });

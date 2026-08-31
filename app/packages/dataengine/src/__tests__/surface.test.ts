@@ -20,6 +20,7 @@ describe('@knf/dataengine surface', () => {
         'memoryStorage',
         'useDataEngine',
         'useFeed',
+        'useFeedFreshness',
         'useLoad',
         'useNetworkRestore',
       ].sort(),

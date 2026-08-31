@@ -240,7 +240,7 @@ export default function ProfileHeader({
       </View>
 
 
-      <Text style={{ fontFamily: fonts.bold, fontSize: 18, color: colors.ink, marginTop: 12 }}>{user.displayName}</Text>
+      <Text style={{ fontFamily: fonts.bold, fontSize: 18, color: colors.ink, marginTop: 12 }}>{user.displayName.trim() || labels.unknownUser}</Text>
       {handle ? (
         <Text style={{ fontFamily: fonts.regular, fontSize: 13, color: colors.inkSoft, marginTop: 1 }}>{handle}</Text>
       ) : null}

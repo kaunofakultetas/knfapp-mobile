@@ -114,6 +114,10 @@ export interface UseFeedResult<T> {
   loadingMore: boolean;
   error: boolean;
   cachedAt: number | null;
+  // The id of the last row ABOVE an unfilled hole (a merge
+  // refresh that shared nothing with the held rows), null when
+  // the timeline is continuous; loadMore fills the hole
+  gapAfterId: string | null;
   refresh: (strategy?: RefreshStrategy) => Promise<void>;
   loadMore: () => void;
   setItems: (updater: (items: T[]) => T[]) => void;
@@ -167,6 +171,22 @@ export function useFeed<T>(
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(false);
   const [cachedAt, setCachedAt] = useState<number | null>(null);
+  // A hole the reader can SEE: after a long absence a merge
+  // refresh can share nothing with the held rows — the fresh
+  // window and the old tail are stitched with a marker between
+  // them instead of faked continuity. loadMore then fills INTO
+  // the hole (the paging chain restarts behind the fresh
+  // window) until an incoming row overlaps the old section —
+  // or the chain exhausts — and the marker goes
+  const [gapAfterId, setGapAfterId] = useState<string | null>(null);
+  const gapAfterIdRef = useRef<string | null>(null);
+  // Rows in the fresh-side section (everything ABOVE the hole)
+  const gapIndexRef = useRef(0);
+  const setGap = (afterId: string | null, index: number) => {
+    gapAfterIdRef.current = afterId;
+    gapIndexRef.current = index;
+    setGapAfterId(afterId);
+  };
 
 
   // Page-1 sequence: only the newest page-1 request (and the
@@ -316,13 +336,40 @@ export function useFeed<T>(
         itemsRef.current.length > 0 &&
         !servingCacheRef.current
       ) {
-        // The pages behind page 1 are still on screen, so the
-        // paging cursor and hasMore stay exactly as they were
-        replaceItems(mergeFirstPage(itemsRef.current, page.items));
+        const idOf = resolveIdRef.current;
+        const held = new Set(itemsRef.current.map(idOf));
+        const overlaps = page.items.some((item) => {
+          const key = idOf(item);
+          return key !== '' && held.has(key);
+        });
+        if (!overlaps && page.items.length > 0 && !page.hasMore) {
+          // The fresh window shares nothing with the held rows
+          // AND is the server's whole memory — the old rows are
+          // gone upstream; keeping them would show ghosts
+          replaceItems(page.items);
+          pageRef.current = 1;
+          hasMoreRef.current = false;
+          setGap(null, 0);
+        } else if (!overlaps && page.items.length > 0) {
+          // An unknown hole sits between the fresh window and
+          // the old tail: mark it, and restart the paging chain
+          // behind the FRESH window so loadMore fills the hole
+          replaceItems([...page.items, ...itemsRef.current]);
+          pageRef.current = 1;
+          hasMoreRef.current = true;
+          setGap(idOf(page.items[page.items.length - 1]) || null, page.items.length);
+        } else {
+          // The pages behind page 1 are still on screen, so the
+          // paging cursor and hasMore stay exactly as they were;
+          // a window touching held rows proves continuity
+          replaceItems(mergeFirstPage(itemsRef.current, page.items));
+          setGap(null, 0);
+        }
       } else {
         replaceItems(page.items);
         pageRef.current = 1;
         hasMoreRef.current = page.hasMore;
+        setGap(null, 0);
       }
       servingCacheRef.current = false;
       setError(false);
@@ -332,7 +379,11 @@ export function useFeed<T>(
       // Deferred past interactions (serializing a whole page
       // mid-fling janks the list), re-checking both fences on
       // the far side of the deferral
-      if (cacheKey) {
+      // An EMPTY success never overwrites the copy: a transient
+      // backend hiccup that 200s an empty list must not destroy
+      // the offline fallback it exists for (an empty cache shows
+      // nothing offline anyway — old rows beat a blank screen)
+      if (cacheKey && page.items.length > 0) {
         InteractionManager.runAfterInteractions(() => {
           if (seq === seqRef.current && epoch === cache.epoch()) {
             void cache.set(cacheKey, page.items);
@@ -390,7 +441,9 @@ export function useFeed<T>(
   // Append the next page. Guards: one at a time, never during
   // a page-1 load, never past the end (a cached fallback has
   // hasMore forced off). Failures keep hasMore so the next
-  // onEndReached retries the same page.
+  // onEndReached retries the same page. A page that dedupes to
+  // NOTHING new ends paging whatever hasMore claims — the
+  // stalled-backend guard; any page-1 load re-arms it.
   const loadMore = useCallback((): void => {
     if (firstLoadRef.current || loadingMoreRef.current || !hasMoreRef.current) {
       return;
@@ -414,18 +467,53 @@ export function useFeed<T>(
         // setItems is merged, not overwritten. Incoming rows
         // already on screen are dropped — overlapping OFFSET
         // windows would otherwise become duplicate list keys
-        setItemsState((previous) => {
-          const seen = new Set(previous.map(resolveIdRef.current));
-          const fresh = page.items.filter((item) => {
-            const key = resolveIdRef.current(item);
-            return key === '' || !seen.has(key);
-          });
-          const merged = [...previous, ...fresh];
-          itemsRef.current = merged;
-          return merged;
+        // Computed OUTSIDE the state updater: React double-
+        // invokes updaters to surface impurity, and the gap
+        // branch is stateful — itemsRef is the synchronous
+        // source of truth every writer here maintains
+        const idOf = resolveIdRef.current;
+        const previous = itemsRef.current;
+        const seen = new Set(previous.map(idOf));
+        const fresh = page.items.filter((item) => {
+          const key = idOf(item);
+          return key === '' || !seen.has(key);
         });
+        const progressed = fresh.length > 0;
+
+
+        let merged: T[];
+        if (gapAfterIdRef.current === null) {
+          // No hole: pages append at the tail as ever
+          merged = [...previous, ...fresh];
+        } else {
+          // Filling the hole: the page continues the FRESH
+          // window, so its rows land AT the marker. The hole
+          // closes when the page reaches rows the old tail
+          // already holds (overlap = continuity re-proven) or
+          // when the chain exhausts
+          const gapIndex = gapIndexRef.current;
+          const oldSection = new Set(previous.slice(gapIndex).map(idOf));
+          const reachedOld = page.items.some((item) => {
+            const key = idOf(item);
+            return key !== '' && oldSection.has(key);
+          });
+          merged = [...previous.slice(0, gapIndex), ...fresh, ...previous.slice(gapIndex)];
+          if (reachedOld || !page.hasMore || fresh.length === 0) {
+            setGap(null, 0);
+          } else {
+            setGap(idOf(fresh[fresh.length - 1]) || gapAfterIdRef.current, gapIndex + fresh.length);
+          }
+        }
+        itemsRef.current = merged;
+        setItemsState(merged);
         pageRef.current = nextPage;
-        hasMoreRef.current = page.hasMore;
+        // Stall guard: a page that deduped to NOTHING new ends
+        // paging whatever hasMore claims — a backend that ignores
+        // its offset (or re-ranks live) returns the same window
+        // with hasMore true forever, and onEndReached would
+        // hammer it in a loop. Any page-1 load re-arms paging
+        // from the fresh response
+        hasMoreRef.current = progressed ? page.hasMore : false;
       } catch {
         // Retryable — see the banner
       } finally {
@@ -487,6 +575,7 @@ export function useFeed<T>(
     loadingMore,
     error,
     cachedAt,
+    gapAfterId,
     refresh,
     loadMore,
     setItems,

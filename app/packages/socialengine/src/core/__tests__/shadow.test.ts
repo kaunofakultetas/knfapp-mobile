@@ -159,4 +159,32 @@ describe('createShadowStore', () => {
     expect(gone).not.toHaveBeenCalled();
     expect(kept).toHaveBeenCalledTimes(1);
   });
+
+  it('clearAll bumps the epoch; patch and clear do not', () => {
+    const store = createShadowStore<{ liked?: boolean }>();
+    expect(store.epoch()).toBe(0);
+    store.patch('p1', { liked: true });
+    store.clear('p1');
+    expect(store.epoch()).toBe(0);
+    store.clearAll();
+    expect(store.epoch()).toBe(1);
+    store.clearAll();
+    expect(store.epoch()).toBe(2);
+  });
+
+  it('a double unsubscribe never orphans a later subscriber on the same id', () => {
+    const store = createShadowStore<{ liked?: boolean }>();
+    const first = jest.fn();
+    const unsub = store.subscribe('p1', first);
+    unsub();
+
+    const second = jest.fn();
+    store.subscribe('p1', second);
+    // The stale closure firing again must not evict the fresh set
+    unsub();
+
+    store.patch('p1', { liked: true });
+    expect(second).toHaveBeenCalledTimes(1);
+    expect(first).not.toHaveBeenCalled();
+  });
 });

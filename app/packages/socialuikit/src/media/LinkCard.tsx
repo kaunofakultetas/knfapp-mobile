@@ -37,7 +37,6 @@ import type { KitLinkPreview } from '../core/types';
 
 
 
-
 // -----------------------------------------------------------
 // hostOf
 // -----------------------------------------------------------
@@ -51,6 +50,17 @@ import type { KitLinkPreview } from '../core/types';
 //   - LinkCard (below) — the site line when siteName is absent
 // -----------------------------------------------------------
 
+// Only web schemes may leave the card: a hostile preview URL
+// ('javascript:', 'data:text/html', 'file:') must never reach
+// env.openHref as a live tap. Scheme-less values pass — hosts
+// store bare or protocol-relative URLs for their own domains
+const SAFE_SCHEME = /^(?:https?:|\/\/|(?![a-z][a-z0-9+.-]*:))/i;
+
+export function isSafeHref(url: string): boolean {
+  return SAFE_SCHEME.test(url.trim());
+}
+
+
 function hostOf(url: string): string {
 
   const match = /^[a-z][a-z0-9+.-]*:\/\/([^/?#]+)/i.exec(url);
@@ -63,7 +73,6 @@ function hostOf(url: string): string {
     .toLowerCase()
     .replace(/^www\./, '');
 }
-
 
 
 
@@ -130,7 +139,6 @@ function Shell({
 
 
 
-
 // -----------------------------------------------------------
 // LinkCard (default export)
 // -----------------------------------------------------------
@@ -148,7 +156,14 @@ export default function LinkCard({ link, onPress }: { link: KitLinkPreview; onPr
 
   const site = link.siteName || hostOf(link.url);
   const label = `${site} — ${link.title}`;
-  const press = () => {
+  // stopPropagation: a link tap must never ALSO open the card
+  // wrapped around it (touches bubble on web)
+  const press = (event?: { stopPropagation?: () => void }) => {
+    event?.stopPropagation?.();
+    // An unsafe scheme renders an inert card — the tap is
+    // swallowed on BOTH paths, so a host's onPress cannot be
+    // tricked into opening it either
+    if (!isSafeHref(link.url)) return;
     if (onPress) onPress();
     else env.openHref(link.url);
   };

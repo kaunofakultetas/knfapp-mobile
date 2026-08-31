@@ -20,8 +20,8 @@ import { useKitLabels, useKitTheme } from '../provider';
 
 // Primitives
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useRef } from 'react';
-import { Animated, Pressable, Text } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { AccessibilityInfo, Animated, Pressable, Text } from 'react-native';
 
 
 export default function NewPostsPill({ count, onPress }: { count: number; onPress: () => void }) {
@@ -36,11 +36,31 @@ export default function NewPostsPill({ count, onPress }: { count: number; onPres
   // Returning null keeps the component MOUNTED, so the value
   // must be rewound by hand for the entrance to replay each
   // time the pill comes back after the count drops to zero
+  // A reader who asked the OS for less motion gets the pill
+  // placed, not animated (the query is async and best-effort —
+  // until it answers, the animation default stands)
+  const [reduceMotion, setReduceMotion] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then((enabled) => {
+        if (alive) setReduceMotion(enabled === true);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   useEffect(() => {
     if (!visible) return;
+    if (reduceMotion) {
+      appear.setValue(1);
+      return;
+    }
     appear.setValue(0);
     Animated.timing(appear, { toValue: 1, duration: 200, useNativeDriver: true }).start();
-  }, [visible, appear]);
+  }, [visible, appear, reduceMotion]);
 
 
   if (!visible) return null;

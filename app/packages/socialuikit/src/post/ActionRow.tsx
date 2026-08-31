@@ -41,7 +41,6 @@ import { Pressable, Text, View, type GestureResponderEvent } from 'react-native'
 
 
 
-
 // -----------------------------------------------------------
 // Target
 // -----------------------------------------------------------
@@ -105,7 +104,6 @@ function Target({
     </Pressable>
   );
 }
-
 
 
 

@@ -104,16 +104,19 @@ export interface SocialNotice {
 // isRetryableError
 // -----------------------------------------------------------
 //
-// The engine's one error judgement: whether a failure can heal
-// on its own (network, timeout, 5xx, 429 — worth retrying or
-// queueing) or is a definitive refusal. Reads the common
-// shapes without depending on any HTTP client: a `status` or
-// `httpStatus` number, a `code` of 'network'/'timeout', a
-// TypeError from fetch.
+// Whether a failure can heal on its own (network, timeout,
+// 5xx, 429 — worth retrying or queueing) or is a definitive
+// refusal. Reads the common shapes without depending on any
+// HTTP client: a `status` or `httpStatus` number, a `code` of
+// 'network'/'timeout', a TypeError from fetch. The hooks
+// themselves revert-and-notify on EVERY failure (there is no
+// offline replay here) — this judgement is exported for hosts
+// and adapters that queue their own retries.
 //
 // Used by:
-//   - hooks/useLikeToggle.ts, hooks/useRelationship.ts —
-//     whether a failed toggle reverts silently or notifies
+//   - hosts and adapter authors, via the public surface
+//   - testing/socialContract.ts consumers reasoning about
+//     refusal shapes
 // -----------------------------------------------------------
 
 export function isRetryableError(err: unknown): boolean {

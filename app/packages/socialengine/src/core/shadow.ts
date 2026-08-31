@@ -37,12 +37,19 @@ export interface PostShadow {
   liked?: boolean;
   pending?: boolean;
   deleted?: boolean;
+  // The last server-CONFIRMED flag this session — the anchor a
+  // failed later toggle reverts to (never rendered directly;
+  // mergePostShadow ignores it)
+  confirmedLiked?: boolean;
 }
 
 // The viewer's standing with one user
 export interface UserShadow {
   relationship?: RelationshipState;
   pending?: boolean;
+  // The last server-CONFIRMED standing this session — the revert
+  // anchor (mergeRelationship ignores it)
+  confirmedRelationship?: RelationshipState;
 }
 
 export interface ShadowStore<S> {
@@ -52,6 +59,12 @@ export interface ShadowStore<S> {
   patch(id: string, patch: Partial<S>): void;
   clear(id: string): void;
   clearAll(): void;
+  // The number of clearAll wipes so far. A settle handler for a
+  // call that was in flight when the account changed captures
+  // the epoch at tap time and skips its patch when it moved —
+  // the departing viewer's intent must not re-seed the fresh
+  // store
+  epoch(): number;
   // Listener fires after every patch/clear of that id; returns
   // the unsubscribe
   subscribe(id: string, listener: () => void): () => void;
@@ -75,6 +88,7 @@ export function createShadowStore<S extends object>(): ShadowStore<S> {
 
   const values = new Map<string, S>();
   const listeners = new Map<string, Set<() => void>>();
+  let epoch = 0;
 
 
   const fire = (id: string) => {
@@ -101,10 +115,13 @@ export function createShadowStore<S extends object>(): ShadowStore<S> {
     },
 
     clearAll() {
+      epoch += 1;
       const ids = [...values.keys()];
       values.clear();
       ids.forEach(fire);
     },
+
+    epoch: () => epoch,
 
     subscribe(id, listener) {
       let set = listeners.get(id);
@@ -113,9 +130,11 @@ export function createShadowStore<S extends object>(): ShadowStore<S> {
         listeners.set(id, set);
       }
       set.add(listener);
+      // Idempotent: a double unsubscribe must not evict a set a
+      // LATER subscriber has since re-created under the same id
       return () => {
         set.delete(listener);
-        if (set.size === 0) listeners.delete(id);
+        if (set.size === 0 && listeners.get(id) === set) listeners.delete(id);
       };
     },
   };

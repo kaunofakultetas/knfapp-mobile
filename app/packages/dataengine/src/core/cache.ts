@@ -72,9 +72,15 @@ export interface CacheHandle {
 //   - hosts with special needs (a second namespace) directly
 // -----------------------------------------------------------
 
-export function createCache(storage: KeyValueStorage, options: { prefix?: string } = {}): CacheHandle {
+export function createCache(storage: KeyValueStorage, options: { prefix?: string; maxEntries?: number } = {}): CacheHandle {
 
   const prefix = options.prefix ?? 'cache:';
+  // Optional entry cap: TTLs alone never bound COUNT, and a
+  // parameterised feed writing one row per combination grows
+  // until the storage quota makes every set fail — silently,
+  // because set swallows. Oldest cachedAt evicts first (write
+  // age, deliberately not LRU — reads stay write-free)
+  const maxEntries = options.maxEntries;
   let epoch = 0;
 
 
@@ -87,13 +93,24 @@ export function createCache(storage: KeyValueStorage, options: { prefix?: string
   };
 
 
-  const bulkRemove = async (keys: string[]): Promise<void> => {
-    if (keys.length === 0) return;
+  // Per-key best-effort: the fallback loop keeps going past a
+  // rejecting removeItem (fail-fast would abandon every key
+  // after the first bad one) and reports whether every key went
+  const bulkRemove = async (keys: string[]): Promise<boolean> => {
+    if (keys.length === 0) return true;
     if (storage.multiRemove) {
       await storage.multiRemove(keys);
-      return;
+      return true;
     }
-    for (const key of keys) await storage.removeItem(key);
+    let clean = true;
+    for (const key of keys) {
+      try {
+        await storage.removeItem(key);
+      } catch {
+        clean = false;
+      }
+    }
+    return clean;
   };
 
 
@@ -102,6 +119,28 @@ export function createCache(storage: KeyValueStorage, options: { prefix?: string
       try {
         const entry: CacheEntry<unknown> = { v: CACHE_SCHEMA_VERSION, data, cachedAt: Date.now() };
         await storage.setItem(prefix + key, JSON.stringify(entry));
+
+
+        if (maxEntries !== undefined) {
+          const keys = (await storage.getAllKeys()).filter((k) => k.startsWith(prefix));
+          if (keys.length > maxEntries) {
+            // Read the stamps and drop the oldest overflow; a
+            // corrupt entry counts as oldest (stamp 0)
+            const stamped = await Promise.all(
+              keys.map(async (k) => {
+                try {
+                  const raw = await storage.getItem(k);
+                  const parsed = raw ? (JSON.parse(raw) as Partial<CacheEntry<unknown>>) : null;
+                  return { k, at: typeof parsed?.cachedAt === 'number' ? parsed.cachedAt : 0 };
+                } catch {
+                  return { k, at: 0 };
+                }
+              }),
+            );
+            stamped.sort((a, b) => a.at - b.at);
+            await bulkRemove(stamped.slice(0, keys.length - maxEntries).map((s) => s.k));
+          }
+        }
       } catch {
         // Storage full or unavailable — the cache is optional
       }
@@ -183,8 +222,7 @@ export function createCache(storage: KeyValueStorage, options: { prefix?: string
 
       try {
         const keys = await storage.getAllKeys();
-        await bulkRemove(keys.filter((key) => key.startsWith(prefix)));
-        return true;
+        return await bulkRemove(keys.filter((key) => key.startsWith(prefix)));
       } catch {
         return false;
       }

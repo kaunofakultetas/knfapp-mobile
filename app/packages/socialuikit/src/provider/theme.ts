@@ -37,6 +37,7 @@ export interface KitColors {
   chipInk: string;     // text on chips
   unreadTint: string;  // the wash behind an unread activity row
   overlay: string;     // modal and image-viewer scrims
+  overlayInk: string;  // text and glyphs ON overlay fills
   shadow: string;      // shadowColor for floating chrome
 }
 
@@ -105,6 +106,7 @@ export const defaultTheme: KitTheme = {
     chipInk: '#374151',
     unreadTint: '#FBF4F8',
     overlay: 'rgba(0, 0, 0, 0.45)',
+    overlayInk: '#FFFFFF',
     shadow: '#000000',
   },
   fonts: {
@@ -144,6 +146,7 @@ export const darkTheme: KitTheme = {
     chipInk: '#D1D5DB',
     unreadTint: '#241723',
     overlay: 'rgba(0, 0, 0, 0.6)',
+    overlayInk: '#FFFFFF',
     shadow: '#000000',
   },
 };

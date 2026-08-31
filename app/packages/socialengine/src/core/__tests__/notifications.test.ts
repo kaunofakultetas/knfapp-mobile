@@ -88,6 +88,10 @@ describe('groupNotifications', () => {
   it('merges within the default 48 h window and splits beyond it', () => {
     expect(groupNotifications([row('n1'), row('n2', { createdAt: at(47) })])).toHaveLength(1);
     expect(groupNotifications([row('n1'), row('n2', { createdAt: at(49) })])).toHaveLength(2);
+    // The boundary itself, pinned INCLUSIVE: exactly windowMs
+    // behind the group's newest still merges — the (<= vs <)
+    // direction is precisely what a refactor flips silently
+    expect(groupNotifications([row('n1'), row('n2', { createdAt: at(48) })])).toHaveLength(1);
   });
 
   it('measures the window from the group NEWEST member, not the previous row', () => {

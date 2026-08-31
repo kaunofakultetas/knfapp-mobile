@@ -210,6 +210,10 @@ export default function CommentComposer({
     try {
       const delivered = await onSubmit(trimmed);
       if (delivered) setText('');
+    } catch {
+      // A throwing host counts as delivered=false: the draft
+      // stays for retry and the rejection never escapes the
+      // composer — error feedback is the host's own channel
     } finally {
       sendingRef.current = false;
       setSubmitting(false);

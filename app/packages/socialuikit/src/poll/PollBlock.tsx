@@ -289,12 +289,22 @@ export default function PollBlock({
   const env = useKitEnv();
 
 
-  // All three local states are one-way per mount: results stay
+  // All three local states are one-way PER POLL: results stay
   // revealed, the fold stays open, and ticks only ever matter
-  // until the host flips poll.votedByMe
+  // until the host flips poll.votedByMe. A mounted block handed
+  // a DIFFERENT poll (a recycled list row, a reused detail
+  // screen) resets all three during render — poll B must never
+  // inherit poll A's ballot, its revealed face or its fold
   const [revealedLocally, setRevealedLocally] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [statePollId, setStatePollId] = useState(poll.id);
+  if (statePollId !== poll.id) {
+    setStatePollId(poll.id);
+    setRevealedLocally(false);
+    setExpanded(false);
+    setSelectedIds([]);
+  }
 
 
   // The clock is read once per render — a poll expiring between

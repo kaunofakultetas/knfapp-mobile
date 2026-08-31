@@ -25,7 +25,7 @@
 //    - any adapter's own test file
 // -----------------------------------------------------------
 
-import type { SocialTransport } from '../core/transport';
+import { isRetryableError, type SocialTransport } from '../core/transport';
 import type { Poll, RelationshipState, SocialNotification } from '../core/types';
 
 
@@ -162,6 +162,32 @@ export function describeSocialContract(name: string, makeHarness: () => Promise<
       }
       expect(new Set(seen).size).toBe(seen.length);
       for (const id of seeded) expect(seen).toContain(id);
+    });
+
+    it('refuses an illegal relationship transition with a DEFINITIVE shape the hooks revert on', async () => {
+      const t = h.transport;
+      if (!t.setRelationship) return;
+      await h.setRelationship('u-illegal', 'none');
+      let refused: unknown = null;
+      try {
+        await t.setRelationship('u-illegal', 'accept');
+      } catch (err) {
+        refused = err;
+      }
+      expect(refused).not.toBeNull();
+      // Retryable-shaped would queue a doomed replay forever
+      expect(isRetryableError(refused)).toBe(false);
+    });
+
+    it('serves the activity list newest-first', async () => {
+      const t = h.transport;
+      if (!t.fetchNotifications) return;
+      const older = await h.seedNotification(baseNotification({ createdAt: iso(0) }));
+      const newer = await h.seedNotification(baseNotification({ createdAt: iso(5) }));
+      const page = await t.fetchNotifications();
+      const ids = page.notifications.map((n) => n.id);
+      expect(ids.indexOf(newer)).toBeGreaterThanOrEqual(0);
+      expect(ids.indexOf(newer)).toBeLessThan(ids.indexOf(older));
     });
 
     it('marking read zeroes the unread probe', async () => {

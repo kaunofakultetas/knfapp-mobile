@@ -48,5 +48,7 @@ First cut.
 - **KNF adapter** — `createKnfSocialTransport({ http })` under
   `adapters/knf/`, proven by the conformance suite over stubbed routes;
   its banner lists everything the mapping smooths over (toggle-style
-  likes, post-addressed single-answer polls, request-id resolution, no
-  request withdrawal → `supportsCancel: false`, no activity endpoints).
+  likes, post-addressed single-answer polls, request-id resolution for
+  accept/decline/cancel — the sender-side reject carries the
+  withdrawal — absorbed already-in-that-state refusals, no activity
+  endpoints).

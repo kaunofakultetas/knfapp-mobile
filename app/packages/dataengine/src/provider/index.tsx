@@ -80,7 +80,18 @@ export function DataEngineProvider({
 
   const env = useMemo<DataEngineEnv>(() => {
     const listeners = new Set<() => void>();
-    const fire = () => listeners.forEach((fn) => fn());
+    // Guarded per listener: one throwing subscriber must not
+    // block the rest of the fan-out (a screen's refetch closure
+    // can throw on a half-unmounted tree)
+    const fire = () =>
+      listeners.forEach((fn) => {
+        try {
+          fn();
+        } catch {
+          // The restore bus reports nothing back — a bad listener
+          // is its owner's bug, not the other screens' outage
+        }
+      });
     return {
       storage: storageRef.current as KeyValueStorage,
       network: networkRef.current as NetworkSource,

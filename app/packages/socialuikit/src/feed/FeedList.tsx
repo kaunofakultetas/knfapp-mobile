@@ -34,6 +34,7 @@
 
 // Feed chrome
 import NewPostsPill from './NewPostsPill';
+import GapRow from './GapRow';
 import RowErrorBoundary from './RowErrorBoundary';
 import { useKitTheme } from '../provider';
 
@@ -55,6 +56,11 @@ export interface FeedListProps<T> {
   // Stable identity per row; cells and their boundaries key on it
   keyOf: (item: T) => string;
   renderItem: (item: T) => ReactNode;
+  // The id of the last row ABOVE an unfilled hole (a data
+  // layer's gapAfterId) — a GapRow renders right under it
+  gapAfterKey?: string | null;
+  onFillGap?: () => void;
+  fillingGap?: boolean;
 
   // Paging off the bottom edge
   onEndReached?: () => void;
@@ -76,7 +82,6 @@ export interface FeedListProps<T> {
   // win on any clash
   flatListProps?: Partial<FlatListProps<T>>;
 }
-
 
 
 
@@ -106,7 +111,6 @@ function RowBody({ render }: { render: () => ReactNode }) {
 
 
 
-
 // -----------------------------------------------------------
 // FooterSpinner
 // -----------------------------------------------------------
@@ -122,7 +126,6 @@ function FooterSpinner({ color }: { color: string }) {
     </View>
   );
 }
-
 
 
 
@@ -149,6 +152,9 @@ export default function FeedList<T>({
   onRefresh,
   newCount = 0,
   onPressNew,
+  gapAfterKey = null,
+  onFillGap,
+  fillingGap = false,
   ListHeaderComponent,
   ListEmptyComponent,
   contentContainerStyle,
@@ -165,11 +171,14 @@ export default function FeedList<T>({
 
   const renderRow = useCallback(
     ({ item }: ListRenderItemInfo<T>) => (
-      <RowErrorBoundary>
-        <RowBody render={() => renderItem(item)} />
-      </RowErrorBoundary>
+      <>
+        <RowErrorBoundary>
+          <RowBody render={() => renderItem(item)} />
+        </RowErrorBoundary>
+        {gapAfterKey !== null && keyOf(item) === gapAfterKey ? <GapRow filling={fillingGap} onPress={onFillGap} /> : null}
+      </>
     ),
-    [renderItem],
+    [renderItem, gapAfterKey, keyOf, fillingGap, onFillGap],
   );
 
 
@@ -201,6 +210,10 @@ export default function FeedList<T>({
         testID="socialuikit-feed-list"
         data={items}
         keyExtractor={keyExtractor}
+        // Cells re-render only when data or extraData move — the
+        // gap marker and its spinner live OUTSIDE the item data,
+        // so they ride here or a filling state never paints
+        extraData={`${gapAfterKey ?? ''}:${fillingGap ? 1 : 0}`}
         renderItem={renderRow}
         onEndReached={handleEndReached}
         onEndReachedThreshold={0.5}

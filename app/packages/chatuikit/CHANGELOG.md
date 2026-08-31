@@ -1,5 +1,62 @@
 # Changelog
 
+## 1.11.0 — 2026-08-31
+
+The library grows past GIFs — and takes its real name.
+
+- **Rename** — the day-old `GifPicker` is now `MemePicker`
+  (`KitMemeItem`; Composer `onToggleMemes` / `memesOpen`; labels
+  `openMemes` / `searchMemes` / `addMeme` / `emptyMemes`; testIDs
+  `chatuikit-meme-*`). The badge reads MEME. Breaking for any host on
+  1.10.0's names — the shape is otherwise identical.
+- Static images sit in the same grid; animated tiles still play on
+  their own.
+
+## 1.10.0 — 2026-08-31
+
+The GIF library panel.
+
+- **GifPicker** — search field (the host owns the round trip), a
+  three-column grid of animated tiles blurred by their micro
+  previews, a "+" tile for pushing into the shared library, and
+  load-more at the bottom edge. Purely presentational, no GIF
+  service anywhere near it.
+- **Composer** — `onToggleGifs` / `gifsOpen` draw the GIF badge
+  beside the emoji toggle while the field is empty.
+- **Labels** — `openGifs`, `searchGifs`, `addGif`, `emptyGifs`.
+
+## 1.9.3 — 2026-08-31
+
+The second adopted-scenario pass — this time mined from the actual
+test suites of the production clients (scenarios only, never code):
+
+- **Change** — a typed `mailto:` joins its address as ONE link instead
+  of stranding the prefix as prose.
+- Pinned green: unicode paths and emoji queries taken whole, ports and
+  fragments, custom schemes and bare IPs left to the prose, the link
+  door's whole safety matrix (`openHref` — scheme prepend, custom-
+  scheme interrogation, refusals as callbacks, never rejections),
+  duration/byte formatter edges (the hour rollover), append-stability
+  of the timeline (a new head leaves deep history's keys and positions
+  untouched), and mention completion across scripts (Cyrillic, CJK,
+  folded Lithuanian).
+
+## 1.9.2 — 2026-08-30
+
+Scenarios adopted from the scar tissue of production chat clients —
+the hardening suites (`linkify.hardening`, `timeline.hardening`,
+`labels.plural`) pin them; two found real bugs:
+
+- **Fix** — a URL whose path ENDS in a closing paren (encyclopedia
+  links) was cut at the paren. The tail trim is now balance-aware: a
+  `)` is given back to the prose only while unbalanced, so
+  `…/Kaunas_(miestas)` survives whole and `(see knf.vu.lt)` still
+  drops the wrapper.
+- Pinned green: the midnight run break, same-second tie order, garbage
+  timestamps rendering instead of crashing, the exact run/separator
+  gap boundaries, and the Lithuanian teens plural rule (11–19 take
+  "other" whatever the last digit says).
+
 ## 1.9.1 — 2026-08-30
 
 - **Fix** — the context menu ran past the bottom edge on a message low

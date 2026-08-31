@@ -176,6 +176,18 @@ export interface KitGalleryItem {
 }
 
 
+// One shared-library meme the picker's grid offers
+export interface KitMemeItem {
+  id: string;
+  url: string;
+  title: string;
+  width?: number | null;
+  height?: number | null;
+  // The ~14px micro copy blurring the tile
+  preview?: string | null;
+}
+
+
 // A member the composer's mention strip can offer
 export interface KitMentionCandidate {
   id: string;

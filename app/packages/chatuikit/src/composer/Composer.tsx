@@ -424,6 +424,8 @@ export default function Composer({
   recording = null,
   mentionCandidates = null,
   onAttachCamera,
+  onToggleMemes,
+  memesOpen = false,
 }: {
   value: string;
   onChangeText: (text: string) => void;
@@ -466,6 +468,10 @@ export default function Composer({
   // The camera shortcut inside the field (drawn while the field
   // is empty) — omitted, no button
   onAttachCamera?: () => void;
+  // The meme library toggle beside the emoji one — omitted, no
+  // button; the host renders MemePicker above the composer
+  onToggleMemes?: () => void;
+  memesOpen?: boolean;
 }) {
 
   const labels = useKitLabels();
@@ -724,6 +730,22 @@ export default function Composer({
             maxLength={limit}
             textAlignVertical="center"
           />
+          {onToggleMemes && !hasText && !editing ? (
+            <Pressable
+              onPress={onToggleMemes}
+              hitSlop={6}
+              disabled={!canSend}
+              accessibilityRole="button"
+              accessibilityLabel={labels.openMemes}
+              accessibilityState={{ expanded: memesOpen }}
+              testID="chatuikit-memes-toggle"
+              style={{ height: FIELD_MIN, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 }}
+            >
+              <View style={{ paddingHorizontal: 5, paddingVertical: 2, borderRadius: 6, borderWidth: 1.5, borderColor: memesOpen ? colors.brand : colors.inkSoft }}>
+                <Text style={{ fontFamily: fonts.bold, fontSize: 9, letterSpacing: 0.4, color: memesOpen ? colors.brand : colors.inkSoft }}>MEME</Text>
+              </View>
+            </Pressable>
+          ) : null}
           {onAttachCamera && !hasText && !editing ? (
             <Pressable
               onPress={onAttachCamera}

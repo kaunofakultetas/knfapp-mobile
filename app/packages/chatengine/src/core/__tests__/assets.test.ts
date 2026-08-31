@@ -11,4 +11,15 @@ describe('normalizeAssetName', () => {
     expect(normalizeAssetName({ name: 'x.bin', mimeType: 'application/x-thing', uri: 'file:///a', kind: 'file' })).toBe('x.bin');
     expect(normalizeAssetName({ uri: 'file:///a', kind: 'file' })).toBeUndefined();
   });
+
+  it('walks the mime-vs-name matrix the camera rolls throw at it', () => {
+    // A PNG-named file whose BYTES are JPEG follows the bytes
+    expect(normalizeAssetName({ name: 'IMG_0040.PNG', mimeType: 'image/jpeg', uri: 'file:///a', kind: 'image' })).toBe('IMG_0040.jpg');
+    // Uppercase HEIC handed over as JPEG
+    expect(normalizeAssetName({ name: 'IMG_1.HEIC', mimeType: 'image/jpeg', uri: 'file:///a', kind: 'image' })).toBe('IMG_1.jpg');
+    // Name and mime agreeing stay put, case preserved
+    expect(normalizeAssetName({ name: 'photo.png', mimeType: 'image/png', uri: 'file:///a', kind: 'image' })).toBe('photo.png');
+    // No mime known: the name is trusted as-is
+    expect(normalizeAssetName({ name: 'kažkas.bin', mimeType: undefined, uri: 'file:///a', kind: 'file' })).toBe('kažkas.bin');
+  });
 });

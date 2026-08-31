@@ -52,11 +52,13 @@ import { useTypingIndicator, type TypingUser } from '@/hooks/chat/useTypingIndic
 
 // The messaging kit
 import { forwardPayload, usePins, useRealtimeStatus } from '@knf/chatengine';
+import * as ImagePicker from 'expo-image-picker';
 
 import {
   buildTimeline,
   Composer,
   ConnectionBanner,
+  MemePicker,
   MessageContextMenu,
   MessageList,
   PinnedBanner,
@@ -81,7 +83,7 @@ import { confirmAction, EmptyState, ErrorState, LoadingSpinner } from '@/compone
 import { showToast, useNetwork } from '@/context/NetworkContext';
 
 // Search + presence endpoints and render-time helpers
-import { fetchConversations, fetchOnlineStatus, getUploadUrl, reactToMessageApi, removeReactionApi, reportTarget, searchMessagesApi, type MessageSearchResult } from '@/services/api';
+import { fetchConversations, fetchMemesApi, fetchOnlineStatus, getUploadUrl, pushMemeApi, reactToMessageApi, removeReactionApi, reportTarget, searchMessagesApi, type ApiMeme, type MessageSearchResult } from '@/services/api';
 import { chatTransport } from '@/services/chatTransport';
 import { activeLocale, formatDateTime } from '@/services/format';
 
@@ -482,6 +484,57 @@ function ChatRoom({ convId, type, unreadCount }: { convId: string; type?: string
   // Screen-owned panel state
   const [searchOpen, setSearchOpen] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
+  // The meme library tab: panel toggle, on-origin search (a small
+  // debounce spares the backend a request per keystroke), the
+  // paged grid, and the push flow's busy flag
+  const [memesOpen, setMemesOpen] = useState(false);
+  const [memeQuery, setMemeQuery] = useState('');
+  const [memeItems, setMemeItems] = useState<ApiMeme[]>([]);
+  const [memeHasMore, setMemeHasMore] = useState(false);
+  const [memeLoading, setMemeLoading] = useState(false);
+  const [memeAdding, setMemeAdding] = useState(false);
+  const memeSeqRef = useRef(0);
+  const loadMemes = useCallback((query: string, offset: number) => {
+    const seq = ++memeSeqRef.current;
+    setMemeLoading(true);
+    fetchMemesApi(query, offset)
+      .then((resp) => {
+        if (seq !== memeSeqRef.current) return;
+        setMemeItems((prev) => (offset ? [...prev, ...resp.memes.filter((g) => !prev.some((p) => p.id === g.id))] : resp.memes));
+        setMemeHasMore(resp.hasMore);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (seq === memeSeqRef.current) setMemeLoading(false);
+      });
+  }, []);
+  useEffect(() => {
+    if (!memesOpen) return;
+    const timer = setTimeout(() => loadMemes(memeQuery, 0), memeQuery ? 300 : 0);
+    return () => clearTimeout(timer);
+  }, [memesOpen, memeQuery, loadMemes]);
+  const pickMeme = useCallback(
+    (item: ApiMeme) => {
+      setMemesOpen(false);
+      void composer.sendStoredImage(item.url, { width: item.width ?? undefined, height: item.height ?? undefined, preview: item.preview ?? undefined });
+    },
+    [composer],
+  );
+  const addMeme = useCallback(async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: false, quality: 1 });
+    if (result.canceled || !result.assets?.[0]) return;
+    const asset = result.assets[0];
+    setMemeAdding(true);
+    try {
+      const resp = await pushMemeApi(asset.uri, asset.fileName ?? undefined, asset.mimeType ?? undefined);
+      setMemeItems((prev) => [resp.meme, ...prev]);
+      showToast('success', t('chat.memeAdded'));
+    } catch {
+      showToast('error', t('common.error'));
+    } finally {
+      setMemeAdding(false);
+    }
+  }, [t]);
   const [viewerImageId, setViewerImageId] = useState<string | null>(null);
   // The video being played (one player at a time — see the kit's
   // VideoPlayerModal); resolved to a loadable URL at render time
@@ -1223,6 +1276,24 @@ function ChatRoom({ convId, type, unreadCount }: { convId: string; type?: string
             <EmojiQuickRow onPick={(emoji) => composer.onChangeText(composer.text + emoji)} />
           )}
 
+          {memesOpen && (
+            <MemePicker
+              items={memeItems.map((g) => ({ id: g.id, url: g.url, title: g.title, width: g.width, height: g.height, preview: g.preview }))}
+              query={memeQuery}
+              onQueryChange={setMemeQuery}
+              onPick={(item) => {
+                const row = memeItems.find((g) => g.id === item.id);
+                if (row) pickMeme(row);
+              }}
+              onAdd={() => void addMeme()}
+              adding={memeAdding}
+              loading={memeLoading}
+              onEndReached={() => {
+                if (memeHasMore && !memeLoading) loadMemes(memeQuery, memeItems.length);
+              }}
+            />
+          )}
+
           <Composer
             value={composer.text}
             onChangeText={composer.onChangeText}
@@ -1239,6 +1310,11 @@ function ChatRoom({ convId, type, unreadCount }: { convId: string; type?: string
             onCancelRecording={voice.cancel}
             recording={voice.recording}
             onAttachCamera={() => void composer.attachCamera()}
+            onToggleMemes={() => {
+              setMemesOpen((open) => !open);
+              setEmojiOpen(false);
+            }}
+            memesOpen={memesOpen}
             mentionCandidates={isGroup ? mentionCandidates : undefined}
             replyTo={
               composer.replyTo

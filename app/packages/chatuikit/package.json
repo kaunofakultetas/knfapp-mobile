@@ -1,6 +1,6 @@
 {
   "name": "@knf/chatuikit",
-  "version": "1.9.1",
+  "version": "1.11.0",
   "description": "Presentational messaging kit for Expo / React Native — the iMessage / Messenger conversation experience without a SaaS dependency. Bring your own data hooks.",
   "main": "src/index.ts",
   "types": "src/index.ts",

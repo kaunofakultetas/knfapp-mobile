@@ -102,6 +102,12 @@ export interface KitLabels {
   forwarded: string;
   // The composer's camera button
   attachCamera: string;
+  // The meme library: the toggle, the search field, the push
+  // tile, the empty grid
+  openMemes: string;
+  searchMemes: string;
+  addMeme: string;
+  emptyMemes: string;
 }
 
 
@@ -184,6 +190,10 @@ export const defaultLabels: { en: KitLabels; lt: KitLabels } = {
     pinnedMessage: 'Pinned message',
     forwarded: 'Forwarded',
     attachCamera: 'Take a photo',
+    openMemes: 'Meme library',
+    searchMemes: 'Search memes…',
+    addMeme: 'Add a meme',
+    emptyMemes: 'No memes yet — add the first one!',
   },
   lt: {
     today: 'Šiandien',
@@ -255,6 +265,10 @@ export const defaultLabels: { en: KitLabels; lt: KitLabels } = {
     pinnedMessage: 'Prisegta žinutė',
     forwarded: 'Persiųsta',
     attachCamera: 'Fotografuoti',
+    openMemes: 'Memų biblioteka',
+    searchMemes: 'Ieškoti memų…',
+    addMeme: 'Pridėti memą',
+    emptyMemes: 'Memų dar nėra — pridėk pirmą!',
   },
 };
 

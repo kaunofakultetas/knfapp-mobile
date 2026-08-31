@@ -87,6 +87,9 @@ export interface UseComposerResult {
   // Several picked photos as ONE gallery message; anything that
   // is not a pure multi-photo pick falls back to attach() each
   attachMany: (assets: PickedAsset[]) => Promise<void>;
+  // A picture ALREADY stored on this origin (the shared GIF
+  // library above all): full optimistic path, no upload leg
+  sendStoredImage: (url: string, media?: { width?: number; height?: number; preview?: string }) => Promise<void>;
   retryMessage: (message: RetryTarget) => void;
   // Drops a failed optimistic bubble that will not be retried
   discardMessage: (messageId: string) => void;
@@ -403,7 +406,7 @@ export function useComposer(
   // Append the optimistic bubble (newest-first list → unshift);
   // returns its temp id and the consumed reply target
   const createTemp = useCallback(
-    (body: string, imageUrl?: string, localImageUri?: string, content?: Partial<Pick<ChatMessage, 'kind' | 'file' | 'video' | 'mediaSize' | 'gallery' | 'audio'>>) => {
+    (body: string, imageUrl?: string, localImageUri?: string, content?: Partial<Pick<ChatMessage, 'kind' | 'file' | 'video' | 'mediaSize' | 'gallery' | 'audio' | 'mediaPreview'>>) => {
       if (!currentUser) return null;
       const reply = replyToRef.current;
       replyToRef.current = null;
@@ -799,6 +802,23 @@ export function useComposer(
   );
 
 
+  // A stored picture needs no upload: the temp carries the
+  // remote url (the UI resolves it like any server row) and the
+  // micro preview blurs the first frame while the bytes come
+  const sendStoredImage = useCallback(
+    async (url: string, media?: { width?: number; height?: number; preview?: string }) => {
+      if (!url) return;
+      const frame = media?.width && media?.height ? { width: media.width, height: media.height } : undefined;
+      const temp = createTemp('', url, undefined, { kind: 'image', mediaSize: frame, mediaPreview: media?.preview });
+      if (!temp) return;
+      const extra: OutboxEntry['extra'] | undefined =
+        frame || media?.preview ? { media: { ...(frame ?? {}), ...(media?.preview ? { preview: media.preview } : {}) } } : undefined;
+      await deliver(temp.tempId, '', url, temp.replyToId, extra);
+    },
+    [createTemp, deliver],
+  );
+
+
   // Tap-to-retry on a failed bubble. The queue entry is the
   // authoritative payload; a bubble whose entry is gone was
   // already retried and is skipped
@@ -904,6 +924,7 @@ export function useComposer(
     sendQuickLike,
     attach,
     attachMany,
+    sendStoredImage,
     retryMessage,
     discardMessage,
     replyTo,

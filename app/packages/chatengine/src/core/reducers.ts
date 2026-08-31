@@ -181,12 +181,24 @@ export function adoptTemp(incoming: ChatMessage, temp: ChatMessage): ChatMessage
 //   - hooks/useConversation.ts — first load
 // -----------------------------------------------------------
 
+// A server page must never seed duplicate list keys — a row id
+// appearing twice keeps only its LAST copy (the server's final
+// word), in that copy's position
+export function dedupePage(page: readonly ChatMessage[]): readonly ChatMessage[] {
+  const last = new Map<string, ChatMessage>();
+  for (const row of page) last.set(row.id, row);
+  if (last.size === page.length) return page;
+  return page.filter((row) => last.get(row.id) === row);
+}
+
+
 export function mergeFirstPage(
   prev: readonly ChatMessage[],
-  page: readonly ChatMessage[],
+  rawPage: readonly ChatMessage[],
   outbox: readonly ChatMessage[],
   conversationId: string,
 ): ChatMessage[] {
+  const page = dedupePage(rawPage);
   const known = new Set(page.map((m) => m.id));
   const committed = new Set(page.map((m) => m.clientId).filter(Boolean));
   const kept = prev.filter(
@@ -224,9 +236,10 @@ export function mergeFirstPage(
 
 export function mergeResyncPage(
   prev: readonly ChatMessage[],
-  page: readonly ChatMessage[],
+  rawPage: readonly ChatMessage[],
   pageHasMore: boolean,
 ): { list: ChatMessage[]; freshHead: boolean } {
+  const page = dedupePage(rawPage);
   const loadedServerRows = prev.filter((m) => !isTempId(m.id));
   const loadedIds = new Set(loadedServerRows.map((m) => m.id));
   const freshHead = loadedServerRows.length === 0 || (pageHasMore && !page.some((row) => loadedIds.has(row.id)));

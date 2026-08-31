@@ -185,3 +185,5 @@ into your realtime channel.
   (`forwardPayload`) and disappearing messages (`setMessageTtl`, the
   'conversation' event, the expiry sweep) are all optional transport
   surface — an adapter without them simply hides the features.
+- `sendStoredImage` sends a picture already stored on the origin (a
+  shared GIF library) with the optimistic path and no upload leg.

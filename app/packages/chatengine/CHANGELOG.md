@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.6.0 — 2026-08-31
+
+The stored-picture door.
+
+- **`sendStoredImage(url, media?)`** — a picture already stored on
+  this origin (the host's shared GIF library above all) sends with
+  the full optimistic path and NO upload leg: the temp carries the
+  remote url, the micro preview blurs the first frame, retryable
+  failures park like any send.
+
+## 1.5.1 — 2026-08-30
+
+Scenarios adopted from the scar tissue of production chat clients —
+the hardening suites (`reducers.hardening`, `useComposer.echoRace`)
+pin them; one found a real bug:
+
+- **Fix** — a server page carrying the same message id twice seeded
+  duplicate list keys. `dedupePage` (the later copy — the server's
+  final word — wins, in its position) now guards `mergeFirstPage` and
+  `mergeResyncPage`; `appendOlderPage` already deduped.
+- Pinned green: the realtime echo overtaking the stalled send response
+  (one bubble, key kept), overlapping pagination windows, receipts and
+  change rows for messages never held, and a skew-stamped row leaving
+  the older-cursor sane.
+
 ## 1.5.0 — 2026-08-30
 
 Pins, forwarding, disappearing messages, upload progress, the

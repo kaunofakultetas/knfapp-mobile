@@ -33,12 +33,38 @@ export type TextSegment =
 
 const MAX_LINKIFY_LENGTH = 2000;
 
-const URL_RE = /((?:https?:\/\/|www\.)[^\s<>()]+|(?:[a-z0-9-]{1,63}\.){1,6}(?:lt|com|org|net|eu|io|edu|gov|dev|app)(?:\/[^\s<>()]*)?)/gi;
+const URL_RE = /((?:https?:\/\/|www\.)[^\s<>]+|(?:[a-z0-9-]{1,63}\.){1,6}(?:lt|com|org|net|eu|io|edu|gov|dev|app)(?:\/[^\s<>]*)?)/gi;
 const EMAIL_RE = /[\w.+-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+/gi;
 const PHONE_RE = /\+\d(?:[\d\s()-]{5,17}\d)/g;
 
 const TRAILING_RE = /[.,;:!?)\]'"»]+$/;
 const GLUED_BEFORE_RE = /[\w@.-]/;
+
+
+// Sentence punctuation goes back to the prose — but a closing
+// paren only while UNBALANCED, so an encyclopedia path that
+// opened one keeps it and a link merely wrapped in parens does
+// not drag the wrapper along
+function trimUrlTail(raw: string): string {
+  let out = raw;
+  for (;;) {
+    const last = out[out.length - 1];
+    if (!last) return out;
+    if (/[.,;:!?\]'"»]/.test(last)) {
+      out = out.slice(0, -1);
+      continue;
+    }
+    if (last === ')') {
+      const opens = (out.match(/\(/g) ?? []).length;
+      const closes = (out.match(/\)/g) ?? []).length;
+      if (closes > opens) {
+        out = out.slice(0, -1);
+        continue;
+      }
+    }
+    return out;
+  }
+}
 
 
 interface Match {
@@ -91,17 +117,23 @@ function collect(text: string): Match[] {
   const found: Match[] = [];
 
   for (const match of text.matchAll(EMAIL_RE)) {
-    const start = match.index ?? 0;
+    let start = match.index ?? 0;
     const raw = match[0].replace(TRAILING_RE, '');
     if (!raw) continue;
-    found.push({ start, end: start + raw.length, value: raw, href: `mailto:${raw}`, kind: 'email' });
+    // A typed "mailto:" belongs to its address — one link, the
+    // prefix never doubled and never stranded as prose
+    let value = raw;
+    if (text.slice(Math.max(0, start - 7), start).toLowerCase() === 'mailto:') {
+      start -= 7;
+      value = text.slice(start, start + 7) + raw;
+    }
+    found.push({ start, end: start + value.length, value, href: `mailto:${raw}`, kind: 'email' });
   }
 
   for (const match of text.matchAll(URL_RE)) {
     const start = match.index ?? 0;
     if (start > 0 && GLUED_BEFORE_RE.test(text[start - 1])) continue;
-    const trailing = match[0].match(TRAILING_RE)?.[0] ?? '';
-    const raw = match[0].slice(0, match[0].length - trailing.length);
+    const raw = trimUrlTail(match[0]);
     if (!raw) continue;
     found.push({
       start,

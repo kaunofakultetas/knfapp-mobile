@@ -58,7 +58,7 @@ describe('MessageContextMenu', () => {
   it('keeps a long menu on a low message inside the screen', async () => {
     const { height: windowHeight } = Dimensions.get('window');
     // A short bubble sitting right above the composer
-    const target: ContextTarget = { message, frame: { x: 16, y: windowHeight - 120, width: 200, height: 40 } };
+    const target: ContextTarget = { message, position: 'single', frame: { x: 16, y: windowHeight - 120, width: 200, height: 40 } };
     const { getByTestId } = await wrap(<MessageContextMenu {...menuProps} target={target} />);
     const card = getByTestId('chatuikit-context-menu');
     const style = StyleSheet.flatten(card.props.style);
@@ -71,7 +71,7 @@ describe('MessageContextMenu', () => {
 
   it('caps a menu taller than the room left and lets it scroll', async () => {
     const many: KitMessageAction[] = Array.from({ length: 30 }, (_, i) => ({ id: `a${i}`, label: `a${i}`, icon: 'flag-outline' as const, onPress: noop }));
-    const target: ContextTarget = { message, frame: { x: 16, y: 300, width: 200, height: 40 } };
+    const target: ContextTarget = { message, position: 'single', frame: { x: 16, y: 300, width: 200, height: 40 } };
     const { getByTestId } = await wrap(<MessageContextMenu {...menuProps} actions={many} target={target} />);
     const { height: windowHeight } = Dimensions.get('window');
     const card = getByTestId('chatuikit-context-menu');

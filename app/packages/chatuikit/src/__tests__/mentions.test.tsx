@@ -57,6 +57,25 @@ describe('Composer mention strip', () => {
     expect(onChangeText).toHaveBeenCalledWith('labas @Onaitė Petraitė ');
   });
 
+  it('completes names in any script — Cyrillic, CJK, Lithuanian', async () => {
+    const onChangeText = jest.fn();
+    const world = [
+      { id: 'u5', name: 'Тест Иванов' },
+      { id: 'u6', name: '測試用戶' },
+      { id: 'u7', name: 'Žydrūnė' },
+    ];
+    const cyr = await wrap(<Composer {...composerBase} mentionCandidates={world} value="@тест" onChangeText={onChangeText} />);
+    await fireEvent.press(cyr.getByTestId('chatuikit-mention-pick-u5'));
+    expect(onChangeText).toHaveBeenCalledWith('@Тест Иванов ');
+
+    const cjk = await wrap(<Composer {...composerBase} mentionCandidates={world} value="labas @測" onChangeText={onChangeText} />);
+    expect(cjk.getByTestId('chatuikit-mention-pick-u6')).toBeTruthy();
+
+    // Diacritic-folded: zy finds Žydrūnė
+    const lt = await wrap(<Composer {...composerBase} mentionCandidates={world} value="@zy" onChangeText={onChangeText} />);
+    expect(lt.getByTestId('chatuikit-mention-pick-u7')).toBeTruthy();
+  });
+
   it('offers every member on a bare @ and never opens mid-word', async () => {
     const bare = await wrap(<Composer {...composerBase} value="@" onChangeText={noop} />);
     expect(bare.getByTestId('chatuikit-mention-pick-u2')).toBeTruthy();

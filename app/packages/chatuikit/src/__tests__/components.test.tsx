@@ -29,6 +29,7 @@ const mockKitLabels = {
   emptyChat: 'No messages', signInToChat: 'Sign in', unsupportedMessage: 'Unsupported', openProfile: 'Open profile', linkPreview: 'Link preview',
   voiceNote: 'Voice message', recordVoice: 'Record', sendVoice: 'Send voice', cancelRecording: 'Discard', playVoice: 'Play', pauseVoice: 'Pause', mentionUser: (name: string) => `Mention ${name}`,
   connecting: 'Connecting…', noConnection: 'No connection', pinnedMessage: 'Pinned message', forwarded: 'Forwarded', attachCamera: 'Camera',
+  openMemes: 'Memes', searchMemes: 'Search', addMeme: 'Add', emptyMemes: 'None yet',
 };
 
 jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'));

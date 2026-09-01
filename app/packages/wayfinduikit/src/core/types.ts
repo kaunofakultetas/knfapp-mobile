@@ -90,3 +90,17 @@ export interface KitHotspot {
   kind: 'route' | 'link' | 'info';
   label?: string | null;
 }
+
+// What a panorama covers, in degrees — the engine's PanoGeometry
+// twin. Absent on a stage means a full sphere, or, once the
+// photo is measured, a full turn with the vertical band its
+// aspect gives (a phone sweep at 3.4:1 is a band of ~106°)
+export interface KitPanoGeometry {
+  hfovDeg: number;
+  vfovDeg: number;
+  // Yaw of the photo's centre column inside the sphere when the
+  // photo is not a full turn (0 = straight ahead)
+  centreYawDeg?: number | null;
+  // Pitch of the photo's centre row above the horizon
+  vOffsetDeg?: number | null;
+}

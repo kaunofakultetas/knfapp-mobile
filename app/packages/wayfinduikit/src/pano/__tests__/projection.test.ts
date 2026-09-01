@@ -12,7 +12,7 @@
 //  LEFT, never 340° to the right).
 // -----------------------------------------------------------
 
-import { clampToEdge, flatMarkerX, flatViewYaw, projectToScreen, shortestArcDeg } from '../projection';
+import { clampToEdge, flatMarkerX, flatViewYaw, limitPitch, limitYaw, projectToScreen, resolvePanoGeometry, shortestArcDeg, viewLimits } from '../projection';
 
 
 // A 400×300 viewport looking dead ahead through a 90° lens —
@@ -220,5 +220,77 @@ describe('flatViewYaw / flatMarkerX', () => {
   it('reads a widthless tile as yaw 0 with the marker centred', () => {
     expect(flatViewYaw(123, 0, VIEW)).toBe(0);
     expect(flatMarkerX(123, 0, VIEW, 90)).toEqual({ x: 200, deltaDeg: 90 });
+  });
+});
+
+
+describe('resolvePanoGeometry', () => {
+  it('takes the author\'s word, clamped to what a sphere can hold', () => {
+    expect(resolvePanoGeometry({ hfovDeg: 400, vfovDeg: 200, centreYawDeg: -30, vOffsetDeg: 100 })).toEqual({ hfovDeg: 360, vfovDeg: 180, centreYawDeg: 330, vOffsetDeg: 90 });
+    expect(resolvePanoGeometry({ hfovDeg: 90, vfovDeg: 60 })).toEqual({ hfovDeg: 90, vfovDeg: 60, centreYawDeg: 0, vOffsetDeg: 0 });
+  });
+
+  it('reads a full turn and the vertical band off the aspect when there is no word', () => {
+    expect(resolvePanoGeometry(null, 2)).toEqual({ hfovDeg: 360, vfovDeg: 180, centreYawDeg: 0, vOffsetDeg: 0 });
+    expect(resolvePanoGeometry(undefined, 4096 / 1200).vfovDeg).toBeCloseTo(105.47, 1);
+    expect(resolvePanoGeometry(null, null).vfovDeg).toBe(180);
+  });
+});
+
+
+describe('viewLimits / limitYaw / limitPitch', () => {
+  const whole = resolvePanoGeometry(null, 2);
+  const band = resolvePanoGeometry(null, 4096 / 1200);
+  const partial = resolvePanoGeometry({ hfovDeg: 120, vfovDeg: 80, centreYawDeg: 350 });
+
+  it('leaves a whole sphere free: any yaw, pitch to the pole guard', () => {
+    const limits = viewLimits(whole, 75, 52);
+    expect(limits).toEqual({ centreYawDeg: 0, yawHalfSpanDeg: null, pitchMinDeg: -85, pitchMaxDeg: 85 });
+    expect(limitYaw(725, limits)).toBe(5);
+    expect(limitPitch(-100, limits)).toBe(-85);
+  });
+
+  it('keeps a phone sweep\'s band on screen: a full turn, pitch inside the band minus the view\'s own half', () => {
+    const limits = viewLimits(band, 75, 52);
+    expect(limits.yawHalfSpanDeg).toBeNull();
+    expect(limits.pitchMaxDeg).toBeCloseTo((105.47 - 52) / 2, 1);
+    expect(limits.pitchMinDeg).toBeCloseTo(-(105.47 - 52) / 2, 1);
+  });
+
+  it('holds a partial photo\'s ends at the stage\'s ends and folds the yaw around its centre', () => {
+    const limits = viewLimits(partial, 60, 40);
+    expect(limits).toEqual({ centreYawDeg: 350, yawHalfSpanDeg: 30, pitchMinDeg: -20, pitchMaxDeg: 20 });
+    expect(limitYaw(10, limits)).toBe(10);
+    expect(limitYaw(30, limits)).toBe(20);
+    expect(limitYaw(300, limits)).toBe(320);
+    expect(limitPitch(35, limits)).toBe(20);
+  });
+
+  it('locks a coverage narrower than the view on the photo\'s centre', () => {
+    const limits = viewLimits(resolvePanoGeometry({ hfovDeg: 50, vfovDeg: 30, centreYawDeg: 90 }), 75, 52);
+    expect(limits.yawHalfSpanDeg).toBe(0);
+    expect(limitYaw(140, limits)).toBe(90);
+    expect(limits.pitchMinDeg).toBe(0);
+    expect(limits.pitchMaxDeg).toBe(0);
+  });
+});
+
+
+describe('flatViewYaw / flatMarkerX on a partial photo', () => {
+  it('reads the columns of one tile from centre − hfov/2 to centre + hfov/2, never wrapping', () => {
+    // A 90° photo on a 600 px tile, 400 px window: the view
+    // centre at 200 px is a third of the way in
+    expect(flatViewYaw(0, 600, 400, 90, 0)).toBe(345);
+    expect(flatViewYaw(100, 600, 400, 90, 0)).toBe(0);
+    expect(flatViewYaw(200, 600, 400, 90, 0)).toBe(15);
+    // Past the strip's end there is nothing more to see
+    expect(flatViewYaw(2000, 600, 400, 90, 0)).toBe(45);
+    expect(flatViewYaw(100, 600, 400, 90, 200)).toBe(200);
+  });
+
+  it('places the marker at the strip\'s own degrees per pixel', () => {
+    expect(flatMarkerX(100, 600, 400, 15, 90, 0)).toEqual({ x: 200 + 100, deltaDeg: 15 });
+    // Unchanged for a full turn
+    expect(flatMarkerX(100, 600, 400, 15)).toEqual(flatMarkerX(100, 600, 400, 15, 360, 0));
   });
 });

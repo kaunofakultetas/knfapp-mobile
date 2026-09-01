@@ -84,6 +84,7 @@ const MORE: { key: string; icon: IoniconName; route: Href; labelKey: string; aut
   { key: 'friends', icon: 'people-outline', route: '/(main)/friends', labelKey: 'friends.title', auth: true },
   { key: 'activity', icon: 'notifications-outline', route: '/(main)/activity', labelKey: 'activity.title', auth: true },
   { key: 'admin', icon: 'shield-checkmark-outline', route: '/(main)/admin', labelKey: 'admin.title', roles: ['admin', 'curator'] },
+  { key: 'map-editor', icon: 'construct-outline', route: '/(main)/map-editor', labelKey: 'mapEditor.title', roles: ['admin', 'curator'] },
 ];
 
 // The panel: most of the screen on phones, capped on tablets

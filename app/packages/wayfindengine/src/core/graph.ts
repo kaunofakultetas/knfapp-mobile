@@ -43,6 +43,8 @@ export interface GraphIssue {
     | 'unknown_kind'
     | 'bad_length'
     | 'length_under_chord'
+    | 'bad_pano_geometry'
+    | 'pano_link_unknown'
     | 'room_without_node'
     | 'unreachable_node'
     | 'missing_entrance'
@@ -163,6 +165,21 @@ export function validateGraph(graph: BuildingGraph): GraphIssue[] {
     const chord = levels.has(a.level) ? chordM(levels, a, b) : 0;
     if (goodLength && (edge.lengthM as number) < chord * (1 - CHORD_TOLERANCE)) {
       issues.push({ severity: 'warning', code: 'length_under_chord', message: `edge ${ref} has lengthM ${edge.lengthM} below its plan chord of ${chord.toFixed(2)} m`, ref });
+    }
+  }
+
+
+  // Panorama facts are display-only, so both are warnings: a
+  // sphere the stage cannot draw and a hotspot to nowhere
+  for (const node of graph.nodes) {
+    const g = node.panoGeometry;
+    if (g && !(g.hfovDeg > 0 && g.hfovDeg <= 360 && g.vfovDeg > 0 && g.vfovDeg <= 180)) {
+      issues.push({ severity: 'warning', code: 'bad_pano_geometry', message: `node '${node.id}' has a panorama geometry of ${g.hfovDeg}° × ${g.vfovDeg}°`, ref: node.id });
+    }
+    for (const link of node.panoLinks ?? []) {
+      if (!nodes.has(link.targetNodeId) || link.targetNodeId === node.id) {
+        issues.push({ severity: 'warning', code: 'pano_link_unknown', message: `node '${node.id}' links its panorama to '${link.targetNodeId}'`, ref: node.id });
+      }
     }
   }
 

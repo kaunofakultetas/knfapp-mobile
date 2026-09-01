@@ -1,5 +1,58 @@
 # Changelog
 
+## 1.2.0 — 2026-09-01
+
+`FloorPlan` grows the intents an editing host needs, all in plan pixels
+so an editor never learns the screen; nothing a wayfinding screen uses
+changes.
+
+- `selectedNodeId` — the node drawn selected: the brand ink, a larger
+  disc in a surface ring, testID `wayfinduikit-plan-node-selected`.
+- `onPressPlan(point)` — a bare tap on the drawing that no shape took,
+  answered in plan pixels **through the camera** (zoomed 2× about the
+  centre, a screen point 50 px right of it is 25 plan px right of it).
+  A tap is one finger — and never more at any point in the gesture, so
+  a pinch shed one finger at a time is not a tap — within the 6 px
+  slop, released within 350 ms: a slow press is not a tap, a pan is
+  not a tap.
+- `onDragNode(id, point)` / `onDragNodeEnd(id, point)` — a one-finger
+  drag that begins within the **selected** node's hit radius moves the
+  node instead of the camera. The grab zone follows the zoom — the
+  disc the overlay draws is the disc a finger can grab, with a
+  20-screen-px floor so a tiny node on a zoomed-out plan is still easy
+  to catch. `onDragNode` fires on every move; `onDragNodeEnd` fires
+  with the last point when the drag ends ANY way — a release, a second
+  finger landing, a responder terminate or a level switch — so a
+  host's bookkeeping (an open undo step, say) always closes. The
+  camera stays where it was. A drag starting on any other node, or on
+  bare plan, still pans. Needs both `selectedNodeId` and `onDragNode`.
+- `PlanPoint`, `PlanNode` and `PlanRoom` are exported from the barrel
+  beside `FloorPlan`, so a host types its shapes without reaching into
+  `plan/FloorPlan`.
+
+## 1.1.0 — 2026-09-01
+
+Partial panoramas: both stages now draw what a photo actually covers.
+
+- `geometry` prop (`KitPanoGeometry`: horizontal and vertical coverage in
+  degrees, the centre column's yaw, the centre row's pitch) on
+  `PanoramaStage` and `FlatPanorama`. Absent, the coverage is read off
+  the photo: 2:1 is the whole sphere, a phone sweep at 3.4:1 a full turn
+  with a vertical band of ~106°, an unmeasured photo is taken as whole.
+- The sphere wraps the photo on the band it covers (the sphere
+  constructor's own start / length angles, rotated to the centre yaw)
+  and rebuilds the mesh once the loaded photo's aspect says the band
+  differs from the assumption; the view is held inside the photo — a
+  partial turn may not swing past the photo's ends by more than the
+  view's own half-width, a coverage narrower than the view is locked on
+  its centre, and the pitch is held inside the band the same way.
+- The flat strip draws a partial photo as one tile (padded to the
+  stage's width when narrower) that never teleports; the yaw report,
+  the marker and the hotspots use the strip's own degrees per pixel.
+- Pure helpers on the barrel: `resolvePanoGeometry`, `viewLimits`,
+  `limitYaw`, `limitPitch`; `flatViewYaw` / `flatMarkerX` accept the
+  coverage and centre yaw as trailing optional arguments.
+
 ## 1.0.1 — 2026-09-01
 
 The kit and the engine now agree on the panorama frame, the plan sorts

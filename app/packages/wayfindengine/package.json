@@ -1,6 +1,6 @@
 {
   "name": "@knf/wayfindengine",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Headless indoor wayfinding for React Native / Expo \u2014 a building graph with levels, rooms, nodes and typed edges, A* routing with accessibility modes, turn-by-turn instruction generation with landmarks and connector collapsing, a navigation state machine, QR anchors and room search. Bring your own floor plans; pair with @knf/wayfinduikit or any UI.",
   "main": "src/index.ts",
   "types": "src/index.ts",

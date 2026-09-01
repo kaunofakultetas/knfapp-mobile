@@ -186,7 +186,11 @@ interface BackPointer {
 export function edgeSeconds(index: GraphIndex, edge: GraphEdge, speeds: Record<EdgeKind, number> = DEFAULT_WALKING_SPEEDS): number {
 
   const seconds = edgeLengthM(index, edge) / speeds[edge.kind];
-  return edge.kind === 'elevator' ? seconds + ELEVATOR_WAIT_S : seconds;
+  const wait = edge.kind === 'elevator' ? ELEVATOR_WAIT_S : 0;
+  // An authored delay (a badge reader, a queue) is time too; a
+  // nonsense value is ignored rather than poisoning the search
+  const delay = typeof edge.delaySeconds === 'number' && Number.isFinite(edge.delaySeconds) && edge.delaySeconds > 0 ? edge.delaySeconds : 0;
+  return seconds + wait + delay;
 }
 
 
@@ -227,8 +231,11 @@ export function findRoute(index: GraphIndex, fromNodeId: string, toNodeId: strin
   // edge is invisible to the search, not merely expensive
   const accessibility = options.accessibility ?? 'shortest';
   const avoid = new Set<EdgeKind>(options.avoid ?? []);
+  const at = options.at ?? Date.now();
   const passable = (edge: GraphEdge, a: GraphNode, b: GraphNode): boolean => {
     if (avoid.has(edge.kind)) return false;
+    // A shut edge is refused like an avoided kind until it reopens
+    if (edge.closedUntil != null && edge.closedUntil > at) return false;
     if (edge.kind !== 'stairs') return true;
     if (accessibility === 'accessible') return false;
     return !(accessibility === 'noInaccessibleFloorChanges' && a.level !== b.level);

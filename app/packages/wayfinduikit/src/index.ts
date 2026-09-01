@@ -16,6 +16,7 @@ export type {
   KitRouteSummary,
   KitNavigationState,
   KitHotspot,
+  KitPanoGeometry,
 } from './core/types';
 
 // Provider — theme, labels, env
@@ -27,7 +28,7 @@ export { defaultLabels, type KitLabels } from './provider/labels';
 export { formatDistance, formatEta, instructionText } from './core/format';
 
 // The floor plan and its controls
-export { default as FloorPlan } from './plan/FloorPlan';
+export { default as FloorPlan, type PlanPoint, type PlanNode, type PlanRoom } from './plan/FloorPlan';
 export { default as FloorSwitcher } from './plan/FloorSwitcher';
 
 // Route surfaces
@@ -41,4 +42,15 @@ export { default as YouAreHereBar } from './route/YouAreHereBar';
 export { default as PanoramaStage } from './pano/PanoramaStage';
 export { default as FlatPanorama } from './pano/FlatPanorama';
 export { default as DirectionMarker } from './pano/DirectionMarker';
-export { projectToScreen, shortestArcDeg, clampToEdge, flatMarkerX } from './pano/projection';
+export {
+  projectToScreen,
+  shortestArcDeg,
+  clampToEdge,
+  flatMarkerX,
+  resolvePanoGeometry,
+  viewLimits,
+  limitYaw,
+  limitPitch,
+  type ResolvedPanoGeometry,
+  type ViewLimits,
+} from './pano/projection';

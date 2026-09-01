@@ -79,7 +79,7 @@ import type { KitHotspot } from '../core/types';
 import { useKitEnv, useKitLabels, useKitTheme } from '../provider';
 import DirectionMarker, { MARKER_SIZE } from './DirectionMarker';
 import FlatPanorama, { panoSourceKey, type FlatPanoramaProps, type PanoSourceKey } from './FlatPanorama';
-import { clampToEdge, projectToScreen, shortestArcDeg } from './projection';
+import { type ResolvedPanoGeometry, type ViewLimits, clampToEdge, limitPitch, limitYaw, projectToScreen, resolvePanoGeometry, shortestArcDeg, viewLimits } from './projection';
 
 
 // One sensor sample in degrees, the usual device triple:
@@ -157,6 +157,7 @@ interface StageMaterial {
 
 interface StageMesh {
   rotation: { y: number };
+  geometry: StageGeometry;
 }
 
 interface StageScene {
@@ -166,7 +167,7 @@ interface StageScene {
 interface ThreeLib {
   PerspectiveCamera: new (fov: number, aspect: number, near: number, far: number) => StageCamera;
   Scene: new () => StageScene;
-  SphereGeometry: new (radius: number, widthSegments: number, heightSegments: number) => StageGeometry;
+  SphereGeometry: new (radius: number, widthSegments: number, heightSegments: number, phiStart?: number, phiLength?: number, thetaStart?: number, thetaLength?: number) => StageGeometry;
   MeshBasicMaterial: new () => StageMaterial;
   Mesh: new (geometry: StageGeometry, material: StageMaterial) => StageMesh;
   MathUtils: { degToRad: (degrees: number) => number };
@@ -233,9 +234,6 @@ const HOTSPOT_GLYPH: Record<KitHotspot['kind'], ComponentProps<typeof Ionicons>[
 };
 
 
-const normaliseYaw = (yaw: number): number => ((yaw % 360) + 360) % 360;
-
-const clampPitch = (pitch: number): number => Math.max(-MAX_PITCH_DEG, Math.min(MAX_PITCH_DEG, pitch));
 
 
 
@@ -395,13 +393,16 @@ function useViewAngles({
   initialYaw,
   orientation,
   degPerPx,
+  limits,
 }: {
   initialYaw: number;
   orientation: StageOrientation | null | undefined;
   degPerPx: number;
+  // How far the view may turn inside the photo — see viewLimits
+  limits: ViewLimits;
 }): { view: ViewAngles; shared: SharedView; panHandlers: PanResponderInstance['panHandlers'] } {
 
-  const shared = useRef<SharedView>({ yaw: normaliseYaw(initialYaw), pitch: 0, dirty: true }).current;
+  const shared = useRef<SharedView>({ yaw: limitYaw(initialYaw, limits), pitch: limitPitch(0, limits), dirty: true }).current;
   const [view, setView] = useState<ViewAngles>({ yaw: shared.yaw, pitch: shared.pitch });
 
 
@@ -412,17 +413,26 @@ function useViewAngles({
   const inertiaRef = useRef<{ frame: number; vYaw: number; vPitch: number } | null>(null);
   const degPerPxRef = useRef(degPerPx);
   degPerPxRef.current = degPerPx;
+  const limitsRef = useRef(limits);
+  limitsRef.current = limits;
 
 
   const commit = useCallback(
     (yaw: number, pitch: number) => {
-      shared.yaw = normaliseYaw(yaw);
-      shared.pitch = clampPitch(pitch);
+      shared.yaw = limitYaw(yaw, limitsRef.current);
+      shared.pitch = limitPitch(pitch, limitsRef.current);
       shared.dirty = true;
       setView({ yaw: shared.yaw, pitch: shared.pitch });
     },
     [shared],
   );
+
+  // Limits that tightened (the photo measured narrower than
+  // assumed, a wider lens) pull a view already outside them in
+  useEffect(() => {
+    const held = { yaw: limitYaw(shared.yaw, limits), pitch: limitPitch(shared.pitch, limits) };
+    if (held.yaw !== shared.yaw || held.pitch !== shared.pitch) commit(held.yaw, held.pitch);
+  }, [limits, commit, shared]);
 
   // A relative move. Under sensor control the offset travels
   // with it, so a drag re-aims where the sensor points instead
@@ -430,10 +440,19 @@ function useViewAngles({
   // first and the offset takes only the delta that applied
   const nudge = useCallback(
     (dYaw: number, dPitch: number) => {
-      const pitch = clampPitch(shared.pitch + dPitch);
+      const limits = limitsRef.current;
+      const pitch = limitPitch(shared.pitch + dPitch, limits);
+      // A partial photo holds the travel, not the folded angle: a
+      // move past the photo's end stops there whatever its size,
+      // instead of a big delta folding round to the other side
+      let yaw = shared.yaw + dYaw;
+      if (limits.yawHalfSpanDeg !== null) {
+        const away = shortestArcDeg(limits.centreYawDeg, shared.yaw) + dYaw;
+        yaw = limits.centreYawDeg + Math.max(-limits.yawHalfSpanDeg, Math.min(limits.yawHalfSpanDeg, away));
+      }
       const offset = offsetRef.current;
-      if (offset) offsetRef.current = { yaw: offset.yaw + dYaw, pitch: offset.pitch + (pitch - shared.pitch) };
-      commit(shared.yaw + dYaw, pitch);
+      if (offset) offsetRef.current = { yaw: offset.yaw + shortestArcDeg(shared.yaw, yaw), pitch: offset.pitch + (pitch - shared.pitch) };
+      commit(yaw, pitch);
     },
     [commit, shared],
   );
@@ -535,7 +554,7 @@ function useViewAngles({
 
 
     const dYaw = shortestArcDeg(shared.yaw, raw.yaw + offset.yaw);
-    const dPitch = clampPitch(raw.pitch + offset.pitch) - shared.pitch;
+    const dPitch = limitPitch(raw.pitch + offset.pitch, limitsRef.current) - shared.pitch;
     const distance = Math.hypot(dYaw, dPitch);
     // A sample that says "still here" must not cost a render
     if (distance < 1e-3) return;
@@ -595,6 +614,8 @@ function useViewAngles({
 // -----------------------------------------------------------
 
 interface SceneHandles {
+  // The coverage the sphere mesh was built for
+  band: string;
   gl: StageGl;
   renderer: StageRenderer;
   scene: StageScene;
@@ -623,6 +644,44 @@ const warnOversize = (source: string | number, texture: StageTexture) => {
 // The one way a scene goes: the loop first, so no frame draws
 // with a released renderer; a scene that never started a loop
 // holds frame 0, which cancels nothing
+// -----------------------------------------------------------
+// buildSphere / bandKey
+// -----------------------------------------------------------
+//
+// The mesh the photo is wrapped on: the whole sphere for a whole
+// photo, else the band it covers — the sphere constructor's
+// own start / length angles. Horizontally the band is centred
+// on the full sphere's middle column (phi = π), so it lands on
+// the camera's forward axis exactly where the whole photo's
+// centre does; the mesh then turns by the band's centre yaw.
+// Vertically theta runs from the top, so the band starts at
+// 90° − (offset + half the coverage). Mirrored inside out like
+// the whole sphere, so the photo reads the right way round.
+//
+// Used by:
+//   - SphereSurface (below) — at context time and when the
+//     measured photo says the coverage differs
+// -----------------------------------------------------------
+
+const bandKey = (g: ResolvedPanoGeometry): string => `${g.hfovDeg}|${g.vfovDeg}|${g.centreYawDeg}|${g.vOffsetDeg}`;
+
+const meshTurn = (three: ThreeLib, g: ResolvedPanoGeometry): number => -Math.PI / 2 - three.MathUtils.degToRad(g.centreYawDeg);
+
+function buildSphere(three: ThreeLib, g: ResolvedPanoGeometry): StageGeometry {
+
+  const whole = g.hfovDeg >= 360 && g.vfovDeg >= 180;
+  const rad = three.MathUtils.degToRad;
+  const top = Math.max(0, Math.PI / 2 - rad(g.vOffsetDeg + g.vfovDeg / 2));
+  const sphere = whole
+    ? new three.SphereGeometry(SPHERE_RADIUS, 64, 32)
+    : new three.SphereGeometry(SPHERE_RADIUS, 64, 32, Math.PI - rad(g.hfovDeg) / 2, rad(g.hfovDeg), top, Math.min(Math.PI - top, rad(g.vfovDeg)));
+  // Inside out, so the photo reads the right way round from the
+  // centre without a back-face material
+  sphere.scale(-1, 1, 1);
+  return sphere;
+}
+
+
 const releaseScene = (handles: SceneHandles) => {
   handles.disposed = true;
   cancelAnimationFrame(handles.frame);
@@ -641,8 +700,10 @@ function SphereSurface({
   width,
   height,
   ground,
+  geometry,
   a11yLabel,
   onFail,
+  onTextureSize,
 }: {
   peers: GlPeers;
   source: string | number;
@@ -651,8 +712,12 @@ function SphereSurface({
   width: number;
   height: number;
   ground: string;
+  geometry: ResolvedPanoGeometry;
   a11yLabel: string;
   onFail: (reason: 'context' | 'texture' | 'render', error: unknown) => void;
+  // The loaded photo's pixel size, for the coverage-by-aspect
+  // default
+  onTextureSize: (width: number, height: number) => void;
 }) {
 
   const [context, setContext] = useState<SceneHandles | null>(null);
@@ -660,8 +725,8 @@ function SphereSurface({
   // Read at context time through refs, so the callback itself
   // stays stable — the surface calls it once, and must not be
   // handed a new one on every render
-  const setupRef = useRef({ fovDeg, width, height, ground });
-  setupRef.current = { fovDeg, width, height, ground };
+  const setupRef = useRef({ fovDeg, width, height, ground, geometry });
+  setupRef.current = { fovDeg, width, height, ground, geometry };
 
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -681,20 +746,18 @@ function SphereSurface({
         const scene = new three.Scene();
         const camera = new three.PerspectiveCamera(verticalFovDeg(setup.fovDeg, setup.width, setup.height), Math.max(1, setup.width) / Math.max(1, setup.height), 0.1, SPHERE_RADIUS * 10);
         camera.rotation.order = 'YXZ';
-        const geometry = new three.SphereGeometry(SPHERE_RADIUS, 64, 32);
-        // Inside out, so the photo reads the right way round
-        // from the centre without a back-face material
-        geometry.scale(-1, 1, 1);
+        const geometry = buildSphere(three, setup.geometry);
         const material = new three.MeshBasicMaterial();
         const mesh = new three.Mesh(geometry, material);
         // The mirrored sphere's middle column sits on the
-        // negative x axis; this quarter turn carries it onto
-        // the camera's forward axis with the right-hand half of
-        // the photo to the right
-        mesh.rotation.y = -Math.PI / 2;
+        // negative x axis; the quarter turn carries it onto the
+        // camera's forward axis with the right-hand half of the
+        // photo to the right, and a partial photo turns on by
+        // its own centre yaw
+        mesh.rotation.y = meshTurn(three, setup.geometry);
 
 
-        const handles: SceneHandles = { gl, renderer, scene, camera, geometry, material, mesh, texture: null, onStage: false, frame: 0, disposed: false };
+        const handles: SceneHandles = { band: bandKey(setup.geometry), gl, renderer, scene, camera, geometry, material, mesh, texture: null, onStage: false, frame: 0, disposed: false };
         // Too late: the surface is gone and state would drop
         // the handles on the floor, loop and all
         if (!mountedRef.current) {
@@ -736,6 +799,7 @@ function SphereSurface({
           return;
         }
         warnOversize(source, texture);
+        if (texture.image?.width && texture.image?.height) onTextureSize(texture.image.width, texture.image.height);
         // A photo is authored in display space; without saying
         // so the renderer would treat it as linear and wash it out
         if (peers.three.SRGBColorSpace) texture.colorSpace = peers.three.SRGBColorSpace;
@@ -759,7 +823,25 @@ function SphereSurface({
     return () => {
       stale = true;
     };
-  }, [context, source, peers, shared, onFail]);
+  }, [context, source, peers, shared, onFail, onTextureSize]);
+
+
+  // The coverage changed under a live scene (the photo measured,
+  // an author's geometry arrived): a new band replaces the mesh's
+  // geometry in place, the old one released
+  useEffect(() => {
+    if (!context) return;
+    const key = bandKey(geometry);
+    if (context.band === key) return;
+    const { three } = peers;
+    const next = buildSphere(three, geometry);
+    context.mesh.geometry = next;
+    context.mesh.rotation.y = meshTurn(three, geometry);
+    context.geometry.dispose();
+    context.geometry = next;
+    context.band = key;
+    shared.dirty = true;
+  }, [context, geometry, peers, shared]);
 
 
   // The lens and the viewport follow the stage's layout and fov;
@@ -978,6 +1060,7 @@ function SphereStage({
   orientation,
   initialYaw,
   fovDeg,
+  geometry,
   onFail,
 }: SphereStageProps) {
 
@@ -1007,7 +1090,24 @@ function SphereStage({
   // The projection has no pinhole outside (0, 180); the same
   // clamp feeds the drag scale, the camera and the overlays
   const fov = Math.min(179, Math.max(1, fovDeg));
-  const { view, shared, panHandlers } = useViewAngles({ initialYaw, orientation, degPerPx: fov / width });
+
+
+  // What the photo covers: the author's geometry, else the
+  // loaded texture's aspect (per photo — a new photo starts
+  // whole again until measured); the limits then keep the view
+  // inside it. Both are keyed by value so an inline geometry
+  // object never re-arms an effect
+  const [measured, setMeasured] = useState<{ key: PanoSourceKey; aspect: number } | null>(null);
+  const sourceKeyRef = useRef(sourceKey);
+  sourceKeyRef.current = sourceKey;
+  const onTextureSize = useCallback((w: number, h: number) => setMeasured({ key: sourceKeyRef.current, aspect: w / h }), []);
+  const resolvedKey = bandKey(resolvePanoGeometry(geometry, measured && measured.key === sourceKey ? measured.aspect : null));
+  const resolved = useMemo<ResolvedPanoGeometry>(() => {
+    const [hfovDeg, vfovDeg, centreYawDeg, vOffsetDeg] = resolvedKey.split('|').map(Number);
+    return { hfovDeg, vfovDeg, centreYawDeg, vOffsetDeg };
+  }, [resolvedKey]);
+  const limits = useMemo(() => viewLimits(resolved, fov, verticalFovDeg(fov, width, height), MAX_PITCH_DEG), [resolved, fov, width, height]);
+  const { view, shared, panHandlers } = useViewAngles({ initialYaw, orientation, degPerPx: fov / width, limits });
 
 
   // The hint belongs to the photo — reset during render when
@@ -1064,6 +1164,8 @@ function SphereStage({
         source={resolvedSource}
         shared={shared}
         fovDeg={fov}
+        geometry={resolved}
+        onTextureSize={onTextureSize}
         width={width}
         height={height}
         ground={colors.stageBg}
@@ -1124,6 +1226,7 @@ export default function PanoramaStage({
   height = 260,
   orientation = null,
   initialYaw = 0,
+  geometry = null,
   fovDeg = DEFAULT_FOV_DEG,
   renderer = 'auto',
 }: PanoramaStageProps) {
@@ -1148,7 +1251,7 @@ export default function PanoramaStage({
 
 
   const peers = renderer === 'flat' ? null : loadGlPeers();
-  const flatProps: FlatPanoramaProps = { source, targetYaw, targetLabel, hotspots, onYawChange, onPressHotspot, showHint, height, initialYaw };
+  const flatProps: FlatPanoramaProps = { source, targetYaw, targetLabel, hotspots, onYawChange, onPressHotspot, showHint, height, initialYaw, geometry };
 
   // No peers is not a failure but an absent capability — there
   // is no sphere to insist on, whatever `renderer` asked for

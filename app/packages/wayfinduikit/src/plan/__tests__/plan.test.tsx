@@ -13,7 +13,11 @@
 //  bounds and to the viewport's edges, dropped with the old
 //  floor under a held finger — and focus glides the point to
 //  the middle once measured and on a level change, never on a
-//  resize. Gestures are driven straight through the responder
+//  resize. The editing intents: a tap that was ever a pinch is
+//  no tap, the selected node's grab zone follows the zoom, and
+//  a node drag ending ANY way — release, second finger,
+//  terminate, level switch — closes through onDragNodeEnd.
+//  Gestures are driven straight through the responder
 //  handlers with hand-built touch histories, the way the
 //  responder system itself would feed them. The switcher:
 //  ordinal-descending pills, the current one selected,
@@ -704,5 +708,173 @@ describe('FloorSwitcher', () => {
 
     const row = await wrap(<FloorSwitcher levels={levels} current="l1" onSelect={() => {}} vertical={false} />);
     expect((StyleSheet.flatten(row.getByTestId('wayfinduikit-floor-switcher').props.style) as { flexDirection: string }).flexDirection).toBe('row');
+  });
+});
+
+
+describe('FloorPlan editing intents', () => {
+
+  it('reports a bare tap on the drawing in plan pixels, through the camera', async () => {
+    const onPressPlan = jest.fn();
+    const r = await mount(<FloorPlan level={level} onPressPlan={onPressPlan} />);
+    const vp = r.getByTestId('wayfinduikit-plan') as unknown as Viewport;
+
+    // At rest the 400 × 200 frame IS the 400 × 200 viewBox
+    await press(vp, [{ x: 100, y: 60 }], 1000);
+    await lift(vp, 1100);
+    expect(onPressPlan).toHaveBeenLastCalledWith({ x: 100, y: 60 });
+
+    // A slow press is not a tap; a pan is not a tap
+    await press(vp, [{ x: 100, y: 60 }], 2000);
+    await lift(vp, 2600);
+    await press(vp, [{ x: 100, y: 60 }], 3000);
+    await drag(vp, [{ x: 100, y: 60 }], [{ x: 140, y: 60 }], 3050);
+    await lift(vp, 3100);
+    expect(onPressPlan).toHaveBeenCalledTimes(1);
+
+    // Zoomed 2× about the centre: a screen point 50 px right of
+    // the centre is 25 plan px right of it
+    await press(vp, [{ x: 100, y: 100 }, { x: 300, y: 100 }], 4000);
+    await drag(vp, [{ x: 100, y: 100 }, { x: 300, y: 100 }], [{ x: 0, y: 100 }, { x: 400, y: 100 }], 4050);
+    await lift(vp, 4100);
+    expect(transformOf(r).scale).toBeCloseTo(2, 6);
+    await press(vp, [{ x: 250, y: 100 }], 5000);
+    await lift(vp, 5100);
+    expect(onPressPlan).toHaveBeenLastCalledWith({ x: 225, y: 100 });
+  });
+
+
+  it('drags only the selected node, in plan pixels, and leaves the camera alone', async () => {
+    const onDragNode = jest.fn();
+    const onDragNodeEnd = jest.fn();
+    const nodes = [{ id: 'n1', x: 100, y: 100 }, { id: 'n2', x: 300, y: 100 }];
+    const r = await mount(<FloorPlan level={level} nodes={nodes} selectedNodeId="n1" onDragNode={onDragNode} onDragNodeEnd={onDragNodeEnd} />);
+    const vp = r.getByTestId('wayfinduikit-plan') as unknown as Viewport;
+    expect(r.getByTestId('wayfinduikit-plan-node-selected')).toBeTruthy();
+
+    // A grab within the hit radius of the selected node
+    await press(vp, [{ x: 108, y: 104 }], 1000);
+    await drag(vp, [{ x: 108, y: 104 }], [{ x: 150, y: 120 }], 1050);
+    await drag(vp, [{ x: 150, y: 120 }], [{ x: 160, y: 130 }], 1100);
+    await lift(vp, 1150);
+    expect(onDragNode).toHaveBeenNthCalledWith(1, 'n1', { x: 150, y: 120 });
+    expect(onDragNode).toHaveBeenNthCalledWith(2, 'n1', { x: 160, y: 130 });
+    expect(onDragNodeEnd).toHaveBeenCalledWith('n1', { x: 160, y: 130 });
+    expect(transformOf(r)).toMatchObject({ translateX: 0, translateY: 0, scale: 1 });
+
+    // A drag that starts on the OTHER node is a pan, not a move
+    // (the drawing fits the frame here, so the pan clamps to rest)
+    await press(vp, [{ x: 300, y: 100 }], 2000);
+    await drag(vp, [{ x: 300, y: 100 }], [{ x: 280, y: 100 }], 2050);
+    await lift(vp, 2100);
+    expect(onDragNode).toHaveBeenCalledTimes(2);
+    expect(onDragNodeEnd).toHaveBeenCalledTimes(1);
+  });
+
+
+  it('a gesture that ever held two fingers never reports a tap, however it sheds them', async () => {
+    const onPressPlan = jest.fn();
+    const r = await mount(<FloorPlan level={level} onPressPlan={onPressPlan} />);
+    const vp = r.getByTestId('wayfinduikit-plan') as unknown as Viewport;
+
+    // A symmetric pinch keeps the centroid still (the gesture's
+    // cumulative dx/dy stay under the slop); one finger lifts,
+    // the other jitters a pixel and releases quickly — the old
+    // phase-only test read this as a one-finger tap
+    const two = [{ x: 150, y: 100 }, { x: 250, y: 100 }];
+    await press(vp, two, 1000);
+    await drag(vp, two, [{ x: 100, y: 100 }, { x: 300, y: 100 }], 1050);
+    await drag(vp, [{ x: 100, y: 100 }], [{ x: 100, y: 101 }], 1080);
+    await lift(vp, 1150);
+    expect(onPressPlan).not.toHaveBeenCalled();
+
+    // The memory is the gesture's, not the viewport's: a plain
+    // tap right after still lands (at scale 2 about the centre,
+    // the centre point is its own plan point)
+    await press(vp, [{ x: 200, y: 100 }], 2000);
+    await lift(vp, 2050);
+    expect(onPressPlan).toHaveBeenCalledTimes(1);
+    expect(onPressPlan).toHaveBeenCalledWith({ x: 200, y: 100 });
+  });
+
+
+  it('the grab zone follows the zoom: a drag on the drawn disc at scale 6 moves the node, past it pans', async () => {
+    const onDragNode = jest.fn();
+    const onDragNodeEnd = jest.fn();
+    const r = await mount(<FloorPlan level={level} nodes={[{ id: 'n1', x: 200, y: 100 }]} selectedNodeId="n1" onDragNode={onDragNode} onDragNodeEnd={onDragNodeEnd} maxScale={6} />);
+    const vp = r.getByTestId('wayfinduikit-plan') as unknown as Viewport;
+
+    // Pinch to 6× about the centre: the camera stays centred
+    const before = [{ x: 150, y: 100 }, { x: 250, y: 100 }];
+    await press(vp, before, 100);
+    await drag(vp, before, [{ x: -100, y: 100 }, { x: 500, y: 100 }], 116);
+    await lift(vp, 132);
+    expect(transformOf(r)).toEqual({ translateX: 0, translateY: 0, scale: 6 });
+
+    // 30 screen px from the node's centre — visibly ON the drawn
+    // selected dot (43.2 px) and inside the 84 px hit disc the
+    // overlay paints — must grab the node, not pan the camera
+    await press(vp, [{ x: 230, y: 100 }], 1000);
+    await drag(vp, [{ x: 230, y: 100 }], [{ x: 260, y: 100 }], 1050);
+    await lift(vp, 1100);
+    expect(onDragNode).toHaveBeenCalledWith('n1', { x: 210, y: 100 });
+    expect(onDragNodeEnd).toHaveBeenCalledWith('n1', { x: 210, y: 100 });
+    expect(transformOf(r)).toEqual({ translateX: 0, translateY: 0, scale: 6 });
+
+    // 130 screen px out is past the 84 px disc: that drag pans
+    await press(vp, [{ x: 330, y: 100 }], 2000);
+    await drag(vp, [{ x: 330, y: 100 }], [{ x: 300, y: 100 }], 2050);
+    await lift(vp, 2100);
+    expect(onDragNode).toHaveBeenCalledTimes(1);
+    expect(transformOf(r)).toEqual({ translateX: -30, translateY: 0, scale: 6 });
+  });
+
+
+  it('a node drag torn off by a second finger or a terminate still closes through onDragNodeEnd', async () => {
+    const onDragNode = jest.fn();
+    const onDragNodeEnd = jest.fn();
+    const r = await mount(<FloorPlan level={level} nodes={[{ id: 'n1', x: 100, y: 100 }]} selectedNodeId="n1" onDragNode={onDragNode} onDragNodeEnd={onDragNodeEnd} />);
+    const vp = r.getByTestId('wayfinduikit-plan') as unknown as Viewport;
+
+    // A second finger lands mid-drag: the drag ends with its
+    // last point BEFORE the phase re-bases into a pan, and the
+    // release of the now two-finger gesture does not end it again
+    await press(vp, [{ x: 100, y: 100 }], 1000);
+    await drag(vp, [{ x: 100, y: 100 }], [{ x: 150, y: 120 }], 1050);
+    expect(onDragNode).toHaveBeenCalledWith('n1', { x: 150, y: 120 });
+    await drag(vp, [{ x: 150, y: 120 }, { x: 250, y: 120 }], [{ x: 150, y: 120 }, { x: 250, y: 120 }], 1100);
+    expect(onDragNodeEnd).toHaveBeenCalledTimes(1);
+    expect(onDragNodeEnd).toHaveBeenCalledWith('n1', { x: 150, y: 120 });
+    await lift(vp, 1150);
+    expect(onDragNodeEnd).toHaveBeenCalledTimes(1);
+    expect(onDragNode).toHaveBeenCalledTimes(1);
+
+    // The system tearing the responder away closes the drag too
+    await press(vp, [{ x: 100, y: 100 }], 2000);
+    await drag(vp, [{ x: 100, y: 100 }], [{ x: 130, y: 110 }], 2050);
+    await act(async () => {
+      vp.props.onResponderTerminate(gesture([], [], 2100));
+    });
+    expect(onDragNodeEnd).toHaveBeenCalledTimes(2);
+    expect(onDragNodeEnd).toHaveBeenLastCalledWith('n1', { x: 130, y: 110 });
+  });
+
+
+  it('a level switch mid node-drag closes the drag before the camera resets', async () => {
+    const onDragNode = jest.fn();
+    const onDragNodeEnd = jest.fn();
+    const nodes = [{ id: 'n1', x: 100, y: 100 }];
+    const r = await mount(<FloorPlan level={level} nodes={nodes} selectedNodeId="n1" onDragNode={onDragNode} onDragNodeEnd={onDragNodeEnd} />);
+    const vp = r.getByTestId('wayfinduikit-plan') as unknown as Viewport;
+
+    await press(vp, [{ x: 100, y: 100 }], 1000);
+    await drag(vp, [{ x: 100, y: 100 }], [{ x: 150, y: 120 }], 1050);
+    await r.rerender(
+      <WayfindUiKitProvider locale="en">
+        <FloorPlan level={{ ...level, id: 'l2', label: '2' }} nodes={nodes} selectedNodeId="n1" onDragNode={onDragNode} onDragNodeEnd={onDragNodeEnd} />
+      </WayfindUiKitProvider>,
+    );
+    expect(onDragNodeEnd).toHaveBeenCalledWith('n1', { x: 150, y: 120 });
+    expect(transformOf(r)).toEqual({ translateX: 0, translateY: 0, scale: 1 });
   });
 });

@@ -91,8 +91,16 @@ generate at build time:
 - **Node kinds**: `corridor`, `door`, `stairs`, `elevator`, `ramp`,
   `entrance`, `room`. A node may carry the room it stands in or at the
   door of (`roomId`), a panorama shot taken at it plus the plan-space
-  bearing its centre column faces (`pano`, `panoYaw`), a printed code
-  (`qr`) and a `landmark` worth saying at a turn.
+  bearing its centre column faces (`pano`, `panoYaw`), what that photo
+  covers (`panoGeometry`: horizontal and vertical degrees plus the
+  centre's yaw and pitch — absent means a full sphere, or a full turn
+  with the vertical band the photo's aspect gives, which is what a phone
+  sweep is), where `panoYaw` came from (`panoHeading`: manual / aligned /
+  compass / path / auto with the raw sensor reading), authored hotspots
+  (`panoLinks`: target node, yaw, pitch, arrival yaw), a printed code
+  (`qr`) and a `landmark` worth saying at a turn. `validateGraph` warns
+  on a coverage the stage cannot draw (`bad_pano_geometry`) and on a
+  hotspot to a missing node (`pano_link_unknown`).
 - **Edge kinds**: `hallway`, `door`, `stairs`, `elevator`, `ramp`. The
   last three are *connectors* — the only kinds allowed to change level.
   An edge without `lengthM` measures the plan distance between its ends;
@@ -102,12 +110,24 @@ generate at build time:
   but it must not undercut its plan chord — the straight line between
   the ends times `metersPerPixel` — by more than half a percent, or
   `validateGraph` warns (`length_under_chord`); a length that is not a
-  finite number at or above 0 is an error (`bad_length`).
+  finite number at or above 0 is an error (`bad_length`). An edge may
+  carry an `id` (an editor and the server address it by one; routing
+  never reads it), `tags` (free words for editors and hosts; routing ignores
+  them), `delaySeconds` (a badge reader, a queue — added to its price)
+  and `closedUntil` (epoch milliseconds; refused until then, judged
+  against `RoutingOptions.at`, default now).
 - **Rooms** point at the node a route to them ends at (`nodeId`), carry
   a `category` for nearest-by-kind lookups (`wc`, `exit`, `lecture`,
   `office`, `service`, `food`, `other`, or any string), optional
-  `aliases` for search, a host-side translation key (`nameKey`) and an
-  optional `polygon` the arrival side is read from.
+  `aliases` for search, a host-side translation key (`nameKey`), a
+  second-language `nameEn`, an optional `polygon` the arrival side is
+  read from, and display facts a host renders: `hours` (a text rule),
+  `access` (public / students / staff / card), `accessibility`
+  (step-free, wide door, a note), `photos` and typed `details`.
+- **Levels and the building** may carry `northDeg` — the compass
+  bearing of the drawing's "up" — so a sensor heading becomes a plan
+  bearing (a level without one inherits the building's); the server
+  stamps `revision` and `publishedAt` on publish.
 - The tag vocabulary (room / corridor / door / stairs / elevator / level)
   is the common indoor-mapping one on purpose, so plans drawn for one
   tool stay readable by another.
@@ -163,8 +183,9 @@ elevator loses to the stairs for anyone who can take them while a long
 ride still wins. `walkingSpeeds` overrides any entry; an override that is
 not a positive finite number keeps the default (refusing a kind is what
 `avoid` is for). `edgeSeconds(index, edge)` is that pricing for one edge —
-it is what the ETA sums — and `ELEVATOR_WAIT_S` the wait; both are public
-so a host can quote a leg the way the router does.
+it is what the ETA sums, an edge's own `delaySeconds` included — and
+`ELEVATOR_WAIT_S` the wait; both are public so a host can quote a leg the
+way the router does.
 
 Accessibility is a **filter, not a cost** — a route that needs a refused
 edge does not exist, never a route that quietly breaks the promise:

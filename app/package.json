@@ -99,6 +99,8 @@
       "packages/socialuikit/src/**/*.{ts,tsx}",
       "packages/wayfindengine/src/**/*.{ts,tsx}",
       "packages/wayfinduikit/src/**/*.{ts,tsx}",
+      "packages/wayfindeditor/src/**/*.{ts,tsx}",
+      "packages/wayfindsync/src/**/*.{ts,tsx}",
       "components/**/*.{ts,tsx}",
       "context/**/*.{ts,tsx}",
       "hooks/**/*.{ts,tsx}",

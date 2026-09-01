@@ -158,3 +158,19 @@ describe('indexGraph — heuristicScale', () => {
     expect(indexGraph(graph).heuristicScale).toBe(1);
   });
 });
+
+
+describe('validateGraph — panorama facts', () => {
+  it('warns on a geometry the stage cannot draw and passes a sane one', () => {
+    const bad = building(chain, [{ ...node('p', 'L1', 5, 5), pano: 'p.jpg', panoGeometry: { hfovDeg: 400, vfovDeg: 90 } }, { ...node('q', 'L1', 6, 6), pano: 'q.jpg', panoGeometry: { hfovDeg: 360, vfovDeg: 106 } }]);
+    const codes = validateGraph(bad).filter((i) => i.code === 'bad_pano_geometry');
+    expect(codes).toEqual([expect.objectContaining({ severity: 'warning', ref: 'p' })]);
+  });
+
+  it('warns on a panorama link to a missing node or to itself', () => {
+    const graph = building(chain, [{ ...node('p', 'L1', 5, 5), panoLinks: [{ targetNodeId: 'a', yaw: 10 }, { targetNodeId: 'nowhere', yaw: 20 }, { targetNodeId: 'p', yaw: 30 }] }]);
+    const refs = validateGraph(graph).filter((i) => i.code === 'pano_link_unknown');
+    expect(refs).toHaveLength(2);
+    expect(refs.every((i) => i.ref === 'p' && i.severity === 'warning')).toBe(true);
+  });
+});

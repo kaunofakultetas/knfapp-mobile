@@ -84,6 +84,7 @@ const mockControl = {
   glViewThrows: false,
   loadFails: false,
   textureWidth: 4096,
+  textureHeight: 2048,
   // A held load resolves only when the test says so
   holdLoad: false,
   releaseLoad: null as null | (() => void),
@@ -141,7 +142,7 @@ jest.mock('expo-three', () => ({
   loadAsync: jest.fn(async () => {
     if (mockControl.holdLoad) await new Promise<void>((resolve) => (mockControl.releaseLoad = resolve));
     if (mockControl.loadFails) throw new Error('texture failed to decode');
-    const texture: FakeTexture = { dispose: jest.fn(), image: { width: mockControl.textureWidth, height: mockControl.textureWidth / 2 } };
+    const texture: FakeTexture = { dispose: jest.fn(), image: { width: mockControl.textureWidth, height: mockControl.textureHeight } };
     mockSpies.textures.push(texture);
     return texture;
   }),
@@ -321,6 +322,7 @@ beforeEach(() => {
   mockControl.releaseLoad = null;
   mockControl.lateContextMs = 0;
   mockControl.textureWidth = 4096;
+  mockControl.textureHeight = 2048;
   mockControl.glViewRenders.mockClear();
   mockGl.endFrameEXP.mockClear();
   mockLoadAsync.mockClear();
@@ -961,5 +963,55 @@ describe('PanoramaStage teardown', () => {
     expect(first.dispose).toHaveBeenCalledTimes(1);
     expect(mockSpies.materials[0].map).toBe(mockSpies.textures[1]);
     expect(mockSpies.scenes[0].add).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+describe('PanoramaStage coverage', () => {
+
+  it('builds the band an author declares, centred on its yaw, and keeps the view inside it', async () => {
+    const reports: number[] = [];
+    const r = await mount(<PanoramaStage source={SOURCE} renderer="sphere" height={HEIGHT} geometry={{ hfovDeg: 180, vfovDeg: 90, centreYawDeg: 30 }} onYawChange={(yaw) => reports.push(yaw)} />);
+    await settle();
+
+    const built = mockSpies.geometries[mockSpies.geometries.length - 1];
+    const [radius, , , phiStart, phiLength, thetaStart, thetaLength] = built.args;
+    expect(radius).toBe(10);
+    expect(phiStart).toBeCloseTo(Math.PI / 2, 9);
+    expect(phiLength).toBeCloseTo(Math.PI, 9);
+    expect(thetaStart).toBeCloseTo(Math.PI / 4, 9);
+    expect(thetaLength).toBeCloseTo(Math.PI / 2, 9);
+    expect(built.scale).toHaveBeenCalledWith(-1, 1, 1);
+    const mesh = mockSpies.meshes[mockSpies.meshes.length - 1];
+    expect(mesh.rotation.y).toBeCloseTo(-Math.PI / 2 - (30 * Math.PI) / 180, 9);
+
+    // Yaw 0 lies inside a 180° band centred on 30, so the view
+    // starts there; a hard drag right stops where the photo ends,
+    // (180 − 75) / 2 = 52.5° past the centre
+    expect(reports[0]).toBe(0);
+    await dragBy(r, -2000);
+    expect(reports[reports.length - 1]).toBe(Math.round(30 + 52.5));
+  });
+
+
+  it('reads a phone sweep\'s vertical band off the loaded photo and rebuilds the mesh once', async () => {
+    mockControl.textureWidth = 4096;
+    mockControl.textureHeight = 1200;
+    await mount(<PanoramaStage source={SOURCE} renderer="sphere" height={HEIGHT} />);
+    await settle();
+
+    // Whole at context time, the band once measured; the first
+    // mesh geometry released
+    const [whole, band] = mockSpies.geometries.slice(-2);
+    expect(whole.args).toHaveLength(3);
+    expect(whole.dispose).toHaveBeenCalledTimes(1);
+    const vfov = (360 / (4096 / 1200)) * (Math.PI / 180);
+    expect(band.args[3]).toBeCloseTo(0, 9);
+    expect(band.args[4]).toBeCloseTo(2 * Math.PI, 9);
+    expect(band.args[5]).toBeCloseTo(Math.PI / 2 - vfov / 2, 9);
+    expect(band.args[6]).toBeCloseTo(vfov, 9);
+    const mesh = mockSpies.meshes[mockSpies.meshes.length - 1];
+    expect(mesh.geometry).toBe(band);
+    expect(mesh.rotation.y).toBeCloseTo(-Math.PI / 2, 9);
   });
 });

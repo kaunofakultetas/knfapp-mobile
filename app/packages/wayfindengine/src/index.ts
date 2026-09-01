@@ -25,6 +25,10 @@ export type {
   TurnDirection,
   Instruction,
   NavigationState,
+  PanoGeometry,
+  PanoHeading,
+  PanoHeadingSource,
+  PanoLink,
 } from './core/types';
 
 // The index and the authoring checks

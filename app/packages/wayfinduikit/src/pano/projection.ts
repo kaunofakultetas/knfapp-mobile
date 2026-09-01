@@ -42,6 +42,9 @@
 //    - the host app, through the root export
 // -----------------------------------------------------------
 
+import type { KitPanoGeometry } from '../core/types';
+
+
 const DEG = Math.PI / 180;
 
 // Depth at or under this counts as behind the camera — see
@@ -212,14 +215,16 @@ export function clampToEdge(
 //   - pano/FlatPanorama.tsx — the yaw reported to the host
 // -----------------------------------------------------------
 
-export function flatViewYaw(scrollOffset: number, tileWidth: number, windowWidth: number): number {
+export function flatViewYaw(scrollOffset: number, tileWidth: number, windowWidth: number, hfovDeg = 360, centreYawDeg = 0): number {
 
   if (!(tileWidth > 0)) return 0;
 
 
+  // A full turn loops through the tiles; a partial photo is one
+  // tile whose columns run from centre − hfov/2 to centre + hfov/2
   const centre = scrollOffset + windowWidth / 2;
-  const within = ((centre % tileWidth) + tileWidth) % tileWidth;
-  return ((within / tileWidth) * 360 + 180) % 360;
+  const within = hfovDeg >= 360 ? ((centre % tileWidth) + tileWidth) % tileWidth : Math.min(tileWidth, Math.max(0, centre));
+  return foldYaw(centreYawDeg + (within / tileWidth - 0.5) * hfovDeg);
 }
 
 
@@ -248,10 +253,103 @@ export function flatMarkerX(
   tileWidth: number,
   windowWidth: number,
   targetYaw: number,
+  hfovDeg = 360,
+  centreYawDeg = 0,
 ): { x: number; deltaDeg: number } {
 
-  const deltaDeg = shortestArcDeg(flatViewYaw(scrollOffset, tileWidth, windowWidth), targetYaw);
+  const deltaDeg = shortestArcDeg(flatViewYaw(scrollOffset, tileWidth, windowWidth, hfovDeg, centreYawDeg), targetYaw);
 
 
-  return { x: windowWidth / 2 + (deltaDeg / 360) * Math.max(0, tileWidth), deltaDeg };
+  // The strip's own degrees per pixel: the photo's coverage over
+  // its tile width
+  return { x: windowWidth / 2 + (deltaDeg / Math.max(1, hfovDeg)) * Math.max(0, tileWidth), deltaDeg };
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// resolvePanoGeometry / viewLimits / limitYaw / limitPitch
+// -----------------------------------------------------------
+//
+// What a photo covers, and how far a view may turn inside it.
+// An author's geometry wins; without one the photo's aspect
+// decides: 2:1 is the whole sphere, a phone sweep a full turn
+// with a vertical band of 360 · height / width degrees, and an
+// unmeasured photo is taken as whole. The limits keep the view
+// inside the picture: a partial turn may not swing past the
+// photo's ends by more than the view's own half-width shows,
+// so the edge of the photo reaches the edge of the stage and
+// no further; a coverage narrower than the view locks the view
+// on the photo's centre. A whole sphere keeps the old freedom
+// (any yaw, pitch to ±maxPitchDeg).
+//
+// Used by:
+//   - pano/FlatPanorama.tsx — the strip's shape and the hotspot rows
+//   - pano/PanoramaStage.tsx — the band mesh and the drag / sensor clamps
+//   - the host app, through the root export
+// -----------------------------------------------------------
+
+export interface ResolvedPanoGeometry {
+  hfovDeg: number;
+  vfovDeg: number;
+  centreYawDeg: number;
+  vOffsetDeg: number;
+}
+
+export interface ViewLimits {
+  centreYawDeg: number;
+  // null: a full turn, no yaw limit
+  yawHalfSpanDeg: number | null;
+  pitchMinDeg: number;
+  pitchMaxDeg: number;
+}
+
+const foldYaw = (yaw: number): number => ((yaw % 360) + 360) % 360;
+
+const finiteOr = (value: unknown, fallback: number): number => (typeof value === 'number' && Number.isFinite(value) ? value : fallback);
+
+export function resolvePanoGeometry(geometry: KitPanoGeometry | null | undefined, aspect?: number | null): ResolvedPanoGeometry {
+
+  if (geometry) {
+    return {
+      hfovDeg: Math.min(360, Math.max(1, finiteOr(geometry.hfovDeg, 360))),
+      vfovDeg: Math.min(180, Math.max(1, finiteOr(geometry.vfovDeg, 180))),
+      centreYawDeg: foldYaw(finiteOr(geometry.centreYawDeg, 0)),
+      vOffsetDeg: Math.max(-90, Math.min(90, finiteOr(geometry.vOffsetDeg, 0))),
+    };
+  }
+
+
+  const byAspect = typeof aspect === 'number' && aspect > 0 ? 360 / aspect : 180;
+  return { hfovDeg: 360, vfovDeg: Math.min(180, Math.max(1, byAspect)), centreYawDeg: 0, vOffsetDeg: 0 };
+}
+
+
+export function viewLimits(geometry: ResolvedPanoGeometry, viewHfovDeg: number, viewVfovDeg: number, maxPitchDeg = 85): ViewLimits {
+
+  const yawHalfSpanDeg = geometry.hfovDeg >= 360 ? null : Math.max(0, (geometry.hfovDeg - viewHfovDeg) / 2);
+
+
+  if (geometry.vfovDeg >= 180) return { centreYawDeg: geometry.centreYawDeg, yawHalfSpanDeg, pitchMinDeg: -maxPitchDeg, pitchMaxDeg: maxPitchDeg };
+  const half = Math.max(0, (geometry.vfovDeg - viewVfovDeg) / 2);
+  const low = Math.max(-maxPitchDeg, geometry.vOffsetDeg - half);
+  const high = Math.min(maxPitchDeg, geometry.vOffsetDeg + half);
+  return { centreYawDeg: geometry.centreYawDeg, yawHalfSpanDeg, pitchMinDeg: Math.min(low, high), pitchMaxDeg: Math.max(low, high) };
+}
+
+
+export function limitYaw(yaw: number, limits: ViewLimits): number {
+  if (limits.yawHalfSpanDeg === null) return foldYaw(yaw);
+  const away = shortestArcDeg(limits.centreYawDeg, yaw);
+  const held = Math.max(-limits.yawHalfSpanDeg, Math.min(limits.yawHalfSpanDeg, away));
+  return foldYaw(limits.centreYawDeg + held);
+}
+
+
+export function limitPitch(pitch: number, limits: ViewLimits): number {
+  return Math.max(limits.pitchMinDeg, Math.min(limits.pitchMaxDeg, pitch));
 }

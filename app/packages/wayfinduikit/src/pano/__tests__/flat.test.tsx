@@ -19,7 +19,7 @@
 //  0 is a tile's middle column, 300 px in from its left edge.
 // -----------------------------------------------------------
 
-import { fireEvent, render } from '@testing-library/react-native';
+import { act, fireEvent, render } from '@testing-library/react-native';
 import type { ReactElement } from 'react';
 import { Animated, StyleSheet } from 'react-native';
 
@@ -440,5 +440,47 @@ describe('FlatPanorama photo identity', () => {
     expect(marker(r).props.accessibilityLabel).toBe(en.markerAligned);
     expect(timing.mock.calls.length).toBe(hintsShown + 1);
     timing.mockRestore();
+  });
+});
+
+
+describe('FlatPanorama partial photo', () => {
+
+  it('lays one tile, reports yaws inside the coverage and never teleports', async () => {
+    const reports: number[] = [];
+    const r = await wrap(<FlatPanorama source={{ uri: 'https://x/pano.jpg' }} geometry={{ hfovDeg: 90, vfovDeg: 60 }} targetYaw={45} height={HEIGHT} onYawChange={(yaw) => reports.push(yaw)} />);
+    await layOut(r);
+
+    // A 2:1 photo at 300 high is one 600 px tile — no copies, no padding
+    expect(flat(r.getByTestId('wayfinduikit-flat-strip')).width).toBe(TILE);
+    expect(reports).toEqual([0]);
+
+    await scrollTo(r, 0);
+    expect(reports).toEqual([0, 345]);
+    // 45° lies 60° right of the view: at 600 px per 90° that is
+    // 400 px past the centre, so the marker pins at the edge
+    expect(flat(r.getByTestId('wayfinduikit-flat-marker')).left as number).toBeGreaterThan(STAGE_WIDTH / 2);
+    expect(flat(disc(r).parent as { props: { style?: unknown } }).backgroundColor).toBe('transparent');
+
+    await scrollTo(r, 200);
+    expect(reports).toEqual([0, 345, 15]);
+
+    // Ending a drag near the strip's end folds nothing back — a
+    // looping strip would have jumped a whole tile here
+    await act(async () => {
+      fireEvent(r.getByTestId('wayfinduikit-flat-stage-scroll'), 'scrollEndDrag', { nativeEvent: { contentOffset: { x: 590, y: 0 }, velocity: { x: 0, y: 0 } } });
+    });
+    expect(reports).toEqual([0, 345, 15]);
+  });
+
+
+  it('centres a tile narrower than the stage with padding', async () => {
+    const r = await wrap(<FlatPanorama source={{ uri: 'https://x/pano.jpg' }} geometry={{ hfovDeg: 60, vfovDeg: 40 }} height={100} />);
+    await layOut(r);
+
+    // A 200 px tile in a 400 px stage sits behind 100 px of pad
+    const strip = flat(r.getByTestId('wayfinduikit-flat-strip'));
+    expect(strip.width).toBe(STAGE_WIDTH);
+    expect(strip.paddingHorizontal).toBe(100);
   });
 });

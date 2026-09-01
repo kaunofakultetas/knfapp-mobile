@@ -33,6 +33,11 @@ export interface Level {
   metersPerPixel: number;
   // Numeric floor for ordering and "up / down" wording
   ordinal: number;
+  // Compass bearing (degrees, clockwise from magnetic north) of
+  // the drawing's "up" — turns a sensor heading into a plan
+  // bearing; null until an admin calibrates the level. Falls
+  // back to BuildingGraph.northDeg
+  northDeg?: number | null;
 }
 
 export type NodeKind = 'corridor' | 'door' | 'stairs' | 'elevator' | 'ramp' | 'entrance' | 'room';
@@ -51,15 +56,62 @@ export interface GraphNode {
   // clockwise) — the stage derives the marker yaw from these
   pano?: string | null;
   panoYaw?: number | null;
+  // What the photo covers — absent means a full sphere, or, for
+  // a photo whose aspect says otherwise, a full turn with the
+  // vertical range the aspect gives (a phone sweep)
+  panoGeometry?: PanoGeometry | null;
+  // Where panoYaw came from, so a compass guess is never
+  // mistaken for an admin's alignment
+  panoHeading?: PanoHeading | null;
+  // Authored hotspots to other panoramas; absent → the host
+  // derives them from adjacency
+  panoLinks?: PanoLink[] | null;
   // A QR anchor payload physically posted here
   qr?: string | null;
   // A named feature nearby worth saying ("towards the library")
   landmark?: string | null;
 }
 
+// The part of the sphere a panorama covers, in degrees. A full
+// equirectangular photo is 360 × 180 centred on the horizon; a
+// phone sweep is 360 × (360 · height / width); a single frame
+// is the camera's own field of view
+export interface PanoGeometry {
+  hfovDeg: number;
+  vfovDeg: number;
+  // Yaw of the photo's centre column inside the sphere, when
+  // the photo is not a full turn (0 = straight ahead)
+  centreYawDeg?: number | null;
+  // Pitch of the photo's centre row above the horizon
+  vOffsetDeg?: number | null;
+}
+
+export type PanoHeadingSource = 'manual' | 'aligned' | 'compass' | 'path' | 'auto';
+
+export interface PanoHeading {
+  source: PanoHeadingSource;
+  // The sensor reading at capture, degrees clockwise from
+  // magnetic north, kept beside the derived panoYaw
+  rawDeg?: number | null;
+  // 0..1, from the sensor's own calibration state
+  confidence?: number | null;
+}
+
+// An authored hotspot: where the target sits in THIS panorama
+// and, optionally, which way the walker faces on arrival
+export interface PanoLink {
+  targetNodeId: string;
+  yaw: number;
+  pitch?: number | null;
+  arrivalYaw?: number | null;
+}
+
 export type EdgeKind = 'hallway' | 'door' | 'stairs' | 'elevator' | 'ramp';
 
 export interface GraphEdge {
+  // Optional — an editor and the server address an edge by it;
+  // the router only ever reads a, b and kind
+  id?: string | null;
   a: string;
   b: string;
   kind: EdgeKind;
@@ -68,6 +120,15 @@ export interface GraphEdge {
   lengthM?: number | null;
   // Walk only a → b (a one-way turnstile, an exit-only door)
   oneWay?: boolean;
+  // Free-form authoring tags ("card-access", "staff-only",
+  // "steps:3") — routing ignores them, hosts and editors read them
+  tags?: string[] | null;
+  // Seconds the walker loses here beyond walking it — a badge
+  // reader, a queue, a heavy door
+  delaySeconds?: number | null;
+  // Epoch milliseconds until which the edge is shut (a closed
+  // stairwell); refused while RoutingOptions.at is before it
+  closedUntil?: number | null;
 }
 
 export type RoomCategory = 'wc' | 'exit' | 'lecture' | 'office' | 'service' | 'food' | 'other' | (string & {});
@@ -84,6 +145,19 @@ export interface Room {
   category?: RoomCategory | null;
   // Extra search words (old numbers, nicknames)
   aliases?: string[] | null;
+  // Second-language name, searched beside `name`
+  nameEn?: string | null;
+  // Opening hours as a text rule the host renders / evaluates
+  // ("Mo-Fr 08:00-20:00")
+  hours?: string | null;
+  // Who may enter: everyone, students, staff, by card
+  access?: 'public' | 'students' | 'staff' | 'card' | null;
+  // Step-free / wide-door facts the accessible route cares about
+  accessibility?: { stepFree?: boolean; wideDoor?: boolean; note?: string | null } | null;
+  // Photo references the host resolves, like Level.plan
+  photos?: string[] | null;
+  // Any further typed facts (capacity, unit, phone)
+  details?: Record<string, string | number | boolean> | null;
 }
 
 export interface BuildingGraph {
@@ -95,6 +169,12 @@ export interface BuildingGraph {
   rooms: Room[];
   // The node the "route from the entrance" default starts at
   entranceNodeId?: string | null;
+  // Building-wide compass bearing of plan "up", inherited by
+  // levels without their own
+  northDeg?: number | null;
+  // Set by the server on publish; the host's cache keys on it
+  revision?: number | null;
+  publishedAt?: string | null;
 }
 
 // -----------------------------------------------------------
@@ -117,6 +197,9 @@ export interface RoutingOptions {
   // Metres per second per edge kind for the ETA — defaults in
   // core/route.ts
   walkingSpeeds?: Partial<Record<EdgeKind, number>>;
+  // "Now" for closedUntil checks, epoch milliseconds; omitted →
+  // the wall clock at search time
+  at?: number;
 }
 
 export interface RoutePoint {

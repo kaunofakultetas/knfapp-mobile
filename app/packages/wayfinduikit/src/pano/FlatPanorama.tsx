@@ -9,7 +9,9 @@
 //  off the middle tile the offset teleports back by whole
 //  tiles — invisible, because every placement here is modulo
 //  the tile — and only THEN, since teleporting mid-gesture
-//  kills the fling.
+//  kills the fling. A partial photo (a coverage under a full
+//  turn) is ONE tile, padded to the stage's width when narrower,
+//  and never teleports — its ends are the strip's ends.
 //
 //  Over the strip sit the route marker (anchored where the
 //  target yaw is, clamped to the edges so it is always
@@ -78,10 +80,10 @@ import {
   type NativeSyntheticEvent,
 } from 'react-native';
 
-import type { KitHotspot } from '../core/types';
+import type { KitHotspot, KitPanoGeometry } from '../core/types';
 import { useKitEnv, useKitLabels, useKitTheme } from '../provider';
 import DirectionMarker, { MARKER_SIZE } from './DirectionMarker';
-import { clampToEdge, flatMarkerX, flatViewYaw, shortestArcDeg } from './projection';
+import { clampToEdge, flatMarkerX, flatViewYaw, resolvePanoGeometry, shortestArcDeg } from './projection';
 
 
 // A stored reference (resolved through env.resolveImageUrl),
@@ -113,18 +115,41 @@ export interface FlatPanoramaProps {
   // Where the view faces on mount, in the photo's frame; later
   // changes are ignored — once mounted the view is the walker's
   initialYaw?: number;
+  // What the photo covers; absent → a full turn, the vertical
+  // band read off the photo's aspect once it is measured
+  geometry?: KitPanoGeometry | null;
 }
 
 
-// The strip: the on-screen tile plus two of buffer either side
+// The looping strip: the on-screen tile plus two of buffer
+// either side; a partial photo is one tile
 const TILE_COPIES = 5;
 const MIDDLE_TILE = 2;
 
+// How the strip is laid for a coverage: the copies, which one is
+// on screen, and the padding that centres a tile narrower than
+// the stage
+interface StripShape {
+  loops: boolean;
+  copies: number;
+  middle: number;
+  pad: number;
+}
+
+const stripShape = (hfovDeg: number, tileWidth: number, stageWidth: number): StripShape => {
+  const loops = hfovDeg >= 360;
+  return { loops, copies: loops ? TILE_COPIES : 1, middle: loops ? MIDDLE_TILE : 0, pad: loops ? 0 : Math.max(0, (stageWidth - tileWidth) / 2) };
+};
+
 // The offset that puts `yaw` at the view centre, inside the
-// middle tile: the tile's own middle column is yaw 0, half a
-// tile in from its left edge
-const offsetForYaw = (yaw: number, tileWidth: number, windowWidth: number): number =>
-  tileWidth * MIDDLE_TILE + tileWidth / 2 - windowWidth / 2 + (yaw / 360) * tileWidth;
+// on-screen tile: the tile's own middle column is the centre
+// yaw, half a tile in from its left edge. A looping strip reads
+// the yaw as a fraction of the turn; a partial one as the short
+// arc from its centre
+const offsetForYaw = (yaw: number, tileWidth: number, windowWidth: number, hfovDeg: number, centreYawDeg: number, shape: StripShape): number => {
+  const turn = shape.loops ? ((yaw % 360) + 360) % 360 : shortestArcDeg(centreYawDeg, yaw);
+  return shape.pad + tileWidth * shape.middle + tileWidth / 2 - windowWidth / 2 + (turn / hfovDeg) * tileWidth;
+};
 
 // What the strip was last laid out for, and where: an offset
 // only means a yaw under the tile and width it was measured
@@ -133,6 +158,9 @@ interface StripLayout {
   key: PanoSourceKey;
   tileWidth: number;
   stageWidth: number;
+  hfovDeg: number;
+  centreYawDeg: number;
+  shape: StripShape;
   offset: number;
 }
 
@@ -186,11 +214,15 @@ const PanoramaTiles = memo(function PanoramaTiles({
   source,
   tileWidth,
   height,
+  copies,
+  pad,
   onLoad,
 }: {
   source: PanoSource;
   tileWidth: number;
   height: number;
+  copies: number;
+  pad: number;
   onLoad: (event: ImageLoadEventData) => void;
 }) {
 
@@ -198,8 +230,8 @@ const PanoramaTiles = memo(function PanoramaTiles({
 
 
   return (
-    <View style={{ width: tileWidth * TILE_COPIES, height, flexDirection: 'row' }}>
-      {Array.from({ length: TILE_COPIES }, (_, index) => (
+    <View testID="wayfinduikit-flat-strip" style={{ width: pad * 2 + tileWidth * copies, height, flexDirection: 'row', paddingHorizontal: pad }}>
+      {Array.from({ length: copies }, (_, index) => (
         <ExpoImage
           key={index}
           testID={index === 0 ? 'wayfinduikit-flat-tile' : undefined}
@@ -353,6 +385,7 @@ export default function FlatPanorama({
   showHint = true,
   height = 260,
   initialYaw = 0,
+  geometry = null,
 }: FlatPanoramaProps) {
 
   const { colors } = useKitTheme();
@@ -409,6 +442,10 @@ export default function FlatPanorama({
   // The width at which the whole photo fits the stage height
   const tileWidth = Math.max(1, height * (measuredAspect ?? bundledAspect));
 
+  // The coverage — the author's word, else the photo's aspect —
+  // and the strip it calls for
+  const { hfovDeg, vfovDeg, centreYawDeg, vOffsetDeg } = resolvePanoGeometry(geometry, measuredAspect ?? bundledAspect);
+
 
   const scrollRef = useRef<ScrollView | null>(null);
 
@@ -424,19 +461,21 @@ export default function FlatPanorama({
   // wear them); a new tile (the aspect measured) or a new stage
   // width (the window guess replaced by the layout, a rotation)
   // keeps the yaw the view had under the old geometry
-  const [laid, setLaid] = useState<StripLayout>(() => ({ key: sourceKey, tileWidth, stageWidth, offset: offsetForYaw(initialYawRef.current, tileWidth, stageWidth) }));
+  const shape = stripShape(hfovDeg, tileWidth, stageWidth);
+  const [laid, setLaid] = useState<StripLayout>(() => ({ key: sourceKey, tileWidth, stageWidth, hfovDeg, centreYawDeg, shape, offset: offsetForYaw(initialYawRef.current, tileWidth, stageWidth, hfovDeg, centreYawDeg, shape) }));
   const [offset, setOffset] = useState(laid.offset);
   const newPhoto = laid.key !== sourceKey;
-  if (newPhoto || laid.tileWidth !== tileWidth || laid.stageWidth !== stageWidth) {
+  if (newPhoto || laid.tileWidth !== tileWidth || laid.stageWidth !== stageWidth || laid.hfovDeg !== hfovDeg || laid.centreYawDeg !== centreYawDeg) {
     if (newPhoto) {
       setMeasuredAspect(null);
       setHintEpoch((epoch) => epoch + 1);
     }
-    const yaw = newPhoto ? initialYawRef.current : flatViewYaw(offset, laid.tileWidth, laid.stageWidth);
-    const x = offsetForYaw(yaw, tileWidth, stageWidth);
-    setLaid({ key: sourceKey, tileWidth, stageWidth, offset: x });
+    const yaw = newPhoto ? initialYawRef.current : flatViewYaw(offset - laid.shape.pad, laid.tileWidth, laid.stageWidth, laid.hfovDeg, laid.centreYawDeg);
+    const x = offsetForYaw(yaw, tileWidth, stageWidth, hfovDeg, centreYawDeg, shape);
+    setLaid({ key: sourceKey, tileWidth, stageWidth, hfovDeg, centreYawDeg, shape, offset: x });
     setOffset(x);
   }
+  const { loops, pad } = laid.shape;
 
   // The first frame's offset, for the native contentOffset prop;
   // it never changes, so the prop never fights a scroll of its
@@ -460,12 +499,13 @@ export default function FlatPanorama({
   // programmatic scroll back as an event
   const recentre = useCallback(
     (x: number) => {
+      if (!loops) return;
       const centred = x - tileWidth * Math.round(x / tileWidth - MIDDLE_TILE);
       if (centred === x) return;
       scrollRef.current?.scrollTo({ x: centred, animated: false });
       setOffset(centred);
     },
-    [tileWidth],
+    [tileWidth, loops],
   );
 
   const onMomentumEnd = useCallback(
@@ -493,35 +533,36 @@ export default function FlatPanorama({
   onYawRef.current = onYawChange;
   const lastReportedYaw = useRef<number | null>(null);
   useEffect(() => {
-    const yaw = Math.round(flatViewYaw(offset, tileWidth, stageWidth)) % 360;
+    const yaw = Math.round(flatViewYaw(offset - pad, tileWidth, stageWidth, hfovDeg, centreYawDeg)) % 360;
     const last = lastReportedYaw.current;
     if (last !== null && Math.abs(shortestArcDeg(last, yaw)) < YAW_REPORT_STEP_DEG) return;
     lastReportedYaw.current = yaw;
     onYawRef.current?.(yaw);
-  }, [offset, tileWidth, stageWidth]);
+  }, [offset, pad, tileWidth, stageWidth, hfovDeg, centreYawDeg]);
 
 
   // The marker anchors mid-height on the target's column,
   // pulled inside the stage by its own half plus a little air
-  const marker = targetYaw != null ? flatMarkerX(offset, tileWidth, stageWidth, targetYaw) : null;
+  const marker = targetYaw != null ? flatMarkerX(offset - pad, tileWidth, stageWidth, targetYaw, hfovDeg, centreYawDeg) : null;
   const markerAnchor = marker
     ? clampToEdge({ x: marker.x, y: height / 2 }, { width: stageWidth, height }, MARKER_SIZE / 2 + MARKER_EDGE_INSET)
     : null;
 
 
   // Hotspots keep their true column and their pitch — the
-  // photo's height spans the horizon ±90° — and simply vanish
-  // once their footprint has fully left the stage
+  // photo's height spans its vertical coverage, the whole
+  // horizon ±90° for a sphere — and simply vanish once their
+  // footprint has fully left the stage
   const placedHotspots = useMemo(
     () =>
       (hotspots ?? []).flatMap((hotspot) => {
-        const { x } = flatMarkerX(offset, tileWidth, stageWidth, hotspot.yaw);
+        const { x } = flatMarkerX(offset - pad, tileWidth, stageWidth, hotspot.yaw, hfovDeg, centreYawDeg);
         if (x < -HOTSPOT_SIZE / 2 || x > stageWidth + HOTSPOT_SIZE / 2) return [];
-        const raw = height / 2 - ((hotspot.pitch ?? 0) / 180) * height;
+        const raw = height / 2 - (((hotspot.pitch ?? 0) - vOffsetDeg) / vfovDeg) * height;
         const y = Math.min(Math.max(raw, HOTSPOT_SIZE / 2), height - HOTSPOT_SIZE / 2);
         return [{ hotspot, x, y }];
       }),
-    [hotspots, offset, tileWidth, stageWidth, height],
+    [hotspots, offset, pad, tileWidth, stageWidth, height, hfovDeg, centreYawDeg, vfovDeg, vOffsetDeg],
   );
 
 
@@ -541,7 +582,7 @@ export default function FlatPanorama({
         onScrollEndDrag={onDragEnd}
         onMomentumScrollEnd={onMomentumEnd}
       >
-        <PanoramaTiles source={resolvedSource} tileWidth={tileWidth} height={height} onLoad={onImageLoad} />
+        <PanoramaTiles source={resolvedSource} tileWidth={tileWidth} height={height} copies={laid.shape.copies} pad={pad} onLoad={onImageLoad} />
       </ScrollView>
 
       {placedHotspots.map(({ hotspot, x, y }) => (

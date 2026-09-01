@@ -36,6 +36,21 @@
 //  FOCUS_SCALE, because centring a point on a drawing that
 //  already fits the viewport would move nothing at all.
 //
+//  Editing hosts get three more intents, all in PLAN pixels so
+//  an editor never learns the screen: a tap on the drawing
+//  that no shape took (onPressPlan — "add a node here"; a
+//  gesture that ever held two fingers is never a tap, however
+//  it ends), and the drag of the SELECTED node (onDragNode per
+//  move, onDragNodeEnd with the last point when the drag ends
+//  ANY way — a release, a second finger landing, a responder
+//  terminate, a level switch — so a host's bookkeeping always
+//  closes). A drag that begins within the node's hit radius
+//  moves the node instead of the camera, and the grab zone
+//  follows the zoom — the disc the overlay draws is the disc a
+//  finger can grab; every other node stays a tap target and
+//  the plan still pans. The selected node is drawn in the
+//  brand ink.
+//
 //  Points carry their floor: a start, end, youAreHere or focus
 //  point may name a level, and one naming a level other than
 //  the shown one is neither drawn nor glided to — so a host may
@@ -61,6 +76,7 @@
 //    centreOn         — the translation that centres a plan point
 //    onShownLevel     — a point as far as the shown level is concerned
 //    readFingers      — a touch event as the camera sees it
+//    toPlan           — a viewport point as a plan point
 //    Overlay          — the one Svg drawn over the host's plan
 //    FloorPlan        — the viewport (default export)
 // -----------------------------------------------------------
@@ -122,6 +138,11 @@ interface Phase {
   dy: number;
   mid: PlanPoint;
   dist: number;
+  // 'node': the selected node rides the finger instead of the camera
+  mode: 'pan' | 'node';
+  nodeId: string | null;
+  last: PlanPoint;
+  at: number;
 }
 
 interface Fingers {
@@ -139,6 +160,9 @@ const TAP_SLOP = 6;
 
 const FOCUS_SCALE = 2;
 const FOCUS_MS = 320;
+
+// A press and release within this, without movement, is a tap
+const TAP_MS = 350;
 
 // Marker weights in SCREEN pixels at scale 1 — the overlay
 // converts them to plan units, so a drawing of any resolution
@@ -332,6 +356,43 @@ export function onShownLevel(point: PlanPoint | null | undefined, levelId: strin
 //   - FloorPlan (below) — the grant and move handlers
 // -----------------------------------------------------------
 
+// -----------------------------------------------------------
+// toPlan / toContent
+// -----------------------------------------------------------
+//
+// A viewport point → the drawing's own pixels, through the
+// camera: the content layer is translated by (tx, ty) and
+// scaled about its centre, so the content point is the centre
+// plus the offset divided by the scale; the plan point then
+// scales the content box to the viewBox.
+//
+// Used by:
+//   - FloorPlan (below) — onPressPlan and the node drag
+// -----------------------------------------------------------
+
+function toContent(view: PlanPoint, camera: Camera, content: Size): PlanPoint {
+  const cx = content.width / 2;
+  const cy = content.height / 2;
+  return { x: cx + (view.x - cx - camera.tx) / camera.scale, y: cy + (view.y - cy - camera.ty) / camera.scale };
+}
+
+function toPlan(view: PlanPoint, camera: Camera, content: Size, level: KitLevel): PlanPoint {
+  const [minX, minY, vbW, vbH] = level.viewBox;
+  const point = toContent(view, camera, content);
+  return { x: minX + (point.x * vbW) / Math.max(1, content.width), y: minY + (point.y * vbH) / Math.max(1, content.height) };
+}
+
+function fromPlan(point: PlanPoint, content: Size, level: KitLevel): PlanPoint {
+  const [minX, minY, vbW, vbH] = level.viewBox;
+  return { x: ((point.x - minX) * content.width) / Math.max(1, vbW), y: ((point.y - minY) * content.height) / Math.max(1, vbH) };
+}
+
+
+
+
+
+
+
 function readFingers(evt: GestureResponderEvent, g: PanResponderGestureState, origin: PlanPoint): Fingers {
   const touches = evt.nativeEvent?.touches ?? [];
 
@@ -390,6 +451,7 @@ function Overlay({
   youAreHere,
   nodes,
   rooms,
+  selectedNodeId,
   onPressNode,
   onPressRoom,
 }: {
@@ -401,6 +463,7 @@ function Overlay({
   youAreHere: PlanPoint | null;
   nodes: readonly PlanNode[];
   rooms: readonly PlanRoom[];
+  selectedNodeId?: string | null;
   onPressNode?: (id: string) => void;
   onPressRoom?: (id: string) => void;
 }) {
@@ -457,7 +520,15 @@ function Overlay({
           accessibilityLabel={node.label ?? node.id}
         >
           <Circle cx={node.x} cy={node.y} r={NODE_HIT_PX * u} fill="transparent" />
-          <Circle cx={node.x} cy={node.y} r={NODE_PX * u} fill={colors.surface} stroke={colors.planInk} strokeWidth={1.5 * u} />
+          <Circle
+            testID={node.id === selectedNodeId ? 'wayfinduikit-plan-node-selected' : undefined}
+            cx={node.x}
+            cy={node.y}
+            r={(node.id === selectedNodeId ? NODE_PX * 1.6 : NODE_PX) * u}
+            fill={node.id === selectedNodeId ? colors.brand : colors.surface}
+            stroke={node.id === selectedNodeId ? colors.surface : colors.planInk}
+            strokeWidth={1.5 * u}
+          />
         </G>
       ))}
 
@@ -518,6 +589,10 @@ export default function FloorPlan({
   rooms = [],
   onPressNode,
   onPressRoom,
+  selectedNodeId = null,
+  onPressPlan,
+  onDragNode,
+  onDragNodeEnd,
   focus = null,
   minScale = 1,
   maxScale = 4,
@@ -533,6 +608,13 @@ export default function FloorPlan({
   rooms?: readonly PlanRoom[];
   onPressNode?: (id: string) => void;
   onPressRoom?: (id: string) => void;
+  // Editing: the node drawn selected and, when onDragNode is
+  // given, the one a drag moves
+  selectedNodeId?: string | null;
+  // A tap on the drawing no shape took, in plan pixels
+  onPressPlan?: (point: PlanPoint) => void;
+  onDragNode?: (id: string, point: PlanPoint) => void;
+  onDragNodeEnd?: (id: string, point: PlanPoint) => void;
   focus?: PlanPoint | null;
   minScale?: number;
   maxScale?: number;
@@ -564,6 +646,33 @@ export default function FloorPlan({
   levelRef.current = level;
   const geomRef = useRef({ frame, content, minScale, maxScale });
   geomRef.current = { frame, content, minScale, maxScale };
+  const editRef = useRef({ selectedNodeId, nodes, onPressPlan, onDragNode, onDragNodeEnd });
+  editRef.current = { selectedNodeId, nodes, onPressPlan, onDragNode, onDragNodeEnd };
+
+
+  // Whether this gesture EVER held two fingers: a symmetric
+  // pinch released one finger at a time keeps the centroid
+  // still and re-bases into a fresh one-finger phase, so the
+  // release would otherwise read as a bare tap at whichever
+  // finger left last. Only a fresh grant clears the memory
+  const pinchedRef = useRef(false);
+
+  // The plan point under a viewport point, with the camera as
+  // it stands — the tap, the node drag and every torn-off drag
+  // closing below convert through it
+  const planAt = useCallback((view: PlanPoint): PlanPoint => toPlan(view, camRef.current, geomRef.current.content, levelRef.current), []);
+
+  // A node-mode phase that ends any way but a clean release —
+  // a second finger landing, a responder terminate, a level
+  // switch — still closes through onDragNodeEnd with its last
+  // point, so a host's gesture bookkeeping (an open undo step)
+  // is never left hanging on a drag that never releases
+  const endNodePhase = useCallback(
+    (phase: Phase | null) => {
+      if (phase && phase.mode === 'node' && phase.nodeId) editRef.current.onDragNodeEnd?.(phase.nodeId, planAt(phase.last));
+    },
+    [planAt],
+  );
 
 
   // The one door to the camera: bounds applied, ref and values
@@ -600,7 +709,26 @@ export default function FloorPlan({
 
     const beginPhase = (evt: GestureResponderEvent, g: PanResponderGestureState): Phase => {
       const f = readFingers(evt, g, originRef.current);
-      return { touches: f.count, camera: { ...camRef.current }, dx: g.dx, dy: g.dy, mid: f.mid, dist: f.dist };
+      const at = typeof evt.nativeEvent?.timestamp === 'number' ? evt.nativeEvent.timestamp : Date.now();
+      return { touches: f.count, camera: { ...camRef.current }, dx: g.dx, dy: g.dy, mid: f.mid, dist: f.dist, mode: 'pan', nodeId: null, last: f.mid, at };
+    };
+
+    // A one-finger gesture that began on the selected node moves
+    // it. The grab zone follows the zoom — the overlay draws the
+    // hit disc at NODE_HIT_PX·scale screen px, so the disc a
+    // finger sees is the disc it can grab — with a floor of
+    // NODE_HIT_PX + TAP_SLOP screen px, so a tiny node on a
+    // zoomed-out plan is still easy to catch
+    const grabbedNode = (phase: Phase): string | null => {
+      const edit = editRef.current;
+      if (phase.touches !== 1 || !edit.selectedNodeId || !edit.onDragNode) return null;
+      const node = edit.nodes.find((n) => n.id === edit.selectedNodeId);
+      if (!node) return null;
+      const { content } = geomRef.current;
+      const here = toContent(phase.mid, camRef.current, content);
+      const there = fromPlan(node, content, levelRef.current);
+      const grip = Math.max(NODE_HIT_PX * camRef.current.scale, NODE_HIT_PX + TAP_SLOP);
+      return Math.hypot(here.x - there.x, here.y - there.y) * camRef.current.scale <= grip ? node.id : null;
     };
 
     responderRef.current = PanResponder.create({
@@ -624,15 +752,33 @@ export default function FloorPlan({
         zoom.stopAnimation((s) => {
           camRef.current = { ...camRef.current, scale: s };
         });
-        phaseRef.current = beginPhase(evt, g);
+        const phase = beginPhase(evt, g);
+        pinchedRef.current = phase.touches >= 2;
+        const grabbed = grabbedNode(phase);
+        if (grabbed) {
+          phase.mode = 'node';
+          phase.nodeId = grabbed;
+        }
+        phaseRef.current = phase;
       },
 
       onPanResponderMove: (evt, g) => {
         const f = readFingers(evt, g, originRef.current);
+        if (f.count >= 2) pinchedRef.current = true;
         let phase = phaseRef.current;
         if (!phase || phase.touches !== f.count) {
+          // A second finger landing tears a node drag off — it
+          // still closes before the phase re-bases into a pan
+          endNodePhase(phase);
           phase = beginPhase(evt, g);
           phaseRef.current = phase;
+        }
+        phase.last = f.mid;
+
+
+        if (phase.mode === 'node' && phase.nodeId) {
+          editRef.current.onDragNode?.(phase.nodeId, planAt(f.mid));
+          return;
         }
         const base = phase.camera;
 
@@ -655,11 +801,29 @@ export default function FloorPlan({
         setCamera({ scale: base.scale, tx: base.tx + (g.dx - phase.dx), ty: base.ty + (g.dy - phase.dy) });
       },
 
-      onPanResponderRelease: () => {
+      onPanResponderRelease: (evt, g) => {
+        const phase = phaseRef.current;
         phaseRef.current = null;
+        if (!phase) return;
+        if (phase.mode === 'node' && phase.nodeId) {
+          editRef.current.onDragNodeEnd?.(phase.nodeId, planAt(phase.last));
+          return;
+        }
+        // A tap: one finger — and never more at any point, so a
+        // pinch shed one finger at a time cannot land as one —
+        // no movement, released quickly. The shapes had their
+        // chance first, so this is bare drawing
+        const at = typeof evt.nativeEvent?.timestamp === 'number' ? evt.nativeEvent.timestamp : Date.now();
+        if (phase.touches === 1 && !pinchedRef.current && Math.abs(g.dx) <= TAP_SLOP && Math.abs(g.dy) <= TAP_SLOP && at - phase.at <= TAP_MS) {
+          editRef.current.onPressPlan?.(planAt(phase.mid));
+        }
       },
       onPanResponderTerminate: () => {
+        const phase = phaseRef.current;
         phaseRef.current = null;
+        // The system taking the responder is not a clean
+        // release, but a node drag still closes
+        endNodePhase(phase);
       },
     });
   }
@@ -667,11 +831,15 @@ export default function FloorPlan({
 
   // A new drawing starts at rest — the old floor's zoom means
   // nothing on it, and neither does a gesture begun on it: a
-  // finger still down re-bases from rest on its next move
+  // finger still down re-bases from rest on its next move. A
+  // node drag the switch cuts short closes first, before the
+  // camera it converted through is reset
   useEffect(() => {
-    setCamera({ ...AT_REST });
+    const phase = phaseRef.current;
     phaseRef.current = null;
-  }, [level.id, setCamera]);
+    endNodePhase(phase);
+    setCamera({ ...AT_REST });
+  }, [level.id, setCamera, endNodePhase]);
 
 
   // The viewport changing size (rotation, a sheet resizing it)
@@ -757,6 +925,7 @@ export default function FloorPlan({
             youAreHere={shownHere}
             nodes={nodes}
             rooms={rooms}
+            selectedNodeId={selectedNodeId}
             onPressNode={onPressNode}
             onPressRoom={onPressRoom}
           />

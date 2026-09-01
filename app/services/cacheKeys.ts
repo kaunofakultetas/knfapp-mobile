@@ -81,3 +81,15 @@ export const INFO_CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
 
 // 1 hour — conversations move fast but still help offline
 export const CONVERSATIONS_CACHE_MAX_AGE = 1 * 60 * 60 * 1000;
+
+
+// The published building graph, kept without a TTL — a stale
+// map beats no map, and the ETag revalidates it for free
+export function cacheKeyWayfindGraph(buildingId: string): string {
+  return `wayfind:graph:${buildingId}`;
+}
+
+// A server-hosted plan drawing by its content hash — immutable
+export function cacheKeyWayfindPlan(path: string): string {
+  return `wayfind:plan:${path}`;
+}

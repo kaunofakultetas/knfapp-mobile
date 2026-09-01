@@ -104,12 +104,6 @@ function MainStack() {
       importantForAccessibility={isOpen ? 'no-hide-descendants' : 'auto'}
       aria-hidden={isOpen}
     >
-      {/* The standalone chatuikit's theme/labels/env — above every
-          screen that renders kit components */}
-      <ChatEngineHost>
-      <ChatUiKitHost>
-      <SocialEngineHost>
-      <SocialUiKitHost>
       <Stack
         screenOptions={{
           header: renderHeader,
@@ -151,11 +145,8 @@ function MainStack() {
           options={{ title: t('admin.userList'), fullScreenGestureEnabled: false }}
         />
         <Stack.Screen name="info/index" options={{ title: t('info.title') }} />
+        <Stack.Screen name="map-editor/index" options={{ title: t('mapEditor.title'), fullScreenGestureEnabled: false }} />
       </Stack>
-      </SocialUiKitHost>
-      </SocialEngineHost>
-      </ChatUiKitHost>
-      </ChatEngineHost>
     </View>
   );
 }
@@ -178,6 +169,13 @@ export default function MainLayout() {
 
   return (
     <DrawerProvider>
+      {/* The engines and kits sit above the stack AND the drawer:
+          the Sidebar reads the social engine for its unread badge,
+          so it must live inside the same providers as the screens */}
+      <ChatEngineHost>
+      <ChatUiKitHost>
+      <SocialEngineHost>
+      <SocialUiKitHost>
       <View className="flex-1">
 
         <MainStack />
@@ -186,6 +184,10 @@ export default function MainLayout() {
         <Sidebar />
 
       </View>
+      </SocialUiKitHost>
+      </SocialEngineHost>
+      </ChatUiKitHost>
+      </ChatEngineHost>
     </DrawerProvider>
   );
 }

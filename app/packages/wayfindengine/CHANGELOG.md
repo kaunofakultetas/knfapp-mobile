@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.1.0 — 2026-09-01
+
+The data model grows what an admin-authored, server-published building
+needs; nothing existing changes meaning.
+
+- Types — `Level.northDeg` and `BuildingGraph.northDeg` (compass bearing
+  of plan "up", for turning a sensor heading into a plan bearing),
+  `BuildingGraph.revision` / `publishedAt` (stamped by the server);
+  `GraphNode.panoGeometry` (`PanoGeometry`: what the photo covers —
+  absent means a full sphere or, by aspect, a full turn with a limited
+  vertical band), `panoHeading` (`PanoHeading`: where `panoYaw` came
+  from — manual / aligned / compass / path / auto, with the raw reading),
+  `panoLinks` (`PanoLink[]`: authored hotspots with an arrival yaw);
+  `GraphEdge.id` (optional, for editors and the server), `tags`,
+  `delaySeconds`, `closedUntil`; `Room.nameEn`,
+  `hours`, `access`, `accessibility`, `photos`, `details`;
+  `RoutingOptions.at` (the clock `closedUntil` is judged against).
+- Router — an edge's `delaySeconds` is added to its price like the
+  elevator wait (a non-finite or negative value is ignored); an edge
+  whose `closedUntil` lies after `options.at` (default: now) is refused
+  like an avoided kind.
+- `validateGraph` — two warnings: `bad_pano_geometry` (a coverage the
+  stage cannot draw) and `pano_link_unknown` (a hotspot to a missing
+  node or to its own node).
+
 ## 1.0.1 — 2026-09-01
 
 Hardening after a review of the graph contract, the router, the

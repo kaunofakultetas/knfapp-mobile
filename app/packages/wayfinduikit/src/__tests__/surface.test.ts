@@ -17,7 +17,11 @@ describe('@knf/wayfinduikit surface', () => {
       [
         'DirectionMarker', 'FlatPanorama', 'FloorPlan', 'FloorSwitcher', 'InstructionLine', 'PanoramaStage', 'RoutePreview', 'RouteSheet',
         'WayfindUiKitProvider', 'YouAreHereBar',
-        'clampToEdge', 'darkTheme', 'defaultLabels', 'defaultTheme', 'flatMarkerX', 'formatDistance', 'formatEta', 'instructionText',
+        'clampToEdge', 'darkTheme', 'defaultLabels', 'defaultTheme', 'flatMarkerX',
+        'resolvePanoGeometry',
+        'viewLimits',
+        'limitYaw',
+        'limitPitch', 'formatDistance', 'formatEta', 'instructionText',
         'projectToScreen', 'resolveTheme', 'shortestArcDeg',
         'useKitEnv', 'useKitLabels', 'useKitTheme',
       ].sort(),

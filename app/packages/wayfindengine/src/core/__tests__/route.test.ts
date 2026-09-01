@@ -322,3 +322,25 @@ describe('findRoute — data the type never guards', () => {
     expect(route?.points.map((p) => p.atM)).toEqual([0, 100, 110]);
   }, 5000);
 });
+
+
+describe('findRoute — authored edge facts', () => {
+  it('adds an edge delay to the ETA and ignores a nonsense one', () => {
+    const graph = flat(
+      [node('a', 'L1', 0, 0), node('b', 'L1', 13, 0), node('c', 'L1', 26, 0)],
+      [{ a: 'a', b: 'b', kind: 'hallway', delaySeconds: 20 }, { a: 'b', b: 'c', kind: 'hallway', delaySeconds: Number.NaN }],
+    );
+    const { route } = findRoute(indexGraph(graph), 'a', 'c');
+    expect(route?.etaSeconds).toBe(Math.round(walk(13, 'hallway') * 2 + 20));
+  });
+
+  it('refuses a shut edge until it reopens, judged at the caller\'s clock', () => {
+    const graph = flat(
+      [node('a', 'L1', 0, 0), node('b', 'L1', 10, 0), node('c', 'L1', 20, 0)],
+      [{ a: 'a', b: 'b', kind: 'hallway', closedUntil: 1_000_000 }, { a: 'b', b: 'c', kind: 'hallway' }],
+    );
+    const index = indexGraph(graph);
+    expect(findRoute(index, 'a', 'c', { at: 999_999 })).toEqual({ route: null, reason: 'no_path' });
+    expect(visited(findRoute(index, 'a', 'c', { at: 1_000_000 }).route)).toEqual(['a', 'b', 'c']);
+  });
+});

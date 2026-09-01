@@ -57,7 +57,7 @@
 // Screen chrome and shared list states
 import CachedBanner from '@/components/CachedBanner';
 import NewsCard from '@/components/news/NewsCard';
-import { EmptyState, ErrorState, Header, LoadingSpinner, Screen } from '@/components/ui';
+import { EmptyState, ErrorState, Header, LoadingSpinner, RefreshSpinner, Screen } from '@/components/ui';
 
 // Feed engine, like engine, feed chrome
 import { useFeed, useFeedFreshness, type FeedPage } from '@knf/dataengine';
@@ -91,10 +91,9 @@ import { Ionicons } from '@expo/vector-icons';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useIsFocused, type ParamListBase } from '@react-navigation/native';
 import { useFocusEffect, useNavigation, useRouter } from 'expo-router';
-import { cloneElement, useCallback, useEffect, useRef, useState, type Ref, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type Ref, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  Platform,
   Pressable,
   ScrollView,
   type ScrollViewProps,
@@ -349,13 +348,16 @@ function CreatePostFab({ onPress }: { onPress: () => void }) {
 // rewrite, so NewsTab passes them under `list` instead and
 // every handler here calls both.
 //
-// Two more things ride on the same seam: the Android pull
-// spinner is pushed below the overlay bar (progressViewOffset
-// on the list's RefreshControl, which reaches here as an
-// element — iOS must NOT get it, the native control already
-// integrates with the content inset), and `scrollRef` gives
-// the screen the ScrollView the kit keeps to itself, for the
-// tab-press scroll-to-top.
+// Two more things ride on the same seam: the pull spinner —
+// the KIT renders its own RefreshControl, and this element is
+// the one place the app can take it over, so the seam swaps
+// it for the house RefreshSpinner outright (same refreshing
+// state and callback, lifted off the kit's element), pushed
+// below the overlay bar by progressViewOffset on both
+// platforms — on iOS the control otherwise sits inside the
+// content inset, the strip the burgundy bar covers; and
+// `scrollRef` gives the screen the ScrollView the kit keeps
+// to itself, for the tab-press scroll-to-top.
 //
 // Used by:
 //   - NewsTab (below) — via FeedList's flatListProps
@@ -382,7 +384,7 @@ function HeaderScrollView({
 }: ScrollViewProps & {
   list: ListScrollCallbacks;
   scrollRef: RefObject<ScrollView | null>;
-  // Android only — where the pull spinner may draw
+  // Where the pull spinner draws: just below the overlay bar
   refreshOffset?: number;
   ref?: Ref<ScrollView>;
 }) {
@@ -401,9 +403,13 @@ function HeaderScrollView({
       {...rest}
       ref={captureRef}
       refreshControl={
-        refreshControl && refreshOffset
-          ? cloneElement(refreshControl, { progressViewOffset: refreshOffset })
-          : refreshControl
+        refreshControl ? (
+          <RefreshSpinner
+            refreshing={refreshControl.props.refreshing}
+            onRefresh={refreshControl.props.onRefresh}
+            progressViewOffset={refreshOffset}
+          />
+        ) : undefined
       }
       onScroll={(event) => {
         list.onScroll?.(event);
@@ -806,7 +812,7 @@ export default function NewsTab() {
           onMomentumScrollEnd: props.onMomentumScrollEnd,
         }}
         scrollRef={scrollRef}
-        refreshOffset={Platform.OS === 'android' ? barHeight : undefined}
+        refreshOffset={barHeight}
         onScroll={scrollHandler}
       />
     ),

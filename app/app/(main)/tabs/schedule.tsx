@@ -72,7 +72,7 @@ import {
 import type { TimetableLesson } from '@knf/timetableuikit';
 
 // UI kit — chrome and the three data states
-import { Button, EmptyState, ErrorState, Header, Input, LoadingSpinner, Screen } from '@/components/ui';
+import { Button, EmptyState, ErrorState, Header, Input, LoadingSpinner, RefreshSpinner, Screen } from '@/components/ui';
 
 // JS-side colors for icons and the refresh tint
 import { useTheme } from '@/hooks/useTheme';
@@ -96,7 +96,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AppState, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { AppState, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 
 // Shrinks the filter sheet's list while the teacher search types
 import useKeyboardVisible from '@/hooks/useKeyboardVisible';
@@ -905,7 +905,6 @@ export default function ScheduleScreen() {
   const { cache } = useDataEngine();
 
   const { t } = useTranslation();
-  const { colors } = useTheme();
 
 
   // Opens on today's tab — weekends included, now that the
@@ -1415,11 +1414,9 @@ export default function ScheduleScreen() {
   // One definition serves all three scrollable branches — the
   // list, the empty day and the error all pull-to-refresh
   const refreshControl = (
-    <RefreshControl
+    <RefreshSpinner
       refreshing={refreshing}
       onRefresh={onRefresh}
-      tintColor={colors.brand}
-      colors={[colors.brand]}
     />
   );
 

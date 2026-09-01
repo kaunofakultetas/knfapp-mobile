@@ -39,6 +39,7 @@ import {
   EmptyState,
   ErrorState,
   LoadingSpinner,
+  RefreshSpinner,
   Screen,
   SectionTitle,
   confirmAction,
@@ -83,7 +84,7 @@ import * as Clipboard from 'expo-clipboard';
 import { useRouter } from 'expo-router';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FlatList, Modal, Pressable, RefreshControl, Text, View } from 'react-native';
+import { FlatList, Modal, Pressable, Text, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 
 
@@ -919,11 +920,9 @@ export default function AdminScreen() {
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
         refreshControl={
-          <RefreshControl
+          <RefreshSpinner
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor={colors.brand}
-            colors={[colors.brand]}
           />
         }
         // The last card must clear the home indicator — this

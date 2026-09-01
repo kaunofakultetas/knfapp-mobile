@@ -39,7 +39,7 @@
 import CachedBanner from '@/components/CachedBanner';
 
 // UI kit — cards, section labels, the data states
-import { Card, ErrorState, LoadingSpinner, Screen, SectionTitle } from '@/components/ui';
+import { Card, ErrorState, LoadingSpinner, RefreshSpinner, Screen, SectionTitle } from '@/components/ui';
 
 // Active language drives fetch, cache key and refetch
 import { useApp } from '@/context/AppContext';
@@ -770,11 +770,9 @@ export default function InfoScreen() {
       <ScrollView
         className="flex-1"
         refreshControl={
-          <RefreshControl
+          <RefreshSpinner
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor={colors.brand}
-            colors={[colors.brand]}
           />
         }
         contentContainerStyle={{ padding: 16, paddingBottom: 48 }}

@@ -70,10 +70,11 @@ import {
   Avatar,
   Button,
   Card,
-  confirmAction,
   Header,
+  RefreshSpinner,
   Screen,
   SectionTitle,
+  confirmAction,
 } from '@/components/ui';
 import { useTheme } from '@/hooks/useTheme';
 
@@ -87,7 +88,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Pressable,
-  RefreshControl,
   ScrollView,
   Switch,
   Text,
@@ -793,12 +793,9 @@ export default function SettingsScreen() {
         className="flex-1"
         contentContainerClassName="p-md pb-xl"
         refreshControl={
-          <RefreshControl
+          <RefreshSpinner
             refreshing={refreshing}
             onRefresh={handleRefresh}
-            tintColor={colors.brand}
-            colors={[colors.brand]}
-            progressBackgroundColor={colors.surface}
           />
         }
       >

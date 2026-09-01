@@ -91,6 +91,7 @@ import {
   EmptyState,
   ErrorState,
   LoadingSpinner,
+  RefreshSpinner,
   Screen,
   confirmAction,
 } from '@/components/ui';
@@ -116,7 +117,6 @@ import {
   ActivityIndicator,
   FlatList,
   Pressable,
-  RefreshControl,
   Text,
   View,
 } from 'react-native';
@@ -992,11 +992,9 @@ export default function ProfileScreen() {
         }
         renderItem={renderItem}
         refreshControl={
-          <RefreshControl
+          <RefreshSpinner
             refreshing={pullRefreshing}
             onRefresh={() => void handleRefresh()}
-            tintColor={colors.brand}
-            colors={[colors.brand]}
           />
         }
         ListEmptyComponent={

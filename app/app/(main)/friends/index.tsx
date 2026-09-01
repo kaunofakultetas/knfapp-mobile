@@ -38,6 +38,7 @@ import {
   EmptyState,
   ErrorState,
   LoadingSpinner,
+  RefreshSpinner,
   Screen,
 } from '@/components/ui';
 import { useTheme } from '@/hooks/useTheme';
@@ -50,7 +51,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { memo, useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FlatList, Pressable, RefreshControl, Text, View } from 'react-native';
+import { FlatList, Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 
@@ -325,11 +326,9 @@ export default function FriendsScreen() {
         }
         renderItem={renderItem}
         refreshControl={
-          <RefreshControl
+          <RefreshSpinner
             refreshing={refreshing}
             onRefresh={() => void handleRefresh()}
-            tintColor={colors.brand}
-            colors={[colors.brand]}
           />
         }
         ListEmptyComponent={

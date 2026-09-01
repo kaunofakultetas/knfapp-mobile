@@ -44,7 +44,7 @@ import { useAuth } from '@/context/AuthContext';
 import { showToast } from '@/context/NetworkContext';
 
 // UI kit and theming
-import { Avatar, Button, Header, Input, Screen } from '@/components/ui';
+import { Avatar, Button, Header, Input, RefreshSpinner, Screen } from '@/components/ui';
 import { useTheme } from '@/hooks/useTheme';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -486,12 +486,9 @@ function IdCard() {
           keyboardShouldPersistTaps="handled"
           contentContainerClassName="items-center p-md pb-2xl"
           refreshControl={
-            <RefreshControl
+            <RefreshSpinner
               refreshing={refreshing}
               onRefresh={refresh}
-              tintColor={colors.brand}
-              colors={[colors.brand]}
-              progressBackgroundColor={colors.surface}
             />
           }
         >

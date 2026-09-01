@@ -91,6 +91,7 @@ jest.mock('@/components/ui', () => {
   const { View, Text } = require('react-native');
   const Plain = ({ children }: { children?: ReactNode }) => <View>{children}</View>;
   return {
+    RefreshSpinner: () => null,
     Avatar: () => null,
     Card: Plain,
     Screen: Plain,

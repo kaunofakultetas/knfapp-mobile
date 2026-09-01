@@ -50,6 +50,7 @@ import {
   EmptyState,
   ErrorState,
   LoadingSpinner,
+  RefreshSpinner,
   Screen,
 } from '@/components/ui';
 import { useTheme } from '@/hooks/useTheme';
@@ -61,7 +62,7 @@ import { useReturnHref } from '@/hooks/useReturnHref';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { memo, useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FlatList, Pressable, RefreshControl, Text, View } from 'react-native';
+import { FlatList, Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 
@@ -363,11 +364,9 @@ export default function FriendRequestsScreen() {
         }}
         renderItem={renderItem}
         refreshControl={
-          <RefreshControl
+          <RefreshSpinner
             refreshing={pullRefreshing}
             onRefresh={() => void handleRefresh()}
-            tintColor={colors.brand}
-            colors={[colors.brand]}
           />
         }
         ListEmptyComponent={

@@ -52,6 +52,7 @@ import {
   ErrorState,
   Header,
   LoadingSpinner,
+  RefreshSpinner,
   Screen,
   confirmAction,
 } from '@/components/ui';
@@ -102,7 +103,6 @@ import {
   AppState,
   FlatList,
   Pressable,
-  RefreshControl,
   Text,
   TextInput,
   View,
@@ -438,7 +438,6 @@ function Conversations() {
   const router = useRouter();
   const { t } = useTranslation();
   const { user, isAuthenticated } = useAuth();
-  const { colors } = useTheme();
   const socketStatus = useSocketStatus();
   const userId = user?.id ?? null;
 
@@ -914,11 +913,9 @@ function Conversations() {
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
           refreshControl={
-            <RefreshControl
+            <RefreshSpinner
               refreshing={pullRefreshing}
               onRefresh={() => void handlePullRefresh()}
-              tintColor={colors.brand}
-              colors={[colors.brand]}
             />
           }
           ListEmptyComponent={renderEmpty()}

@@ -32,7 +32,7 @@
 import { CommentComposer, CommentRow, type KitComment } from '@knf/socialuikit';
 
 // UI kit and theming
-import { EmptyState, ErrorState, LoadingSpinner, Screen } from '@/components/ui';
+import { EmptyState, ErrorState, LoadingSpinner, RefreshSpinner, Screen } from '@/components/ui';
 import { useTheme } from '@/hooks/useTheme';
 
 // Paginated feed engine and the backend contract
@@ -234,11 +234,9 @@ function CommentsBody({ feed }: { feed: UseFeedResult<CommentResponse> }) {
         <EmptyState icon="chatbubbles-outline" title={t('newsPost.noComments')} />
       }
       refreshControl={
-        <RefreshControl
+        <RefreshSpinner
           refreshing={pullRefreshing}
           onRefresh={() => void handlePullRefresh()}
-          tintColor={colors.brand}
-          colors={[colors.brand]}
         />
       }
       keyboardShouldPersistTaps="handled"

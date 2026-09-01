@@ -36,6 +36,7 @@ import {
   EmptyState,
   ErrorState,
   LoadingSpinner,
+  RefreshSpinner,
   Screen,
   confirmAction,
 } from '@/components/ui';
@@ -72,7 +73,6 @@ import {
   Modal,
   Platform,
   Pressable,
-  RefreshControl,
   Text,
   TextInput,
   View,
@@ -799,11 +799,9 @@ export default function AdminUsersScreen() {
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
           refreshControl={
-            <RefreshControl
+            <RefreshSpinner
               refreshing={refreshing}
               onRefresh={onRefresh}
-              tintColor={colors.brand}
-              colors={[colors.brand]}
             />
           }
           // The last card must clear the home indicator — this

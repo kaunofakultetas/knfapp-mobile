@@ -49,7 +49,7 @@ import { useLikeToggle } from '@knf/socialengine';
 import { ActionRow, CommentComposer, CommentRow, type KitComment } from '@knf/socialuikit';
 
 // UI kit and theming
-import { Button, confirmAction, EmptyState, ErrorState, LoadingSpinner, Screen } from '@/components/ui';
+import { Button, EmptyState, ErrorState, LoadingSpinner, RefreshSpinner, Screen, confirmAction } from '@/components/ui';
 import { useTheme } from '@/hooks/useTheme';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -892,11 +892,9 @@ export default function NewsPostScreen() {
             showViewAll ? <ViewAllRow postId={postId} count={commentTotal} /> : null
           }
           refreshControl={
-            <RefreshControl
+            <RefreshSpinner
               refreshing={refreshing}
               onRefresh={() => void handleRefresh()}
-              tintColor={colors.brand}
-              colors={[colors.brand]}
             />
           }
           keyboardShouldPersistTaps="handled"

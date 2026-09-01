@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.1.0 — 2026-09-01
+
+Capture frames ride the upload queue: a guided-capture session's
+photos reach the server through the same persisted, retried,
+single-flight drain as panoramas and plans.
+
+- `UploadItem.kind` gains `'frame'`. A frame item's `fields` carry
+  `captureId`, `targetId`, `yawDeg`, `pitchDeg`, `rollDeg` — all
+  strings — and its `file` the local photo; `target` stays the host's
+  opaque tag (a capture id works well).
+- `SyncTransport` gains **`uploadFrame(buildingId, file, fields)`** →
+  `FrameUploadResult` (`{ stored, expected }` — how many frames the
+  capture holds and how many the target plan expects), exported as a
+  type. Existing transports must add the method; nothing else about
+  the contract moves — `PanoramaUploadResult` and `PlanUploadResult`
+  stay as they were.
+- The drain routes `kind: 'frame'` through `uploadFrame` with the
+  same rules as the other kinds: single flight, the
+  `RETRY_DELAYS_MS` ladder on a retryable throw, `SyncRejected`
+  parked as `failed`, and the answer stored on the item as-is until
+  `acknowledge`.
+- Outbox and provider untouched beyond the transport type.
+
 ## 1.0.1 — 2026-09-01
 
 Sync-defect round: the outbox stops losing deletes and conflicting

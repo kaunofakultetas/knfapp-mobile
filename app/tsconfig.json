@@ -26,6 +26,8 @@
       "@knf/wayfindeditor/*": ["./packages/wayfindeditor/src/*"],
       "@knf/wayfindsync": ["./packages/wayfindsync/src"],
       "@knf/wayfindsync/*": ["./packages/wayfindsync/src/*"],
+      "@knf/wayfindcapture": ["./packages/wayfindcapture/src"],
+      "@knf/wayfindcapture/*": ["./packages/wayfindcapture/src/*"],
       "@/*": ["./*"],
       "@/appScreens/*": ["./appScreens/*"],
       "@/assets/*": ["./assets/*"],

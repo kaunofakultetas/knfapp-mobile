@@ -15,6 +15,7 @@ export type {
   UploadFile,
   PanoramaUploadResult,
   PlanUploadResult,
+  FrameUploadResult,
   PublishIssue,
   PublishAnswer,
   SyncTransport,

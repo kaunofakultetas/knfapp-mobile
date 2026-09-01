@@ -107,6 +107,13 @@ export interface KitLabels {
   markerA11y: (degrees: number) => string;
   markerAligned: string;
 
+  // The guided-capture HUD: the shot counter, the overlay's
+  // spoken name, and the roll warning shown where the capture
+  // session starts refusing shots
+  hudProgress: (done: number, total: number) => string;
+  hudA11y: (done: number, total: number) => string;
+  hudRollHint: string;
+
   // Quick destinations
   nearestWc: string;
   nearestExit: string;
@@ -249,6 +256,10 @@ export const defaultLabels: { lt: KitLabels; en: KitLabels } = {
     },
     markerAligned: 'Žiūrite maršruto kryptimi',
 
+    hudProgress: (done, total) => `${done} / ${total}`,
+    hudA11y: (done, total) => `Panoramos fotografavimas: ${done} iš ${total}`,
+    hudRollHint: 'Ištiesinkite telefoną',
+
     nearestWc: 'Artimiausias tualetas',
     nearestExit: 'Artimiausias išėjimas',
 
@@ -330,6 +341,10 @@ export const defaultLabels: { lt: KitLabels; en: KitLabels } = {
       return side === 'right' ? `Route ${whole}° to the right` : `Route ${whole}° to the left`;
     },
     markerAligned: 'Facing the route',
+
+    hudProgress: (done, total) => `${done} / ${total}`,
+    hudA11y: (done, total) => `Panorama capture: ${done} of ${total}`,
+    hudRollHint: 'Level the phone',
 
     nearestWc: 'Nearest toilet',
     nearestExit: 'Nearest exit',

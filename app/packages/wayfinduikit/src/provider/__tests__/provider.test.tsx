@@ -34,7 +34,7 @@ const wrap = (props: Omit<ComponentProps<typeof WayfindUiKitProvider>, 'children
 // these and none other. Order here is alphabetical for the diff
 const FINAL_LABEL_KEYS = [
   'accessibleRoute', 'allRooms', 'arrive', 'arriveSide', 'avoidStairs', 'back', 'clearSearch', 'continueFor', 'depart', 'done',
-  'endRoute', 'floor', 'floorA11y', 'floorSwitcherA11y', 'kilometers', 'lessThanMinute', 'markerA11y', 'markerAligned', 'meters',
+  'endRoute', 'floor', 'floorA11y', 'floorSwitcherA11y', 'hudA11y', 'hudProgress', 'hudRollHint', 'kilometers', 'lessThanMinute', 'markerA11y', 'markerAligned', 'meters',
   'minutes', 'nearestExit', 'nearestWc', 'next', 'noResults', 'offRoute', 'pickLocation', 'planA11y', 'previewImageA11y',
   'reassurance', 'remaining', 'rerouting', 'routeOnPlanA11y', 'routeTo', 'scanQr', 'searchPlaceholder', 'searchResults',
   'shortestRoute', 'slightLeft', 'slightRight', 'stageA11y', 'stageHint360', 'start', 'stepOf', 'stepsHide', 'stepsShow',

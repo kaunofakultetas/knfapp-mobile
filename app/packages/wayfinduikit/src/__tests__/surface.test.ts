@@ -15,6 +15,7 @@ describe('@knf/wayfinduikit surface', () => {
   it('exports exactly these runtime members', () => {
     expect(Object.keys(kit).sort()).toEqual(
       [
+        'CaptureHud',
         'DirectionMarker', 'FlatPanorama', 'FloorPlan', 'FloorSwitcher', 'InstructionLine', 'PanoramaStage', 'RoutePreview', 'RouteSheet',
         'WayfindUiKitProvider', 'YouAreHereBar',
         'clampToEdge', 'darkTheme', 'defaultLabels', 'defaultTheme', 'flatMarkerX',

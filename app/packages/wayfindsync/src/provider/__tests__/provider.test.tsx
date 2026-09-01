@@ -37,6 +37,7 @@ describe('WayfindSyncProvider', () => {
       publish: async () => ({ ok: false, reason: 'unchanged' }),
       uploadPanorama: async () => ({ id: 'p', url: '/p.jpg', width: 1, height: 1, bytes: 1, hfovDeg: 360, vfovDeg: 180 }),
       uploadPlan: async () => ({ id: 'l', url: '/l.svg', bytes: 1 }),
+      uploadFrame: async () => ({ stored: 1, expected: 44 }),
     };
     let restore: (() => void) | null = null;
     const onRestore = (listener: () => void) => {
@@ -93,6 +94,7 @@ describe('WayfindSyncProvider', () => {
       publish: async () => ({ ok: false, reason: 'unchanged' }),
       uploadPanorama: async () => ({ id: 'p', url: '/p.jpg', width: 1, height: 1, bytes: 1, hfovDeg: 360, vfovDeg: 180 }),
       uploadPlan: async () => ({ id: 'l', url: '/l.svg', bytes: 1 }),
+      uploadFrame: async () => ({ stored: 1, expected: 44 }),
     };
     const wrapper = ({ children }: { children: ReactNode }) => (
       <WayfindSyncProvider buildingId="knf" storage={memory()} transport={transport}>
@@ -138,6 +140,7 @@ describe('WayfindSyncProvider', () => {
       publish: async () => ({ ok: false, reason: 'unchanged' }),
       uploadPanorama: async () => ({ id: 'p', url: '/p.jpg', width: 1, height: 1, bytes: 1, hfovDeg: 360, vfovDeg: 180 }),
       uploadPlan: async () => ({ id: 'l', url: '/l.svg', bytes: 1 }),
+      uploadFrame: async () => ({ stored: 1, expected: 44 }),
     };
     const wrapper = ({ children }: { children: ReactNode }) => (
       <WayfindSyncProvider buildingId="knf" storage={storage} transport={transport}>

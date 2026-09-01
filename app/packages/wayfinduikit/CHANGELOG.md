@@ -1,5 +1,41 @@
 # Changelog
 
+## 1.3.0 — 2026-09-01
+
+The guided-capture overlay for the panorama capture flow; nothing a
+wayfinding screen uses changes.
+
+- `CaptureHud` (`capture/CaptureHud.tsx`, on the barrel with
+  `CaptureHudProps` / `CaptureHudTarget` / `CaptureHudPose`) — a PURE
+  overlay the admin capture screen lays over its camera preview: no
+  camera, no sensors, no session logic. The capture session owns the
+  aim/shoot rule and hands the HUD its pose and verdicts; the HUD only
+  draws them.
+  - The pose is the camera: every not-done target in view is a dot
+    placed by the existing `projectToScreen` (the pose's yaw/pitch, the
+    given fov, width and height). A target behind the camera or past
+    the viewport is **hidden, not clamped** — a capture HUD shows only
+    what the lens sees.
+  - The current target is a ring instead: anchored on its projected
+    point in view, **clamped to the edge with a lean arrow** once
+    off-view (the route marker's `clampToEdge` rule; the arrow points
+    the screen direction of the raw projection, so a behind target
+    leans left, matching `shortestArcDeg`'s −180). The ring fills
+    success-coloured only when `aligned && stable` — the session's
+    shoot condition verbatim — with the border alone turning success
+    while aligned but settling.
+  - A fixed centre reticle, the shot counter (`hudProgress`) bottom
+    centre, and the roll hint (`hudRollHint`) once |roll| exceeds 8° —
+    exactly where the session starts refusing shots. A done target
+    stays as a faint success dot. A NaN pose (the tracker before its
+    first sample) draws the level default rather than vanishing.
+  - testIDs `wayfinduikit-hud`, `-hud-target-<id>`, `-hud-ring` (and
+    `-hud-ring-arrow`), `-hud-reticle`, `-hud-progress`, `-hud-roll`;
+    the root speaks `hudA11y`; pointer events pass through everywhere.
+- Labels: three new keys in both catalogs — `hudProgress(done, total)`,
+  `hudA11y(done, total)`, `hudRollHint` — pinned by the parity test
+  (66 keys now).
+
 ## 1.2.0 — 2026-09-01
 
 `FloorPlan` grows the intents an editing host needs, all in plan pixels

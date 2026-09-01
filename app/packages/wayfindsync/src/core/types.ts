@@ -68,6 +68,13 @@ export interface PlanUploadResult {
   bytes: number;
 }
 
+// The server's answer to one capture frame: how many frames the
+// capture holds now and how many the target plan expects
+export interface FrameUploadResult {
+  stored: number;
+  expected: number;
+}
+
 export interface PublishIssue {
   severity: 'error' | 'warning';
   code: string;
@@ -82,6 +89,9 @@ export interface SyncTransport {
   publish(buildingId: string, note?: string | null): Promise<PublishAnswer>;
   uploadPanorama(buildingId: string, file: UploadFile, fields: Record<string, string>): Promise<PanoramaUploadResult>;
   uploadPlan(buildingId: string, file: UploadFile, fields: Record<string, string>): Promise<PlanUploadResult>;
+  // fields carry captureId, targetId, yawDeg, pitchDeg, rollDeg —
+  // all strings; the transport addresses the capture's frame slot
+  uploadFrame(buildingId: string, file: UploadFile, fields: Record<string, string>): Promise<FrameUploadResult>;
 }
 
 export interface SyncStorage {

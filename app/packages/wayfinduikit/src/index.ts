@@ -37,6 +37,10 @@ export { default as RouteSheet } from './route/RouteSheet';
 export { default as InstructionLine } from './route/InstructionLine';
 export { default as YouAreHereBar } from './route/YouAreHereBar';
 
+// The guided-capture overlay — pure, laid over the host's
+// camera preview by the admin capture screen
+export { default as CaptureHud, type CaptureHudProps, type CaptureHudTarget, type CaptureHudPose } from './capture/CaptureHud';
+
 // The panorama stage — the true sphere and the flat fallback
 // share props and the pure projection math
 export { default as PanoramaStage } from './pano/PanoramaStage';

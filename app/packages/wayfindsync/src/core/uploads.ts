@@ -1,7 +1,8 @@
 // -----------------------------------------------------------
 //  [*] wayfindsync — uploads
 //
-//  The persisted upload queue for panoramas and plans. Each
+//  The persisted upload queue for panoramas, plans and capture
+//  frames. Each
 //  item names a local file, what it is and the fields that go
 //  with it; the drain sends them one at a time through the
 //  transport and remembers each answer (the stored url the
@@ -18,13 +19,13 @@
 //    - provider/index.tsx — one queue per building
 // -----------------------------------------------------------
 
-import type { PanoramaUploadResult, PlanUploadResult, SyncStorage, SyncTransport, UploadFile } from './types';
+import type { FrameUploadResult, PanoramaUploadResult, PlanUploadResult, SyncStorage, SyncTransport, UploadFile } from './types';
 import { SyncRejected } from './types';
 
 
 export interface UploadItem {
   id: string;
-  kind: 'panorama' | 'plan';
+  kind: 'panorama' | 'plan' | 'frame';
   file: UploadFile;
   fields: Record<string, string>;
   // What the host will do with the answer — an opaque tag it
@@ -34,7 +35,7 @@ export interface UploadItem {
   attempts: number;
   // Epoch ms before which the item is not retried
   notBefore: number;
-  result?: PanoramaUploadResult | PlanUploadResult | null;
+  result?: PanoramaUploadResult | PlanUploadResult | FrameUploadResult | null;
   error?: string | null;
   queuedAt: number;
 }
@@ -102,7 +103,7 @@ export function createUploadQueue(storage: SyncStorage, key: string, now: () => 
             next.status = 'sending';
             notify();
             try {
-              const result = next.kind === 'panorama' ? await transport.uploadPanorama(buildingId, next.file, next.fields) : await transport.uploadPlan(buildingId, next.file, next.fields);
+              const result = next.kind === 'panorama' ? await transport.uploadPanorama(buildingId, next.file, next.fields) : next.kind === 'frame' ? await transport.uploadFrame(buildingId, next.file, next.fields) : await transport.uploadPlan(buildingId, next.file, next.fields);
               next.status = 'done';
               next.result = result;
               next.error = null;

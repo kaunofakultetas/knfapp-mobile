@@ -32,6 +32,7 @@ const transportWith = (postOps: SyncTransport['postOps']): SyncTransport => ({
   publish: async () => ({ ok: true, revision: 1, etag: 'e', publishedAt: 'now' }),
   uploadPanorama: async () => ({ id: 'p', url: '/p.jpg', width: 1, height: 1, bytes: 1, hfovDeg: 360, vfovDeg: 180 }),
   uploadPlan: async () => ({ id: 'l', url: '/l.svg', bytes: 1 }),
+  uploadFrame: async () => ({ stored: 1, expected: 44 }),
 });
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -286,6 +287,42 @@ describe('upload queue', () => {
     queue.retry('u2');
     expect(queue.items()[0].status).toBe('queued');
     queue.remove('u2');
+    expect(queue.items()).toEqual([]);
+  });
+
+  it('routes a frame item through uploadFrame with its fields, stores the answer as-is, walks the ladder on a throw and parks a SyncRejected', async () => {
+    let clock = 5000;
+    const queue = createUploadQueue(memory(), 'u', () => clock);
+    await queue.load();
+    const fields = { captureId: 'cap-1', targetId: 'r0-3', yawDeg: '91.2', pitchDeg: '-0.4', rollDeg: '1.1' };
+    queue.enqueue({ id: 'f1', kind: 'frame', file: { uri: 'file:///f.jpg', name: 'f.jpg', type: 'image/jpeg' }, fields, target: 'cap-1' });
+
+    // A dropped connection is retryable: rung 0 retries at once inside
+    // the same drain, the second failure backs off by rung 1
+    const calls: Record<string, string>[] = [];
+    const transport = transportWith(async () => ({ revision: 0, results: [] }));
+    let failures = 2;
+    transport.uploadFrame = async (buildingId, file, sent) => {
+      calls.push({ buildingId, uri: file.uri, ...sent });
+      if (failures-- > 0) throw new Error('timeout');
+      return { stored: 7, expected: 44 };
+    };
+    await queue.drain(transport, 'knf');
+    expect(calls).toHaveLength(2);
+    expect(queue.items()[0]).toMatchObject({ status: 'queued', attempts: 2, notBefore: 5000 + RETRY_DELAYS_MS[1] });
+    clock += RETRY_DELAYS_MS[1];
+    await queue.drain(transport, 'knf');
+    // The fields travel untouched and the answer lands on the item as-is
+    expect(calls[2]).toEqual({ buildingId: 'knf', uri: 'file:///f.jpg', ...fields });
+    expect(queue.items()[0]).toMatchObject({ status: 'done', result: { stored: 7, expected: 44 }, target: 'cap-1' });
+    queue.acknowledge('f1');
+
+    // A final refusal (a bad image, an unknown target) parks the item
+    queue.enqueue({ id: 'f2', kind: 'frame', file: { uri: 'file:///g.jpg', name: 'g.jpg', type: 'image/jpeg' }, fields: { captureId: 'cap-1', targetId: 'r40-0', yawDeg: '0', pitchDeg: '40', rollDeg: '0' } });
+    transport.uploadFrame = async () => { throw new SyncRejected('not a jpeg', 'bad_frame'); };
+    await queue.drain(transport, 'knf');
+    expect(queue.items()[0]).toMatchObject({ status: 'failed', error: 'bad_frame', attempts: 1 });
+    queue.remove('f2');
     expect(queue.items()).toEqual([]);
   });
 });

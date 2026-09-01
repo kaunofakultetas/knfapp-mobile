@@ -3,8 +3,8 @@
 Offline-first sync for building-graph editing on a phone: a persisted
 op outbox that coalesces per entity, drains in one flight and keeps the
 server's per-op conflict answers until the host resolves them; a
-persisted upload queue for panoramas and plans with a retry ladder and
-a final-refusal park; and a publish action. Storage, the network-restore
+persisted upload queue for panoramas, plans and capture frames with a
+retry ladder and a final-refusal park; and a publish action. Storage, the network-restore
 bus and the transport are injected — the package knows no HTTP client,
 no storage library and no server URL — and the ops it carries are the
 same `ServerOp` shape `@knf/wayfindeditor` produces, declared on both
@@ -17,7 +17,7 @@ import { WayfindSyncProvider, useWayfindSync, SyncRejected } from '@knf/wayfinds
 <WayfindSyncProvider
   buildingId="faculty"
   storage={storage}                                   // getItem / setItem / removeItem, async
-  transport={transport}                               // postOps / publish / uploadPanorama / uploadPlan (see The transport contract)
+  transport={transport}                               // postOps / publish / uploadPanorama / uploadPlan / uploadFrame (see The transport contract)
   onRestore={(listener) => bus.subscribe(listener)}   // optional: the host's network-restore bus; answers the unsubscribe
   onDrained={(report) => …}                           // optional: every drain's report
   onUploaded={(item) => …}                            // optional: each finished upload, once
@@ -37,7 +37,7 @@ function Screen() {
 
 ## The transport contract
 
-`SyncTransport` is four functions the host writes over its own HTTP
+`SyncTransport` is five functions the host writes over its own HTTP
 client, each taking the building id first:
 
 - **`postOps(buildingId, ops)`** → `OpsAnswer`: the server's `revision`
@@ -65,6 +65,11 @@ client, each taking the building id first:
   — `{ uri, name, type }`, a reference to a local file, never its bytes
   — and `fields` the strings that go beside it (a node id, a level id,
   a heading source).
+- **`uploadFrame(buildingId, file, fields)`** → `FrameUploadResult`
+  (`stored`, `expected` — how many frames the capture holds now and how
+  many its target plan expects). `fields` carry `captureId`,
+  `targetId`, `yawDeg`, `pitchDeg`, `rollDeg`, all strings; `file` is
+  the frame's photo, by reference like the others.
 
 Two ways for an upload to fail, told apart by what the transport
 throws: a **`SyncRejected`** (`message`, `code` — default
@@ -144,10 +149,11 @@ leave in that order.
 ## The upload queue
 
 `createUploadQueue(storage, key, now?)` is the persisted queue for
-panoramas and plans. An `UploadItem` names a local file (`file`), what
-it is (`kind`: `'panorama'` | `'plan'`), the `fields` that go with it
-and an optional `target` — an opaque tag the host reads back (a node id,
-a level id) — plus the queue's own `status` (`queued` / `sending` /
+panoramas, plans and capture frames. An `UploadItem` names a local file
+(`file`), what it is (`kind`: `'panorama'` | `'plan'` | `'frame'`), the
+`fields` that go with it and an optional `target` — an opaque tag the
+host reads back (a node id, a level id, a capture id) — plus the
+queue's own `status` (`queued` / `sending` /
 `done` / `failed`), `attempts`, `notBefore`, `result`, `error` and
 `queuedAt`. The file stays where the host put it: the queue holds a
 reference, never the bytes.
@@ -155,7 +161,9 @@ reference, never the bytes.
 - `enqueue(item)` — the host's `id`, `kind`, `file`, `fields`,
   `target?`; an id already held is ignored.
 - `drain(transport, buildingId)` sends the items **one at a time**, each
-  `queued` item whose `notBefore` has passed, and remembers each answer
+  `queued` item whose `notBefore` has passed — a `panorama` through
+  `uploadPanorama`, a `plan` through `uploadPlan`, a `frame` through
+  `uploadFrame` — and remembers each answer
   on the item (`status: 'done'`, `result`) until the host reads it. A
   transport throw counts an attempt: a **`SyncRejected`** parks the item
   as `failed` with `error` = its `code`; any other error re-queues it
@@ -206,7 +214,7 @@ through the queues' own subscriptions.
 
 | Folder | What lives there |
 | --- | --- |
-| `core/` | `types.ts` (the wire: `ServerOp`, `OpResult` / `OpsAnswer`, `UploadFile`, the two upload results, `PublishIssue` / `PublishAnswer`, `SyncTransport`, `SyncStorage`, the `SyncRejected` error), `outbox.ts` (`createOutbox` — coalescing, batches, the single-flight drain, resolve, persistence), `uploads.ts` (`createUploadQueue`, `RETRY_DELAYS_MS`) |
+| `core/` | `types.ts` (the wire: `ServerOp`, `OpResult` / `OpsAnswer`, `UploadFile`, the three upload results, `PublishIssue` / `PublishAnswer`, `SyncTransport`, `SyncStorage`, the `SyncRejected` error), `outbox.ts` (`createOutbox` — coalescing, batches, the single-flight drain, resolve, persistence), `uploads.ts` (`createUploadQueue`, `RETRY_DELAYS_MS`) |
 | `provider/` | `WayfindSyncProvider` / `useWayfindSync` — the two queues per building, the drain triggers, the status counts, the callbacks, publish |
 
 `index.ts` is the public surface, pinned by `src/__tests__/surface.test.ts`.
@@ -238,7 +246,10 @@ ship (`files` in package.json).
   upload queue retrying the first failure at once and walking the
   ladder against a clock (too early sends nothing), parking a
   `SyncRejected` as failed, handing a result over with its target,
-  acknowledge, retry and remove.
+  acknowledge, retry and remove; a frame item routed through
+  `uploadFrame` with its fields untouched, its `{ stored, expected }`
+  answer stored as-is, the same ladder on a throw and the same park
+  on a `SyncRejected`.
 - `src/provider/__tests__/provider.test.tsx` — loads both queues,
   drains on mount, on enqueue and on the restore signal, reports applied
   ops and finished uploads once, exposes the counts — re-derived even
@@ -250,7 +261,7 @@ ship (`files` in package.json).
 
 - **`storage`** — any async key-value store with `getItem` / `setItem`
   / `removeItem`; the queues write JSON under their two keys.
-- **`transport`** — the four calls over the host's HTTP client, throwing
+- **`transport`** — the five calls over the host's HTTP client, throwing
   `SyncRejected` for an upload the server will never take and anything
   else for one worth retrying; on `postOps`, an answer per op and a
   throw only for a server out of reach.

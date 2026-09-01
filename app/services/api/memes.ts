@@ -40,7 +40,7 @@ export const fetchMemesApi = (q: string, offset = 0) =>
 
 // The push: multipart like every upload; native takes the RN
 // file object shape, web materializes the picked URI as a Blob
-export async function pushMemeApi(uri: string, filename?: string, mimeType?: string): Promise<{ meme: ApiMeme }> {
+export async function pushMemeApi(uri: string, filename?: string, mimeType?: string, title?: string, tags?: string): Promise<{ meme: ApiMeme }> {
   const name = filename || uri.split('/').pop() || 'memas.gif';
   const formData = new FormData();
   if (Platform.OS === 'web') {
@@ -49,6 +49,10 @@ export async function pushMemeApi(uri: string, filename?: string, mimeType?: str
   } else {
     formData.append('file', { uri, name, type: mimeType || 'image/gif' } as unknown as Blob);
   }
+  // The pusher's own words are what make the meme findable —
+  // a filename stem is a poor title and no tags at all
+  if (title?.trim()) formData.append('title', title.trim());
+  if (tags?.trim()) formData.append('tags', tags.trim());
   return request(
     api.post<{ meme: ApiMeme }>('/memes', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },

@@ -111,7 +111,7 @@ function AppNavigation() {
         const data = getNotificationData(response.notification);
         if (!data || !data.type) return;
 
-        if (data.type === 'chat_message' && data.conversationId) {
+        if ((data.type === 'chat_message' || data.type === 'chat_mention') && data.conversationId) {
           // Collapse to the messages tab first so repeated taps
           // reuse one shell and one room instance; the title is
           // unknown at tap time — the room resolves it itself

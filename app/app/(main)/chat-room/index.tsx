@@ -75,6 +75,7 @@ import {
 
 // Sheets outside the kit's scope
 import ImageViewerModal, { type ViewerImage } from '@/components/chat/ImageViewerModal';
+import MemePushSheet, { type PendingMeme } from '@/components/chat/MemePushSheet';
 import OptionSheet, { type OptionRow } from '@/components/chat/OptionSheet';
 import ReactionsViewer from '@/components/chat/ReactionsViewer';
 
@@ -520,21 +521,33 @@ function ChatRoom({ convId, type, unreadCount }: { convId: string; type?: string
     },
     [composer],
   );
+  // Pushing is two steps: pick the file, then name it — the
+  // pusher's title and tags are what make a meme findable later
+  const [pendingMeme, setPendingMeme] = useState<PendingMeme | null>(null);
   const addMeme = useCallback(async () => {
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: false, quality: 1 });
     if (result.canceled || !result.assets?.[0]) return;
     const asset = result.assets[0];
-    setMemeAdding(true);
-    try {
-      const resp = await pushMemeApi(asset.uri, asset.fileName ?? undefined, asset.mimeType ?? undefined);
-      setMemeItems((prev) => [resp.meme, ...prev]);
-      showToast('success', t('chat.memeAdded'));
-    } catch {
-      showToast('error', t('common.error'));
-    } finally {
-      setMemeAdding(false);
-    }
-  }, [t]);
+    setPendingMeme({ uri: asset.uri, fileName: asset.fileName ?? undefined, mimeType: asset.mimeType ?? undefined });
+  }, []);
+  const confirmMeme = useCallback(
+    async (title: string, tags: string) => {
+      const asset = pendingMeme;
+      if (!asset) return;
+      setMemeAdding(true);
+      try {
+        const resp = await pushMemeApi(asset.uri, asset.fileName, asset.mimeType, title, tags);
+        setMemeItems((prev) => [resp.meme, ...prev]);
+        setPendingMeme(null);
+        showToast('success', t('chat.memeAdded'));
+      } catch {
+        showToast('error', t('common.error'));
+      } finally {
+        setMemeAdding(false);
+      }
+    },
+    [pendingMeme, t],
+  );
   const [viewerImageId, setViewerImageId] = useState<string | null>(null);
   // The video being played (one player at a time — see the kit's
   // VideoPlayerModal); resolved to a loadable URL at render time
@@ -1377,6 +1390,13 @@ function ChatRoom({ convId, type, unreadCount }: { convId: string; type?: string
         visible={reactorsMessageId !== null}
         rows={reactorRows}
         onClose={() => setReactorsMessageId(null)}
+      />
+
+      <MemePushSheet
+        asset={pendingMeme}
+        busy={memeAdding}
+        onCancel={() => setPendingMeme(null)}
+        onConfirm={(title, tags) => void confirmMeme(title, tags)}
       />
 
       <OptionSheet

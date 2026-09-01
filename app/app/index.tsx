@@ -101,7 +101,7 @@ export default function IndexScreen() {
       // Web or a missing native module — take the default route
     }
 
-    if (data?.type === 'chat_message' && data.conversationId) {
+    if ((data?.type === 'chat_message' || data?.type === 'chat_mention') && data.conversationId) {
       // Land on the messages tab first so back from the room
       // goes somewhere sensible, then push the room itself
       router.replace('/(main)/tabs/messages');

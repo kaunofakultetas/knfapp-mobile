@@ -11,6 +11,8 @@
 //    ScheduleResponse        — filtered lesson list
 //    ScheduleFiltersResponse — available groups + semesters
 //    fetchSchedule           — lessons, optionally filtered
+//    fetchScheduleWeek       — one semester, EVERY group and
+//                              day, paged past the 500-row cap
 //    fetchScheduleFilters    — filter dropdown values
 // -----------------------------------------------------------
 
@@ -110,6 +112,49 @@ export const fetchSchedule = (day?: number, group?: string, semester?: string) =
       },
     }),
   );
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// fetchScheduleWeek
+// -----------------------------------------------------------
+//
+// The whole weekly timetable of one semester — every group,
+// every day — for the timetable views and the teacher
+// perspective, which needs a teacher's lessons ACROSS groups.
+// The backend caps a response at 500 rows and a semester holds
+// more, so this pages with ?offset until a short page says the
+// table is done; the page cap only fences a runaway backend.
+//
+// Used by:
+//   - app/(main)/tabs/schedule.tsx — week/day timetable views
+//     and the teacher picker
+// -----------------------------------------------------------
+
+const WEEK_PAGE_LIMIT = 500;
+const WEEK_MAX_PAGES = 10;
+
+export const fetchScheduleWeek = async (semester?: string): Promise<ScheduleResponse> => {
+  const lessons: ScheduleLesson[] = [];
+  for (let page = 0; page < WEEK_MAX_PAGES; page++) {
+    const resp = await request(
+      api.get<ScheduleResponse>('/schedule', {
+        params: {
+          limit: WEEK_PAGE_LIMIT,
+          offset: page * WEEK_PAGE_LIMIT,
+          ...(semester ? { semester } : {}),
+        },
+      }),
+    );
+    lessons.push(...resp.lessons);
+    if (resp.lessons.length < WEEK_PAGE_LIMIT) break;
+  }
+  return { lessons };
+};
 
 
 

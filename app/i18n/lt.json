@@ -251,7 +251,17 @@
     "dayFullSat": "Šeštadienis",
     "dayFullSun": "Sekmadienis",
     "prevDay": "Ankstesnė diena",
-    "nextDay": "Kita diena"
+    "nextDay": "Kita diena",
+    "viewList": "Sąrašas",
+    "viewDay": "Diena",
+    "viewWeek": "Savaitė",
+    "teacherLabel": "Dėstytojas",
+    "pickTeacher": "Pasirinkite dėstytoją",
+    "searchTeacher": "Ieškoti dėstytojo…",
+    "teachersLoading": "Kraunami dėstytojai…",
+    "lessonDetails": "Paskaitos informacija",
+    "pickGroup": "Pasirinkite grupę",
+    "searchNoResults": "Nieko nerasta"
   },
   "id": {
     "title": "Studento ID",

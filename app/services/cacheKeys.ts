@@ -23,7 +23,8 @@
 // Used by:
 //   - app/(main)/tabs/news.tsx — cacheKeyNews
 //   - app/(main)/tabs/messages.tsx — cacheKeyConversations
-//   - app/(main)/tabs/schedule.tsx — cacheKeySchedule
+//   - app/(main)/tabs/schedule.tsx — cacheKeySchedule,
+//     cacheKeyScheduleWeek
 //   - app/(main)/info — cacheKeyInfo
 // -----------------------------------------------------------
 
@@ -36,6 +37,13 @@ export function cacheKeyNews(userId: string | 'guest'): string {
 // Conversation previews are private to one account
 export function cacheKeyConversations(userId: string): string {
   return `conversations:list:${userId}`;
+}
+
+// The whole-week fetch is per semester only — groups and days
+// filter client-side in the timetable views. The 'schedule:'
+// prefix keeps it under the same sweep as the day rows.
+export function cacheKeyScheduleWeek(semester?: string | null): string {
+  return `schedule:week:${semester || '*'}`;
 }
 
 // Day/group/semester each change the result set — '*' keeps

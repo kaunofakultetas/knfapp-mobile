@@ -247,7 +247,17 @@
     "dayFullSat": "Saturday",
     "dayFullSun": "Sunday",
     "prevDay": "Previous day",
-    "nextDay": "Next day"
+    "nextDay": "Next day",
+    "viewList": "List",
+    "viewDay": "Day",
+    "viewWeek": "Week",
+    "teacherLabel": "Teacher",
+    "pickTeacher": "Choose a teacher",
+    "searchTeacher": "Search teachers…",
+    "teachersLoading": "Loading teachers…",
+    "lessonDetails": "Lesson details",
+    "pickGroup": "Choose a group",
+    "searchNoResults": "No matches"
   },
   "id": {
     "title": "Student ID",

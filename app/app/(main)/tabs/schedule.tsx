@@ -23,6 +23,16 @@
 //  active — under "all groups", parallel lectures overlap by
 //  design and flagging them would paint the list red.
 //
+//  Three view modes and two perspectives. The card LIST keeps
+//  its per-day fetch and offline path exactly as it always
+//  worked; the DAY timeline and WEEK grid come from
+//  @knf/timetableuikit over @knf/timetableengine geometry, fed
+//  by ONE whole-semester fetch (every group, paged past the
+//  backend's 500-row cap) that also powers the TEACHER
+//  perspective — a lecturer's lessons across every group,
+//  merged into single cards, double-bookings washed via the
+//  engine's person-scope conflicts.
+//
 //  Split into (root component last):
 //
 //    jsDayToApi     — JS Date.getDay() → 0=Monday API days
@@ -30,19 +40,39 @@
 //    Separator      — hoisted lesson-list separator
 //    DayStepper     — header chevrons + current day label
 //    DayTabs        — the Mon–Fri quick tab bar
+//    ViewModeSwitch — list / day / week icon segment
 //    FilterBar      — active-filter summary, opens the modal
 //    ConflictBanner — "N lectures overlap" danger strip
 //    LessonCard     — one timetable entry, conflict-aware
 //    FilterOption   — one radio row of the filter picker
-//    FilterModal    — bottom-sheet group/semester picker
+//    FilterModal    — perspective + group/teacher/semester picker
 //    ScheduleScreen — the tab itself (default export)
 // -----------------------------------------------------------
 
 // Offline-cache strip shown when the list renders stale data
 import CachedBanner from '@/components/CachedBanner';
 
+// The timetable module: engine math + kit views, wired through
+// the host (theme/locale), the view pipeline and the tap sheet
+import LessonSheet from '@/components/schedule/LessonSheet';
+import TimetableHost from '@/components/schedule/TimetableHost';
+import TimetableView from '@/components/schedule/TimetableView';
+import {
+  compareEntries,
+  conflictIds as engineConflictIds,
+  forGroup,
+  forTeacher,
+  formatMinutes,
+  listTeachers,
+  normalizeKnf,
+  type ConflictOptions,
+  type KnfLesson,
+  type TimetableEntry,
+} from '@knf/timetableengine';
+import type { TimetableLesson } from '@knf/timetableuikit';
+
 // UI kit — chrome and the three data states
-import { Button, EmptyState, ErrorState, Header, LoadingSpinner, Screen } from '@/components/ui';
+import { Button, EmptyState, ErrorState, Header, Input, LoadingSpinner, Screen } from '@/components/ui';
 
 // JS-side colors for icons and the refresh tint
 import { useTheme } from '@/hooks/useTheme';
@@ -52,8 +82,8 @@ import { useDataEngine, useNetworkRestore } from '@knf/dataengine';
 import { useScheduleConflicts } from '@/hooks/useScheduleConflicts';
 
 // Timetable API + the offline cache it falls back to
-import { fetchSchedule, fetchScheduleFilters, type ScheduleLesson, type ScheduleResponse } from '@/services/api';
-import { cacheKeySchedule, SCHEDULE_CACHE_MAX_AGE } from '@/services/cacheKeys';
+import { fetchSchedule, fetchScheduleFilters, fetchScheduleWeek, type ScheduleLesson, type ScheduleResponse } from '@/services/api';
+import { cacheKeySchedule, cacheKeyScheduleWeek, SCHEDULE_CACHE_MAX_AGE } from '@/services/cacheKeys';
 
 // Failed silent refreshes toast instead of touching the list
 import { showToast } from '@/context/NetworkContext';
@@ -64,9 +94,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // Rendering
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
-import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AppState, FlatList, Modal, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { AppState, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+
+// Shrinks the filter sheet's list while the teacher search types
+import useKeyboardVisible from '@/hooks/useKeyboardVisible';
 
 
 // AsyncStorage key for the persisted group/semester choice —
@@ -94,6 +127,18 @@ const CARD_SHADOW = {
   elevation: 2,
 } as const;
 
+// How the timetable renders and through whose eyes
+type ViewMode = 'list' | 'day' | 'week';
+type Perspective = 'group' | 'teacher';
+
+// Teacher search must find 'Biržietienė' from 'birz' — fold
+// the Lithuanian diacritics on both sides, like the backend's
+// search columns do
+const LT_FOLD_FROM = 'ąčęėįšųūž';
+const LT_FOLD_TO = 'aceeisuuz';
+const foldLt = (value: string): string =>
+  value.toLowerCase().replace(/[ąčęėįšųūž]/g, (ch) => LT_FOLD_TO[LT_FOLD_FROM.indexOf(ch)]);
+
 // Shape persisted under SCHEDULE_PREFS_KEY. semesterExplicit
 // records that the user picked a semester (or "all") THEMSELVES
 // — without it the newest semester is defaulted on launch
@@ -101,6 +146,19 @@ interface SchedulePrefs {
   group: string | null;
   semester: string | null;
   semesterExplicit?: boolean;
+  viewMode?: ViewMode;
+  perspective?: Perspective;
+  teacher?: string | null;
+}
+
+// What the filter modal lifts on Apply — one object, so the
+// screen marks the semester explicit ONLY when it truly changed
+interface FilterChoice {
+  group: string | null;
+  semester: string | null;
+  semesterChanged: boolean;
+  perspective: Perspective;
+  teacher: string | null;
 }
 
 // JS Date.getDay() counts 0=Sunday; the API counts 0=Monday
@@ -273,12 +331,65 @@ function DayTabs({
 
 
 // -----------------------------------------------------------
+// ViewModeSwitch
+// -----------------------------------------------------------
+//
+// The list / day / week segment at the filter row's end. Icons
+// only — the row is tight — with the mode name riding on the
+// accessibility label.
+//
+// Used by:
+//   - ScheduleScreen (below) — beside FilterBar
+// -----------------------------------------------------------
+
+function ViewModeSwitch({ mode, onChange }: { mode: ViewMode; onChange: (mode: ViewMode) => void }) {
+
+  const { t } = useTranslation();
+  const { colors } = useTheme();
+
+  const options = [
+    { mode: 'list', icon: 'list-outline', label: t('schedule.viewList') },
+    { mode: 'day', icon: 'time-outline', label: t('schedule.viewDay') },
+    { mode: 'week', icon: 'grid-outline', label: t('schedule.viewWeek') },
+  ] as const;
+
+
+  return (
+    <View className="mr-md flex-row rounded-lg bg-surface-soft p-0.5">
+      {options.map((option) => {
+        const active = option.mode === mode;
+        return (
+          <Pressable
+            key={option.mode}
+            onPress={() => onChange(option.mode)}
+            hitSlop={6}
+            accessibilityRole="button"
+            accessibilityState={{ selected: active }}
+            accessibilityLabel={option.label}
+            className={`h-8 w-9 items-center justify-center rounded-md ${active ? 'bg-surface' : ''}`}
+          >
+            <Ionicons name={option.icon} size={16} color={active ? colors.brand : colors.inkFaint} />
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // FilterBar
 // -----------------------------------------------------------
 //
-// One-row summary of the active group/semester choice ("IT-3
-// · 5", or the all-groups label) with a count pill when any
-// filter is set. Tapping anywhere opens the FilterModal.
+// One-row summary of the active choice — "IT-3 · 5" or a
+// teacher's name — with a count pill when any filter is set.
+// Tapping anywhere opens the FilterModal. The border and
+// ground live on the parent row it shares with ViewModeSwitch.
 //
 // Used by:
 //   - ScheduleScreen (below)
@@ -303,7 +414,7 @@ function FilterBar({
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={t('schedule.filterTitle')}
-      className="flex-row items-center justify-between border-b border-line bg-surface px-md py-3"
+      className="flex-1 flex-row items-center justify-between px-md py-3"
       style={({ pressed }) => [pressed && { backgroundColor: colors.surfaceSoft }]}
     >
 
@@ -511,14 +622,24 @@ function FilterOption({
 // FilterModal
 // -----------------------------------------------------------
 //
-// Bottom-sheet picker for group and semester. Taps edit a
-// LOCAL draft and "Taikyti" lifts it to the screen — one
-// schedule fetch per visit instead of one behind the sheet
-// for every candidate tapped; "Valyti" clears the draft
-// without closing, and a scrim/back dismissal discards an
-// unapplied draft. Groups are the unbounded list (dozens at
-// faculty scale) so they get the virtualized FlatList; the
-// bounded handful of semesters rides in its footer.
+// Bottom-sheet picker: a perspective segment (group timetable
+// or a teacher's), then the matching list — groups, or the
+// searchable teacher roster — with the semester handful in the
+// footer of both. Taps edit a LOCAL draft and "Atlikta" lifts
+// everything in ONE FilterChoice — one schedule fetch per
+// visit instead of one behind the sheet for every candidate
+// tapped; "Valyti" clears the visible branch without closing,
+// and a scrim/back dismissal discards an unapplied draft.
+// Switching to the teacher tab asks the screen for the roster
+// (onNeedTeachers) — it arrives from the whole-semester fetch.
+//
+// The sheet rides above the keyboard the proven way (see
+// new-chat's banner): a KeyboardAvoidingView at the MODAL
+// window's root, bare 'padding' on iOS, Android left to the
+// window's own adjustResize — and the list additionally
+// shrinks while the keyboard is up, so the search field, the
+// matches and the Apply button all stay on screen together on
+// a small phone.
 //
 // Used by:
 //   - ScheduleScreen (below)
@@ -528,19 +649,27 @@ function FilterModal({
   visible,
   groups,
   semesters,
+  teachers,
+  teachersLoading,
   selectedGroup,
   selectedSemester,
-  onSelectGroup,
-  onSelectSemester,
+  perspective,
+  selectedTeacher,
+  onApply,
+  onNeedTeachers,
   onClose,
 }: {
   visible: boolean;
   groups: string[];
   semesters: string[];
+  teachers: string[];
+  teachersLoading: boolean;
   selectedGroup: string | null;
   selectedSemester: string | null;
-  onSelectGroup: (group: string | null) => void;
-  onSelectSemester: (semester: string | null) => void;
+  perspective: Perspective;
+  selectedTeacher: string | null;
+  onApply: (choice: FilterChoice) => void;
+  onNeedTeachers: () => void;
   onClose: () => void;
 }) {
 
@@ -549,111 +678,209 @@ function FilterModal({
 
   // The draft of the choice while the sheet is open — re-seeded
   // from the applied values on every open, so a dismissal
-  // without "Taikyti" leaves the screen's filters untouched
+  // without "Atlikta" leaves the screen's filters untouched
   const [draftGroup, setDraftGroup] = useState<string | null>(selectedGroup);
   const [draftSemester, setDraftSemester] = useState<string | null>(selectedSemester);
+  const [draftPerspective, setDraftPerspective] = useState<Perspective>(perspective);
+  const [draftTeacher, setDraftTeacher] = useState<string | null>(selectedTeacher);
+  const [teacherQuery, setTeacherQuery] = useState('');
+  // Whether the user TOUCHED the semester rows this visit —
+  // Apply must not read the live prop, which the newest-
+  // semester default can move underneath an open sheet
+  const semesterTouchedRef = useRef(false);
   useEffect(() => {
     if (visible) {
       setDraftGroup(selectedGroup);
       setDraftSemester(selectedSemester);
+      setDraftPerspective(perspective);
+      setDraftTeacher(selectedTeacher);
+      setTeacherQuery('');
+      semesterTouchedRef.current = false;
+      if (perspective === 'teacher') onNeedTeachers();
     }
-  }, [visible, selectedGroup, selectedSemester]);
+    // Re-seed only on open — the applied values cannot change
+    // while the sheet is up
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
 
 
-  // Only CHANGED values lift on apply — calling the semester
-  // callback for an untouched draft would wrongly mark the
-  // defaulted semester as the user's explicit choice
+  const teacherMode = draftPerspective === 'teacher';
+  const keyboardUp = useKeyboardVisible();
+
+  // Folded on both sides so 'birz' finds 'Biržietienė'
+  const visibleTeachers = useMemo(() => {
+    const query = foldLt(teacherQuery.trim());
+    if (!query) return teachers;
+    return teachers.filter((name) => foldLt(name).includes(query));
+  }, [teachers, teacherQuery]);
+
+
+  // Every deliberate tap on a semester row — a label, "all",
+  // or the clear button — counts as the user's own choice
+  const pickSemester = (semester: string | null) => {
+    semesterTouchedRef.current = true;
+    setDraftSemester(semester);
+  };
+
+  // Everything lifts in one object; semesterChanged marks the
+  // semester explicit only when the user actually touched it
   const apply = () => {
-    if (draftGroup !== selectedGroup) onSelectGroup(draftGroup);
-    if (draftSemester !== selectedSemester) onSelectSemester(draftSemester);
+    onApply({
+      group: draftGroup,
+      semester: draftSemester,
+      semesterChanged: semesterTouchedRef.current,
+      perspective: draftPerspective,
+      teacher: draftPerspective === 'teacher' ? draftTeacher : null,
+    });
     onClose();
   };
+
+  const clearBranch = () => {
+    if (teacherMode) setDraftTeacher(null);
+    else setDraftGroup(null);
+    pickSemester(null);
+  };
+
+
+  const semesterFooter = (
+    <>
+      <Text className="mb-2 mt-lg font-raleway-bold text-xs uppercase tracking-widest text-ink-soft">
+        {t('schedule.semesterLabel')}
+      </Text>
+      <FilterOption
+        label={t('schedule.allSemesters')}
+        selected={draftSemester === null}
+        onPress={() => pickSemester(null)}
+      />
+      {semesters.map((semester) => (
+        <FilterOption
+          key={semester}
+          label={semester}
+          selected={draftSemester === semester}
+          onPress={() => pickSemester(semester)}
+        />
+      ))}
+    </>
+  );
 
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
 
-      {/* Tapping the scrim closes the sheet; the inner Pressable
-          swallows taps so touching the sheet itself doesn't.
-          Both stay accessible={false} — an accessible Pressable
-          would group its subtree into one screen-reader node and
-          hide every control inside; closing remains reachable
-          through the Done button and hardware back. */}
-      <Pressable className="flex-1 justify-end bg-scrim" onPress={onClose} accessible={false}>
-        <Pressable className="rounded-t-2xl bg-surface" onPress={() => {}} accessible={false}>
+      <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
 
-          <View className="items-center pb-1 pt-3">
-            <View className="h-1 w-10 rounded-full bg-line-strong" />
-          </View>
+        {/* Tapping the scrim closes the sheet; the inner Pressable
+            swallows taps so touching the sheet itself doesn't.
+            Both stay accessible={false} — an accessible Pressable
+            would group its subtree into one screen-reader node and
+            hide every control inside; closing remains reachable
+            through the Done button and hardware back. */}
+        <Pressable className="flex-1 justify-end bg-scrim" onPress={onClose} accessible={false}>
+          <Pressable className="rounded-t-2xl bg-surface" onPress={() => {}} accessible={false}>
 
-          <View className="px-lg pb-2 pt-md">
-            <Text className="font-raleway-bold text-xl text-ink">{t('schedule.filterTitle')}</Text>
-          </View>
+            <View className="items-center pb-1 pt-3">
+              <View className="h-1 w-10 rounded-full bg-line-strong" />
+            </View>
 
-          <FlatList
-            data={groups}
-            keyExtractor={(group) => group}
-            className="px-lg"
-            style={{ maxHeight: 384 }}
-            ListHeaderComponent={
-              <>
-                <Text className="mb-2 mt-md font-raleway-bold text-xs uppercase tracking-widest text-ink-soft">
-                  {t('schedule.groupLabel')}
-                </Text>
-                <FilterOption
-                  label={t('schedule.allGroups')}
-                  selected={draftGroup === null}
-                  onPress={() => setDraftGroup(null)}
-                />
-              </>
-            }
-            renderItem={({ item }) => (
-              <FilterOption
-                label={item}
-                selected={draftGroup === item}
-                onPress={() => setDraftGroup(item)}
-              />
-            )}
-            ListFooterComponent={
-              <>
-                <Text className="mb-2 mt-lg font-raleway-bold text-xs uppercase tracking-widest text-ink-soft">
-                  {t('schedule.semesterLabel')}
-                </Text>
-                <FilterOption
-                  label={t('schedule.allSemesters')}
-                  selected={draftSemester === null}
-                  onPress={() => setDraftSemester(null)}
-                />
-                {semesters.map((semester) => (
+            <View className="px-lg pb-2 pt-md">
+              <Text className="font-raleway-bold text-xl text-ink">{t('schedule.filterTitle')}</Text>
+            </View>
+
+            {/* Whose timetable: the group's, or one teacher's */}
+            <View className="mx-lg mt-1 flex-row rounded-xl bg-surface-soft p-1">
+              {(['group', 'teacher'] as const).map((candidate) => {
+                const active = draftPerspective === candidate;
+                return (
+                  <Pressable
+                    key={candidate}
+                    onPress={() => {
+                      setDraftPerspective(candidate);
+                      if (candidate === 'teacher') onNeedTeachers();
+                    }}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: active }}
+                    className={`flex-1 items-center rounded-lg py-3 ${active ? 'bg-surface' : ''}`}
+                  >
+                    <Text className={active ? 'font-raleway-bold text-sm text-brand-text' : 'font-raleway-medium text-sm text-ink-soft'}>
+                      {t(candidate === 'group' ? 'schedule.groupLabel' : 'schedule.teacherLabel')}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <FlatList
+              data={teacherMode ? visibleTeachers : groups}
+              keyExtractor={(item) => item}
+              className="px-lg"
+              style={{ maxHeight: keyboardUp ? 220 : 384 }}
+              keyboardShouldPersistTaps="handled"
+              ListHeaderComponent={
+                teacherMode ? (
+                  <View className="mt-md">
+                    <Input
+                      value={teacherQuery}
+                      onChangeText={setTeacherQuery}
+                      placeholder={t('schedule.searchTeacher')}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      testID="schedule-teacher-search"
+                    />
+                    {teachersLoading && teachers.length === 0 ? (
+                      <Text className="mb-2 font-raleway text-sm text-ink-soft">
+                        {t('schedule.teachersLoading')}
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : (
+                  <>
+                    <Text className="mb-2 mt-md font-raleway-bold text-xs uppercase tracking-widest text-ink-soft">
+                      {t('schedule.groupLabel')}
+                    </Text>
+                    <FilterOption
+                      label={t('schedule.allGroups')}
+                      selected={draftGroup === null}
+                      onPress={() => setDraftGroup(null)}
+                    />
+                  </>
+                )
+              }
+              ListEmptyComponent={
+                teacherMode && !teachersLoading ? (
+                  <Text className="mt-2 font-raleway text-sm text-ink-soft">{t('schedule.searchNoResults')}</Text>
+                ) : null
+              }
+              renderItem={({ item }) =>
+                teacherMode ? (
                   <FilterOption
-                    key={semester}
-                    label={semester}
-                    selected={draftSemester === semester}
-                    onPress={() => setDraftSemester(semester)}
+                    label={item}
+                    selected={draftTeacher === item}
+                    onPress={() => setDraftTeacher(item)}
                   />
-                ))}
-              </>
-            }
-          />
+                ) : (
+                  <FilterOption
+                    label={item}
+                    selected={draftGroup === item}
+                    onPress={() => setDraftGroup(item)}
+                  />
+                )
+              }
+              ListFooterComponent={semesterFooter}
+            />
 
-          <View className="flex-row gap-3 px-lg pb-xl pt-md">
-            <View className="flex-1">
-              <Button
-                title={t('schedule.clearFilters')}
-                variant="outline"
-                onPress={() => {
-                  setDraftGroup(null);
-                  setDraftSemester(null);
-                }}
-              />
+            <View className="flex-row gap-3 px-lg pb-xl pt-md">
+              <View className="flex-1">
+                <Button title={t('schedule.clearFilters')} variant="outline" onPress={clearBranch} />
+              </View>
+              <View className="flex-1">
+                <Button title={t('schedule.applyFilters')} onPress={apply} />
+              </View>
             </View>
-            <View className="flex-1">
-              <Button title={t('schedule.applyFilters')} onPress={apply} />
-            </View>
-          </View>
 
+          </Pressable>
         </Pressable>
-      </Pressable>
+
+      </KeyboardAvoidingView>
 
     </Modal>
   );
@@ -686,6 +913,27 @@ export default function ScheduleScreen() {
   const [selectedDay, setSelectedDay] = useState(() => jsDayToApi(new Date().getDay()));
 
 
+  // How the timetable renders (persisted), and through whose
+  // eyes: the group's — or one teacher's, across every group
+  const [viewMode, setViewMode] = useState<ViewMode>('list');
+  const [perspective, setPerspective] = useState<Perspective>('group');
+  const [teacher, setTeacher] = useState<string | null>(null);
+
+
+  // The whole-semester dataset behind the timetable views and
+  // the teacher perspective — null until first needed. Its own
+  // three states beside the day list's, so flipping view modes
+  // never blanks the other path's data.
+  const [weekLessons, setWeekLessons] = useState<ScheduleLesson[] | null>(null);
+  const [weekLoading, setWeekLoading] = useState(false);
+  const [weekError, setWeekError] = useState(false);
+  const [weekCachedAt, setWeekCachedAt] = useState<number | null>(null);
+
+
+  // A tapped timetable cell opens the detail sheet
+  const [sheetLesson, setSheetLesson] = useState<TimetableLesson | null>(null);
+
+
   // Lesson list, its three data states, and the cache age
   const [lessons, setLessons] = useState<ScheduleLesson[]>([]);
   const [loading, setLoading] = useState(true);
@@ -709,8 +957,9 @@ export default function ScheduleScreen() {
 
   // True once the user (or their restored prefs) chose a
   // semester — including "all". Until then the newest parsable
-  // semester is defaulted so stale semesters stay out of view
-  const semesterExplicitRef = useRef(false);
+  // semester is defaulted so stale semesters stay out of view.
+  // STATE, not a ref: the wire param below derives from it
+  const [semesterExplicit, setSemesterExplicit] = useState(false);
 
 
   // Only the newest request may write — rapid day taps fire
@@ -722,6 +971,16 @@ export default function ScheduleScreen() {
   // Under "all groups" parallel lectures overlap by design, so
   // detection only runs while a group filter is active
   const conflictIds = useScheduleConflicts(lessons, selectedGroup !== null);
+
+
+  // Both loaders remember which cache key they last SERVED — a
+  // repeat need for the same data (a view-mode round trip, a
+  // perspective flip) refreshes silently instead of blanking a
+  // filled view behind a spinner; a failed serve clears the
+  // mark so the next need retries with the full spinner path
+  const weekSeqRef = useRef(0);
+  const weekKeyRef = useRef<string | null>(null);
+  const listKeyRef = useRef<string | null>(null);
 
 
   // One code path for first load / day change (spinner), pull-
@@ -742,6 +1001,7 @@ export default function ScheduleScreen() {
         setLessons(resp.lessons);
         setCachedAt(null);
         setError(false);
+        listKeyRef.current = key;
         void cache.set(key, resp);
       } catch {
         // A failed SILENT refresh keeps whatever is on screen
@@ -760,13 +1020,64 @@ export default function ScheduleScreen() {
           setLessons(cached.data.lessons);
           setCachedAt(cached.cachedAt);
           setError(false);
+          listKeyRef.current = key;
         } else {
           setLessons([]);
           setCachedAt(null);
           setError(true);
+          listKeyRef.current = null;
         }
       } finally {
         if (seq === loadSeqRef.current) setLoading(false);
+      }
+    },
+    [t, cache],
+  );
+
+
+  // The whole-semester fetch behind the timetable views: every
+  // group, every day, paged past the backend's 500-row cap by
+  // fetchScheduleWeek, cached like the day rows and falling
+  // back to that cache the same way
+  const loadWeek = useCallback(
+    async (semester: string | null, spinner: boolean) => {
+      const seq = ++weekSeqRef.current;
+      if (spinner) {
+        setWeekLoading(true);
+        setWeekError(false);
+      }
+
+      const key = cacheKeyScheduleWeek(semester);
+      try {
+        const resp = await fetchScheduleWeek(semester ?? undefined);
+        if (seq !== weekSeqRef.current) return;
+        setWeekLessons(resp.lessons);
+        setWeekCachedAt(null);
+        setWeekError(false);
+        weekKeyRef.current = key;
+        void cache.set(key, resp);
+      } catch {
+        if (!spinner) {
+          if (seq === weekSeqRef.current) showToast('error', t('schedule.loadError'));
+          return;
+        }
+        const cached = await cache.get<ScheduleResponse>(key, SCHEDULE_CACHE_MAX_AGE);
+        if (seq !== weekSeqRef.current) return;
+        if (cached) {
+          setWeekLessons(cached.data.lessons);
+          setWeekCachedAt(cached.cachedAt);
+          setWeekError(false);
+          weekKeyRef.current = key;
+        } else {
+          setWeekLessons([]);
+          setWeekCachedAt(null);
+          setWeekError(true);
+          // Next need for ANY semester must take the spinner
+          // path again — it is the only one reading the cache
+          weekKeyRef.current = null;
+        }
+      } finally {
+        if (seq === weekSeqRef.current) setWeekLoading(false);
       }
     },
     [t, cache],
@@ -800,13 +1111,16 @@ export default function ScheduleScreen() {
           if (parsed && typeof parsed === 'object') {
             const prefs = parsed as Partial<SchedulePrefs>;
             if (typeof prefs.group === 'string' && prefs.group) setSelectedGroup(prefs.group);
-            if (typeof prefs.semester === 'string' && prefs.semester) {
-              setSelectedSemester(prefs.semester);
-              semesterExplicitRef.current = true;
-            } else if (prefs.semesterExplicit === true) {
-              // A recorded, deliberate "all semesters"
-              semesterExplicitRef.current = true;
+            if (typeof prefs.semester === 'string' && prefs.semester) setSelectedSemester(prefs.semester);
+            // Only the RECORDED flag makes a restored semester
+            // explicit — a stored auto-default must stay a
+            // default, or a semester rollover could never move it
+            if (prefs.semesterExplicit === true) setSemesterExplicit(true);
+            if (prefs.viewMode === 'list' || prefs.viewMode === 'day' || prefs.viewMode === 'week') {
+              setViewMode(prefs.viewMode);
             }
+            if (prefs.perspective === 'teacher') setPerspective('teacher');
+            if (typeof prefs.teacher === 'string' && prefs.teacher) setTeacher(prefs.teacher);
           }
         }
       } catch {
@@ -838,10 +1152,13 @@ export default function ScheduleScreen() {
     const prefs: SchedulePrefs = {
       group: selectedGroup,
       semester: selectedSemester,
-      semesterExplicit: semesterExplicitRef.current,
+      semesterExplicit,
+      viewMode,
+      perspective,
+      teacher,
     };
     AsyncStorage.setItem(SCHEDULE_PREFS_KEY, JSON.stringify(prefs)).catch(() => {});
-  }, [prefsLoaded, selectedGroup, selectedSemester]);
+  }, [prefsLoaded, selectedGroup, selectedSemester, semesterExplicit, viewMode, perspective, teacher]);
 
 
   // Persisted filters can outlive the server's lists (a group
@@ -857,7 +1174,7 @@ export default function ScheduleScreen() {
     if (semesters.length > 0 && selectedSemester !== null && !semesters.includes(selectedSemester)) {
       // Clearing a stale semester also clears the explicit
       // mark, so the newest-semester default below re-applies
-      semesterExplicitRef.current = false;
+      setSemesterExplicit(false);
       setSelectedSemester(null);
     }
   }, [prefsLoaded, filtersFetched, groups, semesters, selectedGroup, selectedSemester]);
@@ -869,26 +1186,111 @@ export default function ScheduleScreen() {
   // stays an explicit opt-in through the filter modal.
   useEffect(() => {
     if (!prefsLoaded || !filtersFetched) return;
-    if (semesterExplicitRef.current || selectedSemester !== null) return;
+    if (semesterExplicit || selectedSemester !== null) return;
     const newest = newestSemester(semesters);
     if (newest) setSelectedSemester(newest);
-  }, [prefsLoaded, filtersFetched, semesters, selectedSemester]);
+  }, [prefsLoaded, filtersFetched, semesters, selectedSemester, semesterExplicit]);
+
+
+  // What the wire and the cache keys call the semester choice:
+  // a picked label rides as itself; a DELIBERATE "all" must be
+  // sent as the literal 'all' — the backend rewrites an omitted
+  // ?semester to the newest one and only 'all' opts out; the
+  // transient null before the auto-default lands stays omitted
+  // (the backend's newest IS what the default will pick)
+  const semesterParam = selectedSemester ?? (semesterExplicit ? 'all' : null);
 
 
   // (Re)load whenever the visible day or the filters change —
   // gated on prefsLoaded so the persisted filter applies to
-  // the very first fetch instead of arriving one fetch late
+  // the very first fetch instead of arriving one fetch late.
+  // The per-day path only serves the group-perspective card
+  // list; the other views live off the week dataset below.
   useEffect(() => {
     if (!prefsLoaded) return;
-    void loadLessons(selectedDay, selectedGroup, selectedSemester, true);
-  }, [prefsLoaded, selectedDay, selectedGroup, selectedSemester, loadLessons]);
+    if (viewMode !== 'list' || perspective !== 'group') return;
+    const spinner = listKeyRef.current !== cacheKeySchedule(selectedDay, selectedGroup, semesterParam);
+    void loadLessons(selectedDay, selectedGroup, semesterParam, spinner);
+  }, [prefsLoaded, viewMode, perspective, selectedDay, selectedGroup, semesterParam, loadLessons]);
 
 
-  // Connectivity returning refetches the visible day (and the
-  // filter lists if they never arrived); useNetworkRestore
-  // always runs the latest closure, so no refs are needed
+  // Which paths need the whole-semester dataset — the teacher
+  // perspective always (the roster rides it); group-perspective
+  // timetable views only once a group is picked, because an
+  // all-groups grid packs parallel lessons into unreadable
+  // slivers and the body shows the pick-a-group prompt instead
+  const needsWeek = perspective === 'teacher' || (viewMode !== 'list' && selectedGroup !== null);
+
+
+  // Load the week dataset when a timetable view or the teacher
+  // perspective first needs it — with a spinner only when the
+  // semester's data was never served, silently after that
+  useEffect(() => {
+    if (!prefsLoaded || !needsWeek) return;
+    void loadWeek(semesterParam, weekKeyRef.current !== cacheKeyScheduleWeek(semesterParam));
+  }, [prefsLoaded, needsWeek, semesterParam, loadWeek]);
+
+
+  // The engine pipeline over the week dataset: normalize once,
+  // then filter through the active perspective's eyes
+  // ScheduleLesson is exactly the wire row the adapter expects
+  // — only the open index signature is missing, so assert
+  const normalized = useMemo(() => normalizeKnf((weekLessons ?? []) as KnfLesson[]), [weekLessons]);
+  const weekEntries = normalized.entries;
+
+  const teachers = useMemo(() => listTeachers(weekEntries), [weekEntries]);
+
+  const perspectiveEntries = useMemo<TimetableEntry<KnfLesson>[]>(() => {
+    if (perspective === 'teacher') return teacher ? forTeacher(weekEntries, teacher) : [];
+    return selectedGroup ? forGroup(weekEntries, selectedGroup) : weekEntries;
+  }, [weekEntries, perspective, teacher, selectedGroup]);
+
+  const conflictScope = useMemo<ConflictOptions>(
+    () =>
+      perspective === 'teacher'
+        ? { scope: 'person' }
+        : { scope: 'group', groupFilterActive: selectedGroup !== null },
+    [perspective, selectedGroup],
+  );
+
+
+
+  // The teacher perspective's card list: that day's merged
+  // cards mapped back onto the LessonCard shape — group chips
+  // joined, times from the raw row when it survived the merge
+  const teacherDayCards = useMemo(() => {
+    if (viewMode !== 'list' || perspective !== 'teacher') return [];
+    const ids = engineConflictIds(perspectiveEntries, { scope: 'person' });
+    return perspectiveEntries
+      .filter((entry) => entry.day === selectedDay)
+      .slice()
+      .sort(compareEntries)
+      .map((entry) => ({
+        conflict: ids.has(entry.id),
+        lesson: {
+          id: entry.id,
+          title: entry.title,
+          teacher: (entry.people ?? []).join(', '),
+          room: (entry.location ?? []).join(', '),
+          timeStart: typeof entry.timeStart === 'string' ? entry.timeStart : formatMinutes(entry.startMin),
+          timeEnd: typeof entry.timeEnd === 'string' ? entry.timeEnd : formatMinutes(entry.endMin),
+          dayOfWeek: entry.day,
+          group: (entry.groupKeys ?? (entry.groupKey ? [entry.groupKey] : [])).join(', '),
+          semester: entry.termKey ?? '',
+        } satisfies ScheduleLesson,
+      }));
+  }, [viewMode, perspective, perspectiveEntries, selectedDay]);
+
+
+  // Connectivity returning refetches whichever paths are in
+  // use (and the filter lists if they never arrived);
+  // useNetworkRestore always runs the latest closure, so no
+  // refs are needed
   useNetworkRestore(() => {
-    void loadLessons(selectedDay, selectedGroup, selectedSemester, lessons.length === 0);
+    if (viewMode === 'list' && perspective === 'group') {
+      void loadLessons(selectedDay, selectedGroup, semesterParam, lessons.length === 0);
+    }
+    if (needsWeek) void loadWeek(semesterParam, weekLessons === null);
     if (!filtersFetched) void loadFilters();
   });
 
@@ -923,34 +1325,69 @@ export default function ScheduleScreen() {
   }, [evaluateToday]);
 
 
-  // Any choice made in the modal — a semester or "all" — is
-  // the user's own and must survive as such
-  const handleSelectSemester = (semester: string | null) => {
-    semesterExplicitRef.current = true;
-    setSelectedSemester(semester);
+  // The modal lifts everything at once; a semester that truly
+  // moved — to a label or to "all" — is the user's own choice
+  // and must survive as such
+  const applyFilters = (choice: FilterChoice) => {
+    if (choice.semesterChanged) {
+      setSemesterExplicit(true);
+      setSelectedSemester(choice.semester);
+    }
+    setSelectedGroup(choice.group);
+    setPerspective(choice.perspective);
+    setTeacher(choice.teacher);
   };
 
 
-  // Pull-to-refresh: silent reload, first-load spinner hidden
+  // The teacher tab of the modal needs the roster, which rides
+  // the week dataset — fetch it whenever the held data is not
+  // THIS semester's serve: never fetched, a failed last try
+  // (the key mark was cleared), or another semester's leftovers
+  const ensureTeachers = () => {
+    if (weekLoading) return;
+    if (weekKeyRef.current === cacheKeyScheduleWeek(semesterParam)) return;
+    void loadWeek(semesterParam, true);
+  };
+
+
+  // Pull-to-refresh: silent reload of whichever path is on
+  // screen, first-load spinner hidden
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadLessons(selectedDay, selectedGroup, selectedSemester, false);
+    if (needsWeek) await loadWeek(semesterParam, false);
+    else await loadLessons(selectedDay, selectedGroup, semesterParam, false);
     setRefreshing(false);
   };
 
 
   // ErrorState's button — full reload with the spinner
   const retry = () => {
-    void loadLessons(selectedDay, selectedGroup, selectedSemester, true);
+    if (needsWeek) void loadWeek(semesterParam, true);
+    else void loadLessons(selectedDay, selectedGroup, semesterParam, true);
   };
 
 
-  // "IT-3 · 5" summary of the active choice; doubles as the
-  // empty-state hint so an over-filtered day explains itself
-  const activeFilterCount = (selectedGroup ? 1 : 0) + (selectedSemester ? 1 : 0);
-  const filterSummary = [selectedGroup ?? t('schedule.allGroups'), selectedSemester]
+  // "IT-3 · 5" (or the teacher's name) summary of the active
+  // choice; doubles as the empty-state hint so an over-filtered
+  // day explains itself
+  const activeFilterCount =
+    (perspective === 'teacher' ? (teacher ? 1 : 0) : selectedGroup ? 1 : 0) + (selectedSemester ? 1 : 0);
+  const filterSummary = (
+    perspective === 'teacher'
+      ? [teacher ?? t('schedule.pickTeacher'), selectedSemester]
+      : [selectedGroup ?? t('schedule.allGroups'), selectedSemester]
+  )
     .filter(Boolean)
     .join(' · ');
+
+
+  // Which path fills the body, and that path's states
+  const groupList = viewMode === 'list' && perspective === 'group';
+  const bodyLoading = groupList ? loading : weekLoading;
+  const bodyError = groupList ? error : weekError;
+  const bodyCachedAt = groupList ? cachedAt : weekCachedAt;
+  const bannerCount =
+    viewMode !== 'list' ? 0 : perspective === 'teacher' ? teacherDayCards.filter((card) => card.conflict).length : conflictIds.size;
 
 
   // Stable renderItem so the memoized cards only re-render
@@ -960,6 +1397,13 @@ export default function ScheduleScreen() {
       <LessonCard lesson={item} conflict={conflictIds.has(item.id)} />
     ),
     [conflictIds],
+  );
+
+  const renderTeacherCard = useCallback(
+    ({ item }: { item: { conflict: boolean; lesson: ScheduleLesson } }) => (
+      <LessonCard lesson={item.lesson} conflict={item.conflict} />
+    ),
+    [],
   );
 
 
@@ -986,65 +1430,118 @@ export default function ScheduleScreen() {
       <Header
         title={t('schedule.title')}
         right={
-          <DayStepper
-            label={t(`schedule.${DAY_SHORT_KEYS[selectedDay]}`)}
-            fullLabel={t(`schedule.${DAY_FULL_KEYS[selectedDay]}`)}
-            onPrev={() => changeDay(-1)}
-            onNext={() => changeDay(1)}
-          />
+          viewMode === 'week' ? undefined : (
+            <DayStepper
+              label={t(`schedule.${DAY_SHORT_KEYS[selectedDay]}`)}
+              fullLabel={t(`schedule.${DAY_FULL_KEYS[selectedDay]}`)}
+              onPrev={() => changeDay(-1)}
+              onNext={() => changeDay(1)}
+            />
+          )
         }
       />
 
-      <FilterBar
-        label={filterSummary}
-        activeCount={activeFilterCount}
-        onPress={() => setModalVisible(true)}
-      />
+      <View className="flex-row items-center border-b border-line bg-surface">
+        <FilterBar
+          label={filterSummary}
+          activeCount={activeFilterCount}
+          onPress={() => setModalVisible(true)}
+        />
+        <ViewModeSwitch mode={viewMode} onChange={setViewMode} />
+      </View>
 
-      <DayTabs days={visibleDays} selectedDay={selectedDay} onSelect={setSelectedDay} />
+      {viewMode !== 'week' && <DayTabs days={visibleDays} selectedDay={selectedDay} onSelect={setSelectedDay} />}
 
-      {cachedAt !== null && <CachedBanner cachedAt={cachedAt} />}
-      {!loading && conflictIds.size > 0 && <ConflictBanner count={conflictIds.size} />}
+      {bodyCachedAt !== null && <CachedBanner cachedAt={bodyCachedAt} />}
+      {!bodyLoading && bannerCount > 0 && <ConflictBanner count={bannerCount} />}
 
-      {/* Body — spinner, error with retry, empty day, or the
-          lesson list; error and empty are distinct states */}
-      {loading ? (
+      {/* Body — spinner, error with retry, then the active
+          path: the group card list exactly as it always was,
+          the teacher's card list, the pick-a-teacher prompt,
+          or the kit's timeline/grid; error and empty stay
+          distinct states */}
+      {bodyLoading ? (
         <View className="flex-1 items-center justify-center">
           <LoadingSpinner />
         </View>
-      ) : error ? (
+      ) : bodyError ? (
         <ScrollView contentContainerStyle={{ flexGrow: 1 }} refreshControl={refreshControl}>
           <ErrorState message={t('schedule.loadError')} onRetry={retry} />
         </ScrollView>
-      ) : lessons.length === 0 ? (
-        <ScrollView contentContainerStyle={{ flexGrow: 1 }} refreshControl={refreshControl}>
-          <EmptyState
-            icon="calendar-outline"
-            title={t('schedule.noLectures')}
-            hint={activeFilterCount > 0 ? filterSummary : undefined}
+      ) : groupList ? (
+        lessons.length === 0 ? (
+          <ScrollView contentContainerStyle={{ flexGrow: 1 }} refreshControl={refreshControl}>
+            <EmptyState
+              icon="calendar-outline"
+              title={t('schedule.noLectures')}
+              hint={activeFilterCount > 0 ? filterSummary : undefined}
+            />
+          </ScrollView>
+        ) : (
+          <FlatList
+            data={lessons}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={{ padding: 16, paddingBottom: 24 }}
+            refreshControl={refreshControl}
+            ItemSeparatorComponent={Separator}
+            renderItem={renderLesson}
           />
+        )
+      ) : perspective === 'group' && selectedGroup === null ? (
+        <ScrollView contentContainerStyle={{ flexGrow: 1 }} refreshControl={refreshControl}>
+          <EmptyState icon="people-outline" title={t('schedule.pickGroup')} hint={t('schedule.filterTitle')} />
         </ScrollView>
+      ) : perspective === 'teacher' && teacher === null ? (
+        <ScrollView contentContainerStyle={{ flexGrow: 1 }} refreshControl={refreshControl}>
+          <EmptyState icon="person-outline" title={t('schedule.pickTeacher')} hint={t('schedule.filterTitle')} />
+        </ScrollView>
+      ) : viewMode === 'list' ? (
+        teacherDayCards.length === 0 ? (
+          <ScrollView contentContainerStyle={{ flexGrow: 1 }} refreshControl={refreshControl}>
+            <EmptyState icon="calendar-outline" title={t('schedule.noLectures')} hint={filterSummary} />
+          </ScrollView>
+        ) : (
+          <FlatList
+            data={teacherDayCards}
+            keyExtractor={(card) => card.lesson.id}
+            contentContainerStyle={{ padding: 16, paddingBottom: 24 }}
+            refreshControl={refreshControl}
+            ItemSeparatorComponent={Separator}
+            renderItem={renderTeacherCard}
+          />
+        )
       ) : (
-        <FlatList
-          data={lessons}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={{ padding: 16, paddingBottom: 24 }}
-          refreshControl={refreshControl}
-          ItemSeparatorComponent={Separator}
-          renderItem={renderLesson}
-        />
+        <TimetableHost>
+          <View className="flex-1 px-2 pt-2">
+            <TimetableView
+              entries={perspectiveEntries}
+              skipped={normalized.skipped}
+              scope={conflictScope}
+              mode={viewMode}
+              day={selectedDay}
+              onChangeDay={changeDay}
+              onPressLesson={setSheetLesson}
+            />
+          </View>
+        </TimetableHost>
       )}
 
       <FilterModal
         visible={modalVisible}
         groups={groups}
         semesters={semesters}
+        teachers={teachers}
+        teachersLoading={weekLoading}
         selectedGroup={selectedGroup}
         selectedSemester={selectedSemester}
-        onSelectGroup={setSelectedGroup}
-        onSelectSemester={handleSelectSemester}
+        perspective={perspective}
+        selectedTeacher={teacher}
+        onApply={applyFilters}
+        onNeedTeachers={ensureTeachers}
         onClose={() => setModalVisible(false)}
       />
+
+      <LessonSheet lesson={sheetLesson} onClose={() => setSheetLesson(null)} />
 
     </Screen>
   );

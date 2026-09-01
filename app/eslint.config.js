@@ -14,7 +14,7 @@ module.exports = defineConfig([
     // the next quick fix
     // The packages' SOURCE is sealed; their example/ folders are
     // documentation and may show the two packages used together
-    files: ['packages/chatuikit/src/**/*.{ts,tsx}', 'packages/chatengine/src/**/*.{ts,tsx}', 'packages/dataengine/src/**/*.{ts,tsx}', 'packages/socialengine/src/**/*.{ts,tsx}', 'packages/socialuikit/src/**/*.{ts,tsx}'],
+    files: ['packages/chatuikit/src/**/*.{ts,tsx}', 'packages/chatengine/src/**/*.{ts,tsx}', 'packages/dataengine/src/**/*.{ts,tsx}', 'packages/socialengine/src/**/*.{ts,tsx}', 'packages/socialuikit/src/**/*.{ts,tsx}', 'packages/wayfindengine/src/**/*.{ts,tsx}', 'packages/wayfinduikit/src/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-imports': [
         'error',
@@ -36,6 +36,8 @@ module.exports = defineConfig([
             { target: './packages/dataengine/src', from: './', except: ['./packages/dataengine/src', './node_modules'] },
             { target: './packages/socialengine/src', from: './', except: ['./packages/socialengine/src', './node_modules'] },
             { target: './packages/socialuikit/src', from: './', except: ['./packages/socialuikit/src', './node_modules'] },
+            { target: './packages/wayfindengine/src', from: './', except: ['./packages/wayfindengine/src', './node_modules'] },
+            { target: './packages/wayfinduikit/src', from: './', except: ['./packages/wayfinduikit/src', './node_modules'] },
           ],
         },
       ],

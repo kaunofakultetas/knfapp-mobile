@@ -6,8 +6,10 @@
 //  "view all" row. The native stack header already titles the
 //  screen (see (main)/_layout.tsx), so the old duplicate
 //  in-screen burgundy bar is gone — the body is just the
-//  FlatList and the shared pinned composer, both inside a
-//  KeyboardAvoidingView offset by that header's height.
+//  FlatList of the social kit's comment rows and the kit's
+//  pinned composer, both inside a KeyboardAvoidingView offset
+//  by that header's height. The composer pads its own bottom
+//  edge with the safe-area inset while the keyboard is down.
 //
 //  Paging is real now: useFeed appends the next backend page
 //  on onEndReached (the old screen hardcoded page 1/50 and
@@ -20,29 +22,34 @@
 //  Split into (root component last):
 //
 //    COMMENTS_PER_PAGE  — backend page size
+//    toKitComment       — backend comment → the kit's row shape
 //    CommentsBody       — spinner / error / list by feed state
 //    NewsCommentsScreen — the screen itself (default export)
 // -----------------------------------------------------------
 
-// Shared comment thread pieces
-import CommentComposer from '@/components/news/CommentComposer';
-import CommentRow from '@/components/news/CommentRow';
+// The social kit's comment row and pinned composer (the
+// provider is mounted in the (main) layout)
+import { CommentComposer, CommentRow, type KitComment } from '@knf/socialuikit';
 
 // UI kit and theming
 import { EmptyState, ErrorState, LoadingSpinner, Screen } from '@/components/ui';
 import { useTheme } from '@/hooks/useTheme';
 
 // Paginated feed engine and the backend contract
-import { useFeed, type UseFeedResult } from '@/hooks/useFeed';
+import { useFeed, type UseFeedResult } from '@knf/dataengine';
 import { addCommentApi, fetchComments, type CommentResponse } from '@/services/api';
 
-// App-wide error toasts
+// Auth gates the composer and marks the viewer's own rows;
+// app-wide error toasts
+import { useAuth } from '@/context/AuthContext';
 import { showToast } from '@/context/NetworkContext';
 
-// Route param and the stack-header offset
+// Route param, the login round-trip href and the stack-header
+// offset
+import { useReturnHref } from '@/hooks/useReturnHref';
 import { useRouteParam } from '@/hooks/useRouteParam';
 import { useHeaderHeight } from '@react-navigation/elements';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Screen primitives
@@ -62,6 +69,19 @@ import {
 // Matches the backend's default page size — every
 // onEndReached pulls one more page of this length
 const COMMENTS_PER_PAGE = 20;
+
+// The backend comment row in the kit's vocabulary. `time` is
+// the raw created_at stamp (naive UTC) — the kit's RelativeTime
+// reads a zone-less stamp as UTC, so no reformatting here.
+// isOwn paints the viewer's own comments with the brand wash;
+// the backend has no comment deletion, so `deleted` never sets
+const toKitComment = (comment: CommentResponse, viewerId: string | null): KitComment => ({
+  id: comment.id,
+  author: { id: comment.userId, displayName: comment.userName, avatarUrl: comment.userAvatar },
+  text: comment.text,
+  createdAt: comment.time,
+  isOwn: viewerId !== null && comment.userId === viewerId,
+});
 
 
 
@@ -87,6 +107,7 @@ function CommentsBody({ feed }: { feed: UseFeedResult<CommentResponse> }) {
   const { t } = useTranslation();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
 
   // Spinner = pull gesture only; background refreshes (focus
   // return, network restore) reuse feed.refresh() silently
@@ -163,10 +184,14 @@ function CommentsBody({ feed }: { feed: UseFeedResult<CommentResponse> }) {
 
 
   // Stable render function so the list doesn't get a fresh
-  // renderItem closure on every feed-state render
+  // renderItem closure on every feed-state render — only a
+  // viewer change (own-row wash) is worth a new one
+  const viewerId = user?.id ?? null;
   const renderComment = useCallback(
-    ({ item }: ListRenderItemInfo<CommentResponse>) => <CommentRow comment={item} />,
-    [],
+    ({ item }: ListRenderItemInfo<CommentResponse>) => (
+      <CommentRow comment={toKitComment(item, viewerId)} />
+    ),
+    [viewerId],
   );
 
 
@@ -201,7 +226,7 @@ function CommentsBody({ feed }: { feed: UseFeedResult<CommentResponse> }) {
       onLayout={applyPendingLift}
       keyExtractor={(comment) => comment.id}
       renderItem={renderComment}
-      contentContainerClassName="flex-grow p-md"
+      contentContainerClassName="flex-grow py-sm"
       onEndReached={feed.loadMore}
       onEndReachedThreshold={0.4}
       ListFooterComponent={feed.loadingMore ? <LoadingSpinner size="small" /> : null}
@@ -239,8 +264,11 @@ function CommentsBody({ feed }: { feed: UseFeedResult<CommentResponse> }) {
 export default function NewsCommentsScreen() {
 
   const postId = useRouteParam('postId');
+  const { isAuthenticated } = useAuth();
   const { t } = useTranslation();
   const headerHeight = useHeaderHeight();
+  const router = useRouter();
+  const returnTo = useReturnHref();
 
 
   const feed = useFeed<CommentResponse>(
@@ -271,6 +299,14 @@ export default function NewsCommentsScreen() {
   };
 
 
+  // The composer's sign-in button: login, then back to exactly
+  // this thread — returnTo carries the query string, a bare
+  // pathname would drop ?postId= and land on "not found"
+  const openLogin = useCallback(() => {
+    router.push({ pathname: '/login', params: { returnTo } });
+  }, [returnTo, router]);
+
+
   // No postId means the route was reached without a post —
   // nothing to load, nothing to comment on
   if (!postId) {
@@ -290,7 +326,13 @@ export default function NewsCommentsScreen() {
         keyboardVerticalOffset={headerHeight}
       >
         <CommentsBody feed={feed} />
-        <CommentComposer onSubmit={handleSubmitComment} />
+        {/* Guests see the kit's sign-in prompt instead of the
+            field — auth adds the comment, never gates reading */}
+        <CommentComposer
+          canComment={isAuthenticated}
+          onSubmit={handleSubmitComment}
+          onPressSignIn={openLogin}
+        />
       </KeyboardAvoidingView>
     </Screen>
   );

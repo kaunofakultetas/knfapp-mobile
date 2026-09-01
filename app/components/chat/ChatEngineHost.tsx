@@ -17,11 +17,12 @@ import { useCallback, useMemo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useAuth } from '@/context/AuthContext';
-import { showToast, useNetwork } from '@/context/NetworkContext';
+import { showToast } from '@/context/NetworkContext';
 import { chatTransport } from '@/services/chatTransport';
 import { MAX_UPLOAD_BYTES, MAX_VIDEO_UPLOAD_BYTES } from '@/services/api';
 
 import { ChatEngineProvider, type ChatUser, type EngineNotice } from '@knf/chatengine';
+import { useDataEngine } from '@knf/dataengine';
 import { DEFAULT_MAX_LENGTH } from '@knf/chatuikit/composer/Composer';
 
 
@@ -67,7 +68,9 @@ const limits = {
 export default function ChatEngineHost({ children }: { children: ReactNode }) {
 
   const { user } = useAuth();
-  const { onNetworkRestore } = useNetwork();
+  // The chat engine replays its outbox on the same restore bus
+  // every offline-first screen listens to
+  const { onRestore } = useDataEngine();
   const { t } = useTranslation();
 
 
@@ -88,7 +91,7 @@ export default function ChatEngineHost({ children }: { children: ReactNode }) {
       currentUser={currentUser}
       storage={AsyncStorage}
       notify={notify}
-      onNetworkRestore={onNetworkRestore}
+      onNetworkRestore={onRestore}
       makeVideoPoster={makeVideoPoster}
       limits={limits}
     >

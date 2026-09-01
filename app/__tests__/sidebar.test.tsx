@@ -8,6 +8,9 @@
 //  and hard-pinned surfaces never offer a toggle at all.
 // -----------------------------------------------------------
 
+// The drawer polls the activity badge through the social engine —
+// no provider here, so the hook answers a quiet badge
+jest.mock('@knf/socialengine', () => ({ useUnreadBadge: () => ({ badge: '', refresh: async () => {} }) }));
 jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'));
 jest.mock('expo-haptics', () => ({ selectionAsync: jest.fn(async () => {}) }));
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));

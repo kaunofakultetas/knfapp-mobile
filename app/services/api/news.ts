@@ -3,16 +3,11 @@
 //
 //  The /news feed mixes scraped faculty articles and user
 //  posts (NewsPost.source tells them apart); likes, comments,
-//  post creation and the per-post poll live under the same
-//  prefix.
-//
-//  Poll edge cases handled HERE so screens stay simple:
-//  fetchPoll resolves null only for a real 404 (post has no
-//  poll), rethrows every other failure, and serves concurrent
-//  and repeat mounts from one shared promise (see the poll
-//  request cache below); votePollApi treats the backend's 409
-//  ("already voted for this option") as a no-op success and
-//  hands back freshly fetched poll state.
+//  post creation and attaching a poll live under the same
+//  prefix. Reading and voting a poll is NOT here any more —
+//  @knf/socialengine's KNF adapter owns those routes (and the
+//  404 → "no poll" / 409 → duplicate-vote edge cases), and
+//  components/news/PollWidget.tsx reads them through usePoll.
 //
 //  Comment `time` is the raw created_at ISO stamp — screens
 //  MUST format it locally via services/format.ts before
@@ -23,26 +18,20 @@
 //    NewsFeedResponse     — one feed page
 //    CommentResponse      — a single comment
 //    CommentsListResponse — one comments page
-//    LikeResponse         — like toggle result
 //    ShareResponse        — share-recording result
 //    PollResponse         — poll with options + own vote
 //    NewsPostDetail       — single post + the viewer's liked
 //    fetchNewsFeed        — paged feed, optional source filter
 //    fetchNewsPost        — single post by id
-//    toggleLikeApi        — like/unlike a post
 //    sharePostApi         — record a completed share
 //    fetchComments        — paged comments of a post
 //    addCommentApi        — append a comment
 //    createPost           — publish a user post
-//    poll request cache   — one shared request per post
-//    clearPollCache       — auth-change purge of poll answers
-//    fetchPoll            — poll of a post, null on 404 only
 //    createPollApi        — attach a poll to an own post
-//    votePollApi          — cast a vote, 409 → no-op success
 // -----------------------------------------------------------
 
 // Shared client core
-import { api, ApiError, request } from './client';
+import { api, request } from './client';
 
 // Domain types
 import type { NewsPost } from '@/types';
@@ -129,26 +118,6 @@ export interface CommentsListResponse {
 
 
 // -----------------------------------------------------------
-// LikeResponse
-// -----------------------------------------------------------
-//
-// Used by:
-//   - toggleLikeApi (below)
-//   - app/(main)/tabs/news.tsx — optimistic-like reconcile
-// -----------------------------------------------------------
-
-export interface LikeResponse {
-  liked: boolean;
-  likes: number;
-}
-
-
-
-
-
-
-
-// -----------------------------------------------------------
 // ShareResponse
 // -----------------------------------------------------------
 //
@@ -172,8 +141,7 @@ export interface ShareResponse {
 // -----------------------------------------------------------
 //
 // Used by:
-//   - fetchPoll, createPollApi, votePollApi (below)
-//   - components/news/PollWidget.tsx — render + vote state
+//   - createPollApi (below)
 //   - app/(main)/create-post/index.tsx — poll creation result
 // -----------------------------------------------------------
 
@@ -273,23 +241,6 @@ export const fetchNewsPost = (postId: string) =>
 
 
 // -----------------------------------------------------------
-// toggleLikeApi
-// -----------------------------------------------------------
-//
-// Used by:
-//   - app/(main)/tabs/news.tsx — the feed's like button
-// -----------------------------------------------------------
-
-export const toggleLikeApi = (postId: string) =>
-  request(api.post<LikeResponse>(`/news/${encodeURIComponent(postId)}/like`));
-
-
-
-
-
-
-
-// -----------------------------------------------------------
 // sharePostApi
 // -----------------------------------------------------------
 //
@@ -376,110 +327,6 @@ export const createPost = (params: {
 
 
 // -----------------------------------------------------------
-// Poll request cache
-// -----------------------------------------------------------
-//
-// Every PollWidget mount used to fire its own GET — a feed of
-// poll cards meant one request per card, re-issued on every
-// remount. Fetches inside the TTL now share one in-flight (or
-// settled) promise per post; a failed fetch evicts itself so
-// the next mount retries, and voting or attaching a poll
-// invalidates the entry because its counts just changed.
-//
-// The key is the post id ALONE, and a poll answer is viewer-
-// dependent (userVote) — so the cache must die with the auth
-// context: AuthContext purges it via clearPollCache on every
-// login and logout, or a fresh login inside the TTL would see
-// the guest's votable options and the next guest a logged-out
-// user's own vote.
-//
-// Used by:
-//   - fetchPoll (below) — read-through
-//   - createPollApi / votePollApi (below) — invalidation
-//   - clearPollCache (below) — auth-change purge
-// -----------------------------------------------------------
-
-const POLL_CACHE_TTL = 30_000;
-
-const pollCache = new Map<
-  string,
-  { promise: Promise<PollResponse | null>; timestamp: number }
->();
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// clearPollCache
-// -----------------------------------------------------------
-//
-// Drops every cached poll answer — they carry the previous
-// viewer's userVote (see the poll request cache above), so
-// the session transitions must not let one outlive its auth
-// context. In-memory and synchronous; cannot fail.
-//
-// Used by:
-//   - context/AuthContext.tsx — session establish + teardown
-// -----------------------------------------------------------
-
-export function clearPollCache(): void {
-  pollCache.clear();
-}
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// fetchPoll
-// -----------------------------------------------------------
-//
-// Resolves null ONLY when the backend answers 404 (the post
-// simply has no poll). Timeouts, auth failures and server
-// errors rethrow, so a poll post shows an error state instead
-// of silently rendering without its poll. Requests inside the
-// cache TTL share one promise (see the poll request cache).
-//
-// Used by:
-//   - votePollApi (below) — refetch after a duplicate vote
-//   - components/news/PollWidget.tsx — initial load
-// -----------------------------------------------------------
-
-export function fetchPoll(postId: string): Promise<PollResponse | null> {
-  const cached = pollCache.get(postId);
-  if (cached && Date.now() - cached.timestamp < POLL_CACHE_TTL) return cached.promise;
-
-
-  const promise = (async () => {
-    try {
-      return await request(api.get<PollResponse>(`/news/${encodeURIComponent(postId)}/poll`));
-    } catch (err) {
-      // 404 means "no poll" — a real answer worth keeping;
-      // every other failure evicts itself so the next mount
-      // retries against the backend instead of replaying it
-      if (err instanceof ApiError && err.status === 404) return null;
-      pollCache.delete(postId);
-      throw err;
-    }
-  })();
-
-
-  pollCache.set(postId, { promise, timestamp: Date.now() });
-  return promise;
-}
-
-
-
-
-
-
-
-// -----------------------------------------------------------
 // createPollApi
 // -----------------------------------------------------------
 //
@@ -493,56 +340,11 @@ export async function createPollApi(
   options: string[],
   endDate?: string,
 ): Promise<PollResponse> {
-  const poll = await request(
+  return request(
     api.post<PollResponse>(`/news/${encodeURIComponent(postId)}/poll`, {
       title,
       options,
       ...(endDate ? { end_date: endDate } : {}),
     }),
   );
-
-  // A cached "no poll yet" answer is stale the moment the
-  // poll exists
-  pollCache.delete(postId);
-  return poll;
-}
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// votePollApi
-// -----------------------------------------------------------
-//
-// The backend answers 409 when the user re-taps the option
-// they already voted for — treated here as a no-op success:
-// the poll is refetched and returned so the widget still gets
-// authoritative state. Every other failure rethrows.
-//
-// Used by:
-//   - components/news/PollWidget.tsx — option tap
-// -----------------------------------------------------------
-
-export async function votePollApi(postId: string, optionId: string): Promise<PollResponse> {
-  // The counts are about to change — a cached pre-vote answer
-  // must not outlive the vote (this also makes the 409 refetch
-  // below hit the backend, not the cache)
-  pollCache.delete(postId);
-
-  try {
-    return await request(
-      api.post<PollResponse>(`/news/${encodeURIComponent(postId)}/poll/vote`, {
-        option_id: optionId,
-      }),
-    );
-  } catch (err) {
-    if (err instanceof ApiError && err.status === 409) {
-      const poll = await fetchPoll(postId);
-      if (poll) return poll;
-    }
-    throw err;
-  }
 }

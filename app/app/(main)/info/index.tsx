@@ -48,7 +48,7 @@ import { useApp } from '@/context/AppContext';
 import { showToast } from '@/context/NetworkContext';
 
 // Refetch when connectivity returns
-import { useNetworkRestore } from '@/hooks/useNetworkRestore';
+import { useDataEngine, useNetworkRestore } from '@knf/dataengine';
 
 // JS-side colors — icons and the refresh tint
 import { useTheme } from '@/hooks/useTheme';
@@ -66,7 +66,7 @@ import {
 } from '@/services/api';
 
 // Per-language offline cache
-import { cacheGet, cacheKeyInfo, cacheSet, INFO_CACHE_MAX_AGE } from '@/services/cache';
+import { cacheKeyInfo, INFO_CACHE_MAX_AGE } from '@/services/cacheKeys';
 
 // Clipboard hand-off when a link has no handler
 import * as Clipboard from 'expo-clipboard';
@@ -615,6 +615,8 @@ function FaqSection({ faq }: { faq: InfoFaq[] }) {
 // -----------------------------------------------------------
 
 export default function InfoScreen() {
+  // The engine's cache — the per-language offline copy
+  const { cache } = useDataEngine();
 
   const { t } = useTranslation();
   const { language, hydrated } = useApp();
@@ -649,13 +651,13 @@ export default function InfoScreen() {
       setData(info);
       setCachedAt(null);
       liveLang.current = lang;
-      void cacheSet(key, info);
+      void cache.set(key, info);
     } catch {
       if (seq !== seqRef.current) return;
       // Live data for THIS language survives a failed refresh;
       // anything else falls back to the per-language cache
       if (liveLang.current !== lang) {
-        const cached = await cacheGet<FacultyInfoResponse>(key, INFO_CACHE_MAX_AGE);
+        const cached = await cache.get<FacultyInfoResponse>(key, INFO_CACHE_MAX_AGE);
         if (seq !== seqRef.current) return;
         if (cached) {
           setData(cached.data);

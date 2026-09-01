@@ -134,10 +134,14 @@ export default function ActionRow({
   onPressLike,
   onPressComment,
   onPressShare,
+  shareCount,
 }: {
   likeCount: number;
   commentCount: number;
   likedByMe: boolean;
+  // A share tally beside the share glyph — hosts that count
+  // completed shares pass it, others leave the target bare
+  shareCount?: number;
   // An optimistic like still in flight — the heart dims but
   // stays tappable (the host's queue coalesces rapid flips)
   pendingLike?: boolean;
@@ -172,7 +176,7 @@ export default function ActionRow({
       />
 
       {onPressShare ? (
-        <Target testID="socialuikit-action-share" icon="share-outline" label={labels.share} onPress={onPressShare} />
+        <Target testID="socialuikit-action-share" icon="share-outline" count={shareCount} label={labels.share} onPress={onPressShare} />
       ) : null}
 
     </View>

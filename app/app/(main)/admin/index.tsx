@@ -57,7 +57,7 @@ import { useAuth } from '@/context/AuthContext';
 import { showToast } from '@/context/NetworkContext';
 
 // Refetch when connectivity returns
-import { useNetworkRestore } from '@/hooks/useNetworkRestore';
+import { useNetworkRestore } from '@knf/dataengine';
 
 // JS-side colors — icons and the refresh tint
 import { useTheme } from '@/hooks/useTheme';

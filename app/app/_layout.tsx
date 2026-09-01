@@ -50,6 +50,11 @@ import { AppProvider, useApp } from '@/context/AppContext';
 import { AuthProvider } from '@/context/AuthContext';
 import { NetworkProvider } from '@/context/NetworkContext';
 
+// The offline-first data layer: AsyncStorage carries the cache,
+// NetworkProvider feeds its restore bus
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { DataEngineProvider } from '@knf/dataengine';
+
 // Crash fallback and shell UI
 import { ErrorFallback } from '@/components/ErrorFallback';
 import { ConfirmHost, toastConfig } from '@/components/ui';
@@ -247,9 +252,11 @@ function ThemedShell() {
 // -----------------------------------------------------------
 //
 // Provider order matters: AppProvider first (settings feed
-// the theme and language), then auth, then network — the
+// the theme and language), then the data engine (auth wipes
+// its cache on logout, the network layer signals its restore
+// bus — both sit inside it), then auth, then network — the
 // network layer toasts in the active language and auth-aware
-// screens sit below both.
+// screens sit below all of them.
 //
 // Used by:
 //   - expo-router — the root layout route
@@ -270,11 +277,13 @@ export default function RootLayout() {
     >
       <GestureHandlerRootView style={{ flex: 1 }}>
         <AppProvider>
-          <AuthProvider>
-            <NetworkProvider>
-              <ThemedShell />
-            </NetworkProvider>
-          </AuthProvider>
+          <DataEngineProvider storage={AsyncStorage}>
+            <AuthProvider>
+              <NetworkProvider>
+                <ThemedShell />
+              </NetworkProvider>
+            </AuthProvider>
+          </DataEngineProvider>
         </AppProvider>
       </GestureHandlerRootView>
     </ErrorBoundary>

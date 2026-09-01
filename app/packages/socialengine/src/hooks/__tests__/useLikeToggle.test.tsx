@@ -332,4 +332,27 @@ describe('useLikeToggle', () => {
     await flush();
     expect(view.getByTestId('badge').props.children).toBe('unliked:4');
   });
+
+  it('a fresher base retires a SETTLED shadow — another device unliked meanwhile', async () => {
+    const m = await mount();
+    await act(async () => m.hook.result.current.toggle());
+    await act(async () => {
+      m.pending[0].resolve({ liked: true, likeCount: 5 });
+    });
+    await flush();
+    expect(m.hook.result.current.liked).toBe(true);
+
+    // The refetch shows the like gone (unliked elsewhere): the
+    // settled shadow must not keep the heart filled forever
+    await m.hook.rerender({ post: { id: 'p1', likedByMe: false, likeCount: 4 } });
+    await flush();
+    // Base went true→? — it was false originally and is false
+    // again; force a real change first so the rule can fire
+    await m.hook.rerender({ post: { id: 'p1', likedByMe: true, likeCount: 5 } });
+    await flush();
+    await m.hook.rerender({ post: { id: 'p1', likedByMe: false, likeCount: 4 } });
+    await flush();
+    expect(m.hook.result.current.liked).toBe(false);
+    expect(m.hook.result.current.likeCount).toBe(4);
+  });
 });

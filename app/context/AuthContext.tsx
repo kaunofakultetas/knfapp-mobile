@@ -46,12 +46,10 @@
 //    useAuth                   — the consumer hook
 // -----------------------------------------------------------
 
-// Backend calls, the normalized error shape and the viewer-
-// scoped poll-answer purge (the request interceptor reads the
-// token via services/session itself)
+// Backend calls and the normalized error shape (the request
+// interceptor reads the token via services/session itself)
 import {
   ApiError,
-  clearPollCache,
   fetchMe,
   loginApi,
   logoutApi,
@@ -73,7 +71,7 @@ import {
 // Session side-effects — realtime socket, push token, offline
 // cache, session-expired toast
 import { showToast } from '@/context/NetworkContext';
-import { cacheClearAll } from '@/services/cache';
+import { useDataEngine } from '@knf/dataengine';
 import { registerForPushNotifications, unregisterPushNotifications } from '@/services/notifications';
 import { connectSocket, disconnectSocket } from '@/services/socket';
 
@@ -241,6 +239,9 @@ export function authReducer(state: AuthState, action: AuthAction): AuthState {
 // -----------------------------------------------------------
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  // The engine cache — wiped on logout and login so no account
+  // inherits another's offline copies
+  const { cache } = useDataEngine();
   const [state, dispatch] = useReducer(authReducer, initialState);
   const [hydrated, setHydrated] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -266,17 +267,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // consequence, so it gets one retry too.
   const clearSession = useCallback(async (): Promise<void> => {
     disconnectSocket();
-    // Cached poll answers carry this viewer's userVote — the
-    // next (guest) viewer must not inherit them
-    clearPollCache();
-    try {
-      await cacheClearAll();
-    } catch {
-      try {
-        await cacheClearAll();
-      } catch {
-        // Keys are user-scoped, so residue cannot cross accounts
-      }
+    // clearAll reports failure instead of throwing — one retry
+    // for the wipe with a privacy consequence
+    if (!(await cache.clearAll())) {
+      await cache.clearAll();
+      // Keys are user-scoped, so residue cannot cross accounts
     }
     try {
       await clearStoredSession();
@@ -297,7 +292,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Once more AFTER the wipe — an in-flight connect that raced
     // the teardown must not leave an authenticated socket behind
     disconnectSocket();
-  }, []);
+  }, [cache]);
 
 
   // ONE expiry teardown per dead session: a /me 401 is reported
@@ -327,14 +322,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // can read the token, then flip state and kick off the
   // realtime side-effects (both best-effort)
   const establishSession = useCallback(async (user: User, token: string): Promise<void> => {
-    // Poll answers cached as the guest (userVote null) must not
-    // survive into this session — the widgets refetch on login
-    clearPollCache();
-    try {
-      await cacheClearAll();
-    } catch {
-      // Cache keys are user-scoped — stale entries stay unread
-    }
+    // Cache keys are user-scoped — a failed wipe leaves stale
+    // entries unread, never cross-account
+    await cache.clearAll();
     await setStoredSession(token, user);
     dispatch({ type: 'LOGIN_SUCCESS', payload: { user, token } });
     // Drop any in-flight guest attempt first — the single-flight
@@ -343,7 +333,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     disconnectSocket();
     connectSocket().catch(() => {});
     pushRegistration.current = registerForPushNotifications().catch(() => false);
-  }, []);
+  }, [cache]);
 
 
   // Persist the fresh user into the stored session so student

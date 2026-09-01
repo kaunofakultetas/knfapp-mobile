@@ -3,10 +3,11 @@
 //
 //  The full article behind a feed card: hero image, burgundy
 //  date + source strip, body text, the poll for poll posts,
-//  a source link, a like/share action row and the first page
-//  of comments with the shared pinned composer. Everything
-//  scrolls as ONE FlatList — the article rides as
-//  ListHeaderComponent, so long threads stay virtualized.
+//  a source link, the social kit's like / comments / share
+//  strip and the first page of comments over the kit's pinned
+//  composer. Everything scrolls as ONE FlatList — the article
+//  rides as ListHeaderComponent, so long threads stay
+//  virtualized.
 //
 //  Load quirks handled here:
 //    - a 404 from GET /news/<id> resolves to null and renders
@@ -14,10 +15,12 @@
 //      ErrorState with retry — the old screen collapsed both
 //      into a misleading "not found";
 //    - the single-post response carries the viewer's `liked`
-//      flag (false for guests — see services/api/news.ts), so
-//      the heart is seeded from the load; the toggle is
-//      optimistic with exact revert, and the server response
-//      reconciles both flag and count;
+//      flag (false for guests — see services/api/news.ts); the
+//      social engine's useLikeToggle layers the viewer's
+//      optimistic shadow over that base row, so the heart is
+//      right the instant it is tapped, tap spam coalesces, a
+//      failure reverts to the last server-confirmed flag, and
+//      a guest's tap routes to login (SocialEngineHost);
 //    - comments show one page only; when the total says more
 //      exist, a "view all" row links to /news-comments where
 //      the fully paginated thread lives.
@@ -26,20 +29,24 @@
 //
 //    SOURCE_KEYS      — source id → i18n label key
 //    COMMENTS_PREVIEW — page size of the inline thread
+//    toKitComment     — backend comment → the kit's row shape
 //    MetaBar          — burgundy date + source strip
 //    SourceLink       — "read at the source" external link
-//    ActionBar        — like toggle + share row
+//    ActionBar        — the engine-backed like / comments / share strip
 //    ArticleHeader    — the article as the list header
 //    ViewAllRow       — link to the full comments screen
 //    CommentsFallback — spinner / inline error / empty text
 //    NewsPostScreen   — the screen itself (default export)
 // -----------------------------------------------------------
 
-// Shared news pieces — comment thread, cover defence, poll
-import CommentComposer from '@/components/news/CommentComposer';
-import CommentRow from '@/components/news/CommentRow';
+// Shared news pieces — cover defence, poll
 import { resolveCoverUri } from '@/components/news/NewsCard';
 import PollWidget from '@/components/news/PollWidget';
+
+// The social kit's rows and strip, and the engine's like hook
+// (both providers are mounted in the (main) layout)
+import { useLikeToggle } from '@knf/socialengine';
+import { ActionRow, CommentComposer, CommentRow, type KitComment } from '@knf/socialuikit';
 
 // UI kit and theming
 import { Button, confirmAction, EmptyState, ErrorState, LoadingSpinner, Screen } from '@/components/ui';
@@ -47,28 +54,28 @@ import { useTheme } from '@/hooks/useTheme';
 import { Ionicons } from '@expo/vector-icons';
 
 // Data loading and the backend contract
-import { useFeed } from '@/hooks/useFeed';
-import { useLoad } from '@/hooks/useLoad';
+import { useFeed, useLoad } from '@knf/dataengine';
 import {
   deletePost,
   ApiError,
   addCommentApi,
   fetchComments,
   fetchNewsPost,
-  toggleLikeApi,
   type CommentResponse,
   type NewsPostDetail,
 } from '@/services/api';
 import { formatDate } from '@/services/format';
 import type { NewsPost } from '@/types';
 
-// Auth gate for the like toggle + app-wide toasts and
-// connectivity for the error flavour
+// Auth gates the composer and marks the viewer's own comment
+// rows; app-wide toasts and connectivity for the error flavour
 import { useAuth } from '@/context/AuthContext';
 import { showToast, useNetwork } from '@/context/NetworkContext';
 import { stripScrapedPreamble } from '@/services/newsText';
 
-// Route param, navigation and the stack-header offset
+// Route param, navigation, the login round-trip href and the
+// stack-header offset
+import { useReturnHref } from '@/hooks/useReturnHref';
 import { useRouteParam } from '@/hooks/useRouteParam';
 import { useHeaderHeight } from '@react-navigation/elements';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -107,14 +114,18 @@ const SOURCE_KEYS: Record<string, string> = {
 // the ViewAllRow on the dedicated comments screen
 const COMMENTS_PREVIEW = 20;
 
-// The like/share state and handlers flow down from the root,
-// so every subcomponent stays a pure view of one screen state
-interface ArticleActions {
-  liked: boolean;
-  likes: number;
-  onToggleLike: () => void;
-  onShare: () => void;
-}
+// The backend comment row in the kit's vocabulary. `time` is
+// the raw created_at stamp (naive UTC) — the kit's RelativeTime
+// reads a zone-less stamp as UTC, so no reformatting here.
+// isOwn paints the viewer's own comments with the brand wash;
+// the backend has no comment deletion, so `deleted` never sets
+const toKitComment = (comment: CommentResponse, viewerId: string | null): KitComment => ({
+  id: comment.id,
+  author: { id: comment.userId, displayName: comment.userName, avatarUrl: comment.userAvatar },
+  text: comment.text,
+  createdAt: comment.time,
+  isOwn: viewerId !== null && comment.userId === viewerId,
+});
 
 
 
@@ -205,58 +216,52 @@ function SourceLink({ onPress }: { onPress: () => void }) {
 // ActionBar
 // -----------------------------------------------------------
 //
-// Feed-card parity on the detail screen: the heart toggle
-// with the live count and the share action. The heart fills
-// with the accent token when liked and is seeded from the
-// loaded post's viewer flag (see the file header). The like
-// count rides inside the heart's accessibility label — a
-// parent label swallows child text, so the bare count Text
-// would otherwise be unreadable to screen readers.
+// Feed-card parity on the detail screen: the kit's ActionRow
+// (heart with the live tally, the comments tally, share)
+// inside the article's ruled strip. The like state comes from
+// the social engine — useLikeToggle merges the viewer's
+// optimistic shadow over the loaded row, so `liked` and
+// `likeCount` are already the view to draw and `toggle` is the
+// coalesced request; a guest's tap is the engine's requireAuth
+// (the login round-trip), never a transport call. The hook
+// lives here rather than at the root because the row it needs
+// only exists once the post has loaded, and this strip only
+// mounts then.
 //
 // Used by:
 //   - ArticleHeader (below)
 // -----------------------------------------------------------
 
-function ActionBar({ liked, likes, onToggleLike, onShare }: ArticleActions) {
+function ActionBar({
+  post,
+  commentCount,
+  onPressComment,
+  onShare,
+}: {
+  post: NewsPostDetail;
+  commentCount: number;
+  onPressComment: () => void;
+  onShare: () => void;
+}) {
 
-  const { t } = useTranslation();
-  const { colors } = useTheme();
+  const { liked, likeCount, pending, toggle } = useLikeToggle({
+    id: post.id,
+    likedByMe: post.liked,
+    likeCount: post.likes,
+  });
 
 
   return (
-    <View className="mt-md flex-row items-center gap-lg border-y border-line px-md py-sm">
-
-      <Pressable
-        className="flex-row items-center gap-xs"
-        style={{ minHeight: 44 }}
-        onPress={onToggleLike}
-        hitSlop={8}
-        accessibilityRole="button"
-        accessibilityLabel={`${t(liked ? 'newsPost.unlike' : 'newsPost.like')}, ${t('newsPost.likesCount', { count: likes })}`}
-        accessibilityState={{ selected: liked }}
-      >
-        <Ionicons
-          name={liked ? 'heart' : 'heart-outline'}
-          size={22}
-          color={liked ? colors.accent : colors.inkSoft}
-        />
-        <Text className="font-raleway-medium text-sm text-ink-soft">{likes}</Text>
-      </Pressable>
-
-      <Pressable
-        className="flex-row items-center gap-xs"
-        style={{ minHeight: 44 }}
-        onPress={onShare}
-        hitSlop={8}
-        accessibilityRole="button"
-        accessibilityLabel={t('newsPost.share')}
-      >
-        <Ionicons name="share-social-outline" size={22} color={colors.inkSoft} />
-        <Text className="font-raleway-medium text-sm text-ink-soft">
-          {t('newsPost.share')}
-        </Text>
-      </Pressable>
-
+    <View className="mt-md border-y border-line px-sm py-xs">
+      <ActionRow
+        likeCount={likeCount}
+        commentCount={commentCount}
+        likedByMe={liked}
+        pendingLike={pending}
+        onPressLike={toggle}
+        onPressComment={onPressComment}
+        onPressShare={onShare}
+      />
     </View>
   );
 }
@@ -282,9 +287,17 @@ function ActionBar({ liked, likes, onToggleLike, onShare }: ArticleActions) {
 
 function ArticleHeader({
   post,
+  commentCount,
+  onPressComment,
+  onShare,
   onOpenSource,
-  ...actions
-}: ArticleActions & { post: NewsPost; onOpenSource: () => void }) {
+}: {
+  post: NewsPostDetail;
+  commentCount: number;
+  onPressComment: () => void;
+  onShare: () => void;
+  onOpenSource: () => void;
+}) {
 
   const { t } = useTranslation();
 
@@ -340,7 +353,12 @@ function ArticleHeader({
 
       {post.sourceUrl ? <SourceLink onPress={onOpenSource} /> : null}
 
-      <ActionBar {...actions} />
+      <ActionBar
+        post={post}
+        commentCount={commentCount}
+        onPressComment={onPressComment}
+        onShare={onShare}
+      />
 
       <Text className="px-md pb-sm pt-md text-lg font-raleway-bold text-ink">
         {t('newsPost.commentsTitle')}
@@ -481,12 +499,12 @@ export default function NewsPostScreen() {
   const { t } = useTranslation();
   const { colors } = useTheme();
   const headerHeight = useHeaderHeight();
+  const returnTo = useReturnHref();
 
 
-  // Seeded from the loaded post's viewer flag (effect below);
-  // likesOverride shadows post.likes once the user interacts
-  const [liked, setLiked] = useState(false);
-  const [likesOverride, setLikesOverride] = useState<number | null>(null);
+  // The backend total once a comments page has landed; null
+  // until then (and reset on a post change) so the loaded
+  // post's own count stands in for the strip's tally
   const [commentTotal, setCommentTotal] = useState<number | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -537,20 +555,12 @@ export default function NewsPostScreen() {
 
 
   // A postId change means a different article — the carried
-  // like state and comment total belong to the previous one
+  // comment total belongs to the previous one (the like state
+  // is the engine's, keyed by post id, so it needs no reset)
   useEffect(() => {
-    setLiked(false);
-    setLikesOverride(null);
     commentTotalRef.current = null;
     setCommentTotal(null);
   }, [postId]);
-
-
-  // The response carries the viewer's flag, so every (re)load
-  // reseeds the heart with the server's truth
-  useEffect(() => {
-    if (postLoad.data) setLiked(postLoad.data.liked);
-  }, [postLoad.data]);
 
 
   // ---- own-post actions -----------------------------------
@@ -708,42 +718,20 @@ export default function NewsPostScreen() {
   }, [insets.bottom]);
 
 
-  const likes = likesOverride ?? postLoad.data?.likes ?? 0;
-
-
-  // One toggle at a time — a double-tap must not race two
-  // requests whose answers can land out of order
-  const likeInFlightRef = useRef(false);
-
-
-  // Optimistic toggle with exact revert; the server response
-  // is authoritative either way
-  const handleToggleLike = async () => {
+  // The strip's comments tally opens the fully paginated
+  // thread — the same door as the ViewAllRow
+  const openComments = useCallback(() => {
     if (!postId) return;
-    if (!isAuthenticated) {
-      showToast('info', t('newsPost.loginToLike'));
-      return;
-    }
-    if (likeInFlightRef.current) return;
-    likeInFlightRef.current = true;
+    router.push(`/(main)/news-comments?postId=${postId}`);
+  }, [postId, router]);
 
-    const previousLiked = liked;
-    const previousLikes = likes;
-    setLiked(!previousLiked);
-    setLikesOverride(previousLikes + (previousLiked ? -1 : 1));
 
-    try {
-      const response = await toggleLikeApi(postId);
-      setLiked(response.liked);
-      setLikesOverride(response.likes);
-    } catch {
-      setLiked(previousLiked);
-      setLikesOverride(previousLikes);
-      showToast('error', t('newsPost.likeError'));
-    } finally {
-      likeInFlightRef.current = false;
-    }
-  };
+  // The composer's sign-in button: login, then back to exactly
+  // this article — returnTo carries the query string, a bare
+  // pathname would drop ?postId= and land on "not found"
+  const openLogin = useCallback(() => {
+    router.push({ pathname: '/login', params: { returnTo } });
+  }, [returnTo, router]);
 
 
   // Share works logged out too; the dismiss-rejection some
@@ -802,25 +790,26 @@ export default function NewsPostScreen() {
   };
 
 
-  // One pull refreshes both resources; the like override is
-  // dropped so the freshly fetched count becomes truth again
+  // One pull refreshes both resources; the refetched post is
+  // the like count's only source of truth — the engine diffs
+  // its shadow against the new base, so nothing to reset here
   const handleRefresh = async () => {
     setRefreshing(true);
     await Promise.all([postLoad.refresh(), commentsFeed.refresh()]);
-    setLikesOverride(null);
     setRefreshing(false);
   };
 
 
   // Stable render function so the list doesn't get a fresh
-  // renderItem closure on every screen render
+  // renderItem closure on every screen render — only a viewer
+  // change (own-row wash) is worth a new one. The kit row pads
+  // its own gutter, so no wrapper here
+  const viewerId = user?.id ?? null;
   const renderComment = useCallback(
     ({ item }: ListRenderItemInfo<CommentResponse>) => (
-      <View className="px-md">
-        <CommentRow comment={item} />
-      </View>
+      <CommentRow comment={toKitComment(item, viewerId)} />
     ),
-    [],
+    [viewerId],
   );
 
 
@@ -886,9 +875,8 @@ export default function NewsPostScreen() {
           ListHeaderComponent={
             <ArticleHeader
               post={post}
-              liked={liked}
-              likes={likes}
-              onToggleLike={() => void handleToggleLike()}
+              commentCount={commentTotal ?? post.comments}
+              onPressComment={openComments}
               onShare={() => void handleShare()}
               onOpenSource={() => void handleOpenSource()}
             />
@@ -914,7 +902,13 @@ export default function NewsPostScreen() {
           keyboardShouldPersistTaps="handled"
         />
 
-        <CommentComposer onSubmit={handleSubmitComment} />
+        {/* Guests see the kit's sign-in prompt instead of the
+            field — auth adds the comment, never gates reading */}
+        <CommentComposer
+          canComment={isAuthenticated}
+          onSubmit={handleSubmitComment}
+          onPressSignIn={openLogin}
+        />
 
       </KeyboardAvoidingView>
     </Screen>

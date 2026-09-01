@@ -39,7 +39,7 @@
 //    - src/index.ts — the public surface hosts import from
 // -----------------------------------------------------------
 
-import { useCallback, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 
 import { mergeRelationship } from '../core/shadow';
 import { getToggleQueue } from '../core/toggleQueue';
@@ -103,6 +103,22 @@ export function useRelationship(userId: string, base: RelationshipState): UseRel
     [env.userShadows, userId],
   );
   const shadow = useSyncExternalStore(subscribe, () => env.userShadows.get(userId));
+
+
+  // A base that CHANGED after the shadow settled is newer truth
+  // (the other side accepted while the viewer was away): a
+  // settled shadow — nothing in flight, its word equal to the
+  // confirmed word — retires so the base wins again. In-flight
+  // and offline-queued intents stand
+  const previousBaseRef = useRef(base);
+  useEffect(() => {
+    if (previousBaseRef.current === base) return;
+    previousBaseRef.current = base;
+    const current = env.userShadows.get(userId);
+    if (current && !current.pending && current.relationship !== undefined && current.relationship === current.confirmedRelationship) {
+      env.userShadows.clear(userId);
+    }
+  }, [base, userId, env.userShadows]);
 
 
   const state = mergeRelationship(base, shadow);

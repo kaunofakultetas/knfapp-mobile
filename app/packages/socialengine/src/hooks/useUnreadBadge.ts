@@ -53,7 +53,9 @@ export interface UseUnreadBadgeResult {
 // -----------------------------------------------------------
 
 export function useUnreadBadge(options?: { intervalMs?: number; cap?: number }): UseUnreadBadgeResult {
-  const { transport } = useSocialEngine();
+  const { transport, currentUser } = useSocialEngine();
+  // Guests carry no badge and never probe the wire
+  const signedIn = currentUser !== null;
   const intervalMs = options?.intervalMs ?? 30000;
   const cap = options?.cap ?? 30;
 
@@ -63,7 +65,7 @@ export function useUnreadBadge(options?: { intervalMs?: number; cap?: number }):
 
 
   const refresh = useCallback((): Promise<void> => {
-    const probe = transport.fetchUnreadCount?.bind(transport);
+    const probe = signedIn ? transport.fetchUnreadCount?.bind(transport) : undefined;
     if (!probe) return Promise.resolve();
 
     // Every overlapping caller rides the request on the wire
@@ -80,12 +82,15 @@ export function useUnreadBadge(options?: { intervalMs?: number; cap?: number }):
     })();
     inFlightRef.current = flight;
     return flight;
-  }, [transport]);
+  }, [transport, signedIn]);
 
 
   useEffect(() => {
     mountedRef.current = true;
-    if (!transport.fetchUnreadCount) return;
+    if (!transport.fetchUnreadCount || !signedIn) {
+      setCount(0);
+      return;
+    }
 
     let timer: ReturnType<typeof setInterval> | null = null;
     const start = () => {
@@ -127,7 +132,7 @@ export function useUnreadBadge(options?: { intervalMs?: number; cap?: number }):
       stop();
       sub.remove();
     };
-  }, [transport, intervalMs, refresh]);
+  }, [transport, intervalMs, refresh, signedIn]);
 
 
   // 0 stays invisible; the cap turns into 'N+' so a runaway

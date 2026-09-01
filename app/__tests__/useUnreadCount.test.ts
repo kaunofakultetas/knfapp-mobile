@@ -47,7 +47,7 @@ jest.mock('@/services/socket', () => ({
   },
 }));
 
-jest.mock('@/hooks/useNetworkRestore', () => ({
+jest.mock('@knf/dataengine', () => ({
   useNetworkRestore: () => {},
 }));
 

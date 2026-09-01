@@ -13,11 +13,26 @@
 //  friends-only rows — and the logged-out empty state doubles
 //  as the login CTA.
 //
-//  Likes toggle optimistically: the tapped item is patched in
-//  place through useFeed's setItems, reconciled with the
-//  server's answer, and reverted to the captured previous
-//  values (plus an error toast) on failure. Logged-out taps
-//  get an info toast instead of a doomed request.
+//  The list is the social kit's FeedList over the data
+//  engine's useFeed: paging, the pull spinner, the row error
+//  boundaries, the timeline hole (a merge refresh after a
+//  long absence that shares nothing with the held rows shows
+//  a tap-to-fill row where the hole is — useFeed's gapAfterId,
+//  filled by its loadMore) and the "N new posts" pill, counted
+//  by useFeedFreshness peeking page 1 of the SAME feed the
+//  chips show once a minute while the tab is focused. The
+//  collapsible header needs reanimated's native scroll
+//  listener on the list's scroll view, which the kit's plain
+//  FlatList cannot take by itself — HeaderScrollView (below)
+//  is the bridge, handed in through renderScrollComponent.
+//
+//  Likes are the social engine's: every row layers
+//  useLikeToggle over its feed item, so the optimistic flip,
+//  tap-spam coalescing, the guest → login route, the offline
+//  queue and the failure toast all happen there — this screen
+//  never patches like state itself. Its setItems door stays
+//  for what is NOT a like: the share tally bump, the comment
+//  count and the deletion of a post opened from here.
 //
 //  Only the unfiltered 'all' feed persists to the offline
 //  cache — a filtered or community page would poison the
@@ -31,10 +46,12 @@
 //
 //  Split into (root component last):
 //
-//    SourceChips    — the horizontal feed-chips row
-//    EmptyFeed      — the mode-aware "nothing here" body
-//    CreatePostFab  — the floating new-post button
-//    NewsTab        — feed state + the FlatList (default export)
+//    SourceChips      — the horizontal feed-chips row
+//    EmptyFeed        — the mode-aware "nothing here" body
+//    CreatePostFab    — the floating new-post button
+//    HeaderScrollView — the list's scroll view, header-aware
+//    FeedRow          — one post: engine like state + NewsCard
+//    NewsTab          — feed state + the FeedList (default export)
 // -----------------------------------------------------------
 
 // Screen chrome and shared list states
@@ -42,11 +59,15 @@ import CachedBanner from '@/components/CachedBanner';
 import NewsCard from '@/components/news/NewsCard';
 import { EmptyState, ErrorState, Header, LoadingSpinner, Screen } from '@/components/ui';
 
-// Feed engine, auth, connectivity and theming
+// Feed engine, like engine, feed chrome
+import { useFeed, useFeedFreshness, type FeedPage } from '@knf/dataengine';
+import { useLikeToggle } from '@knf/socialengine';
+import { FeedList } from '@knf/socialuikit';
+
+// Auth, connectivity and theming
 import { useAuth } from '@/context/AuthContext';
 import { showToast, useNetwork } from '@/context/NetworkContext';
 import useCollapsibleHeader from '@/hooks/useCollapsibleHeader';
-import { useFeed, type FeedPage } from '@/hooks/useFeed';
 import { useTheme } from '@/hooks/useTheme';
 
 // Backend calls and the offline-cache contract
@@ -56,10 +77,9 @@ import {
   fetchNewsPost,
   fetchSocialFeed,
   sharePostApi,
-  toggleLikeApi,
   type SocialFeedPost,
 } from '@/services/api';
-import { cacheKeyNews, NEWS_CACHE_MAX_AGE } from '@/services/cache';
+import { cacheKeyNews, NEWS_CACHE_MAX_AGE } from '@/services/cacheKeys';
 
 // Deep links for sharing app-native posts (no public web URL)
 import * as Linking from 'expo-linking';
@@ -69,17 +89,15 @@ import { useReturnHref } from '@/hooks/useReturnHref';
 import type { NewsPost } from '@/types';
 import { Ionicons } from '@expo/vector-icons';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
-import type { ParamListBase } from '@react-navigation/native';
+import { useIsFocused, type ParamListBase } from '@react-navigation/native';
 import { useFocusEffect, useNavigation, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { cloneElement, useCallback, useEffect, useRef, useState, type Ref, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  type FlatList,
-  type ListRenderItemInfo,
   Platform,
   Pressable,
-  RefreshControl,
   ScrollView,
+  type ScrollViewProps,
   Share,
   Text,
   View,
@@ -118,6 +136,14 @@ const FEED_CHIPS: { key: FeedSelection; labelKey: string }[] = [
 type FeedPost = SocialFeedPost;
 
 const PAGE_SIZE = 20;
+
+// The freshness peek only needs the newest few ids — the pill's
+// count is bounded by this anyway
+const PEEK_SIZE = 10;
+
+// Stable row identity for the kit's list (a fresh closure per
+// render would re-key every cell)
+const keyOfPost = (post: FeedPost) => post.id;
 
 // FAB shadow — '#000' is the sanctioned raw-hex exception
 const FAB_SHADOW: ViewStyle = {
@@ -220,7 +246,7 @@ function SourceChips({ filters, active, onSelect }: {
 // empty community, a plain empty state for the news feed.
 //
 // Used by:
-//   - NewsTab (below) — FlatList ListEmptyComponent
+//   - NewsTab (below) — FeedList ListEmptyComponent
 // -----------------------------------------------------------
 
 function EmptyFeed({ mode, authenticated, onLogin, onCreatePost }: {
@@ -304,6 +330,167 @@ function CreatePostFab({ onPress }: { onPress: () => void }) {
 
 
 // -----------------------------------------------------------
+// HeaderScrollView
+// -----------------------------------------------------------
+//
+// The scroll view FeedList's FlatList rides in, handed to the
+// list through the public renderScrollComponent seam. It
+// exists because the collapsible header's scrollHandler is a
+// reanimated worklet, which only an Animated component can
+// carry — and the kit's list is a plain FlatList. Wrapped in
+// createAnimatedComponent, the worklet arrives as `onScroll`
+// and reanimated registers it natively on the ScrollView node
+// (through the ref forwarded here), while it REWRITES the
+// wrapped component's onScroll / onScrollBeginDrag /
+// onScrollEndDrag / onMomentumScrollEnd props to its own
+// listeners (a no-op natively, the JS worklet runner on web).
+// The FlatList's own scroll callbacks — its windowing, paging
+// and viewability live on them — would be lost in that
+// rewrite, so NewsTab passes them under `list` instead and
+// every handler here calls both.
+//
+// Two more things ride on the same seam: the Android pull
+// spinner is pushed below the overlay bar (progressViewOffset
+// on the list's RefreshControl, which reaches here as an
+// element — iOS must NOT get it, the native control already
+// integrates with the content inset), and `scrollRef` gives
+// the screen the ScrollView the kit keeps to itself, for the
+// tab-press scroll-to-top.
+//
+// Used by:
+//   - NewsTab (below) — via FeedList's flatListProps
+// -----------------------------------------------------------
+
+// The FlatList's own scroll callbacks, kept out of the props
+// reanimated rewrites (see the banner)
+type ListScrollCallbacks = Pick<
+  ScrollViewProps,
+  'onScroll' | 'onScrollBeginDrag' | 'onScrollEndDrag' | 'onMomentumScrollEnd'
+>;
+
+function HeaderScrollView({
+  list,
+  scrollRef,
+  refreshOffset,
+  refreshControl,
+  onScroll,
+  onScrollBeginDrag,
+  onScrollEndDrag,
+  onMomentumScrollEnd,
+  ref,
+  ...rest
+}: ScrollViewProps & {
+  list: ListScrollCallbacks;
+  scrollRef: RefObject<ScrollView | null>;
+  // Android only — where the pull spinner may draw
+  refreshOffset?: number;
+  ref?: Ref<ScrollView>;
+}) {
+
+  // One node, two owners: the animated wrapper (which also
+  // forwards it to the FlatList) and the screen's scrollRef
+  const captureRef = (node: ScrollView | null) => {
+    scrollRef.current = node;
+    if (typeof ref === 'function') ref(node);
+    else if (ref) ref.current = node;
+  };
+
+
+  return (
+    <ScrollView
+      {...rest}
+      ref={captureRef}
+      refreshControl={
+        refreshControl && refreshOffset
+          ? cloneElement(refreshControl, { progressViewOffset: refreshOffset })
+          : refreshControl
+      }
+      onScroll={(event) => {
+        list.onScroll?.(event);
+        onScroll?.(event);
+      }}
+      onScrollBeginDrag={(event) => {
+        list.onScrollBeginDrag?.(event);
+        onScrollBeginDrag?.(event);
+      }}
+      onScrollEndDrag={(event) => {
+        list.onScrollEndDrag?.(event);
+        onScrollEndDrag?.(event);
+      }}
+      onMomentumScrollEnd={(event) => {
+        list.onMomentumScrollEnd?.(event);
+        onMomentumScrollEnd?.(event);
+      }}
+    />
+  );
+}
+
+// Module-level so the list never sees a new component type
+// (a per-render wrapper would remount the scroll view)
+const AnimatedHeaderScrollView = Animated.createAnimatedComponent(HeaderScrollView);
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// FeedRow
+// -----------------------------------------------------------
+//
+// One post of either feed: the social engine's like state
+// (useLikeToggle layered over the immutable feed row — the
+// optimistic flip, the coalesced queue, the guest login
+// route and the offline replay are all the engine's) handed
+// to the presentational NewsCard together with the screen's
+// navigation callbacks. Scraped articles have no profile
+// behind their author line, so onOpenAuthor is withheld for
+// them here.
+//
+// Used by:
+//   - NewsTab (below) — FeedList renderItem
+// -----------------------------------------------------------
+
+function FeedRow({ post, showAvatar, onOpen, onOpenComments, onShare, onOpenAuthor }: {
+  post: FeedPost;
+  showAvatar: boolean;
+  onOpen: (post: FeedPost) => void;
+  onOpenComments: (post: FeedPost) => void;
+  onShare: (post: FeedPost) => void;
+  onOpenAuthor: (authorId: string) => void;
+}) {
+
+  const like = useLikeToggle({ id: post.id, likedByMe: !!post.liked, likeCount: post.likes });
+
+
+  const authorId =
+    post.source !== 'knf.vu.lt' && post.source !== 'vu.lt' ? post.authorId : undefined;
+
+
+  return (
+    <NewsCard
+      post={post}
+      liked={like.liked}
+      likeCount={like.likeCount}
+      pendingLike={like.pending}
+      showAvatar={showAvatar}
+      onPress={() => onOpen(post)}
+      onToggleLike={like.toggle}
+      onOpenComments={() => onOpenComments(post)}
+      onShare={() => onShare(post)}
+      onOpenAuthor={authorId ? () => onOpenAuthor(authorId) : undefined}
+    />
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // NewsTab (default export)
 // -----------------------------------------------------------
 //
@@ -316,13 +503,14 @@ export default function NewsTab() {
   const router = useRouter();
   const returnHref = useReturnHref();
   const { t } = useTranslation();
-  const { colors } = useTheme();
   const { isAuthenticated, user } = useAuth();
   const { isConnected } = useNetwork();
   const insets = useSafeAreaInsets();
   const header = useCollapsibleHeader();
   const navigation = useNavigation<BottomTabNavigationProp<ParamListBase>>();
-  const listRef = useRef<FlatList<FeedPost>>(null);
+  const focused = useIsFocused();
+  // The list's scroll view, captured by HeaderScrollView
+  const scrollRef = useRef<ScrollView | null>(null);
 
 
   // Tapping the News tab while already on it jumps back to the
@@ -334,7 +522,7 @@ export default function NewsTab() {
   useEffect(() => {
     return navigation.addListener('tabPress', () => {
       if (!navigation.isFocused()) return;
-      listRef.current?.scrollToOffset({ offset: topOffset, animated: true });
+      scrollRef.current?.scrollTo({ y: topOffset, animated: true });
       revealHeader();
     });
   }, [navigation, topOffset, revealHeader]);
@@ -381,6 +569,23 @@ export default function NewsTab() {
     // Newest-first feed: a background refresh folds new posts
     // in at the top and never truncates the pages already read
     silentRefreshMode: 'merge',
+  });
+
+
+  // The new-posts probe: the newest few ids of the SAME feed
+  // the chips show, once a minute while this tab is focused;
+  // the hook counts what sits ahead of the feed's newest row
+  const peekNewest = useCallback(async () => {
+    const resp =
+      feedMode === 'community'
+        ? await fetchSocialFeed(1, PEEK_SIZE)
+        : await fetchNewsFeed(1, PEEK_SIZE, sourceFilter || undefined);
+    return resp.posts.map((post) => post.id);
+  }, [feedMode, sourceFilter]);
+
+  const freshness = useFeedFreshness(feed.items[0]?.id ?? null, peekNewest, {
+    intervalMs: 60_000,
+    enabled: focused,
   });
 
 
@@ -455,7 +660,8 @@ export default function NewsTab() {
   );
 
 
-  // In-place patch door for the optimistic like/share updates
+  // In-place patch door for the optimistic share bump (likes
+  // never come through here — see the file header)
   const patchPost = useCallback(
     (id: string, patch: Partial<FeedPost>) => {
       feed.setItems((items) =>
@@ -464,41 +670,6 @@ export default function NewsTab() {
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- feed.setItems is a stable useFeed callback; the feed object itself is not
     [feed.setItems],
-  );
-
-
-  // One like toggle per post at a time — a double-tap must
-  // not race two requests whose answers land out of order
-  const likesInFlightRef = useRef<Set<string>>(new Set());
-
-
-  // Optimistic like: capture the previous values, patch,
-  // reconcile with the server's answer, revert EXACTLY (and
-  // toast) on failure
-  const toggleLike = useCallback(
-    (post: FeedPost) => {
-      if (!isAuthenticated) {
-        showToast('info', t('news.loginToLike'));
-        return;
-      }
-      if (likesInFlightRef.current.has(post.id)) return;
-      likesInFlightRef.current.add(post.id);
-
-      const wasLiked = !!post.liked;
-      const previousLikes = post.likes;
-      patchPost(post.id, { liked: !wasLiked, likes: previousLikes + (wasLiked ? -1 : 1) });
-
-      toggleLikeApi(post.id)
-        .then((resp) => patchPost(post.id, { liked: resp.liked, likes: resp.likes }))
-        .catch(() => {
-          patchPost(post.id, { liked: wasLiked, likes: previousLikes });
-          showToast('error', t('news.likeError'));
-        })
-        .finally(() => {
-          likesInFlightRef.current.delete(post.id);
-        });
-    },
-    [isAuthenticated, t, patchPost],
   );
 
 
@@ -557,6 +728,30 @@ export default function NewsTab() {
   );
 
 
+  // Row navigation; the opened post is remembered so the
+  // focus-return refresh re-fetches it on its own
+  const openPost = useCallback(
+    (post: FeedPost) => {
+      lastOpenedRef.current = post.id;
+      router.push({ pathname: '/(main)/news-post', params: { postId: post.id } });
+    },
+    [router],
+  );
+
+  const openComments = useCallback(
+    (post: FeedPost) => {
+      lastOpenedRef.current = post.id;
+      router.push({ pathname: '/(main)/news-comments', params: { postId: post.id } });
+    },
+    [router],
+  );
+
+  const openAuthor = useCallback(
+    (authorId: string) => router.push({ pathname: '/(main)/profile', params: { userId: authorId } }),
+    [router],
+  );
+
+
   // Every switch reloads from the top, so the header comes
   // back with it
   const selectChip = (key: FeedSelection) => {
@@ -566,40 +761,56 @@ export default function NewsTab() {
   };
 
 
-  // Stable render function so the FlatList doesn't hand every
-  // row a fresh renderItem per feed render (NewsCard itself is
-  // memoized on its side)
-  const renderPost = useCallback(
-    ({ item }: ListRenderItemInfo<FeedPost>) => {
-      // Scraped articles have no profile behind the author line
-      const authorId =
-        item.source !== 'knf.vu.lt' && item.source !== 'vu.lt' ? item.authorId : undefined;
+  // The pill: fold the waiting posts in at the top (the kit
+  // scrolls to offset 0 itself; under the iOS inset "the top"
+  // is -barHeight, so the screen scrolls once more to the real
+  // one) and bring the header back with them
+  const showNewPosts = () => {
+    void feed.refresh('merge');
+    freshness.clear();
+    scrollRef.current?.scrollTo({ y: header.topOffset, animated: true });
+    header.reveal();
+  };
 
-      return (
-        <NewsCard
-          post={item}
-          liked={!!item.liked}
-          likeCount={item.likes}
-          showAvatar={feedMode === 'community'}
-          onPress={() => {
-            lastOpenedRef.current = item.id;
-            router.push({ pathname: '/(main)/news-post', params: { postId: item.id } });
-          }}
-          onToggleLike={() => toggleLike(item)}
-          onOpenComments={() => {
-            lastOpenedRef.current = item.id;
-            router.push({ pathname: '/(main)/news-comments', params: { postId: item.id } });
-          }}
-          onShare={() => void sharePost(item)}
-          onOpenAuthor={
-            authorId
-              ? () => router.push({ pathname: '/(main)/profile', params: { userId: authorId } })
-              : undefined
-          }
-        />
-      );
-    },
-    [feedMode, router, toggleLike, sharePost],
+
+  // Stable render function so the kit's list doesn't hand
+  // every row a fresh renderItem per feed render (NewsCard
+  // itself is memoized on its side)
+  const renderPost = useCallback(
+    (item: FeedPost) => (
+      <FeedRow
+        post={item}
+        showAvatar={feedMode === 'community'}
+        onOpen={openPost}
+        onOpenComments={openComments}
+        onShare={(post) => void sharePost(post)}
+        onOpenAuthor={openAuthor}
+      />
+    ),
+    [feedMode, openPost, openComments, sharePost, openAuthor],
+  );
+
+
+  // The header-aware scroll view for the list (see
+  // HeaderScrollView) — the FlatList's own scroll callbacks
+  // travel under `list`, the worklet takes the onScroll slot
+  const { scrollHandler, barHeight } = header;
+  const renderScrollComponent = useCallback(
+    (props: ScrollViewProps) => (
+      <AnimatedHeaderScrollView
+        {...props}
+        list={{
+          onScroll: props.onScroll,
+          onScrollBeginDrag: props.onScrollBeginDrag,
+          onScrollEndDrag: props.onScrollEndDrag,
+          onMomentumScrollEnd: props.onMomentumScrollEnd,
+        }}
+        scrollRef={scrollRef}
+        refreshOffset={Platform.OS === 'android' ? barHeight : undefined}
+        onScroll={scrollHandler}
+      />
+    ),
+    [scrollHandler, barHeight],
   );
 
 
@@ -642,43 +853,24 @@ export default function NewsTab() {
           <ErrorState message={t('news.loadError')} offline={!isConnected} onRetry={() => void feed.refresh()} />
         </View>
       ) : (
-        <Animated.FlatList
-          {...header.listProps}
-          ref={listRef}
-          data={feed.items}
-          keyExtractor={(item) => item.id}
+        <FeedList<FeedPost>
+          items={feed.items}
+          keyOf={keyOfPost}
           renderItem={renderPost}
-          onScroll={header.scrollHandler}
-          scrollEventThrottle={16}
-          // A merge refresh may prepend new posts above the
-          // reader: keep the first visible row anchored so the
-          // viewport never moves under them (the new rows wait
-          // above, one scroll-up away)
-          maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
-          contentContainerStyle={{ flexGrow: 1, paddingTop: header.contentPaddingTop + 8, paddingBottom: 96 }}
-          refreshControl={
-            <RefreshControl
-              refreshing={pullRefreshing}
-              onRefresh={() => void handlePullRefresh()}
-              tintColor={colors.brand}
-              colors={[colors.brand]}
-              progressBackgroundColor={colors.surface}
-              // Android draws its spinner at the frame top, which
-              // the overlay bar would cover, so it is pushed below
-              // the bar. iOS must NOT get this: it places the
-              // native control through the content inset already,
-              // and a manual offset breaks that integration
-              progressViewOffset={Platform.OS === 'android' ? header.barHeight : undefined}
-            />
-          }
           onEndReached={feed.loadMore}
-          onEndReachedThreshold={0.4}
-          // Windowing tuned for tall image cards (the MessageList
-          // pattern) — the defaults keep ~10 viewports of decoded
-          // covers mounted on either side of the visible area
-          initialNumToRender={6}
-          maxToRenderPerBatch={6}
-          windowSize={9}
+          // useFeed keeps its own end-of-feed guard inside
+          // loadMore; the only end this screen can see is the
+          // cached fallback, which has no live continuation
+          hasMore={feed.cachedAt === null}
+          loadingMore={feed.loadingMore}
+          refreshing={pullRefreshing}
+          onRefresh={() => void handlePullRefresh()}
+          newCount={freshness.newCount}
+          onPressNew={showNewPosts}
+          gapAfterKey={feed.gapAfterId}
+          onFillGap={feed.loadMore}
+          fillingGap={feed.loadingMore}
+          contentContainerStyle={{ flexGrow: 1, paddingTop: header.contentPaddingTop + 8, paddingBottom: 96 }}
           ListEmptyComponent={
             <EmptyFeed
               mode={feedMode}
@@ -689,7 +881,16 @@ export default function NewsTab() {
               onCreatePost={() => router.push('/(main)/create-post')}
             />
           }
-          ListFooterComponent={feed.loadingMore ? <LoadingSpinner size="small" /> : null}
+          flatListProps={{
+            ...header.listProps,
+            renderScrollComponent,
+            scrollEventThrottle: 16,
+            // A merge refresh may prepend new posts above the
+            // reader: keep the first visible row anchored so the
+            // viewport never moves under them (the new rows wait
+            // above, one scroll-up away)
+            maintainVisibleContentPosition: { minIndexForVisible: 0 },
+          }}
         />
       )}
 

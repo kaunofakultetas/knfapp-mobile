@@ -11,22 +11,27 @@
 //  the teaser for the live PollWidget.
 //
 //  The card itself opens the post; the author row and the
-//  three actions are separate press targets that stop the
+//  action strip are separate press targets that stop the
 //  event so a tap on them never also opens the post (touches
-//  bubble on react-native-web). The author row is a link only
-//  when the screen passes onOpenAuthor — scraped knf.vu.lt /
-//  vu.lt articles have no profile behind the name.
+//  bubble on react-native-web). The strip is the social kit's
+//  ActionRow — it carries the stateful, pluralised spoken
+//  names ("Patinka, 3 patiktukai" flips to "Nebepatinka, …")
+//  from the kit's own LT/EN catalog, and its share target
+//  mounts only when the card passes onShare through (the web
+//  build without a share sheet does not). The author row is a
+//  link only when the screen passes onOpenAuthor — scraped
+//  knf.vu.lt / vu.lt articles have no profile behind the name.
 //
-//  All state lives in the screen: `liked` and `likeCount`
-//  arrive as props so optimistic like toggles patch the feed
-//  item in place and this component stays a pure renderer —
+//  No interaction state lives here: `liked`, `likeCount` and
+//  `pendingLike` arrive as props from the screen's row wrapper
+//  (the social engine's useLikeToggle layered over the feed
+//  row), so this component stays a pure renderer —
 //  memo()-wrapped so untouched feed rows skip re-rendering.
 //
 //  Split into (root component last):
 //
 //    makeSnippet     — teaser text cut to length
 //    resolveCoverUri — cover image URL defence (exported)
-//    ActionButton    — one icon + count press target
 //    AuthorRow       — avatar + author name, optionally pressable
 //    NewsCard        — the card itself (default export)
 // -----------------------------------------------------------
@@ -38,17 +43,16 @@ import { Avatar } from '@/components/ui';
 import PollWidget from '@/components/news/PollWidget';
 import SourceBadge from './SourceBadge';
 
+// The like / comments / share strip
+import { ActionRow } from '@knf/socialuikit';
+
 // Feed shape, upload resolution and date formatting
 import { getUploadUrl, type SocialFeedPost } from '@/services/api';
 import { stripScrapedPreamble } from '@/services/newsText';
 import { formatDate } from '@/services/format';
 import type { NewsPost } from '@/types';
 
-// JS-side icon colors
-import { useTheme } from '@/hooks/useTheme';
-
 // Rendering
-import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { memo, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -62,6 +66,8 @@ interface NewsCardProps {
   post: SocialFeedPost;
   liked: boolean;
   likeCount: number;
+  // A like still on the wire — the heart dims, stays tappable
+  pendingLike?: boolean;
   showAvatar?: boolean;
   onPress: () => void;
   onToggleLike: () => void;
@@ -165,63 +171,6 @@ export function resolveCoverUri(post: NewsPost): string | null {
 
 
 // -----------------------------------------------------------
-// ActionButton
-// -----------------------------------------------------------
-//
-// One icon-plus-count press target of the card footer. The
-// visual footprint is small, so hitSlop restores the 44pt
-// target; the tap stops propagating so it never also fires
-// the card's own onPress.
-//
-// Used by:
-//   - NewsCard (below) — like / comments / share
-// -----------------------------------------------------------
-
-function ActionButton({ icon, count, label, active = false, onPress }: {
-  icon: keyof typeof Ionicons.glyphMap;
-  count: number;
-  label: string;
-  active?: boolean;
-  onPress: () => void;
-}) {
-
-  const { colors } = useTheme();
-
-
-  return (
-    <Pressable
-      className="flex-row items-center gap-sm px-sm py-xs"
-      hitSlop={10}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityValue={{ text: String(count) }}
-      accessibilityState={{ selected: active }}
-      onPress={(event: GestureResponderEvent) => {
-        event.stopPropagation();
-        onPress();
-      }}
-    >
-      <Ionicons name={icon} size={20} color={active ? colors.accent : colors.inkSoft} />
-      <Text
-        className={
-          active
-            ? 'font-raleway-medium text-sm text-accent'
-            : 'font-raleway-medium text-sm text-ink-soft'
-        }
-      >
-        {count}
-      </Text>
-    </Pressable>
-  );
-}
-
-
-
-
-
-
-
-// -----------------------------------------------------------
 // AuthorRow
 // -----------------------------------------------------------
 //
@@ -294,7 +243,7 @@ function AuthorRow({ author, avatarUrl, withAvatar, onOpenAuthor }: {
 // The Card is accessible={false} so screen readers reach the
 // inner targets one by one: the image/date/title block is the
 // dedicated open-post button, the author row, snippet, poll
-// rows and the three actions stay reachable siblings.
+// rows and the strip's actions stay reachable siblings.
 //
 // Used by:
 //   - app/(main)/tabs/news.tsx — every entry of both feeds
@@ -304,6 +253,7 @@ function NewsCard({
   post,
   liked,
   likeCount,
+  pendingLike = false,
   showAvatar = false,
   onPress,
   onToggleLike,
@@ -429,29 +379,22 @@ function NewsCard({
         </View>
       ) : null}
 
-      {/* Like / comments / share — each stops the card press */}
-      <View className="mt-2 flex-row items-center justify-between border-t border-line px-md py-2">
-        <ActionButton
-          icon={liked ? 'heart' : 'heart-outline'}
-          count={likeCount}
-          active={liked}
-          label={t(liked ? 'news.a11yUnlike' : 'news.a11yLike')}
-          onPress={onToggleLike}
+      {/* Like / comments / share — the kit's strip; every target
+          stops the event itself, so none of them also fires the
+          card press above. The share target is omitted (not
+          hidden) where no sheet exists. The share tally the old
+          strip showed has no slot in the kit's row */}
+      <View className="mt-2 border-t border-line px-md py-2">
+        <ActionRow
+          likeCount={likeCount}
+          commentCount={post.comments}
+          likedByMe={liked}
+          pendingLike={pendingLike}
+          onPressLike={onToggleLike}
+          onPressComment={onOpenComments}
+          onPressShare={canShare ? onShare : undefined}
+          shareCount={post.shares}
         />
-        <ActionButton
-          icon="chatbubble-outline"
-          count={post.comments}
-          label={t('news.a11yComments')}
-          onPress={onOpenComments}
-        />
-        {canShare ? (
-          <ActionButton
-            icon="share-outline"
-            count={post.shares}
-            label={t('news.a11yShare')}
-            onPress={onShare}
-          />
-        ) : null}
       </View>
 
     </Pressable>

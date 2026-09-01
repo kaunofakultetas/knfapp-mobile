@@ -49,7 +49,7 @@ const row = (id: string, minutesBack: number, over: Partial<SocialNotification> 
 const makeWrapper = (transport: SocialTransport, notices: SocialNotice[] = []) => {
   return function Wrapper({ children }: { children: ReactNode }) {
     return (
-      <SocialEngineProvider transport={transport} notify={(n) => notices.push(n)}>
+      <SocialEngineProvider transport={transport} currentUser={{ id: 'u1', displayName: 'Aš' }} notify={(n) => notices.push(n)}>
         {children}
       </SocialEngineProvider>
     );
@@ -356,5 +356,59 @@ describe('useUnreadBadge', () => {
     await flush();
     expect(h.result.current.badge).toBe('12');
     h.unmount();
+  });
+
+  it('guests are inert: useNotifications reports unsupported and never asks the wire', async () => {
+    const fetchNotifications = jest.fn(async () => ({ notifications: [], hasMore: false }));
+    const transport: SocialTransport = {
+      setLiked: async () => ({ liked: false, likeCount: 0 }),
+      fetchPoll: async () => null,
+      vote: async () => {
+        throw new Error('not under test');
+      },
+      fetchNotifications,
+    };
+    const Wrapper = ({ children }: { children: ReactNode }) => (
+      <SocialEngineProvider transport={transport} currentUser={null}>
+        {children}
+      </SocialEngineProvider>
+    );
+    const h = await renderHook(() => useNotifications(), { wrapper: Wrapper });
+    await flush();
+    expect(h.result.current.supported).toBe(false);
+    expect(h.result.current.loading).toBe(false);
+    await act(async () => h.result.current.refresh());
+    await act(async () => h.result.current.markAllRead());
+    expect(fetchNotifications).not.toHaveBeenCalled();
+  });
+
+  it('guests carry no badge and the probe never runs', async () => {
+    jest.useFakeTimers();
+    try {
+      const fetchUnreadCount = jest.fn(async () => 7);
+      const transport: SocialTransport = {
+        setLiked: async () => ({ liked: false, likeCount: 0 }),
+        fetchPoll: async () => null,
+        vote: async () => {
+          throw new Error('not under test');
+        },
+        fetchUnreadCount,
+      };
+      const Wrapper = ({ children }: { children: ReactNode }) => (
+        <SocialEngineProvider transport={transport} currentUser={null}>
+          {children}
+        </SocialEngineProvider>
+      );
+      const h = await renderHook(() => useUnreadBadge({ intervalMs: 1000 }), { wrapper: Wrapper });
+      await act(async () => {
+        jest.advanceTimersByTime(3500);
+      });
+      await flush();
+      await act(async () => h.result.current.refresh());
+      expect(fetchUnreadCount).not.toHaveBeenCalled();
+      expect(h.result.current.badge).toBe('');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

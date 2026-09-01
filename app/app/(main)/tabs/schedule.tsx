@@ -48,12 +48,12 @@ import { Button, EmptyState, ErrorState, Header, LoadingSpinner, Screen } from '
 import { useTheme } from '@/hooks/useTheme';
 
 // Conflict detection + refetch when connectivity returns
-import { useNetworkRestore } from '@/hooks/useNetworkRestore';
+import { useDataEngine, useNetworkRestore } from '@knf/dataengine';
 import { useScheduleConflicts } from '@/hooks/useScheduleConflicts';
 
 // Timetable API + the offline cache it falls back to
 import { fetchSchedule, fetchScheduleFilters, type ScheduleLesson, type ScheduleResponse } from '@/services/api';
-import { cacheGet, cacheKeySchedule, cacheSet, cacheSweepPrefix, SCHEDULE_CACHE_MAX_AGE } from '@/services/cache';
+import { cacheKeySchedule, SCHEDULE_CACHE_MAX_AGE } from '@/services/cacheKeys';
 
 // Failed silent refreshes toast instead of touching the list
 import { showToast } from '@/context/NetworkContext';
@@ -674,6 +674,8 @@ function FilterModal({
 // -----------------------------------------------------------
 
 export default function ScheduleScreen() {
+  // The engine's cache — the offline copy of each day/group/semester
+  const { cache } = useDataEngine();
 
   const { t } = useTranslation();
   const { colors } = useTheme();
@@ -740,7 +742,7 @@ export default function ScheduleScreen() {
         setLessons(resp.lessons);
         setCachedAt(null);
         setError(false);
-        void cacheSet(key, resp);
+        void cache.set(key, resp);
       } catch {
         // A failed SILENT refresh keeps whatever is on screen
         // and just toasts — swapping live lessons for stale
@@ -752,7 +754,7 @@ export default function ScheduleScreen() {
           if (seq === loadSeqRef.current) showToast('error', t('schedule.loadError'));
           return;
         }
-        const cached = await cacheGet<ScheduleResponse>(key, SCHEDULE_CACHE_MAX_AGE);
+        const cached = await cache.get<ScheduleResponse>(key, SCHEDULE_CACHE_MAX_AGE);
         if (seq !== loadSeqRef.current) return;
         if (cached) {
           setLessons(cached.data.lessons);
@@ -767,7 +769,7 @@ export default function ScheduleScreen() {
         if (seq === loadSeqRef.current) setLoading(false);
       }
     },
-    [t],
+    [t, cache],
   );
 
 
@@ -825,8 +827,8 @@ export default function ScheduleScreen() {
   // evicts what it is asked for) — sweep the expired ones once
   // per mount so the store cannot grow without bound
   useEffect(() => {
-    void cacheSweepPrefix('schedule:', SCHEDULE_CACHE_MAX_AGE);
-  }, []);
+    void cache.sweepPrefix('schedule:', SCHEDULE_CACHE_MAX_AGE);
+  }, [cache]);
 
 
   // Persist the choice — but never before the initial read, or

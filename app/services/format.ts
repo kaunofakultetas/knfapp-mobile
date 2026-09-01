@@ -73,7 +73,6 @@ function cachedFormatter(
 //
 // Used by:
 //   - the formatters below
-//   - components/news/PollWidget.tsx — poll close time
 // -----------------------------------------------------------
 
 export function parseIso(iso: string): Date | null {

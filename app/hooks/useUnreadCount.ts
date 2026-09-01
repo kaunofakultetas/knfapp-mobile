@@ -44,7 +44,7 @@ import {
 } from '@/services/socket';
 
 // Revalidation when connectivity returns
-import { useNetworkRestore } from '@/hooks/useNetworkRestore';
+import { useNetworkRestore } from '@knf/dataengine';
 
 // Local count state and lifecycle guards
 import { useCallback, useEffect, useRef, useState } from 'react';

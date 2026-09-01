@@ -29,7 +29,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useNetwork } from '@/context/NetworkContext';
 
 // Single-shot load of the list + pending count
-import { useLoad } from '@/hooks/useLoad';
+import { useLoad } from '@knf/dataengine';
 import { fetchFriendRequests, fetchFriends, type Friend } from '@/services/api';
 
 // UI kit and theming

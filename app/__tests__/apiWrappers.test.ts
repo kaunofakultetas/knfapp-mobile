@@ -33,7 +33,7 @@ jest.mock('@/services/api/client', () => {
 });
 
 import { sendMessageApi } from '@/services/api/chat';
-import { sharePostApi, toggleLikeApi } from '@/services/api/news';
+import { sharePostApi } from '@/services/api/news';
 import { acceptFriendRequest, sendFriendRequest } from '@/services/api/social';
 
 
@@ -93,11 +93,6 @@ describe('social wire shape', () => {
 
 
 describe('news wire shape', () => {
-  it('toggles likes against the post id', async () => {
-    await toggleLikeApi('post 3');
-    expect(mockPost).toHaveBeenCalledWith('/news/post%203/like');
-  });
-
   it('records shares against the post id', async () => {
     await sharePostApi('post-4');
     expect(mockPost).toHaveBeenCalledWith('/news/post-4/share');

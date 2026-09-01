@@ -34,7 +34,7 @@ import { useAuth } from '@/context/AuthContext';
 import { showToast, useNetwork } from '@/context/NetworkContext';
 
 // The requests list as a one-page feed + friendship endpoints
-import { useFeed } from '@/hooks/useFeed';
+import { useFeed } from '@knf/dataengine';
 import {
   ApiError,
   acceptFriendRequest,

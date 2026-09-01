@@ -58,7 +58,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 
 // Form state and primitives
-import { useLoad } from '@/hooks/useLoad';
+import { useLoad } from '@knf/dataengine';
 import { useRouteParam } from '@/hooks/useRouteParam';
 
 import { useCallback, useEffect, useRef, useState } from 'react';

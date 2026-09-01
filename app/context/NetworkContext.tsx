@@ -3,9 +3,11 @@
 //
 //  Watches NetInfo and tells the rest of the app two things:
 //  whether the device is online (`isConnected`) and WHEN the
-//  connection comes back (`onNetworkRestore`) so screens
-//  showing cached data can refetch. A restore also reconnects
-//  the chat socket; both transitions surface a toast. The
+//  connection comes back — the restore fan-out goes through
+//  @knf/dataengine's bus (signalRestore), which every screen
+//  showing cached data listens to via the package's
+//  useNetworkRestore. A restore also reconnects the chat
+//  socket; both transitions surface a toast. The
 //  offline toast is immediate, but the restore fan-out is
 //  debounced — it fires only after the connection has held for
 //  a moment, and a flapping link cannot re-trigger it inside
@@ -40,6 +42,9 @@
 import { connectSocket, disconnectSocket, suspendSocket } from '@/services/socket';
 import NetInfo, { NetInfoState } from '@react-native-community/netinfo';
 
+// The restore bus the offline-first screens listen to
+import { useDataEngine } from '@knf/dataengine';
+
 // Context plumbing and the toast surface
 import React, {
   createContext,
@@ -58,14 +63,12 @@ import Toast from 'react-native-toast-message';
 
 interface NetworkContextType {
   isConnected: boolean;
-  onNetworkRestore: (listener: () => void) => () => void;
 }
 
 // Sensible defaults so useNetwork never explodes outside the
 // provider (tests, storybook-style isolation)
 const NetworkContext = createContext<NetworkContextType>({
   isConnected: true,
-  onNetworkRestore: () => () => {},
 });
 
 
@@ -153,7 +156,8 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
   // avoids a false offline toast on startup
   const [isConnected, setIsConnected] = useState(true);
   const prevOnline = useRef(true);
-  const restoreListeners = useRef(new Set<() => void>());
+  // The engine's restore bus — its listeners are the screens
+  const { signalRestore } = useDataEngine();
 
 
   // Pending debounced restore + when the last one fired
@@ -179,16 +183,6 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
   });
 
 
-  // Stable identity — safe to list in consumer effect deps
-  // (hooks/useNetworkRestore.ts does exactly that)
-  const onNetworkRestore = useCallback((listener: () => void) => {
-    restoreListeners.current.add(listener);
-    return () => {
-      restoreListeners.current.delete(listener);
-    };
-  }, []);
-
-
   // One fan-out for both resync triggers — a connectivity
   // restore and a return to the foreground. The socket
   // reconnect sits BEFORE the cooldown gate on purpose: it is
@@ -205,15 +199,10 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
 
     if (announce) showToast('success', tRef.current('network.online'));
 
-    // Screens showing cached data refetch now
-    restoreListeners.current.forEach((listener) => {
-      try {
-        listener();
-      } catch {
-        // One bad listener must not block the rest
-      }
-    });
-  }, []);
+    // Screens showing cached data refetch now (the engine guards
+    // each listener — one bad closure never blocks the rest)
+    signalRestore();
+  }, [signalRestore]);
 
 
   // Subscribe once; transitions are detected against the ref,
@@ -304,10 +293,7 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
   // Memoized so the context value changes identity only when
   // isConnected actually flips — consumers can list it (or its
   // fields) in effect dependencies safely
-  const value = useMemo(
-    () => ({ isConnected, onNetworkRestore }),
-    [isConnected, onNetworkRestore],
-  );
+  const value = useMemo(() => ({ isConnected }), [isConnected]);
 
 
   return (
@@ -328,9 +314,9 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
 // -----------------------------------------------------------
 //
 // Used by:
-//   - hooks/useNetworkRestore.ts — the per-screen wrapper
-//   - hooks/useLoad.ts / useFeed.ts — offline fallback paths
 //   - screens checking isConnected before optimistic actions
+//   (restore subscriptions go through @knf/dataengine's
+//   useNetworkRestore, not this hook)
 // -----------------------------------------------------------
 
 export function useNetwork(): NetworkContextType {

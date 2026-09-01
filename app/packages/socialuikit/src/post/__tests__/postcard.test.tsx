@@ -17,6 +17,7 @@ import { clampSnippet } from '../../core/format';
 import type { KitLinkPreview, KitMediaItem, KitPost, KitUser } from '../../core/types';
 import { SocialUiKitProvider } from '../../provider';
 import { defaultLabels } from '../../provider/labels';
+import ActionRow from '../ActionRow';
 import PostCard from '../PostCard';
 
 
@@ -249,5 +250,12 @@ describe('PostCard', () => {
       expect(props.user).toBe(base.author);
       expect(typeof props.size).toBe('number');
     }
+  });
+
+  it('ActionRow shows a share tally when the host counts shares, none otherwise', async () => {
+    const counted = await render(<ActionRow likeCount={1} commentCount={2} likedByMe={false} onPressLike={() => {}} onPressComment={() => {}} onPressShare={() => {}} shareCount={7} />);
+    expect(counted.getByText('7')).toBeTruthy();
+    const bare = await render(<ActionRow likeCount={1} commentCount={2} likedByMe={false} onPressLike={() => {}} onPressComment={() => {}} onPressShare={() => {}} />);
+    expect(bare.queryByText('7')).toBeNull();
   });
 });

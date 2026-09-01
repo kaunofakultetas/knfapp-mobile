@@ -62,7 +62,7 @@ import { showToast } from '@/context/NetworkContext';
 import { useTheme } from '@/hooks/useTheme';
 
 // Feed engine and realtime plumbing
-import { useFeed } from '@/hooks/useFeed';
+import { useFeed } from '@knf/dataengine';
 import { useSocketStatus } from '@/hooks/useSocketStatus';
 import {
   connectSocket,
@@ -86,7 +86,7 @@ import {
 } from '@/services/api';
 import { emitSessionInvalid } from '@/services/api/session-events';
 import { getActiveConversation } from '@/hooks/chat/activeConversation';
-import { cacheKeyConversations, CONVERSATIONS_CACHE_MAX_AGE } from '@/services/cache';
+import { cacheKeyConversations, CONVERSATIONS_CACHE_MAX_AGE } from '@/services/cacheKeys';
 
 // Diacritic-folding search normaliser shared with the map
 import { foldForSearch } from '@/services/format';

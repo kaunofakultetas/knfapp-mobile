@@ -143,7 +143,8 @@ export type ApiErrorCode = 'http' | 'timeout' | 'network' | 'canceled';
 //   - request (below)
 //   - services/api/errors.ts — apiErrorKey mapping
 //   - context/AuthContext.tsx — login/register failure messages
-//   - services/api/news.ts — fetchPoll 404 / votePollApi 409 checks
+//   - services/socialTransport.ts — the status the social engine's
+//     retryable/auth judgements read
 // -----------------------------------------------------------
 
 export class ApiError extends Error {

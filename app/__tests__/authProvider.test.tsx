@@ -37,7 +37,6 @@ jest.mock('@/services/api', () => {
     loginApi: jest.fn(),
     registerApi: jest.fn(),
     logoutApi: jest.fn(async (token: string) => { mockLog.push(`logoutApi:${token}`); }),
-    clearPollCache: jest.fn(),
   };
 });
 jest.mock('@/services/api/session-events', () => ({
@@ -52,8 +51,10 @@ jest.mock('@/services/session', () => ({
   setStoredSession: jest.fn(async () => {}),
   clearStoredSession: jest.fn(async () => { mockLog.push('clearStoredSession'); }),
 }));
-jest.mock('@/services/cache', () => ({
-  cacheClearAll: jest.fn(async () => { mockLog.push('cacheClearAll'); }),
+jest.mock('@knf/dataengine', () => ({
+  useDataEngine: () => ({
+    cache: { clearAll: jest.fn(async () => { mockLog.push('cacheClearAll'); return true; }) },
+  }),
 }));
 jest.mock('@/services/socket', () => ({
   connectSocket: jest.fn(async () => {}),

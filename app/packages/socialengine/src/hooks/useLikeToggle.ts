@@ -39,7 +39,7 @@
 //    - src/index.ts — the public surface hosts import from
 // -----------------------------------------------------------
 
-import { useCallback, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 
 import { mergePostShadow } from '../core/shadow';
 import { getToggleQueue } from '../core/toggleQueue';
@@ -95,6 +95,23 @@ export function useLikeToggle(
     [env.postShadows, post.id],
   );
   const shadow = useSyncExternalStore(subscribe, () => env.postShadows.get(post.id));
+
+
+  // A base that CHANGED after the shadow settled is newer truth
+  // (a refetch saw another device's unlike): a settled shadow —
+  // nothing in flight, its word equal to the confirmed word —
+  // retires so the base wins again. In-flight and offline-queued
+  // intents (word ≠ confirmed) stand; the diff-merge already
+  // makes the count safe either way
+  const previousBaseRef = useRef(post.likedByMe);
+  useEffect(() => {
+    if (previousBaseRef.current === post.likedByMe) return;
+    previousBaseRef.current = post.likedByMe;
+    const current = env.postShadows.get(post.id);
+    if (current && !current.pending && current.liked !== undefined && current.liked === current.confirmedLiked) {
+      env.postShadows.clear(post.id);
+    }
+  }, [post.likedByMe, post.id, env.postShadows]);
 
 
   const merged = mergePostShadow(post, shadow);

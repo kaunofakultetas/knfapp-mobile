@@ -52,7 +52,6 @@ interface AvatarProps {
 //   - components/chat/ConversationRow.tsx — list portraits
 //     with the online dot
 //   - components/chat/ConversationRow.tsx — conversation rows
-//   - components/news/CommentRow.tsx — comment authors
 //   - app/(main)/friends/, app/(main)/friend-requests/ — rows
 //   - app/(main)/profile/ — the profile header portrait
 //   - app/(main)/admin-users/ — user management rows

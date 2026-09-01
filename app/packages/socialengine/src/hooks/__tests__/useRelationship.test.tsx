@@ -262,4 +262,35 @@ describe('useRelationship', () => {
     expect(m.requireAuth).toHaveBeenCalledTimes(1);
     expect(m.notices).toEqual([]);
   });
+
+  it('a fresher base retires a SETTLED shadow — the other side accepted while the viewer was away', async () => {
+    const m = await mount({ base: 'none' });
+    await act(async () => m.hook.result.current.act('connect'));
+    await act(async () => {
+      m.pending[0].resolve('outgoing');
+    });
+    await flush();
+    expect(m.hook.result.current.state).toBe('outgoing');
+
+    // The profile refetch says friends now: the settled 'outgoing'
+    // word must not keep the button on "Requested" forever
+    await m.hook.rerender({ userId: 'u2', base: 'connected' } as never);
+    await flush();
+    expect(m.hook.result.current.state).toBe('connected');
+  });
+
+  it('a base change never retires an intent still in flight', async () => {
+    const m = await mount({ base: 'none' });
+    await act(async () => m.hook.result.current.act('connect'));
+    expect(m.hook.result.current.pending).toBe(true);
+    await m.hook.rerender({ userId: 'u2', base: 'incoming' } as never);
+    await flush();
+    // The optimistic word stands until the wire answers
+    expect(m.hook.result.current.state).toBe('outgoing');
+    await act(async () => {
+      m.pending[0].resolve('connected');
+    });
+    await flush();
+    expect(m.hook.result.current.state).toBe('connected');
+  });
 });

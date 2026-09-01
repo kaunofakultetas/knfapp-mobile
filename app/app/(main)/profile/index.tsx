@@ -2,8 +2,8 @@
 //  [*] Social — Profile screen
 //
 //  One screen for two audiences: another user's public profile
-//  (the friendship state machine + a message shortcut carrying
-//  the new-chat prefill params) and the signed-in user's OWN
+//  (the connect button + a message shortcut carrying the
+//  new-chat prefill params) and the signed-in user's OWN
 //  profile (avatar change, friends-list link, per-post
 //  delete). Route /(main)/profile?userId=… — pushed from the
 //  friends and requests rows; WITHOUT the param it means "my
@@ -11,13 +11,33 @@
 //  branch reachable; a logged-out visitor there gets a login
 //  prompt instead.
 //
+//  The relationship (connect / cancel / accept / decline /
+//  disconnect) rides the social engine: the profile payload's
+//  friendshipStatus + blockedByMe become the engine's BASE
+//  standing (relationshipOf), useRelationship layers the
+//  viewer's optimistic shadow over it, and the kit's
+//  ConnectButton draws one face per state. Optimism, tap
+//  coalescing, offline queueing, the guest → login routing,
+//  request-id resolution and the failure toast all live in the
+//  engine and its KNF adapter — this screen only derives the
+//  base and forwards the verb. Block / unblock / report stay
+//  on the plain API calls with their confirm dialogs; a block
+//  flips the base to 'blocking' so the button's face follows.
+//
+//  The engine's shadow is a plain override, so a fetched
+//  profile (focus return, pull, restore) has to be allowed to
+//  WIN over a standing the engine confirmed earlier this
+//  session — the other side may have accepted meanwhile. A
+//  settled, server-confirmed shadow is dropped when fresh base
+//  lands; a pending or offline-queued intent stands.
+//
 //  The profile resource is hand-loaded rather than useLoad'ed:
-//  friend actions must flip friendshipStatus in place and a
-//  404 must render the not-found body while every other
-//  failure keeps an ErrorState with retry. A sequence counter
-//  drops superseded responses and loading clears on every
-//  path. Posts ride useFeed for real pagination (onEndReached)
-//  and optimistic own-post deletion with exact revert.
+//  a block must flip blockedByMe in place and a 404 must
+//  render the not-found body while every other failure keeps
+//  an ErrorState with retry. A sequence counter drops
+//  superseded responses and loading clears on every path.
+//  Posts ride useFeed for real pagination (onEndReached) and
+//  optimistic own-post deletion with exact revert.
 //
 //  Avatar uploads persist the RELATIVE upload path — an
 //  absolute URL would bake the current host into the DB — and
@@ -27,8 +47,8 @@
 //  Split into (root component last):
 //
 //    POSTS_PER_PAGE     — profile feed page size
+//    relationshipOf     — profile payload → engine base standing
 //    StatBlock          — number-over-caption stat
-//    FriendActionButton — one button, four friendship states
 //    ProfileHeader      — portrait, identity, stats, actions
 //    PostRow            — one post card (+ delete when own)
 //    avatarErrorKey     — upload failure → translated message
@@ -40,23 +60,22 @@ import { useAuth } from '@/context/AuthContext';
 import { showToast, useNetwork } from '@/context/NetworkContext';
 
 // Posts pagination + refetch when connectivity returns
-import { useFeed } from '@/hooks/useFeed';
-import { useNetworkRestore } from '@/hooks/useNetworkRestore';
+import { useFeed, useNetworkRestore } from '@knf/dataengine';
+
+// The relationship engine (optimistic standing over the base)
+// and the kit's one-face-per-state button
+import { useRelationship, useSocialEngine, type RelationshipState } from '@knf/socialengine';
+import { ConnectButton, type ConnectAction } from '@knf/socialuikit';
 
 // Backend calls and the normalized error shape
 import {
   ApiError,
-  acceptFriendRequest,
   deletePost,
-  fetchFriendRequests,
   fetchUserPosts,
   fetchUserProfile,
-  rejectFriendRequest,
   blockUser,
   reportTarget,
-  sendFriendRequest,
   unblockUser,
-  unfriendUser,
   updateProfile,
   uploadImageApi,
   type UserProfile,
@@ -68,7 +87,6 @@ import { roleLabel } from '@/constants/roles';
 // UI kit and theming
 import {
   Avatar,
-  Button,
   Card,
   EmptyState,
   ErrorState,
@@ -116,6 +134,43 @@ const POSTS_PER_PAGE = 10;
 
 
 // -----------------------------------------------------------
+// relationshipOf
+// -----------------------------------------------------------
+//
+// The server truth the engine layers its shadow over. The
+// profile payload carries the viewer's standing as two fields:
+// blockedByMe wins over friendshipStatus (the backend severs
+// the friendship on block anyway), and the own profile is
+// 'self' whatever the fields say. 'blockedBy' is never derived
+// — the backend hides a block from its target, so the payload
+// cannot say it, and the kit renders nothing for it regardless.
+//
+// Used by:
+//   - ProfileScreen (below) — the useRelationship base
+// -----------------------------------------------------------
+
+function relationshipOf(profile: UserProfile, isOwnProfile: boolean): RelationshipState {
+  if (isOwnProfile) return 'self';
+  if (profile.blockedByMe) return 'blocking';
+  switch (profile.friendshipStatus) {
+    case 'friends':
+      return 'connected';
+    case 'request_sent':
+      return 'outgoing';
+    case 'request_received':
+      return 'incoming';
+    default:
+      return 'none';
+  }
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // StatBlock
 // -----------------------------------------------------------
 //
@@ -139,78 +194,6 @@ function StatBlock({ value, label }: { value: number; label: string }) {
 
 
 // -----------------------------------------------------------
-// FriendActionButton
-// -----------------------------------------------------------
-//
-// The friendship state machine as one button. Every state is
-// actionable — 'request_sent' cancels the pending request, so
-// a sent request is never a dead end. The Button's spinner
-// inherits the variant's label color, which keeps it visible
-// on the brand background.
-//
-// Used by:
-//   - ProfileHeader (below)
-// -----------------------------------------------------------
-
-function FriendActionButton({
-  status,
-  loading,
-  onPress,
-}: {
-  status: UserProfile['friendshipStatus'];
-  loading: boolean;
-  onPress: () => void;
-}) {
-
-  const { t } = useTranslation();
-
-
-  if (status === 'friends') {
-    return (
-      <Button
-        title={t('profile.unfriend')}
-        onPress={onPress}
-        variant="secondary"
-        loading={loading}
-      />
-    );
-  }
-
-
-  if (status === 'request_sent') {
-    return (
-      <Button
-        title={t('profile.cancelRequest')}
-        onPress={onPress}
-        variant="secondary"
-        loading={loading}
-      />
-    );
-  }
-
-
-  if (status === 'request_received') {
-    return <Button title={t('profile.acceptRequest')} onPress={onPress} loading={loading} />;
-  }
-
-
-  return (
-    <Button
-      title={t('profile.addFriend')}
-      onPress={onPress}
-      leftIcon="person-add-outline"
-      loading={loading}
-    />
-  );
-}
-
-
-
-
-
-
-
-// -----------------------------------------------------------
 // ProfileHeader
 // -----------------------------------------------------------
 //
@@ -219,10 +202,16 @@ function FriendActionButton({
 // posts/friends stats and the action row. The friends stat is
 // pressable ONLY on the own profile, where it actually
 // navigates — on other profiles it is a plain block, never a
-// dead button. A profile the viewer has BLOCKED swaps the
-// friend/message row for a single unblock button (the backend
-// would 404 a friend request and 403 a message anyway), and a
-// quiet block/report link row sits under the actions.
+// dead button.
+//
+// The action row is the kit's ConnectButton (one face per
+// merged relationship state, including the unblock face for a
+// profile the viewer has BLOCKED) plus the message shortcut.
+// The button shows for a signed-out visitor too — the engine
+// routes a guest's tap to the login flow — while the message
+// shortcut and the quiet block/report link row stay signed-in
+// only, and the shortcut also hides behind a block (the
+// backend would 403 the message anyway).
 //
 // Used by:
 //   - ProfileScreen (below) — FlatList header
@@ -232,11 +221,12 @@ function ProfileHeader({
   profile,
   isOwnProfile,
   canInteract,
+  relationship,
+  relationshipPending,
   avatarUploading,
-  actionLoading,
   hasPosts,
   onChangeAvatar,
-  onFriendAction,
+  onConnectAction,
   onMessage,
   onOpenFriends,
   onBlockAction,
@@ -245,11 +235,14 @@ function ProfileHeader({
   profile: UserProfile;
   isOwnProfile: boolean;
   canInteract: boolean;
+  // The engine's merged standing (base + the viewer's shadow)
+  relationship: RelationshipState;
+  // A relationship call or a block/unblock in flight
+  relationshipPending: boolean;
   avatarUploading: boolean;
-  actionLoading: boolean;
   hasPosts: boolean;
   onChangeAvatar: () => void;
-  onFriendAction: () => void;
+  onConnectAction: (action: ConnectAction) => void;
   onMessage: () => void;
   onOpenFriends: () => void;
   onBlockAction: () => void;
@@ -318,44 +311,34 @@ function ProfileHeader({
         )}
       </View>
 
-      {/* Friend + message actions — other people's profiles,
-          signed in only. A blocked profile gets the unblock
-          button instead: every other action would only bounce
-          off the backend's block gates */}
-      {canInteract && profile.blockedByMe ? (
-        <View className="mt-md w-full">
-          <Button
-            title={t('profile.unblock')}
-            onPress={onBlockAction}
-            variant="secondary"
-            loading={actionLoading}
-          />
-        </View>
-      ) : canInteract ? (
+      {/* The relationship control + message shortcut — other
+          people's profiles. The kit draws nothing for 'self',
+          so the own profile carries no row at all; a blocked
+          profile gets the unblock face alone, since every other
+          action would only bounce off the backend's block gates */}
+      {!isOwnProfile && (
         <View className="mt-md w-full flex-row items-center gap-sm">
           <View className="flex-1">
-            <FriendActionButton
-              status={profile.friendshipStatus}
-              loading={actionLoading}
-              onPress={onFriendAction}
-            />
+            <ConnectButton state={relationship} pending={relationshipPending} onAction={onConnectAction} />
           </View>
-          <Pressable
-            className="h-12 w-12 items-center justify-center rounded-md bg-surface-soft"
-            onPress={onMessage}
-            accessibilityRole="button"
-            accessibilityLabel={t('messages.newMessage')}
-          >
-            <Ionicons name="chatbubble-outline" size={20} color={colors.ink} />
-          </Pressable>
+          {canInteract && relationship !== 'blocking' && (
+            <Pressable
+              className="h-12 w-12 items-center justify-center rounded-md bg-surface-soft"
+              onPress={onMessage}
+              accessibilityRole="button"
+              accessibilityLabel={t('messages.newMessage')}
+            >
+              <Ionicons name="chatbubble-outline" size={20} color={colors.ink} />
+            </Pressable>
+          )}
         </View>
-      ) : null}
+      )}
 
       {/* Quiet moderation links — block (when not already) and
           report, deliberately understated under the main row */}
       {canInteract && (
         <View className="mt-sm w-full flex-row items-center justify-center gap-xl">
-          {!profile.blockedByMe && (
+          {relationship !== 'blocking' && (
             <Pressable
               onPress={onBlockAction}
               hitSlop={8}
@@ -555,9 +538,9 @@ export default function ProfileScreen() {
   const isOwnProfile = isAuthenticated && targetId === me?.id;
 
 
-  // Profile state with a ref twin so async handlers (friend
-  // actions, avatar upload) read the current value instead of
-  // their render's snapshot
+  // Profile state with a ref twin so async handlers (block,
+  // avatar upload) read the current value instead of their
+  // render's snapshot
   const [profile, setProfileState] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -570,6 +553,20 @@ export default function ProfileScreen() {
     profileRef.current = next;
     setProfileState(next);
   }, []);
+
+
+  // The viewer's standing with this profile: the payload is the
+  // base, the engine layers the optimistic shadow over it. The
+  // hook runs every render (hooks rule) — before a profile
+  // loads the base is 'none' under a target id nothing acts on
+  const profileUserId = profile?.id ?? targetId ?? '';
+  const base: RelationshipState = profile ? relationshipOf(profile, isOwnProfile) : 'none';
+  const rel = useRelationship(profileUserId, base);
+
+  // Block/unblock flip the base themselves and clear the user's
+  // shadow explicitly (a settled shadow retires on its own when
+  // the fetched base moves — useRelationship owns that rule)
+  const { userShadows } = useSocialEngine();
 
 
   // The paginated post list; deps restart it when the target
@@ -710,15 +707,23 @@ export default function ProfileScreen() {
   };
 
 
-  // All four friendship transitions. Unfriend confirms first;
-  // accepting and cancelling resolve the request id on the fly
-  // (the profile payload carries none) and resync when the
-  // request is already gone
-  const handleFriendAction = async () => {
-    const current = profileRef.current;
-    if (!current || actionLoading) return;
+  // The connect button's verb → the engine. Unblock is not a
+  // relationship transition (it rides the block API below);
+  // disconnect keeps its confirm — the destructive action a
+  // stray tap must not fire; everything else goes straight to
+  // rel.act, which owns optimism, request-id lookup, offline
+  // replay, guest routing and the failure toast. The friend
+  // COUNT is deliberately not guessed: the next profile fetch
+  // (focus return, pull) reconciles it
+  const handleConnectAction = async (action: ConnectAction) => {
+    if (action === 'unblock') {
+      await handleBlockAction();
+      return;
+    }
 
-    if (current.friendshipStatus === 'friends') {
+    if (action === 'disconnect') {
+      const current = profileRef.current;
+      if (!current) return;
       const confirmed = await confirmAction({
         title: t('profile.unfriendTitle'),
         message: t('profile.unfriendConfirm', { name: current.displayName }),
@@ -727,106 +732,9 @@ export default function ProfileScreen() {
         destructive: true,
       });
       if (!confirmed) return;
-
-      setActionLoading(true);
-      try {
-        await unfriendUser(current.id);
-        if (profileRef.current) {
-          setProfile({
-            ...profileRef.current,
-            friendshipStatus: 'none',
-            friendCount: Math.max(0, profileRef.current.friendCount - 1),
-          });
-        }
-      } catch {
-        showToast('error', t('profile.actionError'));
-      } finally {
-        setActionLoading(false);
-      }
-      return;
     }
 
-    if (current.friendshipStatus === 'request_sent') {
-      setActionLoading(true);
-      try {
-        // Resolve the pending request id among the sent rows
-        const { requests } = await fetchFriendRequests('sent');
-        const match = requests.find((request) => request.userId === current.id);
-        if (!match) {
-          // Accepted or expired in the meantime — resync the
-          // status instead of leaving a stuck cancel button
-          await loadProfile('refresh');
-          return;
-        }
-        // The reject endpoint doubles as the sender's cancel
-        await rejectFriendRequest(match.id);
-        if (profileRef.current) {
-          setProfile({ ...profileRef.current, friendshipStatus: 'none' });
-        }
-      } catch {
-        showToast('error', t('profile.actionError'));
-      } finally {
-        setActionLoading(false);
-      }
-      return;
-    }
-
-    if (current.friendshipStatus === 'request_received') {
-      setActionLoading(true);
-      try {
-        // The profile payload carries no request id — resolve it
-        const { requests } = await fetchFriendRequests('received');
-        const match = requests.find((request) => request.userId === current.id);
-        if (!match) {
-          // Withdrawn or handled in another session — resync the
-          // status instead of leaving a dead accept button
-          showToast('error', t('profile.actionError'));
-          await loadProfile('refresh');
-          return;
-        }
-        await acceptFriendRequest(match.id);
-        if (profileRef.current) {
-          setProfile({
-            ...profileRef.current,
-            friendshipStatus: 'friends',
-            friendCount: profileRef.current.friendCount + 1,
-          });
-        }
-      } catch {
-        showToast('error', t('profile.actionError'));
-      } finally {
-        setActionLoading(false);
-      }
-      return;
-    }
-
-    // 'none' — request the friendship. The backend auto-accepts
-    // when the other side had already asked (status 'accepted',
-    // no request row), so the response decides the next state
-    setActionLoading(true);
-    try {
-      const result = await sendFriendRequest(current.id);
-      if (profileRef.current) {
-        if (result.status === 'accepted') {
-          setProfile({
-            ...profileRef.current,
-            friendshipStatus: 'friends',
-            friendCount: profileRef.current.friendCount + 1,
-          });
-        } else {
-          setProfile({ ...profileRef.current, friendshipStatus: 'request_sent' });
-        }
-      }
-    } catch (err) {
-      // A 409 means a request (or the friendship) already
-      // exists — name that, and resync so the button shows the
-      // real state instead of 409ing forever
-      const duplicate = err instanceof ApiError && err.code === 'http' && err.status === 409;
-      showToast('error', t(duplicate ? 'profile.requestAlreadySent' : 'profile.actionError'));
-      if (duplicate) await loadProfile('refresh');
-    } finally {
-      setActionLoading(false);
-    }
+    rel.act(action);
   };
 
 
@@ -916,7 +824,9 @@ export default function ProfileScreen() {
   // Block / unblock. Blocking is confirmed (it severs the
   // friendship server-side, so the local state drops to 'none'
   // and the count follows); unblocking restores nothing and
-  // needs no ceremony
+  // needs no ceremony. Both change the standing OUTSIDE the
+  // engine, so the shadow is wiped and the flipped base
+  // ('blocking' / back to the payload's status) draws the face
   const handleBlockAction = async () => {
     const current = profileRef.current;
     if (!current || actionLoading) return;
@@ -925,6 +835,7 @@ export default function ProfileScreen() {
       setActionLoading(true);
       try {
         await unblockUser(current.id);
+        userShadows.clear(current.id);
         if (profileRef.current) {
           setProfile({ ...profileRef.current, blockedByMe: false });
         }
@@ -949,6 +860,7 @@ export default function ProfileScreen() {
     setActionLoading(true);
     try {
       await blockUser(current.id);
+      userShadows.clear(current.id);
       if (profileRef.current) {
         const wasFriends = profileRef.current.friendshipStatus === 'friends';
         setProfile({
@@ -1066,11 +978,12 @@ export default function ProfileScreen() {
             profile={profile}
             isOwnProfile={isOwnProfile}
             canInteract={isAuthenticated && !isOwnProfile}
+            relationship={rel.state}
+            relationshipPending={rel.pending || actionLoading}
             avatarUploading={avatarUploading}
-            actionLoading={actionLoading}
             hasPosts={posts.items.length > 0}
             onChangeAvatar={() => void handleChangeAvatar()}
-            onFriendAction={() => void handleFriendAction()}
+            onConnectAction={(action) => void handleConnectAction(action)}
             onMessage={handleMessage}
             onOpenFriends={() => router.push('/(main)/friends')}
             onBlockAction={() => void handleBlockAction()}

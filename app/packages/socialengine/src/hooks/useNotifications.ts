@@ -76,8 +76,11 @@ const dedupeById = (list: SocialNotification[]): SocialNotification[] => {
 // -----------------------------------------------------------
 
 export function useNotifications(options?: { grouping?: GroupNotificationsOptions }): UseNotificationsResult {
-  const { transport, notify } = useSocialEngine();
-  const supported = typeof transport.fetchNotifications === 'function';
+  const { transport, notify, currentUser } = useSocialEngine();
+  // Inert for guests as much as for a transport without the
+  // feed: a guest never asks the wire (the real backend would
+  // answer 401 and the host would toast a failure at nobody)
+  const supported = currentUser !== null && typeof transport.fetchNotifications === 'function';
 
   const [rows, setRows] = useState<SocialNotification[]>([]);
   const [loading, setLoading] = useState(supported);
@@ -105,7 +108,7 @@ export function useNotifications(options?: { grouping?: GroupNotificationsOption
 
   // First page — REPLACES what is held (a pull-to-refresh)
   const refresh = useCallback(async () => {
-    const fetchPage = transport.fetchNotifications?.bind(transport);
+    const fetchPage = supported ? transport.fetchNotifications?.bind(transport) : undefined;
     if (!fetchPage) return;
 
     const seq = ++seqRef.current;
@@ -129,7 +132,7 @@ export function useNotifications(options?: { grouping?: GroupNotificationsOption
 
   // Next page — APPENDS, dropping ids already held
   const loadMore = useCallback(async () => {
-    const fetchPage = transport.fetchNotifications?.bind(transport);
+    const fetchPage = supported ? transport.fetchNotifications?.bind(transport) : undefined;
     if (!fetchPage) return;
     // Nothing left to ask for, or a page already on the wire
     if (!hasMoreRef.current || loadingMoreRef.current) return;
@@ -154,7 +157,7 @@ export function useNotifications(options?: { grouping?: GroupNotificationsOption
 
 
   const markAllRead = useCallback(async () => {
-    if (typeof transport.fetchNotifications !== 'function') return;
+    if (!supported || typeof transport.fetchNotifications !== 'function') return;
 
     // The optimistic flip — the list reads as read before the
     // wire answers

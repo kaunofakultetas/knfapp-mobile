@@ -58,6 +58,8 @@ import { Platform, View } from 'react-native';
 // The drawer and the shared header
 import ChatEngineHost from '@/components/chat/ChatEngineHost';
 import ChatUiKitHost from '@/components/chat/ChatUiKitHost';
+import SocialEngineHost from '@/components/social/SocialEngineHost';
+import SocialUiKitHost from '@/components/social/SocialUiKitHost';
 import Sidebar from '@/components/Sidebar';
 import StackHeader, { type StackHeaderProps } from '@/components/navigation/StackHeader';
 import DrawerProvider, { useDrawer } from '@/context/DrawerContext';
@@ -106,6 +108,8 @@ function MainStack() {
           screen that renders kit components */}
       <ChatEngineHost>
       <ChatUiKitHost>
+      <SocialEngineHost>
+      <SocialUiKitHost>
       <Stack
         screenOptions={{
           header: renderHeader,
@@ -136,6 +140,7 @@ function MainStack() {
         />
         <Stack.Screen name="friends/index" options={{ title: t('friends.title') }} />
         <Stack.Screen name="friend-requests/index" options={{ title: t('friendRequests.title') }} />
+        <Stack.Screen name="activity/index" options={{ title: t('activity.title') }} />
         <Stack.Screen name="delete-account/index" options={{ title: t('deleteAccount.title') }} />
         <Stack.Screen
           name="admin/index"
@@ -147,6 +152,8 @@ function MainStack() {
         />
         <Stack.Screen name="info/index" options={{ title: t('info.title') }} />
       </Stack>
+      </SocialUiKitHost>
+      </SocialEngineHost>
       </ChatUiKitHost>
       </ChatEngineHost>
     </View>

@@ -60,6 +60,9 @@ import * as Haptics from 'expo-haptics';
 import { useRouter, usePathname, type Href } from 'expo-router';
 import { useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+
+// The activity badge — the engine polls the unread probe
+import { useUnreadBadge } from '@knf/socialengine';
 import { BackHandler, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -79,6 +82,7 @@ type IoniconName = keyof typeof Ionicons.glyphMap;
 const MORE: { key: string; icon: IoniconName; route: Href; labelKey: string; auth?: boolean; roles?: string[] }[] = [
   { key: 'info', icon: 'information-circle-outline', route: '/(main)/info', labelKey: 'info.title' },
   { key: 'friends', icon: 'people-outline', route: '/(main)/friends', labelKey: 'friends.title', auth: true },
+  { key: 'activity', icon: 'notifications-outline', route: '/(main)/activity', labelKey: 'activity.title', auth: true },
   { key: 'admin', icon: 'shield-checkmark-outline', route: '/(main)/admin', labelKey: 'admin.title', roles: ['admin', 'curator'] },
 ];
 
@@ -329,10 +333,15 @@ function SectionRow({
 //   - Sidebar (below)
 // -----------------------------------------------------------
 
-function MoreRow({ item, onOpen }: { item: (typeof MORE)[number]; onOpen: () => void }) {
+function MoreRow({ item, badge, onOpen }: { item: (typeof MORE)[number]; badge?: string; onOpen: () => void }) {
 
   const { t } = useTranslation();
   const { colors } = useTheme();
+
+
+  // The badge rides the spoken label too — a screen reader
+  // hears "Notifications, 3" instead of a silent pill
+  const label = badge ? `${t(item.labelKey)}, ${badge}` : t(item.labelKey);
 
 
   return (
@@ -341,12 +350,17 @@ function MoreRow({ item, onOpen }: { item: (typeof MORE)[number]; onOpen: () => 
       style={({ pressed }) => (pressed ? { backgroundColor: colors.surfaceSoft } : null)}
       onPress={onOpen}
       accessibilityRole="button"
-      accessibilityLabel={t(item.labelKey)}
+      accessibilityLabel={label}
     >
       <View className="h-9 w-9 items-center justify-center rounded-lg bg-surface-soft">
         <Ionicons name={item.icon} size={20} color={colors.inkSoft} />
       </View>
       <Text className="ml-3 flex-1 font-raleway-medium text-base text-ink">{t(item.labelKey)}</Text>
+      {badge ? (
+        <View testID={`sidebar-badge-${item.key}`} className="mr-2 min-w-[20px] items-center rounded-full bg-brand px-1.5 py-0.5">
+          <Text className="font-raleway-bold text-xs text-on-brand">{badge}</Text>
+        </View>
+      ) : null}
       <Ionicons name="chevron-forward" size={18} color={colors.inkFaint} />
     </Pressable>
   );
@@ -469,6 +483,7 @@ export default function Sidebar() {
 
   const { t } = useTranslation();
   const router = useRouter();
+  const { badge: unreadBadge } = useUnreadBadge();
   const pathname = usePathname();
   const { isOpen, open, close } = useDrawer();
   const { pinnedTabs, setPinnedTabs } = useApp();
@@ -656,7 +671,7 @@ export default function Sidebar() {
               {t('menu.more')}
             </Text>
             {moreRows.map((item) => (
-              <MoreRow key={item.key} item={item} onOpen={() => navigate(item.route)} />
+              <MoreRow key={item.key} item={item} badge={item.key === 'activity' ? unreadBadge : undefined} onOpen={() => navigate(item.route)} />
             ))}
 
           </ScrollView>

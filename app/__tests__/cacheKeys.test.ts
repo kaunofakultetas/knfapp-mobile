@@ -1,72 +1,42 @@
 // -----------------------------------------------------------
-//  [*] Tests — cache key scoping and the wipe fence
+//  [*] Tests — the app's cache key vocabulary
 //
-//  The privacy contract behind the cache: every viewer-
-//  specific dataset gets its own key (one account's private
-//  rows must never surface for the next), and cacheClearAll
-//  bumps cacheEpoch FIRST so an in-flight writer that started
-//  before the wipe can see it happened.
+//  Per-account scoping and the '*' placeholders that keep
+//  filtered and unfiltered schedule variants apart. Storage
+//  behaviour itself is @knf/dataengine's, tested there.
 // -----------------------------------------------------------
 
-jest.mock('@react-native-async-storage/async-storage', () =>
-  require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
-);
+import {
+  cacheKeyConversations,
+  cacheKeyInfo,
+  cacheKeyNews,
+  cacheKeySchedule,
+  CONVERSATIONS_CACHE_MAX_AGE,
+  INFO_CACHE_MAX_AGE,
+  NEWS_CACHE_MAX_AGE,
+  SCHEDULE_CACHE_MAX_AGE,
+} from '@/services/cacheKeys';
 
-import * as cache from '@/services/cache';
 
-
-describe('cache key builders', () => {
-  it('scopes the news feed per account, guests included', () => {
-    const anna = cache.cacheKeyNews('user-anna');
-    const bob = cache.cacheKeyNews('user-bob');
-    const guest = cache.cacheKeyNews('guest');
-    expect(new Set([anna, bob, guest]).size).toBe(3);
+describe('cache keys', () => {
+  it('scopes private feeds per account, guests included', () => {
+    expect(cacheKeyNews('u1')).toBe('news:feed:u1');
+    expect(cacheKeyNews('guest')).toBe('news:feed:guest');
+    expect(cacheKeyConversations('u1')).toBe('conversations:list:u1');
+    expect(cacheKeyNews('u1')).not.toBe(cacheKeyNews('u2'));
   });
 
-  it('scopes conversation previews per account', () => {
-    expect(cache.cacheKeyConversations('u1')).not.toBe(cache.cacheKeyConversations('u2'));
+  it('keeps the unfiltered schedule variant apart from filtered ones', () => {
+    expect(cacheKeySchedule(1)).toBe('schedule:1:*:*');
+    expect(cacheKeySchedule(1, 'G1')).toBe('schedule:1:G1:*');
+    expect(cacheKeySchedule(1, null, 'S2')).toBe('schedule:1:*:S2');
+    expect(cacheKeySchedule(1, '', '')).toBe('schedule:1:*:*');
   });
 
-  it('keeps filtered schedule variants distinct from the unfiltered one', () => {
-    const plain = cache.cacheKeySchedule(1);
-    const grouped = cache.cacheKeySchedule(1, 'IF-23');
-    const semestered = cache.cacheKeySchedule(1, 'IF-23', '2026-ruduo');
-    expect(new Set([plain, grouped, semestered]).size).toBe(3);
-    // '' and null both mean "no filter" — the same variant
-    expect(cache.cacheKeySchedule(2, '', null)).toBe(cache.cacheKeySchedule(2, null, ''));
-  });
-
-  it('separates info pages per language', () => {
-    expect(cache.cacheKeyInfo('lt')).not.toBe(cache.cacheKeyInfo('en'));
-  });
-});
-
-
-describe('cacheEpoch wipe fence', () => {
-  it('bumps on every cacheClearAll', async () => {
-    const before = cache.cacheEpoch;
-    await cache.cacheClearAll();
-    expect(cache.cacheEpoch).toBe(before + 1);
-    await cache.cacheClearAll();
-    expect(cache.cacheEpoch).toBe(before + 2);
-  });
-
-  it('lets an in-flight writer detect a wipe that happened mid-write', async () => {
-    // The pattern useFeed uses: capture the epoch before the
-    // fetch, compare after — a mismatch means the write must
-    // be dropped
-    const captured = cache.cacheEpoch;
-    await cache.cacheClearAll();
-    expect(cache.cacheEpoch).not.toBe(captured);
-  });
-
-  it('round-trips values across a wipe only for writes after it', async () => {
-    await cache.cacheSet('epoch-probe', { value: 1 });
-    await cache.cacheClearAll();
-    expect(await cache.cacheGet('epoch-probe', 60_000)).toBeNull();
-
-    await cache.cacheSet('epoch-probe', { value: 2 });
-    const hit = await cache.cacheGet<{ value: number }>('epoch-probe', 60_000);
-    expect(hit?.data).toEqual({ value: 2 });
+  it('separates info pages per language and keeps the TTLs sane', () => {
+    expect(cacheKeyInfo('lt')).not.toBe(cacheKeyInfo('en'));
+    expect(CONVERSATIONS_CACHE_MAX_AGE).toBeLessThan(NEWS_CACHE_MAX_AGE);
+    expect(NEWS_CACHE_MAX_AGE).toBeLessThan(SCHEDULE_CACHE_MAX_AGE);
+    expect(INFO_CACHE_MAX_AGE).toBe(SCHEDULE_CACHE_MAX_AGE);
   });
 });

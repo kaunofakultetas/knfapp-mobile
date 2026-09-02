@@ -766,9 +766,17 @@
     "toolNode": "Taškas",
     "toolLink": "Jungti",
     "toolRoom": "Patalpa",
+    "toolStairs": "Laiptai",
     "linkFirst": "Bakstelėkite pirmą tašką",
+    "selectHint": "Bakstelėkite tašką arba patalpą",
+    "nodeHint": "Bakstelėkite planą — atsiras taškas",
+    "roomDrawHint": "Tempkite stačiakampį — atsiras patalpa",
+    "stairsFirst": "Bakstelėkite, kur yra laiptai",
+    "stairsNext": "Perjunkite aukštą ir bakstelėkite laiptų vietą",
     "linkNext": "Bakstelėkite antrą tašką",
     "linked": "Sujungta",
+    "more": "Daugiau",
+    "less": "Mažiau",
     "node": "Taškas",
     "level": "Aukštas",
     "kind": "Tipas",
@@ -787,7 +795,6 @@
     "deleteLink": "Ištrinti jungtį",
     "deleteNode": "Ištrinti tašką",
     "confirmDeleteNode": "Ištrinti tašką ir jo jungtis?",
-    "forceDeleteNode": "Patalpa rodo į šį tašką. Ištrinti vis tiek?",
     "addLevel": "Pridėti aukštą",
     "levelLabel": "Aukšto pavadinimas",
     "metersPerPixel": "Metrai pikselyje",
@@ -823,8 +830,7 @@
       "elevator": "Liftas",
       "ramp": "Rampa",
       "entrance": "Įėjimas",
-      "room": "Patalpa",
-      "hallway": "Koridorius"
+      "room": "Patalpa"
     },
     "capture": {
       "open": "Fotografuoti panoramą",
@@ -860,6 +866,8 @@
       "saved": "Kryptis išsaugota — pakeitimas išsiųstas",
       "noPano": "Taškas dar neturi panoramos",
       "noNeighbours": "Taškas neturi jungčių — krypties nėra prie ko derinti"
-    }
+    },
+    "deleteRoom": "Ištrinti patalpą",
+    "confirmDeleteRoom": "Ištrinti patalpą ir jos tašką?"
   }
 }

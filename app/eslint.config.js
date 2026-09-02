@@ -14,7 +14,7 @@ module.exports = defineConfig([
     // the next quick fix
     // The packages' SOURCE is sealed; their example/ folders are
     // documentation and may show the two packages used together
-    files: ['packages/chatuikit/src/**/*.{ts,tsx}', 'packages/chatengine/src/**/*.{ts,tsx}', 'packages/dataengine/src/**/*.{ts,tsx}', 'packages/timetableengine/src/**/*.{ts,tsx}', 'packages/timetableuikit/src/**/*.{ts,tsx}', 'packages/socialengine/src/**/*.{ts,tsx}', 'packages/socialuikit/src/**/*.{ts,tsx}', 'packages/wayfindengine/src/**/*.{ts,tsx}', 'packages/wayfinduikit/src/**/*.{ts,tsx}', 'packages/wayfindeditor/src/**/*.{ts,tsx}', 'packages/wayfindsync/src/**/*.{ts,tsx}', 'packages/wayfindcapture/src/**/*.{ts,tsx}'],
+    files: ['packages/chatuikit/src/**/*.{ts,tsx}', 'packages/chatengine/src/**/*.{ts,tsx}', 'packages/dataengine/src/**/*.{ts,tsx}', 'packages/timetableengine/src/**/*.{ts,tsx}', 'packages/timetableuikit/src/**/*.{ts,tsx}', 'packages/socialengine/src/**/*.{ts,tsx}', 'packages/socialuikit/src/**/*.{ts,tsx}', 'packages/wayfindengine/src/**/*.{ts,tsx}', 'packages/wayfinduikit/src/**/*.{ts,tsx}', 'packages/wayfindeditor/src/**/*.{ts,tsx}', 'packages/wayfindsync/src/**/*.{ts,tsx}', 'packages/wayfindcapture/src/**/*.{ts,tsx}', 'packages/notifyengine/src/**/*.{ts,tsx}', 'packages/notifyuikit/src/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-imports': [
         'error',

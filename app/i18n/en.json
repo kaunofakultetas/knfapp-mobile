@@ -757,9 +757,17 @@
     "toolNode": "Node",
     "toolLink": "Link",
     "toolRoom": "Room",
+    "toolStairs": "Stairs",
     "linkFirst": "Tap the first node",
+    "selectHint": "Tap a node or a room",
+    "nodeHint": "Tap the plan to place a node",
+    "roomDrawHint": "Drag a box to draw a room",
+    "stairsFirst": "Tap where the stairs are",
+    "stairsNext": "Switch floors and tap the matching spot",
     "linkNext": "Tap the second node",
     "linked": "Linked",
+    "more": "More",
+    "less": "Less",
     "node": "Node",
     "level": "Floor",
     "kind": "Kind",
@@ -778,7 +786,6 @@
     "deleteLink": "Delete the link",
     "deleteNode": "Delete the node",
     "confirmDeleteNode": "Delete the node and its links?",
-    "forceDeleteNode": "A room points at this node. Delete anyway?",
     "addLevel": "Add a floor",
     "levelLabel": "Floor label",
     "metersPerPixel": "Metres per pixel",
@@ -814,8 +821,7 @@
       "elevator": "Elevator",
       "ramp": "Ramp",
       "entrance": "Entrance",
-      "room": "Room",
-      "hallway": "Hallway"
+      "room": "Room"
     },
     "capture": {
       "open": "Capture panorama",
@@ -851,6 +857,8 @@
       "saved": "Facing saved — the change is on its way",
       "noPano": "This node has no panorama yet",
       "noNeighbours": "This node has no links — nothing to align against"
-    }
+    },
+    "deleteRoom": "Delete the room",
+    "confirmDeleteRoom": "Delete the room and its node?"
   }
 }

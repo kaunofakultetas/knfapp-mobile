@@ -146,6 +146,10 @@ function MainStack() {
         />
         <Stack.Screen name="info/index" options={{ title: t('info.title') }} />
         <Stack.Screen name="map-editor/index" options={{ title: t('mapEditor.title'), fullScreenGestureEnabled: false }} />
+        {/* The capture sweeps the phone and the alignment drags the
+            panorama — both gestures a full-screen back pan would eat */}
+        <Stack.Screen name="map-editor/capture" options={{ title: t('mapEditor.capture.title'), fullScreenGestureEnabled: false }} />
+        <Stack.Screen name="map-editor/align" options={{ title: t('mapEditor.align.title'), fullScreenGestureEnabled: false }} />
       </Stack>
     </View>
   );

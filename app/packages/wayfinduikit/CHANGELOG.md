@@ -1,5 +1,36 @@
 # Changelog
 
+## 1.4.0 — 2026-09-02
+
+`FloorPlan` learns to draw a rectangle — the gesture the map editor's
+room tool rides on; nothing a wayfinding screen uses changes, and the
+prop absent, every existing behaviour stands untouched.
+
+- `onDrawRect(rect)` — while set, a ONE-finger drag on the drawing
+  draws a live rubber-band rectangle in the overlay (brand stroke over
+  a translucent brand fill, testID `wayfinduikit-plan-rubberband`,
+  topmost so no room hides it) instead of panning; the camera stands
+  still under the draw. The release reports the box normalised —
+  top-left origin, positive sides whichever way the finger travelled —
+  in PLAN pixels through the camera exactly like `onPressPlan`, once
+  both sides reach 8 plan px; a smaller release falls through to the
+  tap rule as today, so a tap still lands as `onPressPlan`.
+- Two fingers still pinch-zoom; a finger-count change, a responder
+  terminate or a level switch clears the band without reporting.
+- While the prop is set the selected-node drag is suppressed — the
+  drawing intent wins — but node and room taps keep landing; without
+  it the drag comes back as before.
+- `PlanRect` (the reported shape) is a module-level export of
+  `plan/FloorPlan.tsx`.
+
+## 1.3.1 — 2026-09-02
+
+- `FloorPlan` — the drawing's aspect ratio sizes the viewport only when
+  the host's style sets no height. Height and aspect together made the
+  layout derive the width from the height, so a tall host box pushed
+  the viewport past the screen's right edge (the banner's "unless the
+  host's style says otherwise" promise is now kept).
+
 ## 1.3.0 — 2026-09-01
 
 The guided-capture overlay for the panorama capture flow; nothing a

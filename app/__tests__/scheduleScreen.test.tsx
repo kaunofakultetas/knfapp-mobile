@@ -71,6 +71,7 @@ jest.mock('@/components/ui', () => {
     ),
     Input: (props: object) => <TextInput {...props} />,
     LoadingSpinner: () => <Text>loading</Text>,
+    RefreshSpinner: () => null,
     EmptyState: ({ title, hint }: { title: string; hint?: string }) => (
       <View>
         <Text>{`empty:${title}`}</Text>

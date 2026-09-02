@@ -3,21 +3,29 @@
 //
 //  The sync package's transport over the app's API client:
 //  op batches, publish (422 → the issues, 409 → unchanged),
-//  panorama and plan uploads as multipart (a refused upload —
-//  a bad image, a bad id — is final and marked so; a dropped
-//  connection, an expired session or a timeout is not — the
-//  upload stays queued and goes out on the next drain), plus
-//  the draft fetch and the building creation the editor screen
-//  calls directly.
+//  panorama, plan and capture-frame uploads as multipart (a
+//  refused upload — a bad image, a bad id — is final and
+//  marked so; a dropped connection, an expired session or a
+//  timeout is not — the upload stays queued and goes out on
+//  the next drain), plus the calls the screens make directly:
+//  the draft fetch, the building creation, and the guided
+//  capture's record / finish / status trio (finish carries the
+//  session manifest's firstYawDeg as centreYawDeg, so the
+//  stitcher centres the panorama on the first ACCEPTED frame
+//  even when upload retries reorder the arrivals). A frame's
+//  address travels in its fields (captureId, targetId — the
+//  queue's items all share one shape), and the transport turns
+//  them into the URL, forwarding the pose numbers as the form.
 //
 //  Used by:
 //    - app/(main)/map-editor/index.tsx
+//    - app/(main)/map-editor/capture.tsx
 // -----------------------------------------------------------
 
 import { Platform } from 'react-native';
 
 import { api, ApiError, request } from '@/services/api';
-import { SyncRejected, type OpsAnswer, type PanoramaUploadResult, type PlanUploadResult, type PublishAnswer, type ServerOp, type SyncTransport, type UploadFile } from '@knf/wayfindsync';
+import { SyncRejected, type FrameUploadResult, type OpsAnswer, type PanoramaUploadResult, type PlanUploadResult, type PublishAnswer, type ServerOp, type SyncTransport, type UploadFile } from '@knf/wayfindsync';
 import type { BuildingGraph } from '@knf/wayfindengine';
 
 
@@ -28,6 +36,32 @@ export interface DraftAnswer {
   document: BuildingGraph;
   revisions: Record<string, number>;
   issues: { severity: 'error' | 'warning'; code: string; ref: string; message: string }[];
+}
+
+// One planned direction of a guided capture, as the server
+// records it (P2 vocabulary — the plan package mints these)
+export interface CaptureTargetBody {
+  id: string;
+  yawDeg: number;
+  pitchDeg: number;
+}
+
+export interface CaptureStatusAnswer {
+  id: string;
+  status: 'uploading' | 'queued' | 'stitching' | 'done' | 'failed';
+  frames: number;
+  expected: number;
+  progressPct?: number | null;
+  report?: Record<string, unknown>;
+  pano?: {
+    id: string;
+    url: string;
+    width: number;
+    height: number;
+    hfovDeg: number;
+    vfovDeg: number;
+    centreYawDeg: number | null;
+  };
 }
 
 // A 4xx verdict on the file itself will not change on retry —
@@ -84,9 +118,48 @@ export const wayfindTransport: SyncTransport = {
       throw error;
     }
   },
+
+  // The frame slot is addressed by the fields (P5: captureId,
+  // targetId, then the pose); the buildingId rides along so the
+  // server's capture lookup is exact rather than by-suffix
+  async uploadFrame(buildingId, file, fields): Promise<FrameUploadResult> {
+    const { captureId, targetId, ...pose } = fields;
+    try {
+      return await request(
+        api.put<FrameUploadResult>(`/wayfind/captures/${encodeURIComponent(captureId)}/frames/${encodeURIComponent(targetId)}`, await formFor(file, { ...pose, buildingId }), { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 60_000 }),
+      );
+    } catch (error) {
+      if (isFinal(error)) throw new SyncRejected(error.message, error.serverCode ?? 'rejected');
+      throw error;
+    }
+  },
 };
 
 
-export const fetchDraft = (buildingId: string) => request(api.get<DraftAnswer>(`/wayfind/buildings/${encodeURIComponent(buildingId)}/draft`));
+// A server without the building yet is the normal first-run
+// answer — accepted as a status, so it never reaches the error
+// log (in development every logged failure surfaces as an
+// on-screen notice)
+export const fetchDraft = async (buildingId: string): Promise<DraftAnswer | null> => {
+  const response = await api.get<DraftAnswer>(`/wayfind/buildings/${encodeURIComponent(buildingId)}/draft`, {
+    validateStatus: (status) => status === 200 || status === 404,
+  });
+  return response.status === 404 ? null : response.data;
+};
 
 export const createBuilding = (id: string, name: string) => request(api.post<{ id: string }>('/wayfind/buildings', { id, name }));
+
+// The guided capture's own three calls (P4). The capture id is
+// the CLIENT's uuid — creating twice with the same id answers
+// the existing record, so a retried create never forks
+export const createCapture = (buildingId: string, body: { id: string; nodeId?: string; mode: 'full' | 'walls'; frameHfovDeg: number; targets: CaptureTargetBody[] }) =>
+  request(api.post<{ id: string; status: string }>(`/wayfind/buildings/${encodeURIComponent(buildingId)}/captures`, body));
+
+// centreYawDeg is the manifest's firstYawDeg — the yaw of the
+// chronologically first ACCEPTED frame. Without it the server
+// falls back to the earliest UPLOADED frame, which the retry
+// ladder can make a different one
+export const finishCapture = (captureId: string, buildingId: string, centreYawDeg?: number) =>
+  request(api.post<{ status: string }>(`/wayfind/captures/${encodeURIComponent(captureId)}/finish?buildingId=${encodeURIComponent(buildingId)}`, centreYawDeg != null ? { centreYawDeg } : {}));
+
+export const getCapture = (captureId: string, buildingId: string) => request(api.get<CaptureStatusAnswer>(`/wayfind/captures/${encodeURIComponent(captureId)}?buildingId=${encodeURIComponent(buildingId)}`));

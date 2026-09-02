@@ -6,11 +6,13 @@
 //  test builds itself (SOI, an APP1 carrying the XMP text, a
 //  SOF0 with the dimensions, EOI), so each case shows exactly
 //  which bytes produce which verdict. Both XMP shapes are
-//  exercised (attributes on rdf:Description, child elements),
-//  plus the ladder's edges: crops that are and are not real,
-//  labelled non-spheres, unlabelled 2:1 and sweep strips,
-//  extended-XMP continuations, foreign containers, and bytes
-//  cut off mid-segment.
+//  exercised (attributes on rdf:Description, child elements)
+//  under both the customary GPano prefix and a foreign one
+//  the packet binds itself, plus the ladder's edges: crops
+//  that are and are not real, labelled non-spheres,
+//  unlabelled 2:1 and sweep strips, extended-XMP
+//  continuations, foreign containers, and bytes cut off
+//  mid-segment.
 //
 //  Used by:
 //    - npm test / the host's root jest run
@@ -36,7 +38,9 @@ const xmpApp1 = (packet: string) => seg(0xe1, [...ascii('http://ns.adobe.com/xap
 // An Exif APP1 — same marker, different header, must be skipped
 const exifApp1 = () => seg(0xe1, [...ascii('Exif'), 0, 0, 0x4d, 0x4d, 0, 0x2a, 0, 0, 0, 8]);
 
-// An extended-XMP continuation — its header differs after "/xmp/"
+// An extended-XMP continuation — its '/xmp/extension/' URI
+// diverges from the standard '/xap/1.0/' header at the xap
+// token, so the byte-exact match rejects it
 const extendedXmpApp1 = (packet: string) => seg(0xe1, [...ascii('http://ns.adobe.com/xmp/extension/'), 0, ...ascii('0'.repeat(32)), ...ascii(packet)]);
 
 const jpeg = (...parts: number[][]) => bytes([0xff, 0xd8], ...parts, [0xff, 0xd9]);
@@ -177,6 +181,81 @@ describe('parsePanoMetadata — equirect XMP, element syntax', () => {
 
     expect(meta.projectionEquirect).toBe(true);
     expect(meta.kind).toBe('sphere');
+  });
+});
+
+
+
+
+
+
+
+
+describe('parsePanoMetadata — namespace prefix resolution', () => {
+
+  // The same shells with the panorama namespace bound to ns1 —
+  // a writer picks any prefix it likes; the reader must follow
+  // the xmlns declaration, not the customary name
+  const ns1AttrPacket = (fields: string) =>
+    '<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>' +
+    '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">' +
+    '<rdf:Description rdf:about="" xmlns:ns1="http://ns.example.com/photos/1.0/panorama/" ' +
+    fields +
+    '/></rdf:RDF></x:xmpmeta><?xpacket end="w"?>';
+
+  const ns1ElementPacket = (fields: string) =>
+    '<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>' +
+    '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">' +
+    '<rdf:Description rdf:about="" xmlns:ns1="http://ns.example.com/photos/1.0/panorama/">' +
+    fields +
+    '</rdf:Description></rdf:RDF></x:xmpmeta><?xpacket end="w"?>';
+
+
+  test('attribute fields under a foreign prefix are read like GPano ones', () => {
+    const fields =
+      'ns1:ProjectionType="equirectangular" ns1:FullPanoWidthPixels="8000" ns1:FullPanoHeightPixels="4000" ' +
+      'ns1:CroppedAreaImageWidthPixels="4000" ns1:CroppedAreaImageHeightPixels="1500" ' +
+      'ns1:CroppedAreaLeftPixels="1000" ns1:CroppedAreaTopPixels="500"';
+    const meta = parsePanoMetadata(jpeg(xmpApp1(ns1AttrPacket(fields)), sof0(4000, 1500)));
+
+    expect(meta.kind).toBe('partial');
+    expect(meta.projectionEquirect).toBe(true);
+    expect(meta.geometry!.hfovDeg).toBeCloseTo(180, 6);
+    expect(meta.geometry!.centreYawDeg).toBeCloseTo(-45, 6);
+  });
+
+  test('element fields under a foreign prefix are read, heading included', () => {
+    const meta = parsePanoMetadata(
+      jpeg(
+        xmpApp1(ns1ElementPacket('<ns1:ProjectionType>equirectangular</ns1:ProjectionType><ns1:PoseHeadingDegrees>203.5</ns1:PoseHeadingDegrees>')),
+        sof0(8704, 4352),
+      ),
+    );
+
+    expect(meta.kind).toBe('sphere');
+    expect(meta.projectionEquirect).toBe(true);
+    expect(meta.headingDeg).toBe(203.5);
+  });
+
+  test('a close tag that does not repeat the prefix is no match', () => {
+    const meta = parsePanoMetadata(
+      jpeg(xmpApp1(ns1ElementPacket('<ns1:ProjectionType>cylindrical</GPano:ProjectionType>')), sof0(4032, 3024)),
+    );
+
+    expect(meta.projectionEquirect).toBe(false);
+    expect(meta.kind).toBe('photo');
+  });
+
+  test('with no panorama xmlns declared the customary GPano prefix still reads', () => {
+    const bare =
+      '<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>' +
+      '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">' +
+      '<rdf:Description rdf:about="" GPano:ProjectionType="equirectangular" GPano:PoseHeadingDegrees="90"' +
+      '/></rdf:RDF></x:xmpmeta><?xpacket end="w"?>';
+    const meta = parsePanoMetadata(jpeg(xmpApp1(bare), sof0(2048, 1024)));
+
+    expect(meta.kind).toBe('sphere');
+    expect(meta.headingDeg).toBe(90);
   });
 });
 

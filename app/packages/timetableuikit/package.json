@@ -1,6 +1,6 @@
 {
   "name": "@knf/timetableuikit",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Presentational university timetable kit for Expo / React Native \u2014 a week grid and a day timeline over pre-placed fraction geometry, hour axis, tiered lesson cells with per-subject pastels, the now line, conflict marks \u2014 themable, LT/EN labelled, plain-RN with no gesture or animation dependencies.",
   "main": "src/index.ts",
   "types": "src/index.ts",

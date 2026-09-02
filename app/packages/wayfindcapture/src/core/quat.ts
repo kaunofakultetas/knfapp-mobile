@@ -66,7 +66,6 @@ const conjugate = (q: Quat): Quat => ({ w: q.w, x: -q.x, y: -q.y, z: -q.z });
 
 
 
-
 // -----------------------------------------------------------
 // identity
 // -----------------------------------------------------------
@@ -84,7 +83,6 @@ export function identity(): Quat {
 
   return { w: 1, x: 0, y: 0, z: 0 };
 }
-
 
 
 
@@ -123,7 +121,6 @@ export function fromAxisAngle(axis: Vec3, angleRad: number): Quat {
 
 
 
-
 // -----------------------------------------------------------
 // multiply
 // -----------------------------------------------------------
@@ -146,7 +143,6 @@ export function multiply(a: Quat, b: Quat): Quat {
     z: a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
   };
 }
-
 
 
 
@@ -183,7 +179,6 @@ export function normalize(q: Quat): Quat {
 
 
 
-
 // -----------------------------------------------------------
 // rotateVector
 // -----------------------------------------------------------
@@ -212,7 +207,6 @@ export function rotateVector(q: Quat, v: Vec3): Vec3 {
     z: v.z + q.w * tz + (q.x * ty - q.y * tx),
   };
 }
-
 
 
 

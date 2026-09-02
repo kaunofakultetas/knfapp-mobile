@@ -77,7 +77,8 @@ throws: a **`SyncRejected`** (`message`, `code` — default
 retry will not change — and parks the item as `failed`; **any other
 error** is retryable — a dropped connection, a timeout, a rate limit —
 and backs the item off along the ladder. The app's transport throws
-`SyncRejected` for a 4xx that is not a rate limit and rethrows the rest.
+`SyncRejected` for a 4xx other than 401, 408 and 429 — an expired
+session, a timeout and a rate limit are retried — and rethrows the rest.
 `SyncRejected` has no meaning on `postOps`, where a throw is a throw.
 
 `SyncStorage` is the small async key-value surface every persisted

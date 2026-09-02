@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.2 — 2026-09-01
+
+- Dotted vertical hairlines between the week grid's day
+  columns, painted behind the cells — a sparse week no longer
+  reads as one day, and the dotted style keeps day boundaries
+  visually apart from the solid hour lines. Drawn with the
+  1px full-border trick, since Android paints nothing for a
+  single-side dashed border.
+
 ## 1.0.1 — 2026-09-01
 
 The adversarial review round before first wiring:

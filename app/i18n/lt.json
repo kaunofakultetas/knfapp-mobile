@@ -808,6 +808,9 @@
     "conflict": "Kitas redaktorius pakeitė {{ref}}",
     "keepMine": "Palikti mano",
     "takeTheirs": "Imti serverio",
+    "conflictTitle": "Pakeitimų konfliktas",
+    "conflictBody": "Kitas redaktorius jau pakeitė šį tašką. Perrašyti serverio kopiją jūsų pakeitimu?",
+    "saveRejected": "Serveris atmetė pakeitimą",
     "undo": "Atšaukti",
     "redo": "Grąžinti",
     "uploadQueued": "Įkėlimas eilėje",
@@ -822,6 +825,41 @@
       "entrance": "Įėjimas",
       "room": "Patalpa",
       "hallway": "Koridorius"
+    },
+    "capture": {
+      "open": "Fotografuoti panoramą",
+      "title": "Panoramos fotografavimas",
+      "modeWalls": "Sienos (36)",
+      "modeFull": "Pilna sfera (44)",
+      "modeHint": "Sienų režimas praleidžia lubas ir grindis",
+      "start": "Pradėti",
+      "startFailed": "Nepavyko pradėti fotografavimo",
+      "holdStill": "Laikykite telefoną ramiai…",
+      "retake": "Perfotografuoti paskutinį",
+      "finish": "Užbaigti",
+      "needFrames": "Reikia bent {{count}} kadrų",
+      "sendingFrames": "Įkeliami kadrai: {{done}} / {{total}}",
+      "frameFailed": "Kadro įkelti nepavyko",
+      "queued": "Laukiama eilėje…",
+      "stitching": "Siuvama panorama…",
+      "done": "Panorama paruošta",
+      "failed": "Panoramos sujungti nepavyko",
+      "assign": "Priskirti taškui",
+      "assigned": "Panorama priskirta — pakeitimas išsiųstas",
+      "cameraNeeded": "Fotografavimui reikia kameros",
+      "cameraAllow": "Leisti kamerą",
+      "close": "Uždaryti"
+    },
+    "align": {
+      "open": "Derinti kryptį",
+      "title": "Krypties derinimas",
+      "pickNeighbour": "Pasirinkite kaimyną",
+      "instruction": "Pasukite vaizdą, kol {{name}} bus centre",
+      "fine": "Tikslus derinimas",
+      "confirm": "Patvirtinti kryptį",
+      "saved": "Kryptis išsaugota — pakeitimas išsiųstas",
+      "noPano": "Taškas dar neturi panoramos",
+      "noNeighbours": "Taškas neturi jungčių — krypties nėra prie ko derinti"
     }
   }
 }

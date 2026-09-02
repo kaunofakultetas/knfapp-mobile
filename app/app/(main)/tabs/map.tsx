@@ -433,6 +433,7 @@ function PhotoStage({
 
 function PlanStage({
   env,
+  localize,
   route,
   summary,
   kit,
@@ -441,6 +442,7 @@ function PlanStage({
   height,
 }: {
   env: WayfindEnv;
+  localize: (room: Room) => string;
   route: Route;
   summary: KitRouteSummary;
   kit: KitNavigationState;
@@ -451,6 +453,10 @@ function PlanStage({
 
   const level = env.index.levels.get(shownLevel) ?? env.index.orderedLevels[0];
   const xml = usePlanXml(level?.plan);
+  const rooms = useMemo(
+    () => (level ? env.graph.rooms.filter((room) => room.level === level.id && room.polygon).map((room) => ({ id: room.id, polygon: room.polygon as [number, number][], label: localize(room) })) : []),
+    [env, level, localize],
+  );
   if (!level) return null;
   const segment = route.floors.find((floor) => floor.level === level.id) ?? null;
 
@@ -460,6 +466,7 @@ function PlanStage({
       <FloorPlan
         level={level}
         plan={xml ? <SvgXml xml={xml} width="100%" height="100%" /> : null}
+        rooms={rooms}
         route={segment}
         start={summary.start}
         end={summary.end}
@@ -641,7 +648,7 @@ function MapScreenInner() {
             showPhoto && state ? (
               <PhotoStage env={env} state={state} targetLabel={nextRoom ?? destinationName} height={stageHeight} />
             ) : (
-              <PlanStage env={env} route={route} summary={summary} kit={kit} shownLevel={shownLevel} onSelectLevel={setPinnedLevel} height={stageHeight} />
+              <PlanStage env={env} localize={localize} route={route} summary={summary} kit={kit} shownLevel={shownLevel} onSelectLevel={setPinnedLevel} height={stageHeight} />
             )
           ) : null}
           {hasPhoto ? <ViewToggle view={view} onChange={setView} /> : null}

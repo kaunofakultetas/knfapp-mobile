@@ -18,13 +18,15 @@
 //  The XMP is parsed with tolerant regexes over the packet
 //  TEXT, not an XML tree: the vocabulary appears in the wild
 //  both as attributes on rdf:Description and as child
-//  elements, writers disagree on namespace prefixes' spacing
-//  and ordering, and a byte-exact XML parser is a dependency
-//  this package refuses. Only the STANDARD packet (the APP1
-//  whose header is the xap/1.0 namespace URI) is read; the
-//  extended-XMP continuation packets carry bulky payloads
-//  (maker previews, depth maps) and never the pano fields,
-//  so they are skipped by their different header.
+//  elements, writers bind the panorama namespace to whatever
+//  prefix they like (the reader follows the packet's own
+//  xmlns declaration, assuming the customary GPano only when
+//  none is bound), and a byte-exact XML parser is a
+//  dependency this package refuses. Only the STANDARD packet
+//  (the APP1 whose header is the xap/1.0 namespace URI) is
+//  read; the extended-XMP continuation packets carry bulky
+//  payloads (maker previews, depth maps) and never the pano
+//  fields, so they are skipped by their different header.
 //
 //  Nothing here throws. Truncated bytes, a foreign container
 //  (PNG / WebP — dimensions best-effort, or zero), random
@@ -61,13 +63,15 @@ export interface PanoMetadata {
 
 // The APP1 header that marks the standard XMP packet — a
 // fixed wire constant of the XMP spec, matched byte-for-byte
-// (the extended-XMP continuation header differs after
-// "/xmp/", so continuations fail this match and are skipped)
+// (the extended-XMP continuations carry the '/xmp/extension/'
+// namespace URI, which diverges from this '/xap/1.0/' header
+// at the xap token, so they fail this match and are skipped)
 const XMP_HEADER = 'http://ns.adobe.com/xap/1.0/\u0000';
 
-// A stitched strip with no XMP at all: treat width/height at
-// least this wide as a sweep, and within this fraction of the
-// exact 2:1 equirect aspect as a full sphere
+// A file whose XMP carries no ProjectionType (or that has no
+// XMP at all): treat width/height at least this wide as a
+// sweep, and within this fraction of the exact 2:1 equirect
+// aspect as a full sphere
 const SWEEP_MIN_ASPECT = 2.5;
 const SPHERE_ASPECT_TOLERANCE = 0.02;
 
@@ -77,14 +81,13 @@ const SPHERE_ASPECT_TOLERANCE = 0.02;
 const SPHERE_GEOMETRY: PanoMetadataGeometry = { hfovDeg: 360, vfovDeg: 180, centreYawDeg: 0, vOffsetDeg: 0 };
 
 // The GPano rectangle: full canvas, crop size, crop offset —
-// every field a number, all eight read before any geometry
+// every field a number, all six read before any geometry
 const FIELD_FULL_W = 'FullPanoWidthPixels';
 const FIELD_FULL_H = 'FullPanoHeightPixels';
 const FIELD_CROP_W = 'CroppedAreaImageWidthPixels';
 const FIELD_CROP_H = 'CroppedAreaImageHeightPixels';
 const FIELD_CROP_LEFT = 'CroppedAreaLeftPixels';
 const FIELD_CROP_TOP = 'CroppedAreaTopPixels';
-
 
 
 
@@ -157,7 +160,6 @@ export function parsePanoMetadata(bytes: Uint8Array): PanoMetadata {
 
   return { width, height, projectionEquirect, headingDeg, geometry, kind };
 }
-
 
 
 
@@ -243,7 +245,6 @@ function scanJpeg(bytes: Uint8Array): { width: number; height: number; xmp: stri
 
 
 
-
 // -----------------------------------------------------------
 // readCrop — the GPano rectangle as viewer geometry
 // -----------------------------------------------------------
@@ -293,19 +294,52 @@ function readCrop(xmp: string): PanoMetadataGeometry | null {
 
 
 
+// -----------------------------------------------------------
+// panoPrefix — the prefix the packet binds to the vocabulary
+// -----------------------------------------------------------
+//
+// An XML namespace prefix is the writer's free choice: the
+// pano vocabulary is identified by its namespace URI (the one
+// ending in '/panorama/'), and a packet may bind it to GPano,
+// ns1 or anything else in its xmlns declaration. The field
+// regexes must use the prefix that is actually bound, so this
+// reads it from the declaration — falling back to the
+// customary GPano when the packet declares none (some writers
+// omit the declaration and use the conventional prefix). The
+// answered prefix is regex-escaped: it goes straight into the
+// RegExp constructor.
+//
+// Used by:
+//   - gpanoText (below) — once per field lookup
+// -----------------------------------------------------------
+
+function panoPrefix(xmp: string): string {
+
+  const bound = /xmlns:([A-Za-z_][A-Za-z0-9_.-]*)\s*=\s*["'][^"']*\/panorama\/["']/.exec(xmp);
+  return bound ? bound[1].replace(/[.-]/g, '\\$&') : 'GPano';
+}
+
+
+
+
+
+
 
 // -----------------------------------------------------------
 // gpanoText / gpanoNumber — one field, either XMP shape
 // -----------------------------------------------------------
 //
-// The attribute shape (GPano:Name="value" on rdf:Description)
-// is tried first — it is what most stitchers write — then the
-// element shape (<GPano:Name>value</GPano:Name>, attributes
-// on the opening tag tolerated). Values are trimmed; a number
-// must parse finite or the field counts as absent, so one
-// mangled digit cannot poison the geometry. The field names
-// fed in are this module's own constants — nothing
-// user-supplied ever reaches the RegExp constructor.
+// The prefix comes from panoPrefix; 'GPano' below stands for
+// whatever the packet bound. The attribute shape
+// (GPano:Name="value" on rdf:Description) is tried first — it
+// is what most stitchers write — then the element shape
+// (<GPano:Name>value</GPano:Name>, attributes on the opening
+// tag tolerated, the close tag required to repeat the same
+// prefix). Values are trimmed; a number must parse finite or
+// the field counts as absent, so one mangled digit cannot
+// poison the geometry. The field names fed in are this
+// module's own constants and the prefix is escaped — nothing
+// user-supplied reaches the RegExp constructor unescaped.
 //
 // Used by:
 //   - parsePanoMetadata, readCrop (above)
@@ -313,11 +347,12 @@ function readCrop(xmp: string): PanoMetadataGeometry | null {
 
 function gpanoText(xmp: string, field: string): string | null {
 
-  const attr = new RegExp('GPano:' + field + '\\s*=\\s*["\']([^"\']*)["\']').exec(xmp);
+  const prefix = panoPrefix(xmp);
+  const attr = new RegExp(prefix + ':' + field + '\\s*=\\s*["\']([^"\']*)["\']').exec(xmp);
   if (attr) return attr[1].trim();
 
 
-  const el = new RegExp('<GPano:' + field + '(?:\\s[^>]*)?>([^<]*)</GPano:' + field + '\\s*>').exec(xmp);
+  const el = new RegExp('<' + prefix + ':' + field + '(?:\\s[^>]*)?>([^<]*)</' + prefix + ':' + field + '\\s*>').exec(xmp);
   if (el) return el[1].trim();
 
   return null;
@@ -332,7 +367,6 @@ function gpanoNumber(xmp: string, field: string): number | null {
   const value = Number(text);
   return Number.isFinite(value) ? value : null;
 }
-
 
 
 
@@ -389,7 +423,6 @@ function sniffForeignDimensions(bytes: Uint8Array): { width: number; height: num
 
   return { width: 0, height: 0 };
 }
-
 
 
 

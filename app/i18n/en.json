@@ -799,6 +799,9 @@
     "conflict": "Another editor changed {{ref}}",
     "keepMine": "Keep mine",
     "takeTheirs": "Take the server's",
+    "conflictTitle": "Edit conflict",
+    "conflictBody": "Another editor already changed this node. Overwrite the server's copy with your change?",
+    "saveRejected": "The server refused the change",
     "undo": "Undo",
     "redo": "Redo",
     "uploadQueued": "Upload queued",
@@ -813,6 +816,41 @@
       "entrance": "Entrance",
       "room": "Room",
       "hallway": "Hallway"
+    },
+    "capture": {
+      "open": "Capture panorama",
+      "title": "Panorama capture",
+      "modeWalls": "Walls (36)",
+      "modeFull": "Full sphere (44)",
+      "modeHint": "Walls mode skips the ceiling and the floor",
+      "start": "Start",
+      "startFailed": "Could not start the capture",
+      "holdStill": "Hold the phone still…",
+      "retake": "Retake last shot",
+      "finish": "Finish",
+      "needFrames": "At least {{count}} frames are needed",
+      "sendingFrames": "Uploading frames: {{done}} / {{total}}",
+      "frameFailed": "A frame failed to upload",
+      "queued": "Waiting in the queue…",
+      "stitching": "Stitching the panorama…",
+      "done": "Panorama ready",
+      "failed": "The panorama could not be stitched",
+      "assign": "Assign to node",
+      "assigned": "Panorama assigned — the change is on its way",
+      "cameraNeeded": "The capture needs the camera",
+      "cameraAllow": "Allow camera",
+      "close": "Close"
+    },
+    "align": {
+      "open": "Align facing",
+      "title": "Facing alignment",
+      "pickNeighbour": "Pick a neighbour",
+      "instruction": "Turn the view until {{name}} is centred",
+      "fine": "Fine tune",
+      "confirm": "Confirm facing",
+      "saved": "Facing saved — the change is on its way",
+      "noPano": "This node has no panorama yet",
+      "noNeighbours": "This node has no links — nothing to align against"
     }
   }
 }

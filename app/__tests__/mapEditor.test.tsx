@@ -5,11 +5,19 @@
 //  links it to the entrance, undoes both, and publishes — every
 //  edit reaching the mocked server as ops with the loaded
 //  revisions, every answer re-stamping the entity with ITS
-//  batch's revision. The link tool keeps its first pick across
-//  a floor switch (that is how cross-level connectors are
-//  authored) and refuses a self-link; a placing tool makes the
-//  room polygons transparent to the finger; a refused upload
-//  gets retry / remove and never hides a later stored url.
+//  batch's revision. The editor's face is the graph alone: a
+//  room is DRAWN as a box (the polygon room and its centred
+//  node land as one step and the sheet opens on the node), a
+//  stairs connector is two guided taps across a floor switch
+//  (an existing node is reused and upgraded, a same-floor
+//  second tap only moves the pending start), and everything
+//  deeper — kind chips, the panorama block, the level fields,
+//  the issues — hides under a collapsed "Daugiau" expander.
+//  The link tool keeps its first pick across a floor switch
+//  and refuses a self-link; a placing tool makes the room
+//  polygons transparent to the finger; the '+' pill beside the
+//  floor switcher adds a level; a refused upload gets retry /
+//  remove and never hides a later stored url.
 // -----------------------------------------------------------
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -132,6 +140,21 @@ const tapPlan = async (r: Rendered, x: number, y: number) => {
   });
 };
 
+// One finger down, one move, release — the room tool's box
+const dragPlan = async (r: Rendered, from: { x: number; y: number }, to: { x: number; y: number }) => {
+  const vp = r.getByTestId('wayfinduikit-plan').props as Record<string, Handler>;
+  await act(async () => {
+    vp.onStartShouldSetResponderCapture(gesture([from], 1000));
+    vp.onResponderGrant(gesture([from], 1000));
+  });
+  await act(async () => {
+    vp.onResponderMove(gesture([to], 1050));
+  });
+  await act(async () => {
+    vp.onResponderRelease(gesture([], 1100));
+  });
+};
+
 
 // Every op the mocked server saw, flattened across batches
 const sentOps = (): SentOp[] => mockPostOps.mock.calls.flatMap(([, ops]) => ops);
@@ -161,6 +184,7 @@ describe('MapEditorScreen', () => {
     await act(async () => {
       fireEvent.press(r.getByTestId('editor-tool-node'));
     });
+    expect(r.getByTestId('editor-tool-hint').props.children).toBe('mapEditor.nodeHint');
     await tapPlan(r, 200, 120);
     await settle();
     expect(r.getByTestId('editor-node-sheet')).toBeTruthy();
@@ -175,11 +199,11 @@ describe('MapEditorScreen', () => {
     await act(async () => {
       fireEvent.press(r.getByTestId('editor-tool-link'));
     });
-    expect(r.getByTestId('editor-link-hint').props.children).toBe('mapEditor.linkFirst');
+    expect(r.getByTestId('editor-tool-hint').props.children).toBe('mapEditor.linkFirst');
     await act(async () => {
       fireEvent.press(r.getByTestId('wayfinduikit-plan-node-n-entrance'));
     });
-    expect(r.getByTestId('editor-link-hint').props.children).toBe('mapEditor.linkNext · n-entrance');
+    expect(r.getByTestId('editor-tool-hint').props.children).toBe('mapEditor.linkNext · Viešųjų ryšių skyrius');
     await act(async () => {
       fireEvent.press(r.getByTestId(`wayfinduikit-plan-node-${newNodeId}`));
     });
@@ -205,12 +229,16 @@ describe('MapEditorScreen', () => {
     expect((mockPostOps.mock.calls[3] as unknown as [string, { type: string; entityId: string }[]])[1][0]).toMatchObject({ type: 'delete', entityId: newNodeId });
     expect(r.queryByTestId(`wayfinduikit-plan-node-${newNodeId}`)).toBeNull();
 
-    // An edit to a loaded entity carries its loaded revision
+    // An edit to a loaded entity carries its loaded revision —
+    // the kind chips live under the sheet's "Daugiau" now
     await act(async () => {
       fireEvent.press(r.getByTestId('editor-tool-select'));
     });
     await act(async () => {
       fireEvent.press(r.getByTestId('wayfinduikit-plan-node-n-stairs1'));
+    });
+    await act(async () => {
+      fireEvent.press(r.getByTestId('editor-node-more'));
     });
     await act(async () => {
       fireEvent.press(r.getByTestId('editor-kind-elevator'));
@@ -239,6 +267,9 @@ describe('MapEditorScreen', () => {
       fireEvent.press(r.getByTestId('wayfinduikit-plan-node-n-stairs1'));
     });
     await act(async () => {
+      fireEvent.press(r.getByTestId('editor-node-more'));
+    });
+    await act(async () => {
       fireEvent.press(r.getByTestId('editor-kind-elevator'));
     });
     await settle();
@@ -265,7 +296,7 @@ describe('MapEditorScreen', () => {
     await act(async () => {
       fireEvent.press(r.getByTestId('wayfinduikit-plan-node-n-stairs1'));
     });
-    expect(r.getByTestId('editor-link-hint').props.children).toBe('mapEditor.linkNext · n-stairs1');
+    expect(r.getByTestId('editor-tool-hint').props.children).toBe('mapEditor.linkNext · Laiptai');
 
     // The same node again is no link: the pick is kept, nothing sent
     await act(async () => {
@@ -273,7 +304,7 @@ describe('MapEditorScreen', () => {
     });
     await settle();
     expect(mockToast).not.toHaveBeenCalledWith('success', 'mapEditor.linked');
-    expect(r.getByTestId('editor-link-hint').props.children).toBe('mapEditor.linkNext · n-stairs1');
+    expect(r.getByTestId('editor-tool-hint').props.children).toBe('mapEditor.linkNext · Laiptai');
 
     // The pick SURVIVES the floor switch — the second endpoint of
     // a stairs connector lives on the other floor
@@ -281,7 +312,7 @@ describe('MapEditorScreen', () => {
       fireEvent.press(r.getByTestId('wayfinduikit-floor-L2'));
     });
     await settle();
-    expect(r.getByTestId('editor-link-hint').props.children).toBe('mapEditor.linkNext · n-stairs1');
+    expect(r.getByTestId('editor-tool-hint').props.children).toBe('mapEditor.linkNext · Laiptai');
     await act(async () => {
       fireEvent.press(r.getByTestId('wayfinduikit-plan-node-n-a'));
     });
@@ -290,6 +321,149 @@ describe('MapEditorScreen', () => {
     const edges = sentOps().filter((op) => op.kind === 'edge');
     expect(edges).toHaveLength(1);
     expect(edges[0]).toMatchObject({ type: 'upsert', entityId: 'n-stairs1--n-a', data: { a: 'n-stairs1', b: 'n-a', kind: 'stairs', lengthM: 10 } });
+  });
+
+
+  it('the room tool draws a box: one step creates the polygon room with its node at the centre and opens the sheet', async () => {
+    const r = await render(<MapEditorScreen />);
+    await settle();
+    await layOutPlan(r);
+
+    await act(async () => {
+      fireEvent.press(r.getByTestId('editor-tool-room'));
+    });
+    expect(r.getByTestId('editor-tool-hint').props.children).toBe('mapEditor.roomDrawHint');
+
+    // A drag from (80, 48) to (160, 96) on the 400 × 240 viewport
+    // of the 1000 × 600 plan is the plan box (200, 120)–(400, 240)
+    await dragPlan(r, { x: 80, y: 48 }, { x: 160, y: 96 });
+    await settle();
+    const nodeOps = sentOps().filter((op) => op.kind === 'node');
+    const roomOps = sentOps().filter((op) => op.kind === 'room');
+    expect(nodeOps).toHaveLength(1);
+    expect(roomOps).toHaveLength(1);
+    expect(nodeOps[0]).toMatchObject({ type: 'upsert', data: { x: 300, y: 180, kind: 'room', level: 'L1' } });
+    expect(roomOps[0]).toMatchObject({
+      type: 'upsert',
+      data: { level: 'L1', nodeId: nodeOps[0].entityId, polygon: [[200, 120], [400, 120], [400, 240], [200, 240]] },
+    });
+    expect(nodeOps[0].data?.roomId).toBe(roomOps[0].entityId);
+
+    // The sheet opens on the fresh node with its name editable
+    expect(r.getByTestId('editor-node-sheet')).toBeTruthy();
+    expect(r.getByTestId('editor-room-name')).toBeTruthy();
+    expect(r.getByTestId(`wayfinduikit-plan-room-${roomOps[0].entityId}`)).toBeTruthy();
+
+    // The whole drawn room is ONE undo step
+    await act(async () => {
+      fireEvent.press(r.getByTestId('editor-undo'));
+    });
+    await settle();
+    expect(r.queryByTestId(`wayfinduikit-plan-room-${roomOps[0].entityId}`)).toBeNull();
+    expect(r.queryByTestId(`wayfinduikit-plan-node-${nodeOps[0].entityId}`)).toBeNull();
+  });
+
+
+  it('a room-tool release smaller than a room behaves as a tap and places nothing', async () => {
+    const r = await render(<MapEditorScreen />);
+    await settle();
+    await layOutPlan(r);
+
+    await act(async () => {
+      fireEvent.press(r.getByTestId('editor-tool-room'));
+    });
+    // 2 viewport px is 5 plan px — under the kit's 8 px floor,
+    // so the release falls through to onPressPlan, where the
+    // room tool deliberately does nothing
+    await dragPlan(r, { x: 100, y: 100 }, { x: 102, y: 102 });
+    await settle();
+    expect(sentOps()).toHaveLength(0);
+    expect(r.queryByTestId('editor-node-sheet')).toBeNull();
+  });
+
+
+  it('the stairs tool authors a connector in two taps across a floor switch — both nodes and the stairs edge on the wire', async () => {
+    const r = await render(<MapEditorScreen />);
+    await settle();
+    await layOutPlan(r);
+
+    await act(async () => {
+      fireEvent.press(r.getByTestId('editor-tool-stairs'));
+    });
+    expect(r.getByTestId('editor-tool-hint').props.children).toBe('mapEditor.stairsFirst');
+
+    // First tap places the stairs node on L1 and asks for the
+    // floor switch
+    await tapPlan(r, 200, 120);
+    await settle();
+    expect(r.getByTestId('editor-tool-hint').props.children).toBe('mapEditor.stairsNext');
+    const firstNode = sentOps().filter((op) => op.kind === 'node')[0];
+    expect(firstNode).toMatchObject({ type: 'upsert', data: { x: 500, y: 300, kind: 'stairs', level: 'L1' } });
+
+    // A second tap on the SAME floor only moves the pending start
+    await tapPlan(r, 100, 60);
+    await settle();
+    const moved = sentOps().filter((op) => op.kind === 'node');
+    expect(moved).toHaveLength(2);
+    expect(moved[1]).toMatchObject({ entityId: firstNode.entityId, data: { x: 250, y: 150 } });
+    expect(r.getByTestId('editor-tool-hint').props.children).toBe('mapEditor.stairsNext');
+
+    // The floor switch, then the second tap: the twin lands on L2
+    // and the stairs edge closes the connector
+    await act(async () => {
+      fireEvent.press(r.getByTestId('wayfinduikit-floor-L2'));
+    });
+    await settle();
+    await tapPlan(r, 100, 60);
+    await settle();
+    expect(mockToast).toHaveBeenCalledWith('success', 'mapEditor.linked');
+    const nodes = sentOps().filter((op) => op.kind === 'node');
+    const twin = nodes[nodes.length - 1];
+    expect(twin).toMatchObject({ type: 'upsert', data: { x: 250, y: 150, kind: 'stairs', level: 'L2' } });
+    const edges = sentOps().filter((op) => op.kind === 'edge');
+    expect(edges).toHaveLength(1);
+    expect(edges[0]).toMatchObject({ type: 'upsert', data: { a: firstNode.entityId, b: twin.entityId, kind: 'stairs', lengthM: 10 } });
+
+    // The connector done, the guided pair starts over
+    expect(r.getByTestId('editor-tool-hint').props.children).toBe('mapEditor.stairsFirst');
+  });
+
+
+  it('the stairs tool reuses an existing node as its start — upgraded to stairs, never stacked — and a tool change drops the pending start', async () => {
+    const r = await render(<MapEditorScreen />);
+    await settle();
+    await layOutPlan(r);
+
+    await act(async () => {
+      fireEvent.press(r.getByTestId('editor-tool-stairs'));
+    });
+    // The entrance already exists: the first tap upgrades its
+    // kind instead of dropping a second node on top of it
+    await act(async () => {
+      fireEvent.press(r.getByTestId('wayfinduikit-plan-node-n-entrance'));
+    });
+    await settle();
+    expect(r.getByTestId('editor-tool-hint').props.children).toBe('mapEditor.stairsNext');
+    expect(sentOps()).toHaveLength(1);
+    expect(sentOps()[0]).toMatchObject({ type: 'upsert', kind: 'node', entityId: 'n-entrance', baseRevision: 3, data: { kind: 'stairs' } });
+
+    // A tool change abandons the pair: back on stairs, a tap on
+    // the other floor is a fresh FIRST pick, not a second endpoint
+    await act(async () => {
+      fireEvent.press(r.getByTestId('editor-tool-select'));
+    });
+    await act(async () => {
+      fireEvent.press(r.getByTestId('editor-tool-stairs'));
+    });
+    expect(r.getByTestId('editor-tool-hint').props.children).toBe('mapEditor.stairsFirst');
+    await act(async () => {
+      fireEvent.press(r.getByTestId('wayfinduikit-floor-L2'));
+    });
+    await settle();
+    await tapPlan(r, 100, 60);
+    await settle();
+    expect(sentOps().filter((op) => op.kind === 'edge')).toHaveLength(0);
+    expect(r.getByTestId('editor-tool-hint').props.children).toBe('mapEditor.stairsNext');
   });
 
 
@@ -327,7 +501,72 @@ describe('MapEditorScreen', () => {
     await act(async () => {
       fireEvent.press(r.getByTestId('wayfinduikit-plan-room-r-pr'));
     });
-    expect(r.getByText('mapEditor.node · n-entrance')).toBeTruthy();
+    expect(r.getByTestId('editor-node-title').props.children).toBe('Viešųjų ryšių skyrius');
+  });
+
+
+  it('the node sheet is slim by default and "Daugiau" reveals the kind chips, panorama block and QR without losing anything', async () => {
+    const r = await render(<MapEditorScreen />);
+    await settle();
+    await layOutPlan(r);
+
+    await act(async () => {
+      fireEvent.press(r.getByTestId('wayfinduikit-plan-node-n-entrance'));
+    });
+    expect(r.getByTestId('editor-node-sheet')).toBeTruthy();
+    // The slim face: entrance switch and links with a delete only
+    expect(r.getByTestId('editor-entrance')).toBeTruthy();
+    expect(r.getByTestId('editor-delete-link-n-entrance--n-stairs1')).toBeTruthy();
+    // No kind chips, no panorama, no QR until "Daugiau" opens
+    expect(r.queryByTestId('editor-kind-stairs')).toBeNull();
+    expect(r.queryByText('mapEditor.pickPanorama')).toBeNull();
+    expect(r.queryByTestId('editor-open-capture')).toBeNull();
+    expect(r.queryByText('mapEditor.qr')).toBeNull();
+
+    await act(async () => {
+      fireEvent.press(r.getByTestId('editor-node-more'));
+    });
+    expect(r.getByTestId('editor-kind-stairs')).toBeTruthy();
+    expect(r.getByText('mapEditor.pickPanorama')).toBeTruthy();
+    expect(r.getByTestId('editor-open-capture')).toBeTruthy();
+    expect(r.getByText('mapEditor.qr')).toBeTruthy();
+    expect(r.getByText('mapEditor.less')).toBeTruthy();
+
+    // And closes again
+    await act(async () => {
+      fireEvent.press(r.getByTestId('editor-node-more'));
+    });
+    expect(r.queryByTestId('editor-kind-stairs')).toBeNull();
+  });
+
+
+  it("the level's fields and the issues hide under \"Daugiau\", and the '+' pill beside the switcher adds a floor", async () => {
+    const r = await render(<MapEditorScreen />);
+    await settle();
+    await layOutPlan(r);
+
+    // Nothing selected: only the hint and the collapsed expander
+    expect(r.getByTestId('editor-tool-hint').props.children).toBe('mapEditor.selectHint');
+    expect(r.getByTestId('editor-level-sheet')).toBeTruthy();
+    expect(r.queryByTestId('editor-level-label')).toBeNull();
+    expect(r.queryByText('mapEditor.uploadPlan')).toBeNull();
+
+    await act(async () => {
+      fireEvent.press(r.getByTestId('editor-level-more'));
+    });
+    expect(r.getByTestId('editor-level-label')).toBeTruthy();
+    expect(r.getByText('mapEditor.uploadPlan')).toBeTruthy();
+    expect(r.getByTestId('editor-no-issues')).toBeTruthy();
+
+    // The '+' pill mints the next level and shows it at once
+    await act(async () => {
+      fireEvent.press(r.getByTestId('editor-add-level'));
+    });
+    await settle();
+    expect(r.getByTestId('wayfinduikit-floor-L3')).toBeTruthy();
+    const levels = sentOps().filter((op) => op.kind === 'level');
+    expect(levels).toHaveLength(1);
+    expect(levels[0]).toMatchObject({ type: 'upsert', entityId: 'L3', data: { ordinal: 3, metersPerPixel: 0.05 } });
   });
 
 
@@ -342,6 +581,11 @@ describe('MapEditorScreen', () => {
     await layOutPlan(r);
     await act(async () => {
       fireEvent.press(r.getByTestId('wayfinduikit-plan-node-n-stairs1'));
+    });
+    // The panorama block lives under "Daugiau" now — still fully
+    // working once opened
+    await act(async () => {
+      fireEvent.press(r.getByTestId('editor-node-more'));
     });
     await act(async () => {
       fireEvent.press(r.getByText('mapEditor.pickPanorama'));

@@ -36,11 +36,11 @@
 //  FOCUS_SCALE, because centring a point on a drawing that
 //  already fits the viewport would move nothing at all.
 //
-//  Editing hosts get three more intents, all in PLAN pixels so
-//  an editor never learns the screen: a tap on the drawing
-//  that no shape took (onPressPlan — "add a node here"; a
-//  gesture that ever held two fingers is never a tap, however
-//  it ends), and the drag of the SELECTED node (onDragNode per
+//  Editing hosts get more intents, all in PLAN pixels so an
+//  editor never learns the screen: a tap on the drawing that
+//  no shape took (onPressPlan — "add a node here"; a gesture
+//  that ever held two fingers is never a tap, however it
+//  ends), and the drag of the SELECTED node (onDragNode per
 //  move, onDragNodeEnd with the last point when the drag ends
 //  ANY way — a release, a second finger landing, a responder
 //  terminate, a level switch — so a host's bookkeeping always
@@ -50,6 +50,18 @@
 //  finger can grab; every other node stays a tap target and
 //  the plan still pans. The selected node is drawn in the
 //  brand ink.
+//
+//  onDrawRect turns the one-finger drag into a rubber band:
+//  while it is set a drag draws a live brand-inked box in the
+//  overlay instead of panning (two fingers still pinch), and
+//  the release reports the box normalised — top-left origin,
+//  positive sides — through the camera exactly like
+//  onPressPlan, once both sides reach DRAW_MIN_PX plan px; a
+//  smaller release falls through to the tap rule as if no box
+//  was drawn. The band clears unreported on a terminate, a
+//  finger-count change or a level switch, and while the prop
+//  is set the drawing intent outranks the selected-node drag
+//  (node and room taps still land). Absent, nothing changes.
 //
 //  Points carry their floor: a start, end, youAreHere or focus
 //  point may name a level, and one naming a level other than
@@ -85,7 +97,7 @@ import type { ReactNode } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Easing, PanResponder, StyleSheet, View } from 'react-native';
 import type { GestureResponderEvent, LayoutChangeEvent, PanResponderGestureState, PanResponderInstance, StyleProp, ViewStyle } from 'react-native';
-import Svg, { Circle, G, Path, Polygon } from 'react-native-svg';
+import Svg, { Circle, G, Path, Polygon, Rect, Text as SvgText } from 'react-native-svg';
 
 import type { KitLevel, KitRouteSegment } from '../core/types';
 import { useKitLabels, useKitTheme } from '../provider';
@@ -114,6 +126,15 @@ export interface PlanRoom {
   label?: string | null;
 }
 
+// A drawn box in plan pixels, top-left origin and positive
+// sides whichever way the finger travelled
+export interface PlanRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 interface Size {
   width: number;
   height: number;
@@ -138,9 +159,12 @@ interface Phase {
   dy: number;
   mid: PlanPoint;
   dist: number;
-  // 'node': the selected node rides the finger instead of the camera
-  mode: 'pan' | 'node';
+  // 'node': the selected node rides the finger instead of the
+  // camera; 'draw': a rubber-band box grows from the anchor
+  mode: 'pan' | 'node' | 'draw';
   nodeId: string | null;
+  // The grant's plan point a draw phase measures its box from
+  anchor: PlanPoint | null;
   last: PlanPoint;
   at: number;
 }
@@ -163,6 +187,10 @@ const FOCUS_MS = 320;
 
 // A press and release within this, without movement, is a tap
 const TAP_MS = 350;
+
+// A drawn box must reach this many PLAN px a side to be a
+// room — anything smaller is read as a missed tap instead
+const DRAW_MIN_PX = 8;
 
 // Marker weights in SCREEN pixels at scale 1 — the overlay
 // converts them to plan units, so a drawing of any resolution
@@ -387,6 +415,10 @@ function fromPlan(point: PlanPoint, content: Size, level: KitLevel): PlanPoint {
   return { x: ((point.x - minX) * content.width) / Math.max(1, vbW), y: ((point.y - minY) * content.height) / Math.max(1, vbH) };
 }
 
+// The box between two plan corners, normalised so a drag
+// up-left still answers a top-left origin and positive sides
+const boxFrom = (a: PlanPoint, b: PlanPoint): PlanRect => ({ x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), width: Math.abs(b.x - a.x), height: Math.abs(b.y - a.y) });
+
 
 
 
@@ -428,8 +460,10 @@ function readFingers(evt: GestureResponderEvent, g: PanResponderGestureState, or
 // Everything the kit draws over the host's plan, bottom to
 // top: room polygons (a faint brand wash, tappable), the route
 // as a glow under a line, the corridor nodes, the start ring,
-// the destination pin and the walker's dot — a brand disc in a
-// white ring over a soft halo, so it reads on a busy drawing.
+// the destination pin, the walker's dot — a brand disc in a
+// white ring over a soft halo, so it reads on a busy drawing —
+// and, topmost, the live rubber band an onDrawRect host is
+// dragging out (brand stroke over a translucent brand wash).
 // Node markers carry a transparent hit disc well beyond the
 // visible dot: a fill that paints nothing still catches the
 // finger. Tappable shapes carry a name (the label, else the
@@ -451,6 +485,7 @@ function Overlay({
   youAreHere,
   nodes,
   rooms,
+  band,
   selectedNodeId,
   onPressNode,
   onPressRoom,
@@ -463,6 +498,7 @@ function Overlay({
   youAreHere: PlanPoint | null;
   nodes: readonly PlanNode[];
   rooms: readonly PlanRoom[];
+  band: PlanRect | null;
   selectedNodeId?: string | null;
   onPressNode?: (id: string) => void;
   onPressRoom?: (id: string) => void;
@@ -489,19 +525,34 @@ function Overlay({
     <Svg width={content.width} height={content.height} viewBox={`${minX} ${minY} ${vbW} ${vbH}`} style={StyleSheet.absoluteFill}>
 
       {rooms.map((room) => (
-        <Polygon
-          key={room.id}
-          testID={`wayfinduikit-plan-room-${room.id}`}
-          points={room.polygon.map(([x, y]) => `${x},${y}`).join(' ')}
-          fill={colors.brand}
-          fillOpacity={0.08}
-          stroke={colors.brand}
-          strokeOpacity={0.35}
-          strokeWidth={u}
-          onPress={onPressRoom ? () => onPressRoom(room.id) : undefined}
-          accessible
-          accessibilityLabel={room.label ?? room.id}
-        />
+        <G key={room.id}>
+          <Polygon
+            testID={`wayfinduikit-plan-room-${room.id}`}
+            points={room.polygon.map(([x, y]) => `${x},${y}`).join(' ')}
+            fill={colors.brand}
+            fillOpacity={0.08}
+            stroke={colors.brand}
+            strokeOpacity={0.35}
+            strokeWidth={u}
+            onPress={onPressRoom ? () => onPressRoom(room.id) : undefined}
+            accessible
+            accessibilityLabel={room.label ?? room.id}
+          />
+          {/* The name comes from the graph, not from a drawing —
+              a plan with no artwork still reads */}
+          {room.label ? (
+            <SvgText
+              testID={`wayfinduikit-plan-room-label-${room.id}`}
+              x={room.polygon.reduce((sum, [x]) => sum + x, 0) / room.polygon.length}
+              y={room.polygon.reduce((sum, [, y]) => sum + y, 0) / room.polygon.length + 4.5 * u}
+              textAnchor="middle"
+              fontSize={13 * u}
+              fill={colors.planInk}
+            >
+              {room.label}
+            </SvgText>
+          ) : null}
+        </G>
       ))}
 
       {d ? (
@@ -550,6 +601,23 @@ function Overlay({
           <Circle cx={youAreHere.x} cy={youAreHere.y} r={DOT_PX * u} fill={colors.brand} />
         </G>
       ) : null}
+
+      {/* The half-drawn box rides above every shape so it is
+          never hidden by the room it is being drawn over */}
+      {band ? (
+        <Rect
+          testID="wayfinduikit-plan-rubberband"
+          x={band.x}
+          y={band.y}
+          width={band.width}
+          height={band.height}
+          fill={colors.brand}
+          fillOpacity={0.12}
+          stroke={colors.brand}
+          strokeOpacity={0.8}
+          strokeWidth={1.5 * u}
+        />
+      ) : null}
     </Svg>
   );
 }
@@ -593,6 +661,7 @@ export default function FloorPlan({
   onPressPlan,
   onDragNode,
   onDragNodeEnd,
+  onDrawRect,
   focus = null,
   minScale = 1,
   maxScale = 4,
@@ -615,6 +684,9 @@ export default function FloorPlan({
   onPressPlan?: (point: PlanPoint) => void;
   onDragNode?: (id: string, point: PlanPoint) => void;
   onDragNodeEnd?: (id: string, point: PlanPoint) => void;
+  // While set, a one-finger drag rubber-bands a box instead of
+  // panning and the release reports it normalised in plan px
+  onDrawRect?: (rect: PlanRect) => void;
   focus?: PlanPoint | null;
   minScale?: number;
   maxScale?: number;
@@ -646,8 +718,14 @@ export default function FloorPlan({
   levelRef.current = level;
   const geomRef = useRef({ frame, content, minScale, maxScale });
   geomRef.current = { frame, content, minScale, maxScale };
-  const editRef = useRef({ selectedNodeId, nodes, onPressPlan, onDragNode, onDragNodeEnd });
-  editRef.current = { selectedNodeId, nodes, onPressPlan, onDragNode, onDragNodeEnd };
+  const editRef = useRef({ selectedNodeId, nodes, onPressPlan, onDragNode, onDragNodeEnd, onDrawRect });
+  editRef.current = { selectedNodeId, nodes, onPressPlan, onDragNode, onDragNodeEnd, onDrawRect };
+
+
+  // The live rubber band, unlike the camera, is React state: it
+  // is an overlay shape, not a transform, and a draw's handful
+  // of moves is cheap to render next to a per-frame pan
+  const [band, setBand] = useState<PlanRect | null>(null);
 
 
   // Whether this gesture EVER held two fingers: a symmetric
@@ -710,7 +788,7 @@ export default function FloorPlan({
     const beginPhase = (evt: GestureResponderEvent, g: PanResponderGestureState): Phase => {
       const f = readFingers(evt, g, originRef.current);
       const at = typeof evt.nativeEvent?.timestamp === 'number' ? evt.nativeEvent.timestamp : Date.now();
-      return { touches: f.count, camera: { ...camRef.current }, dx: g.dx, dy: g.dy, mid: f.mid, dist: f.dist, mode: 'pan', nodeId: null, last: f.mid, at };
+      return { touches: f.count, camera: { ...camRef.current }, dx: g.dx, dy: g.dy, mid: f.mid, dist: f.dist, mode: 'pan', nodeId: null, anchor: null, last: f.mid, at };
     };
 
     // A one-finger gesture that began on the selected node moves
@@ -721,6 +799,9 @@ export default function FloorPlan({
     // zoomed-out plan is still easy to catch
     const grabbedNode = (phase: Phase): string | null => {
       const edit = editRef.current;
+      // The drawing intent wins: while a host draws boxes the
+      // selected node cannot be grabbed (its tap still lands)
+      if (edit.onDrawRect) return null;
       if (phase.touches !== 1 || !edit.selectedNodeId || !edit.onDragNode) return null;
       const node = edit.nodes.find((n) => n.id === edit.selectedNodeId);
       if (!node) return null;
@@ -758,6 +839,12 @@ export default function FloorPlan({
         if (grabbed) {
           phase.mode = 'node';
           phase.nodeId = grabbed;
+        } else if (editRef.current.onDrawRect && phase.touches === 1) {
+          // Only the grant anchors a draw: a phase re-based from
+          // a shed pinch stays a pan, and its release is no tap
+          // and no box either
+          phase.mode = 'draw';
+          phase.anchor = planAt(phase.mid);
         }
         phaseRef.current = phase;
       },
@@ -768,8 +855,10 @@ export default function FloorPlan({
         let phase = phaseRef.current;
         if (!phase || phase.touches !== f.count) {
           // A second finger landing tears a node drag off — it
-          // still closes before the phase re-bases into a pan
+          // still closes before the phase re-bases into a pan —
+          // and abandons a half-drawn box unreported
           endNodePhase(phase);
+          if (phase?.mode === 'draw') setBand(null);
           phase = beginPhase(evt, g);
           phaseRef.current = phase;
         }
@@ -778,6 +867,14 @@ export default function FloorPlan({
 
         if (phase.mode === 'node' && phase.nodeId) {
           editRef.current.onDragNode?.(phase.nodeId, planAt(f.mid));
+          return;
+        }
+
+
+        if (phase.mode === 'draw' && phase.anchor) {
+          // The camera stands still under a draw; the box grows
+          // between the anchored corner and the finger
+          setBand(boxFrom(phase.anchor, planAt(f.mid)));
           return;
         }
         const base = phase.camera;
@@ -809,6 +906,17 @@ export default function FloorPlan({
           editRef.current.onDragNodeEnd?.(phase.nodeId, planAt(phase.last));
           return;
         }
+        if (phase.mode === 'draw' && phase.anchor) {
+          setBand(null);
+          const box = boxFrom(phase.anchor, planAt(phase.last));
+          // Both sides must reach room size; anything smaller
+          // falls through to the tap rule below, as if no box
+          // was ever drawn
+          if (box.width >= DRAW_MIN_PX && box.height >= DRAW_MIN_PX) {
+            editRef.current.onDrawRect?.(box);
+            return;
+          }
+        }
         // A tap: one finger — and never more at any point, so a
         // pinch shed one finger at a time cannot land as one —
         // no movement, released quickly. The shapes had their
@@ -822,8 +930,10 @@ export default function FloorPlan({
         const phase = phaseRef.current;
         phaseRef.current = null;
         // The system taking the responder is not a clean
-        // release, but a node drag still closes
+        // release, but a node drag still closes — and a
+        // half-drawn box vanishes unreported
         endNodePhase(phase);
+        setBand(null);
       },
     });
   }
@@ -833,11 +943,13 @@ export default function FloorPlan({
   // nothing on it, and neither does a gesture begun on it: a
   // finger still down re-bases from rest on its next move. A
   // node drag the switch cuts short closes first, before the
-  // camera it converted through is reset
+  // camera it converted through is reset, and a half-drawn box
+  // belongs to the old floor — it vanishes unreported
   useEffect(() => {
     const phase = phaseRef.current;
     phaseRef.current = null;
     endNodePhase(phase);
+    setBand(null);
     setCamera({ ...AT_REST });
   }, [level.id, setCamera, endNodePhase]);
 
@@ -884,8 +996,13 @@ export default function FloorPlan({
   );
 
 
+  // The drawing's aspect sizes the viewport ONLY when the host
+  // left the height alone — height and aspectRatio together make
+  // the layout derive the WIDTH from the height, and a tall host
+  // box would push the viewport past the screen's edge
   const [, , vbW, vbH] = level.viewBox;
-  const aspectRatio = vbW > 0 && vbH > 0 ? vbW / vbH : undefined;
+  const hostStyle = StyleSheet.flatten(style) as { height?: unknown } | undefined;
+  const aspectRatio = hostStyle?.height == null && vbW > 0 && vbH > 0 ? vbW / vbH : undefined;
 
 
   return (
@@ -925,6 +1042,7 @@ export default function FloorPlan({
             youAreHere={shownHere}
             nodes={nodes}
             rooms={rooms}
+            band={band}
             selectedNodeId={selectedNodeId}
             onPressNode={onPressNode}
             onPressRoom={onPressRoom}

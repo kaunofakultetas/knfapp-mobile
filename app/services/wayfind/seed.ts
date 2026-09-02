@@ -3,9 +3,9 @@
 //
 //  The building graph the map tab starts from before the
 //  server has answered once (or ever, offline): the two-floor
-//  faculty walk as an engine BuildingGraph, its two schematic
-//  plans as SVG text, and the bundled panoramas the nodes
-//  point at. Generated from the old curated walk — node
+//  faculty walk as an engine BuildingGraph and the bundled
+//  panoramas the nodes point at — no plan drawings: the graph
+//  draws itself. Generated from the old curated walk — node
 //  positions are laid out on a 1000 × 600 px plan at 0.05 m
 //  per pixel so the plan distances reproduce the walk's
 //  metres; each node's panoYaw is the plan bearing its photo's
@@ -32,7 +32,7 @@ export const KNF_GRAPH: BuildingGraph = {
     {
       "id": "L1",
       "label": "1 aukštas",
-      "plan": "plan:L1",
+      "plan": null,
       "viewBox": [
         0,
         0,
@@ -45,7 +45,7 @@ export const KNF_GRAPH: BuildingGraph = {
     {
       "id": "L2",
       "label": "2 aukštas",
-      "plan": "plan:L2",
+      "plan": null,
       "viewBox": [
         0,
         0,
@@ -411,8 +411,8 @@ export const BUNDLED_PANOS: Record<string, number> = {
 };
 
 
-// Level.plan → the drawing's SVG text
-export const BUNDLED_PLANS: Record<string, string> = {
-  'plan:L1': "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1000 600\"><rect width=\"1000\" height=\"600\" fill=\"#F4F1F6\"/><rect x=\"60\" y=\"262\" width=\"860\" height=\"76\" rx=\"14\" fill=\"#E3DDE8\"/><text x=\"470\" y=\"308\" text-anchor=\"middle\" font-size=\"22\" fill=\"#7A6B85\" font-family=\"sans-serif\">Koridorius</text><rect x=\"40\" y=\"140\" width=\"220\" height=\"110\" rx=\"8\" fill=\"#FFFFFF\" stroke=\"#B9AFC4\" stroke-width=\"3\"/><text x=\"150\" y=\"203\" text-anchor=\"middle\" font-size=\"20\" fill=\"#4A3D55\" font-family=\"sans-serif\">Viešųjų ryšių skyrius</text><rect x=\"60\" y=\"340\" width=\"80\" height=\"14\" fill=\"#7B003F\"/><text x=\"100\" y=\"378\" text-anchor=\"middle\" font-size=\"18\" fill=\"#7B003F\" font-family=\"sans-serif\">Įėjimas</text><line x1=\"812\" y1=\"240\" x2=\"812\" y2=\"280\" stroke=\"#7B003F\" stroke-width=\"4\"/><line x1=\"826\" y1=\"240\" x2=\"826\" y2=\"280\" stroke=\"#7B003F\" stroke-width=\"4\"/><line x1=\"840\" y1=\"240\" x2=\"840\" y2=\"280\" stroke=\"#7B003F\" stroke-width=\"4\"/><line x1=\"854\" y1=\"240\" x2=\"854\" y2=\"280\" stroke=\"#7B003F\" stroke-width=\"4\"/><line x1=\"868\" y1=\"240\" x2=\"868\" y2=\"280\" stroke=\"#7B003F\" stroke-width=\"4\"/><text x=\"840\" y=\"230\" text-anchor=\"middle\" font-size=\"18\" fill=\"#7B003F\" font-family=\"sans-serif\">Laiptai</text></svg>",
-  'plan:L2': "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1000 600\"><rect width=\"1000\" height=\"600\" fill=\"#F4F1F6\"/><rect x=\"60\" y=\"262\" width=\"900\" height=\"76\" rx=\"14\" fill=\"#E3DDE8\"/><rect x=\"62\" y=\"60\" width=\"76\" height=\"280\" rx=\"14\" fill=\"#E3DDE8\"/><text x=\"500\" y=\"308\" text-anchor=\"middle\" font-size=\"22\" fill=\"#7A6B85\" font-family=\"sans-serif\">Koridorius</text><rect x=\"800\" y=\"140\" width=\"180\" height=\"110\" rx=\"8\" fill=\"#FFFFFF\" stroke=\"#B9AFC4\" stroke-width=\"3\"/><text x=\"890\" y=\"203\" text-anchor=\"middle\" font-size=\"20\" fill=\"#4A3D55\" font-family=\"sans-serif\">1 AUD ir 2 AUD</text><rect x=\"610\" y=\"350\" width=\"180\" height=\"110\" rx=\"8\" fill=\"#FFFFFF\" stroke=\"#B9AFC4\" stroke-width=\"3\"/><text x=\"700\" y=\"413\" text-anchor=\"middle\" font-size=\"20\" fill=\"#4A3D55\" font-family=\"sans-serif\">Tarptautiniai ryšiai</text><rect x=\"410\" y=\"140\" width=\"180\" height=\"110\" rx=\"8\" fill=\"#FFFFFF\" stroke=\"#B9AFC4\" stroke-width=\"3\"/><text x=\"500\" y=\"203\" text-anchor=\"middle\" font-size=\"20\" fill=\"#4A3D55\" font-family=\"sans-serif\">AVL2</text><rect x=\"210\" y=\"350\" width=\"180\" height=\"110\" rx=\"8\" fill=\"#FFFFFF\" stroke=\"#B9AFC4\" stroke-width=\"3\"/><text x=\"300\" y=\"413\" text-anchor=\"middle\" font-size=\"20\" fill=\"#4A3D55\" font-family=\"sans-serif\">VeGa auditorija</text><rect x=\"20\" y=\"140\" width=\"160\" height=\"110\" rx=\"8\" fill=\"#FFFFFF\" stroke=\"#B9AFC4\" stroke-width=\"3\"/><text x=\"100\" y=\"203\" text-anchor=\"middle\" font-size=\"20\" fill=\"#4A3D55\" font-family=\"sans-serif\">5 AUD</text><rect x=\"20\" y=\"10\" width=\"160\" height=\"70\" rx=\"8\" fill=\"#FFFFFF\" stroke=\"#B9AFC4\" stroke-width=\"3\"/><text x=\"100\" y=\"53\" text-anchor=\"middle\" font-size=\"20\" fill=\"#4A3D55\" font-family=\"sans-serif\">Gronsko auditorija</text><line x1=\"872\" y1=\"240\" x2=\"872\" y2=\"280\" stroke=\"#7B003F\" stroke-width=\"4\"/><line x1=\"886\" y1=\"240\" x2=\"886\" y2=\"280\" stroke=\"#7B003F\" stroke-width=\"4\"/><line x1=\"900\" y1=\"240\" x2=\"900\" y2=\"280\" stroke=\"#7B003F\" stroke-width=\"4\"/><line x1=\"914\" y1=\"240\" x2=\"914\" y2=\"280\" stroke=\"#7B003F\" stroke-width=\"4\"/><line x1=\"928\" y1=\"240\" x2=\"928\" y2=\"280\" stroke=\"#7B003F\" stroke-width=\"4\"/><text x=\"900\" y=\"230\" text-anchor=\"middle\" font-size=\"18\" fill=\"#7B003F\" font-family=\"sans-serif\">Laiptai</text></svg>",
-};
+// Level.plan → the drawing's SVG text. The seed ships NO
+// drawing — the graph itself (corridor links, room boxes,
+// names) is the whole picture; a real floor plan an admin
+// uploads later lands here by its server reference
+export const BUNDLED_PLANS: Record<string, string> = {};

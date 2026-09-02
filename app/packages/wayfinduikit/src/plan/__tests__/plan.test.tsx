@@ -17,6 +17,12 @@
 //  no tap, the selected node's grab zone follows the zoom, and
 //  a node drag ending ANY way — release, second finger,
 //  terminate, level switch — closes through onDragNodeEnd.
+//  With onDrawRect set, a one-finger drag rubber-bands a box
+//  through the camera instead of panning and reports it
+//  normalised in plan pixels on release (a small release falls
+//  through to the tap; a terminate, a second finger or a floor
+//  switch clears the band unreported; the selected-node drag
+//  yields while the prop is set).
 //  Gestures are driven straight through the responder
 //  handlers with hand-built touch histories, the way the
 //  responder system itself would feed them. The switcher:
@@ -876,5 +882,191 @@ describe('FloorPlan editing intents', () => {
     );
     expect(onDragNodeEnd).toHaveBeenCalledWith('n1', { x: 150, y: 120 });
     expect(transformOf(r)).toEqual({ translateX: 0, translateY: 0, scale: 1 });
+  });
+});
+
+
+describe('FloorPlan draw-a-rect intent', () => {
+
+  it('one finger rubber-bands a box through the camera and reports it normalised; two fingers still pinch', async () => {
+    const onDrawRect = jest.fn();
+    const onPressPlan = jest.fn();
+    const r = await mount(<FloorPlan level={level} onDrawRect={onDrawRect} onPressPlan={onPressPlan} />);
+    const vp = r.getByTestId('wayfinduikit-plan') as unknown as Viewport;
+
+    // Two fingers still pinch with the prop set: the off-centre
+    // pinch from the pan test lands the same camera — scale 2,
+    // translation (50, 50) — and paints no band
+    const before = [{ x: 100, y: 50 }, { x: 200, y: 50 }];
+    await press(vp, before, 100);
+    await drag(vp, before, [{ x: 50, y: 50 }, { x: 250, y: 50 }], 116);
+    expect(r.queryByTestId('wayfinduikit-plan-rubberband')).toBeNull();
+    await lift(vp, 132);
+    expect(transformOf(r)).toEqual({ translateX: 50, translateY: 50, scale: 2 });
+    expect(onDrawRect).not.toHaveBeenCalled();
+
+
+    // One finger now draws instead of panning: through this
+    // camera the screen point (250, 150) is plan (200, 100) and
+    // (330, 190) is plan (240, 120)
+    await press(vp, [{ x: 250, y: 150 }], 1000);
+    await drag(vp, [{ x: 250, y: 150 }], [{ x: 330, y: 190 }], 1050);
+    const band = r.getByTestId('wayfinduikit-plan-rubberband');
+    expect(band.props.x).toBe(200);
+    expect(band.props.y).toBe(100);
+    expect(band.props.width).toBe(40);
+    expect(band.props.height).toBe(20);
+    // The band wears the brand — svg processes the colour to
+    // ARGB, and 0xFF7B003F IS the burgundy — over a wash
+    expect(band.props.fill).toEqual({ type: 0, payload: 0xff7b003f });
+    expect(band.props.stroke).toEqual({ type: 0, payload: 0xff7b003f });
+    expect(band.props.fillOpacity).toBe(0.12);
+    expect(transformOf(r)).toEqual({ translateX: 50, translateY: 50, scale: 2 });
+    await lift(vp, 1100);
+    expect(onDrawRect).toHaveBeenCalledWith({ x: 200, y: 100, width: 40, height: 20 });
+    expect(onPressPlan).not.toHaveBeenCalled();
+    expect(r.queryByTestId('wayfinduikit-plan-rubberband')).toBeNull();
+
+
+    // Dragged up-left the same box comes back normalised
+    await press(vp, [{ x: 330, y: 190 }], 2000);
+    await drag(vp, [{ x: 330, y: 190 }], [{ x: 250, y: 150 }], 2050);
+    await lift(vp, 2100);
+    expect(onDrawRect).toHaveBeenLastCalledWith({ x: 200, y: 100, width: 40, height: 20 });
+    expect(onDrawRect).toHaveBeenCalledTimes(2);
+  });
+
+
+  it('a release under 8 plan px a side is a tap as today, and a sliver reports nothing', async () => {
+    const onDrawRect = jest.fn();
+    const onPressPlan = jest.fn();
+    const r = await mount(<FloorPlan level={level} onDrawRect={onDrawRect} onPressPlan={onPressPlan} />);
+    const vp = r.getByTestId('wayfinduikit-plan') as unknown as Viewport;
+
+    // A 3 px wobble paints a 3×2 band and lands as the tap it
+    // is — onPressPlan with the press point, no rect
+    await press(vp, [{ x: 100, y: 60 }], 1000);
+    await drag(vp, [{ x: 100, y: 60 }], [{ x: 103, y: 62 }], 1050);
+    expect(r.getByTestId('wayfinduikit-plan-rubberband').props.width).toBe(3);
+    await lift(vp, 1100);
+    expect(onDrawRect).not.toHaveBeenCalled();
+    expect(onPressPlan).toHaveBeenCalledWith({ x: 100, y: 60 });
+    expect(r.queryByTestId('wayfinduikit-plan-rubberband')).toBeNull();
+
+
+    // A 40×3 sliver is no box — and too far a pull to be a tap
+    await press(vp, [{ x: 100, y: 60 }], 2000);
+    await drag(vp, [{ x: 100, y: 60 }], [{ x: 140, y: 63 }], 2050);
+    await lift(vp, 2100);
+    expect(onDrawRect).not.toHaveBeenCalled();
+    expect(onPressPlan).toHaveBeenCalledTimes(1);
+  });
+
+
+  it('the selected-node drag yields to the draw and comes back without it; node and room taps still land', async () => {
+    const onDrawRect = jest.fn();
+    const onDragNode = jest.fn();
+    const onDragNodeEnd = jest.fn();
+    const onPressNode = jest.fn();
+    const onPressRoom = jest.fn();
+    const nodes = [{ id: 'n1', x: 100, y: 100 }];
+    const rooms = [{ id: 'r114', polygon: [[0, 0], [40, 0], [40, 30]] as [number, number][] }];
+    const r = await mount(
+      <FloorPlan level={level} nodes={nodes} rooms={rooms} selectedNodeId="n1" onDragNode={onDragNode} onDragNodeEnd={onDragNodeEnd} onPressNode={onPressNode} onPressRoom={onPressRoom} onDrawRect={onDrawRect} />,
+    );
+    const vp = r.getByTestId('wayfinduikit-plan') as unknown as Viewport;
+
+    // A drag beginning ON the selected node draws a box instead
+    // of moving the node — the drawing intent wins
+    await press(vp, [{ x: 100, y: 100 }], 1000);
+    await drag(vp, [{ x: 100, y: 100 }], [{ x: 150, y: 120 }], 1050);
+    await lift(vp, 1100);
+    expect(onDragNode).not.toHaveBeenCalled();
+    expect(onDragNodeEnd).not.toHaveBeenCalled();
+    expect(onDrawRect).toHaveBeenCalledWith({ x: 100, y: 100, width: 50, height: 20 });
+
+
+    // Shape taps keep landing while the draw intent is set
+    await fireEvent.press(r.getByTestId('wayfinduikit-plan-node-n1'));
+    await fireEvent.press(r.getByTestId('wayfinduikit-plan-room-r114'));
+    expect(onPressNode).toHaveBeenCalledWith('n1');
+    expect(onPressRoom).toHaveBeenCalledWith('r114');
+
+
+    // The prop gone, the same drag moves the node again
+    await r.rerender(
+      <WayfindUiKitProvider locale="en">
+        <FloorPlan level={level} nodes={nodes} rooms={rooms} selectedNodeId="n1" onDragNode={onDragNode} onDragNodeEnd={onDragNodeEnd} onPressNode={onPressNode} onPressRoom={onPressRoom} />
+      </WayfindUiKitProvider>,
+    );
+    await press(vp, [{ x: 100, y: 100 }], 2000);
+    await drag(vp, [{ x: 100, y: 100 }], [{ x: 150, y: 120 }], 2050);
+    await lift(vp, 2100);
+    expect(onDragNode).toHaveBeenCalledWith('n1', { x: 150, y: 120 });
+    expect(onDragNodeEnd).toHaveBeenCalledWith('n1', { x: 150, y: 120 });
+    expect(onDrawRect).toHaveBeenCalledTimes(1);
+  });
+
+
+  it('a terminate, a second finger or a level switch clears the band without reporting', async () => {
+    const onDrawRect = jest.fn();
+    const onPressPlan = jest.fn();
+    const r = await mount(<FloorPlan level={level} onDrawRect={onDrawRect} onPressPlan={onPressPlan} />);
+    const vp = r.getByTestId('wayfinduikit-plan') as unknown as Viewport;
+
+    // The system steals the responder mid-draw
+    await press(vp, [{ x: 100, y: 60 }], 1000);
+    await drag(vp, [{ x: 100, y: 60 }], [{ x: 150, y: 90 }], 1050);
+    expect(r.getByTestId('wayfinduikit-plan-rubberband')).toBeTruthy();
+    await act(async () => {
+      vp.props.onResponderTerminate(gesture([], [], 1100));
+    });
+    expect(r.queryByTestId('wayfinduikit-plan-rubberband')).toBeNull();
+    expect(onDrawRect).not.toHaveBeenCalled();
+
+
+    // A second finger lands mid-draw: the band goes, the pinch
+    // carries on about the fingers, and the release reports
+    // neither a box nor a tap
+    await press(vp, [{ x: 150, y: 100 }], 2000);
+    await drag(vp, [{ x: 150, y: 100 }], [{ x: 170, y: 120 }], 2050);
+    expect(r.getByTestId('wayfinduikit-plan-rubberband')).toBeTruthy();
+    const two = [{ x: 170, y: 120 }, { x: 270, y: 120 }];
+    await drag(vp, two, two, 2100);
+    expect(r.queryByTestId('wayfinduikit-plan-rubberband')).toBeNull();
+    await drag(vp, two, [{ x: 120, y: 120 }, { x: 320, y: 120 }], 2150);
+    expect(transformOf(r)).toEqual({ translateX: -20, translateY: -20, scale: 2 });
+    await lift(vp, 2200);
+    expect(onDrawRect).not.toHaveBeenCalled();
+    expect(onPressPlan).not.toHaveBeenCalled();
+
+
+    // A floor switch mid-draw drops the box with the camera
+    await press(vp, [{ x: 100, y: 100 }], 3000);
+    await drag(vp, [{ x: 100, y: 100 }], [{ x: 150, y: 130 }], 3050);
+    expect(r.getByTestId('wayfinduikit-plan-rubberband')).toBeTruthy();
+    await r.rerender(
+      <WayfindUiKitProvider locale="en">
+        <FloorPlan level={{ ...level, id: 'l2', label: '2' }} onDrawRect={onDrawRect} onPressPlan={onPressPlan} />
+      </WayfindUiKitProvider>,
+    );
+    expect(r.queryByTestId('wayfinduikit-plan-rubberband')).toBeNull();
+    expect(onDrawRect).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('FloorPlan viewport sizing', () => {
+
+  it('takes the drawing\'s aspect only when the host sets no height — a host height must never widen the viewport past 100%', async () => {
+    const free = await wrap(<FloorPlan level={level} />);
+    const freeStyle = StyleSheet.flatten(free.getByTestId('wayfinduikit-plan').props.style) as { aspectRatio?: number; width?: string };
+    expect(freeStyle.aspectRatio).toBeCloseTo(2, 6);
+    expect(freeStyle.width).toBe('100%');
+
+    const boxed = await wrap(<FloorPlan level={level} style={{ height: 700 }} />);
+    const boxedStyle = StyleSheet.flatten(boxed.getByTestId('wayfinduikit-plan').props.style) as { aspectRatio?: number; height?: number };
+    expect(boxedStyle.aspectRatio).toBeUndefined();
+    expect(boxedStyle.height).toBe(700);
   });
 });

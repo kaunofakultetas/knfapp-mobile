@@ -1,6 +1,6 @@
 {
   "name": "@knf/wayfinduikit",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Presentational indoor wayfinding kit for Expo / React Native \u2014 a pinch-zoom floor plan with the route drawn on it, a route-aware floor switcher, route preview and turn-by-turn sheets, and a 360\u00b0 panorama stage (true sphere on expo-gl, flat fallback) with a direction marker. Bring your own data hooks.",
   "main": "src/index.ts",
   "types": "src/index.ts",

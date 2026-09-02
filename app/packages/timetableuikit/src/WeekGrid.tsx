@@ -11,6 +11,12 @@
 //  Day columns take an INTEGER pixel width measured through
 //  onLayout — fraction geometry over a fractional column width
 //  yields shimmering 1px seams between days; integers do not.
+//  DOTTED hairlines stand between the columns, painted before
+//  them so cells cover the dots: without a visible boundary a
+//  sparse week reads as one confusing day, and dotted-vs-solid
+//  keeps day edges apart from the hour lines at a glance. The
+//  1px-wide full-border trick is deliberate — a single-side
+//  dashed border silently paints nothing on Android.
 //
 //  Used by:
 //    - the host's timetable screen
@@ -131,6 +137,28 @@ export default function WeekGrid({
       <ScrollView contentContainerStyle={{ paddingBottom: 12 }} showsVerticalScrollIndicator={false}>
         {dayWidth > 0 ? (
           <View style={{ flexDirection: 'row' }}>
+
+            {/* Behind the columns: a dotted seam at every
+                interior day boundary */}
+            {visibleDays.slice(1).map((day, index) => (
+              <View
+                key={`boundary-${day}`}
+                testID={`timetableuikit-dayline-${day}`}
+                pointerEvents="none"
+                style={{
+                  position: 'absolute',
+                  left: AXIS_WIDTH + (index + 1) * dayWidth,
+                  top: 0,
+                  height: gridHeight,
+                  width: 1,
+                  borderWidth: 1,
+                  borderColor: theme.colors.line,
+                  borderStyle: 'dotted',
+                  borderRadius: 1,
+                }}
+              />
+            ))}
+
             <HourAxis window={window} height={gridHeight} />
             {visibleDays.map((day) => (
               <DayColumn

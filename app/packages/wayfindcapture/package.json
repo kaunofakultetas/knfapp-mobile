@@ -1,6 +1,6 @@
 {
   "name": "@knf/wayfindcapture",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Headless guided 360 capture for React Native / Expo — a gyro-only pose tracker with stillness bias calibration, a spherical target planner, an auto-shutter session state machine with retakes, and a panorama metadata reader (dimensions, projection, coverage, heading) for imported photos. Sensors, camera and upload are the host's; pair with any HUD.",
   "main": "src/index.ts",
   "types": "src/index.ts",

@@ -94,6 +94,17 @@ describe('WeekGrid layout', () => {
     await layOut(view);
     expect(within(view.getByTestId('timetableuikit-dayname-5')).getByText('Št')).toBeTruthy();
   });
+
+  it('a dotted seam stands at every interior day boundary — none before the first column', async () => {
+    const view = await renderGrid();
+    await layOut(view, 394); // dayWidth 70, axis 44
+    expect(view.queryByTestId('timetableuikit-dayline-0')).toBeNull();
+    [1, 2, 3, 4].forEach((day) => {
+      const style = flat(view.getByTestId(`timetableuikit-dayline-${day}`).props.style);
+      expect(style).toMatchObject({ left: 44 + day * 70, borderStyle: 'dotted', width: 1 });
+    });
+    expect(view.queryByTestId('timetableuikit-dayline-5')).toBeNull();
+  });
 });
 
 describe('WeekGrid now', () => {

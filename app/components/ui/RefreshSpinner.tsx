@@ -20,23 +20,43 @@
 //  refreshControl element (children and style on Android, the
 //  progressViewOffset the news header adds) flow through.
 //
+//  The pull committing gets a medium haptic tap (the same
+//  expo-haptics the tab bar uses): the rubber band crossing the
+//  trigger line is the one moment of the gesture worth marking,
+//  and because every screen refreshes through this component,
+//  the tap is app-wide by construction.
+//
 //  Used by:
 //    - every screen with pull-to-refresh — the tabs, the news
 //      and profile stacks, friends, info, admin
 // -----------------------------------------------------------
 
+import * as Haptics from 'expo-haptics';
+import { useCallback } from 'react';
 import { RefreshControl, type RefreshControlProps } from 'react-native';
 
 import { palettes } from '@/constants/theme';
 
 
-export default function RefreshSpinner(props: RefreshControlProps) {
+export default function RefreshSpinner({ onRefresh, ...props }: RefreshControlProps) {
+
+  // Wrapped AFTER the spread so a caller's onRefresh still rides
+  // through the tap; no handler stays no handler
+  const onRefreshWithTap = useCallback(() => {
+    if (process.env.EXPO_OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    }
+    onRefresh?.();
+  }, [onRefresh]);
+
+
   return (
     <RefreshControl
       tintColor={palettes.light.brand}
       colors={[palettes.light.onBrand]}
       progressBackgroundColor={palettes.light.brand}
       {...props}
+      onRefresh={onRefresh ? onRefreshWithTap : undefined}
     />
   );
 }

@@ -53,7 +53,6 @@ import {
   RefreshSpinner,
   Screen,
 } from '@/components/ui';
-import { useTheme } from '@/hooks/useTheme';
 
 // The current location, params included, for the login round trip
 import { useReturnHref } from '@/hooks/useReturnHref';
@@ -174,7 +173,6 @@ export default function FriendRequestsScreen() {
   const { isAuthenticated } = useAuth();
   const { isConnected } = useNetwork();
   const { t } = useTranslation();
-  const { colors } = useTheme();
   const router = useRouter();
   const returnTo = useReturnHref();
   const insets = useSafeAreaInsets();

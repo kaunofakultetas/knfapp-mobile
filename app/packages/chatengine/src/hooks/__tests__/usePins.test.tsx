@@ -22,11 +22,13 @@ const flush = async () => {
 };
 
 function wrapperFor(transport: ReturnType<typeof fakeTransport>) {
-  return ({ children }: { children: ReactNode }) => (
-    <ChatEngineProvider transport={transport} currentUser={SELF} storage={memoryStorage()}>
-      {children}
-    </ChatEngineProvider>
-  );
+  return function Wrapper({ children }: { children: ReactNode }) {
+    return (
+      <ChatEngineProvider transport={transport} currentUser={SELF} storage={memoryStorage()}>
+        {children}
+      </ChatEngineProvider>
+    );
+  };
 }
 
 describe('usePins', () => {

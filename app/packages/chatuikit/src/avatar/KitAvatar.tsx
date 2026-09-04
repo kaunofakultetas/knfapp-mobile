@@ -17,7 +17,7 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 import { avatarColorFor } from '../core/avatarColor';
@@ -53,7 +53,11 @@ export default function KitAvatar({
 
 
   const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [uri]);
+  const [triedUri, setTriedUri] = useState(uri);
+  if (triedUri !== uri) {
+    setTriedUri(uri);
+    setFailed(false);
+  }
 
 
   // A press wraps whichever face renders below

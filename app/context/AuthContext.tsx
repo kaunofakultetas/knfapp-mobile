@@ -404,6 +404,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- hydration runs exactly once per app start; a later expireSession/setUser identity must never replay it
   }, []);
 
 
@@ -417,7 +418,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     return unsubscribe;
-  }, []);
+  }, [expireSession]);
 
 
   // A session revoked while the app was backgrounded is caught
@@ -442,7 +443,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     return () => subscription.remove();
-  }, []);
+  }, [expireSession, setUser]);
 
 
   const login = useCallback(async (username: string, password: string): Promise<void> => {

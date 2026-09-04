@@ -82,7 +82,7 @@ function Stage({ mod, uri, label }: { mod: ExpoVideoModule; uri: string; label: 
       style={{ flex: 1 }}
       contentFit="contain"
       nativeControls
-      allowsFullscreen
+      fullscreenOptions={{ enable: true }}
       allowsPictureInPicture={false}
       accessibilityLabel={label}
     />

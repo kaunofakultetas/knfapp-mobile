@@ -526,7 +526,6 @@ export default function ProfileScreen() {
   const { user: me, isAuthenticated, setUser } = useAuth();
   const { isConnected } = useNetwork();
   const { t } = useTranslation();
-  const { colors } = useTheme();
   const router = useRouter();
   const returnTo = useReturnHref();
   const insets = useSafeAreaInsets();
@@ -629,6 +628,7 @@ export default function ProfileScreen() {
   // First load with spinner; no target clears the flag so the
   // login prompt never hides behind an infinite spinner
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch kickoff: loadProfile flips the spinner flag, and no target must clear it at once
     if (targetId) void loadProfile('initial');
     else setLoading(false);
   }, [targetId, loadProfile]);

@@ -32,7 +32,7 @@ import { fireEvent, render } from '@testing-library/react-native';
 import TabBar from '@/components/navigation/TabBar';
 import { TABS } from '@/constants/tabs';
 
-import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
+import type { BottomTabBarProps } from 'expo-router/js-tabs';
 
 
 // One route per roster entry; titles are distinct so queries

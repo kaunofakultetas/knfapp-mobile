@@ -11,7 +11,7 @@
 //    - the host's chat room (chatuikit's ConnectionBanner)
 // -----------------------------------------------------------
 
-import { useEffect, useState } from 'react';
+import { useCallback, useSyncExternalStore } from 'react';
 
 import type { RealtimeStatus } from '../core/transport';
 import { useChatEngine } from '../provider';
@@ -20,14 +20,11 @@ import { useChatEngine } from '../provider';
 export function useRealtimeStatus(): RealtimeStatus {
 
   const { transport } = useChatEngine();
-  const [status, setStatus] = useState<RealtimeStatus>(() => transport.realtime.status());
 
-
-  useEffect(() => {
-    setStatus(transport.realtime.status());
-    return transport.realtime.onStatus(setStatus);
-  }, [transport]);
-
-
-  return status;
+  // useSyncExternalStore re-reads the snapshot after
+  // subscribing, so a transition in the render-to-subscribe gap
+  // can never leave a stale status on screen
+  const subscribe = useCallback((onChange: () => void) => transport.realtime.onStatus(onChange), [transport]);
+  const getStatus = useCallback(() => transport.realtime.status(), [transport]);
+  return useSyncExternalStore(subscribe, getStatus);
 }

@@ -574,6 +574,7 @@ export default function RegisterScreen() {
 
     const extracted = extractCode(codeValue);
     if (!extracted) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the deep-link code arriving is the event; it applies once per value, latched by the ref
     applyScannedCode(extracted);
   }, [codeValue, applyScannedCode]);
 

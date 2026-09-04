@@ -21,7 +21,7 @@
 import { Image } from 'expo-image';
 
 // Fallback disc and online dot primitives
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Text, View } from 'react-native';
 
 // Resolves relative backend upload paths to absolute URLs
@@ -77,7 +77,11 @@ export default function Avatar({ uri, name, size = 40, online = false }: AvatarP
   // A photo that cannot load falls back to the initial; a new
   // uri gets a fresh try
   const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [uri]);
+  const [triedUri, setTriedUri] = useState(uri);
+  if (triedUri !== uri) {
+    setTriedUri(uri);
+    setFailed(false);
+  }
 
 
   // null for a foreign-origin http(s) URL — defence in depth

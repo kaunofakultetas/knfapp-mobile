@@ -10,21 +10,17 @@
 //    - PermissionGate.tsx / NotifySettingsPanel.tsx
 // -----------------------------------------------------------
 
-import { useEffect, useState } from 'react';
+import { useCallback, useSyncExternalStore } from 'react';
 
 import type { StoreLike } from '../core/types';
 
 
 export function useStoreValue<T>(store: StoreLike<T>): T {
-  const [value, setValue] = useState<T>(() => store.get());
-
-  useEffect(() => {
-    const unsubscribe = store.subscribe(setValue);
-    // Belt for stores that only fire on CHANGE: an explicit
-    // re-read closes the render-to-effect gap either way
-    setValue(store.get());
-    return unsubscribe;
-  }, [store]);
-
-  return value;
+  // useSyncExternalStore re-reads the snapshot after
+  // subscribing, so a change in the render-to-subscribe gap can
+  // never leave a stale value on screen — including for stores
+  // that only fire on CHANGE
+  const subscribe = useCallback((onChange: () => void) => store.subscribe(() => onChange()), [store]);
+  const getValue = useCallback(() => store.get(), [store]);
+  return useSyncExternalStore(subscribe, getValue);
 }

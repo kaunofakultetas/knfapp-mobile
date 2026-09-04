@@ -23,7 +23,7 @@ import type { KitLabels } from '../../provider/labels';
 // Rendering
 import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Text, View, useWindowDimensions } from 'react-native';
 
 import { fitMedia, isExtremeAspect, mediaBoxFor } from '../../core/media';
@@ -101,7 +101,11 @@ export default function ImageAttachment({
 
   // A changed uri (local preview → uploaded path) gets a fresh try
   const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [uri]);
+  const [triedUri, setTriedUri] = useState(uri);
+  if (triedUri !== uri) {
+    setTriedUri(uri);
+    setFailed(false);
+  }
 
 
   if (failed || !uri) {

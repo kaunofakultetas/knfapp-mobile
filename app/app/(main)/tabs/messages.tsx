@@ -167,6 +167,7 @@ function SocketBanner({ status }: { status: SocketStatus }) {
         clearTimeout(graceTimerRef.current);
         graceTimerRef.current = null;
       }
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- the reconnect is the event: the banner latch drops together with its grace timer
       setSettled(false);
       return;
     }

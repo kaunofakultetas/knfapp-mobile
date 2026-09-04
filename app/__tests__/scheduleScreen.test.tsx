@@ -85,9 +85,10 @@ jest.mock('@/components/ui', () => {
 jest.mock('@/components/schedule/TimetableHost', () => ({ children }: { children?: unknown }) => children as never);
 jest.mock('@/components/schedule/TimetableView', () => {
   const { Text } = require('react-native');
-  return ({ mode, entries, scope }: { mode: string; entries: unknown[]; scope: { scope: string } }) => (
-    <Text>{`timetable:${mode}:${entries.length}:${scope.scope}`}</Text>
-  );
+  function TimetableViewMarker({ mode, entries, scope }: { mode: string; entries: unknown[]; scope: { scope: string } }) {
+    return <Text>{`timetable:${mode}:${entries.length}:${scope.scope}`}</Text>;
+  }
+  return TimetableViewMarker;
 });
 jest.mock('@/components/schedule/LessonSheet', () => () => null);
 

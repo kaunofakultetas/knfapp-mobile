@@ -54,7 +54,7 @@ import type { NewsPost } from '@/types';
 
 // Rendering
 import { Image } from 'expo-image';
-import { memo, useEffect, useMemo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { GestureResponderEvent, Platform, Pressable, Text, View } from 'react-native';
 
@@ -281,7 +281,11 @@ function NewsCard({
   // layout (the badge moves inline onto the date line) — never a
   // blank 16:9 hole; a new uri gets a fresh try
   const [coverFailed, setCoverFailed] = useState(false);
-  useEffect(() => setCoverFailed(false), [coverUri]);
+  const [coverTried, setCoverTried] = useState(coverUri);
+  if (coverTried !== coverUri) {
+    setCoverTried(coverUri);
+    setCoverFailed(false);
+  }
 
   // The language is a dependency — formatDate follows it
   // eslint-disable-next-line react-hooks/exhaustive-deps -- i18n.language drives formatDate's locale implicitly; the recompute is the point

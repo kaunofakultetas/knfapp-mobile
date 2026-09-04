@@ -16,7 +16,7 @@
 //    - WeekGrid.tsx / DayTimeline.tsx — spread onto the root
 // -----------------------------------------------------------
 
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 
 import type { GestureResponderEvent } from 'react-native';
 
@@ -46,11 +46,13 @@ export function usePagePan(onPage: (direction: 1 | -1) => void, options: PagePan
   // One page per gesture, however far the finger travels
   const handled = useRef(false);
   const onPageRef = useRef(onPage);
-  onPageRef.current = onPage;
   // Read through a ref so a mid-gesture flip reaches handlers
   // the responder system captured BEFORE the flip re-rendered
   const enabledRef = useRef(enabled);
-  enabledRef.current = enabled;
+  useEffect(() => {
+    onPageRef.current = onPage;
+    enabledRef.current = enabled;
+  }, [onPage, enabled]);
 
   return useMemo<PagePanHandlers>(() => {
     const reset = () => {

@@ -750,6 +750,7 @@ export default function SettingsScreen() {
     if (!isAuthenticated) {
       pendingRef.current = {};
       confirmedRef.current = DEFAULT_CHANNELS;
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- the logout is the event: switches and their ref mirrors snap to defaults as one
       setChannels(DEFAULT_CHANNELS);
       setChannelsLoaded(false);
       setChannelsError(false);

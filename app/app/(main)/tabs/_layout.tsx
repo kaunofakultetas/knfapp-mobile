@@ -21,7 +21,7 @@ import { useTranslation } from 'react-i18next';
 // The custom bar and the shared tab roster
 import TabBar from '@/components/navigation/TabBar';
 import { TABS } from '@/constants/tabs';
-import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
+import type { BottomTabBarProps } from "expo-router/js-tabs";
 
 // Pinned-tab visibility
 import { useApp } from '@/context/AppContext';

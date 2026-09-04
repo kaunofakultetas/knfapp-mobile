@@ -11,6 +11,7 @@
 module.exports = {
   preset: 'jest-expo',
   globalSetup: '<rootDir>/jest.globalSetup.js',
+  setupFilesAfterEnv: ['<rootDir>/../../jest.setup.worklets.js'],
   // Relative to this file — jest resolves a config's rootDir against its own directory
   rootDir: '.',
   testMatch: ['<rootDir>/src/**/__tests__/**/*.test.ts?(x)'],

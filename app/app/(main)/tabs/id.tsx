@@ -69,7 +69,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
-  RefreshControl,
   ScrollView,
   Text,
   TextInput,

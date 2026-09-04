@@ -49,19 +49,20 @@ export function usePins(conversationId: string): UsePinsResult {
 
   // The list is a convenience surface — a failed fetch keeps the
   // previous pins rather than surfacing an error
+  const selfId = currentUser?.id ?? '';
   const refresh = useCallback(async () => {
     if (!transport.fetchPins || !conversationId) return;
     try {
       const rows = await transport.fetchPins(conversationId);
       if (!mountedRef.current) return;
-      const selfId = currentUser?.id ?? '';
       setPins(rows.map((row) => normalizeForViewer(row, selfId)));
     } catch {
       // Keep what we have
     }
-  }, [conversationId, transport, currentUser?.id]);
+  }, [conversationId, transport, selfId]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the room switch is the event: the old room's pins clear as the new fetch starts
     setPins([]);
     void refresh();
   }, [refresh]);

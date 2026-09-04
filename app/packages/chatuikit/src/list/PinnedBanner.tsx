@@ -18,7 +18,7 @@ import type { KitLabels } from '../provider/labels';
 
 // Rendering
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 import { messageKind, type KitMessage } from '../core/types';
@@ -43,10 +43,13 @@ export default function PinnedBanner({ pins, onPress }: { pins: KitMessage[]; on
 
 
   // The cycle restarts whenever the pin set changes shape
+  // (adjusted during render, keyed on the set's size)
   const [cursor, setCursor] = useState(0);
-  useEffect(() => {
+  const [cycleSize, setCycleSize] = useState(pins.length);
+  if (cycleSize !== pins.length) {
+    setCycleSize(pins.length);
     setCursor(0);
-  }, [pins.length]);
+  }
 
 
   if (pins.length === 0) return null;

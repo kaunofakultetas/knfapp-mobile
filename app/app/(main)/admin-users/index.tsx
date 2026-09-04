@@ -61,7 +61,7 @@ import { roleLabel } from '@/constants/roles';
 import { ApiError, deleteAdminUser, fetchAdminUsers, updateAdminUser, type AdminUser } from '@/services/api';
 
 // Keyboard offset under the native stack header
-import { useHeaderHeight } from '@react-navigation/elements';
+import { useHeaderHeight } from "expo-router/react-navigation";
 
 // Icons, list, modal and keyboard primitives
 import { Ionicons } from '@expo/vector-icons';
@@ -504,7 +504,6 @@ export default function AdminUsersScreen() {
 
   const { t } = useTranslation();
   const { user: currentUser, hydrated } = useAuth();
-  const { colors } = useTheme();
   const headerHeight = useHeaderHeight();
 
 
@@ -558,6 +557,7 @@ export default function AdminUsersScreen() {
   // Fetching is gated on the admin role — deep-linking here as
   // any other role must not 403 + toast over the no-access body
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch kickoff: load flips its spinner flag before the request it starts
     if (canView) void load(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canView]);

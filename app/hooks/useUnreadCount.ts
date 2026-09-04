@@ -105,6 +105,7 @@ export function useUnreadCount(): {
   useEffect(() => {
     if (!isAuthenticated) {
       seqRef.current += 1;
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- the logout is the event: the badge zeroes as in-flight fetches are invalidated
       setCount(0);
       return;
     }

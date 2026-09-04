@@ -566,6 +566,7 @@ export default function Composer({
   // without this the field only ever grows
   useEffect(() => {
     if (value.length === 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- the emptied draft is the event; the snap-back shares this effect with the imperative web re-measure
       setFieldHeight(FIELD_MIN);
       return;
     }

@@ -313,6 +313,7 @@ export default function MessageContextMenu({
   // the copy without retaking the capability snapshot
   useEffect(() => {
     if (!target) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- a reaction landing while the menu is open is the event; the open copy syncs to it
     setShown((current) => (current && current.target.message.id === target.message.id ? { ...current, target } : current));
   }, [target]);
 
@@ -584,7 +585,7 @@ function ReactionOption({
   useEffect(() => {
     pop.value = 0;
     pop.value = reduceMotion ? 1 : withDelay(40 + index * 30, withSpring(1, { damping: 14, stiffness: 320, mass: 0.6 }));
-  }, [index, pop]);
+  }, [index, pop, reduceMotion]);
   const style = useAnimatedStyle(() => ({
     transform: [{ scale: pop.value * Math.min(1, progress.value * 2) }],
   }));

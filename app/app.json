@@ -7,7 +7,6 @@
     "icon": "./assets/images/icon.png",
     "scheme": "knfapp",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "locales": {
       "lt": "./locales/lt.json",
       "en": "./locales/en.json"
@@ -21,7 +20,6 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true,
       "package": "lt.vu.knf.knfapp",
       "permissions": [
         "android.permission.HIGH_SAMPLING_RATE_SENSORS"
@@ -69,7 +67,10 @@
       "expo-localization",
       "expo-secure-store",
       "expo-video",
-      "expo-audio"
+      "expo-audio",
+      "expo-image",
+      "expo-status-bar",
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true

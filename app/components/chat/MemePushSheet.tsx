@@ -13,7 +13,7 @@
 // -----------------------------------------------------------
 
 import { Image as ExpoImage } from 'expo-image';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Modal, Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -56,10 +56,13 @@ export default function MemePushSheet({
 
 
   // A fresh pick resets the fields to that file's suggestion
-  useEffect(() => {
+  // (adjusted during render, keyed on the picked uri)
+  const [seededUri, setSeededUri] = useState(asset?.uri);
+  if (seededUri !== asset?.uri) {
+    setSeededUri(asset?.uri);
     setTitle(stemTitle(asset?.fileName));
     setTags('');
-  }, [asset?.uri, asset?.fileName]);
+  }
 
 
   return (

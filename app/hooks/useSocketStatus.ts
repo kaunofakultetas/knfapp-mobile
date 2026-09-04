@@ -9,10 +9,10 @@
 //  listener registry, so they survive the socket instance
 //  being torn down and recreated across reconnects.
 //
-//  The effect re-reads the status right after subscribing: a
-//  transition can land in the gap between the initial render
-//  and the subscription, and would otherwise stay wrong until
-//  the next change.
+//  useSyncExternalStore owns the subscribe timing: React
+//  re-reads the snapshot after subscribing, so a transition
+//  landing between the initial render and the subscription can
+//  never leave a stale status on screen.
 // -----------------------------------------------------------
 
 // Status source of truth lives in the socket service
@@ -22,8 +22,7 @@ import {
   type SocketStatus,
 } from '@/services/socket';
 
-// Local mirror state
-import { useEffect, useState } from 'react';
+import { useSyncExternalStore } from 'react';
 
 
 
@@ -43,18 +42,5 @@ import { useEffect, useState } from 'react';
 // -----------------------------------------------------------
 
 export function useSocketStatus(): SocketStatus {
-  const [status, setStatus] = useState<SocketStatus>(getSocketStatus);
-
-
-  useEffect(() => {
-    const unsubscribe = onSocketStatusChange(setStatus);
-
-    // Close the render → subscribe gap (see file header)
-    setStatus(getSocketStatus());
-
-    return unsubscribe;
-  }, []);
-
-
-  return status;
+  return useSyncExternalStore(onSocketStatusChange, getSocketStatus);
 }

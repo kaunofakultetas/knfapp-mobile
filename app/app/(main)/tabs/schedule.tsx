@@ -690,6 +690,7 @@ function FilterModal({
   const semesterTouchedRef = useRef(false);
   useEffect(() => {
     if (visible) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- the sheet opening is the event: drafts re-seed from the live filters at that moment, never continuously
       setDraftGroup(selectedGroup);
       setDraftSemester(selectedSemester);
       setDraftPerspective(perspective);
@@ -1131,6 +1132,7 @@ export default function ScheduleScreen() {
 
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch kickoff: loadFilters flips its loading flag before the request it starts
     void loadFilters();
   }, [loadFilters]);
 
@@ -1168,6 +1170,7 @@ export default function ScheduleScreen() {
   useEffect(() => {
     if (!prefsLoaded || !filtersFetched) return;
     if (groups.length > 0 && selectedGroup !== null && !groups.includes(selectedGroup)) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- the server catalog arriving is the event; a stale persisted choice is cleared once, in response
       setSelectedGroup(null);
     }
     if (semesters.length > 0 && selectedSemester !== null && !semesters.includes(selectedSemester)) {
@@ -1187,6 +1190,7 @@ export default function ScheduleScreen() {
     if (!prefsLoaded || !filtersFetched) return;
     if (semesterExplicit || selectedSemester !== null) return;
     const newest = newestSemester(semesters);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the semester list arriving is the event; the newest-label default applies once, in response
     if (newest) setSelectedSemester(newest);
   }, [prefsLoaded, filtersFetched, semesters, selectedSemester, semesterExplicit]);
 

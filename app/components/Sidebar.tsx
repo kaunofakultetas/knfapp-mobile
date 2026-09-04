@@ -39,6 +39,10 @@
 
 // The shared tab roster — drawer, bar and layout all derive
 // their surfaces from this one table
+/* eslint-disable react-hooks/immutability -- reanimated shared
+   values are mutable boxes by contract (`.value` writes are the
+   documented API); the compiler rule reads them as frozen */
+
 import { TABS, type TabDef } from '@/constants/tabs';
 
 // Drawer state, settings, auth and theme
@@ -513,7 +517,9 @@ export default function Sidebar() {
   // change closes it. close's identity changes with isOpen, so
   // it rides a ref and pathname stays the only dependency.
   const closeRef = useRef(close);
-  closeRef.current = close;
+  useEffect(() => {
+    closeRef.current = close;
+  }, [close]);
   const mountedRef = useRef(false);
   useEffect(() => {
     if (!mountedRef.current) {

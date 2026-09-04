@@ -10,7 +10,7 @@
 //    - app/(main)/chat-room/index.tsx
 // -----------------------------------------------------------
 
-import { useIsFocused } from '@react-navigation/native';
+import { useIsFocused } from "expo-router/react-navigation";
 
 import { useConversation, type UseConversationResult } from '@knf/chatengine';
 

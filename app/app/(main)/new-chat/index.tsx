@@ -268,6 +268,7 @@ function NewChatForm() {
     const seq = ++searchSeqRef.current;
 
     if (!q) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- the query edit is the event: results, spinner and the debounced search reset as one
       setResults([]);
       setSearching(false);
       setFailed(false);

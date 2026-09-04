@@ -23,24 +23,17 @@
 //  it never changes layout — no viewport growth, no offset
 //  clamp to fight (the flicker class of the in-flow design),
 //  and content and bar move at the same speed instead of the
-//  list rising twice as fast as the bar shrinks. The list must
-//  make room for the bar itself, and HOW decides where a
-//  pull-to-refresh spinner lands:
-//
-//    iOS     — a top contentInset of barHeight (listProps).
-//              UIScrollView integrates its refresh control
-//              with the inset, so the spinner appears in the
-//              gap BELOW the pinned bar, the content rubber-
-//              bands away from the bar and holds open under it
-//              while refreshing. The scroll offset rests at
-//              -barHeight; the handler adds the inset back so
-//              the fold math sees 0 at the top like everywhere
-//              else. (Padding instead would put the spinner at
-//              the frame top, behind the opaque bar.)
-//    Android — content padding of barHeight (contentPaddingTop)
-//              and progressViewOffset={barHeight} on the
-//              RefreshControl, which draws its own circle
-//              below the bar.
+//  list rising twice as fast as the bar shrinks. The list makes
+//  room for the bar with a top content padding of barHeight
+//  (contentPaddingTop) on EVERY platform, and the caller places
+//  the pull-to-refresh spinner below the pinned bar with
+//  progressViewOffset on the RefreshControl. (This used to be a
+//  contentInset + contentOffset pair on iOS, but RN 0.86's
+//  renderer stopped applying that trio — content sat under the
+//  bar — while progressViewOffset started working on iOS, which
+//  was the inset model's whole reason to exist. Padding is pure
+//  layout and survives renderer changes; don't bring the inset
+//  back.)
 //
 //  Clip the screen area with overflow-hidden so the bar slides
 //  behind the brand band, not over it.
@@ -48,25 +41,27 @@
 //    const header = useCollapsibleHeader();
 //    <View className="flex-1 overflow-hidden">
 //      <Animated.FlatList
-//        {...header.listProps}
 //        onScroll={header.scrollHandler} scrollEventThrottle={16}
 //        contentContainerStyle={{ paddingTop: header.contentPaddingTop, … }}
-//        refreshControl={<RefreshControl progressViewOffset={android ? header.barHeight : undefined} … />} … />
+//        refreshControl={<RefreshControl progressViewOffset={header.barHeight} … />} … />
 //      <Animated.View style={header.barStyle}>
 //        <View onLayout={header.onBarLayout}>…the bar that hides…</View>
 //      </Animated.View>
 //    </View>
 //    header.reveal()   — programmatic open (mode switch, scroll-to-top)
-//    header.topOffset  — what scrollToOffset needs for "the top"
-//                        (-barHeight under the iOS inset, else 0)
 //
 //  Bar children must keep a stable intrinsic height (see the
 //  grow-0 shrink-0 note on the news filter chips) — an elastic
 //  child re-measures barHeight mid-motion for nothing.
 // -----------------------------------------------------------
 
-import { useCallback, useMemo, useState } from 'react';
-import { type LayoutChangeEvent, Platform } from 'react-native';
+/* eslint-disable react-hooks/immutability -- reanimated shared
+   values are mutable boxes by contract (`.value` writes are the
+   documented API); the compiler rule reads them as frozen hook
+   arguments */
+
+import { useCallback, useState } from 'react';
+import { type LayoutChangeEvent } from 'react-native';
 import {
   useAnimatedScrollHandler,
   useAnimatedStyle,
@@ -79,10 +74,6 @@ import {
 // bar glides to its resting place the way iOS chrome does,
 // never a hard snap
 const SETTLE = { damping: 24, stiffness: 190, mass: 0.9, overshootClamping: true };
-
-// iOS makes room with a content inset (native refresh control
-// integration — see the file header); everything else pads
-const USES_INSET = Platform.OS === 'ios';
 
 
 
@@ -103,12 +94,9 @@ export default function useCollapsibleHeader() {
   // How far the bar is currently hidden, in points, and the
   // most it can hide (the bar's measured height — 0 until the
   // first layout, which disables collapsing rather than
-  // guessing a height). `insetTop` is the iOS content inset the
-  // handler adds back to contentOffset.y, so the fold math
-  // reads 0 at the top on every platform
+  // guessing a height)
   const collapsed = useSharedValue(0);
   const maxCollapse = useSharedValue(0);
-  const insetTop = useSharedValue(0);
   const lastY = useSharedValue(0);
 
   // Finger state: folding happens only while dragging, and the
@@ -153,11 +141,6 @@ export default function useCollapsibleHeader() {
       lastDir.value = 0;
     },
     onScroll: (event) => {
-      // The inset shifts the offset's zero: at the top iOS reports
-      // -insetTop, so add it back before any math
-      const inset = insetTop.value;
-      const rawY = event.contentOffset.y + inset;
-
       // y is clamped to the actual scrollable range, so rubber-
       // banding at either end contributes no deltas: a short
       // feed can never fold the bar shut, the bottom bounce can
@@ -166,9 +149,9 @@ export default function useCollapsibleHeader() {
       // bands away from it
       const maxY = Math.max(
         0,
-        event.contentSize.height - event.layoutMeasurement.height + inset,
+        event.contentSize.height - event.layoutMeasurement.height,
       );
-      const y = Math.min(Math.max(0, rawY), maxY);
+      const y = Math.min(Math.max(0, event.contentOffset.y), maxY);
       const dy = y - lastY.value;
       lastY.value = y;
 
@@ -234,35 +217,15 @@ export default function useCollapsibleHeader() {
       const height = Math.round(event.nativeEvent.layout.height);
       if (height > 0 && height !== maxCollapse.value) {
         maxCollapse.value = height;
-        if (USES_INSET) insetTop.value = height;
         setBarHeight(height);
       }
     },
-    [maxCollapse, insetTop],
+    [maxCollapse],
   );
 
 
-  // How the list makes room for the bar (see the file header).
-  // Memoised per barHeight: contentOffset is applied whenever
-  // its VALUE changes, so a fresh object every render would
-  // yank the list back to the top on each re-render
-  const listProps = useMemo(
-    () =>
-      USES_INSET
-        ? {
-            contentInset: { top: barHeight },
-            contentOffset: { x: 0, y: -barHeight },
-            automaticallyAdjustContentInsets: false,
-            scrollIndicatorInsets: { top: barHeight },
-          }
-        : {},
-    [barHeight],
-  );
-  const contentPaddingTop = USES_INSET ? 0 : barHeight;
-
-  // "The top" in scrollToOffset terms — under the inset model
-  // the resting offset is -barHeight, not 0
-  const topOffset = USES_INSET ? -barHeight : 0;
+  // How the list makes room for the bar (see the file header)
+  const contentPaddingTop = barHeight;
 
 
   const reveal = useCallback(() => {
@@ -279,8 +242,6 @@ export default function useCollapsibleHeader() {
     onBarLayout,
     reveal,
     barHeight,
-    listProps,
     contentPaddingTop,
-    topOffset,
   };
 }

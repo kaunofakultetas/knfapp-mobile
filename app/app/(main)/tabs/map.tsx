@@ -547,6 +547,7 @@ function MapScreenInner() {
   // by hand; a floor change while walking un-pins
   const walkerLevel = state?.currentLevel ?? null;
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the walker changing floors is the event; the hand-pin releases in response
     setPinnedLevel(null);
   }, [walkerLevel]);
   const shownLevel = pinnedLevel ?? walkerLevel ?? env.index.orderedLevels[0]?.id ?? '';

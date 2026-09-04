@@ -46,7 +46,9 @@ const REPORT_SUBJECT_FALLBACK = 'KNF App Error';
 // Appearance API — the theme context that knows the in-app
 // override may itself be what crashed, so the override is
 // deliberately ignored here
-const c = palettes[Appearance.getColorScheme() ?? 'light'];
+// The scheme type now carries an 'unspecified' member — only
+// an explicit 'dark' earns the dark palette
+const c = palettes[Appearance.getColorScheme() === 'dark' ? 'dark' : 'light'];
 
 
 

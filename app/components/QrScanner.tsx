@@ -145,6 +145,7 @@ export default function QrScanner({ visible, onClose, onCodeScanned }: QrScanner
   useEffect(() => {
     if (visible) {
       scannedRef.current = false;
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- the sheet opening is the event: the scan guard and the invalid latch re-arm together
       setInvalid(false);
       setBlocked(false);
     }

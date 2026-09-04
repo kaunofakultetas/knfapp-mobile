@@ -655,6 +655,10 @@ function MessageBubbleInner({
     messageRef.current = message;
   });
   const fireSwipeReply = useCallback(() => onSwipeReply(messageRef.current), [onSwipeReply]);
+  /* eslint-disable react-hooks/immutability, react-hooks/refs --
+     the gesture callbacks are worklets that run on the UI thread,
+     and reanimated shared values are mutable boxes by contract;
+     the compiler rules read the closures as render-time access */
   const pan = useMemo(
     () =>
       Gesture.Pan()
@@ -678,6 +682,7 @@ function MessageBubbleInner({
         }),
     [swipeable, own, direction, fireSwipeReply, dragX, armed, reduceMotion],
   );
+  /* eslint-enable react-hooks/immutability, react-hooks/refs */
 
   const dragStyle = useAnimatedStyle(() => ({ transform: [{ translateX: dragX.value }] }));
   const glyphStyle = useAnimatedStyle(() => {

@@ -51,7 +51,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 // Navigation, keyboard offset and the bottom inset
 import { useNavigation, useRouter } from 'expo-router';
-import { useHeaderHeight } from '@react-navigation/elements';
+import { useHeaderHeight } from "expo-router/react-navigation";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Image picking
@@ -433,7 +433,7 @@ export default function CreatePostScreen() {
 
   // What the fields held before any typing — the dirty check
   // and the leave guard compare against this, not against ''
-  const editOriginalRef = useRef<{ title: string; content: string } | null>(null);
+  const [editOriginal, setEditOriginal] = useState<{ title: string; content: string } | null>(null);
 
 
   const [showPoll, setShowPoll] = useState(false);
@@ -530,8 +530,7 @@ export default function CreatePostScreen() {
   const navigation = useNavigation();
   const allowLeaveRef = useRef(false);
   const editDirty =
-    !!editOriginalRef.current &&
-    (title !== editOriginalRef.current.title || content !== editOriginalRef.current.content);
+    !!editOriginal && (title !== editOriginal.title || content !== editOriginal.content);
   const hasDraft = editing
     ? editDirty
     : !pollFailedPostId &&
@@ -553,7 +552,7 @@ export default function CreatePostScreen() {
   // the backend would 404 the save anyway, this just says so
   // before any typing is lost
   useEffect(() => {
-    if (!editing || editOriginalRef.current) return;
+    if (!editing || editOriginal) return;
 
     if (editLoad.error || (!editLoad.loading && !editLoad.data)) {
       showToast('error', t('createPost.error'));
@@ -571,10 +570,11 @@ export default function CreatePostScreen() {
       return;
     }
 
-    editOriginalRef.current = { title: post.title ?? '', content: post.content ?? '' };
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- seeding the editor from the fetched post is a response to the load landing, not state derivable in render
+    setEditOriginal({ title: post.title ?? '', content: post.content ?? '' });
     setTitle(post.title ?? '');
     setContent(post.content ?? '');
-  }, [editing, editLoad.data, editLoad.error, editLoad.loading, user, router, t]);
+  }, [editing, editOriginal, editLoad.data, editLoad.error, editLoad.loading, user, router, t]);
 
 
   // The stack registers this screen as "New post" — flip the

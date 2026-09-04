@@ -197,7 +197,6 @@ export default function FriendsScreen() {
   const { isAuthenticated } = useAuth();
   const { isConnected } = useNetwork();
   const { t } = useTranslation();
-  const { colors } = useTheme();
   const router = useRouter();
   const returnTo = useReturnHref();
   const insets = useSafeAreaInsets();

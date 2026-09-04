@@ -77,7 +77,7 @@ import { stripScrapedPreamble } from '@/services/newsText';
 // stack-header offset
 import { useReturnHref } from '@/hooks/useReturnHref';
 import { useRouteParam } from '@/hooks/useRouteParam';
-import { useHeaderHeight } from '@react-navigation/elements';
+import { useHeaderHeight } from "expo-router/react-navigation";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation, useRouter } from 'expo-router';
 
@@ -93,7 +93,6 @@ import {
   type ListRenderItemInfo,
   Platform,
   Pressable,
-  RefreshControl,
   Share,
   Text,
   View,
@@ -559,6 +558,7 @@ export default function NewsPostScreen() {
   // is the engine's, keyed by post id, so it needs no reset)
   useEffect(() => {
     commentTotalRef.current = null;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the postId switch is the event: the carried total and its ref mirror reset together
     setCommentTotal(null);
   }, [postId]);
 

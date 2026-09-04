@@ -220,6 +220,7 @@ export default function ImageViewerModal({
   useEffect(() => {
     if (!visible) return;
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the open is the event: local index and the imperative Gallery resync together
     setIndex(initialIndex);
     galleryRef.current?.setIndex(initialIndex);
     centerThumb(initialIndex, false);
@@ -249,6 +250,7 @@ export default function ImageViewerModal({
     }
     if (index > images.length - 1) {
       const clamped = images.length - 1;
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- the unsend shrinking the set is the event; state and the imperative Gallery clamp together
       setIndex(clamped);
       galleryRef.current?.setIndex(clamped);
       centerThumb(clamped, false);

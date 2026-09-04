@@ -78,7 +78,6 @@ import { useTranslation } from 'react-i18next';
 import {
   Linking,
   Pressable,
-  RefreshControl,
   ScrollView,
   Text,
   View,
@@ -620,7 +619,6 @@ export default function InfoScreen() {
 
   const { t } = useTranslation();
   const { language, hydrated } = useApp();
-  const { colors } = useTheme();
 
 
   const [data, setData] = useState<FacultyInfoResponse | null>(null);
@@ -689,6 +687,7 @@ export default function InfoScreen() {
   // first copy down mid-read
   useEffect(() => {
     if (!hydrated) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the language flip is the event: the handbook tears down and refetches in its new language
     setLoading(true);
     setData(null);
     setCachedAt(null);

@@ -391,11 +391,15 @@ const MessageList = memo(forwardRef<
   // initial page and older pages appear in place. The baseline is
   // the first page's newest SERVER stamp — comparing server clock
   // to server clock, so device skew can never animate history
-  // (lazily initialised on the first render that has a message)
+  // (seeded by an effect on the first render that has one — the
+  // null baseline reads as +Infinity below, so that first page
+  // never animates either way)
   const baselineStampRef = useRef<number | null>(null);
-  if (baselineStampRef.current === null && newest?.type === 'message') {
-    baselineStampRef.current = messageStamp(newest.message);
-  }
+  useEffect(() => {
+    if (baselineStampRef.current === null && newest?.type === 'message') {
+      baselineStampRef.current = messageStamp(newest.message);
+    }
+  });
 
   // The last own message gets the receipt line
   const lastOwnId = useMemo(() => {
@@ -431,6 +435,7 @@ const MessageList = memo(forwardRef<
     newestIdRef.current = newestId;
     if (newestOwn) {
       scrollToLatest(true);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- an arrival IS the event; the counter resets alongside the scroll it triggers
       setMissed(0);
       return;
     }
@@ -535,10 +540,12 @@ const MessageList = memo(forwardRef<
   // stretch (another room, a re-open) starts over
   const [unreadSeen, setUnreadSeen] = useState(false);
   const [unreadDismissed, setUnreadDismissed] = useState(false);
-  useEffect(() => {
+  const [unreadKey, setUnreadKey] = useState(unread?.firstUnreadId);
+  if (unreadKey !== unread?.firstUnreadId) {
+    setUnreadKey(unread?.firstUnreadId);
     setUnreadSeen(false);
     setUnreadDismissed(false);
-  }, [unread?.firstUnreadId]);
+  }
 
 
   // The floating day: label from the topmost visible row (the
@@ -557,10 +564,13 @@ const MessageList = memo(forwardRef<
     [labels.today, labels.yesterday, locale],
   );
   const dayLabelsRef = useRef(dayLabels);
-  dayLabelsRef.current = dayLabels;
+  useEffect(() => {
+    dayLabelsRef.current = dayLabels;
+  }, [dayLabels]);
 
   // FlatList wants a stable pair; the callback reads refs so the
   // pair never has to change
+  // eslint-disable-next-line react-hooks/refs -- the closures only read refs when FlatList fires viewability events, never during render
   const viewabilityPairs = useRef([
     {
       viewabilityConfig: { itemVisiblePercentThreshold: 5, minimumViewTime: 0 },
@@ -679,6 +689,7 @@ const MessageList = memo(forwardRef<
     setAwayState(distance > AWAY_OFFSET);
 
     // Floating day: show on activity, fade once the scroll settles
+    // eslint-disable-next-line react-hooks/immutability -- reanimated shared value: `.value` is the documented mutable box
     dayOpacity.value = withTiming(1, { duration: 120 });
     if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current);
     fadeTimerRef.current = setTimeout(() => {
@@ -737,6 +748,7 @@ const MessageList = memo(forwardRef<
   }, [clearRetryTimer, onJumpFailed, safeScrollToIndex]);
   const onScrollToIndexFailedRef = useRef(onScrollToIndexFailed);
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/immutability -- latest-ref update inside an effect; refs are mutable by contract
     onScrollToIndexFailedRef.current = onScrollToIndexFailed;
   });
 

@@ -60,20 +60,17 @@ const seed = (id: string, sender: typeof ME, text: string, minutesAgo: number): 
 // -----------------------------------------------------------
 
 function useDemoBackend(): { transport: FakeTransport; notices: EngineNotice[] } {
-  const ref = useRef<{ transport: FakeTransport; notices: EngineNotice[] } | null>(null);
-  if (!ref.current) {
-    ref.current = {
-      transport: fakeTransport({
-        self: ME,
-        echoSends: true,
-        participants: [ME, ONA],
-        conversation: { id: ROOM, type: 'direct', title: null, avatarEmoji: null },
-        messages: [seed('1', ONA, 'Labas! Try sending something.', 3), seed('2', ME, 'The engine runs with no server behind it.', 2), seed('3', ONA, 'Long-press a row to react, tap ↩ to reply.', 1)],
-      }),
-      notices: [],
-    };
-  }
-  return ref.current;
+  const [backend] = useState(() => ({
+    transport: fakeTransport({
+      self: ME,
+      echoSends: true,
+      participants: [ME, ONA],
+      conversation: { id: ROOM, type: 'direct', title: null, avatarEmoji: null },
+      messages: [seed('1', ONA, 'Labas! Try sending something.', 3), seed('2', ME, 'The engine runs with no server behind it.', 2), seed('3', ONA, 'Long-press a row to react, tap ↩ to reply.', 1)],
+    }),
+    notices: [] as EngineNotice[],
+  }));
+  return backend;
 }
 
 
@@ -127,9 +124,11 @@ function Row({ m, onReply, onReact, onEdit, onDelete, onRetry }: {
 function Room({ transport, notices }: { transport: FakeTransport; notices: EngineNotice[] }) {
   const { conversation, composer, reactions, typingUsers } = useChatRoom(ROOM, { focused: true });
   const [lastNotice, setLastNotice] = useState<string | null>(null);
-  useEffect(() => {
+  const [seenCount, setSeenCount] = useState(notices.length);
+  if (seenCount !== notices.length) {
+    setSeenCount(notices.length);
     if (notices.length) setLastNotice(notices[notices.length - 1].code);
-  }, [notices, notices.length]);
+  }
 
   // A pretend friend: types for a moment, then answers the newest own message
   const answered = useRef(new Set<string>());

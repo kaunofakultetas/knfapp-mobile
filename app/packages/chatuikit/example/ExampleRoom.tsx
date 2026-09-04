@@ -19,7 +19,7 @@
 //    kit callbacks                      →  engine actions
 // -----------------------------------------------------------
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View } from 'react-native';
 
 // The engine — reached through the alias exactly as a host would
@@ -98,7 +98,8 @@ function Room({ transport }: { transport: FakeTransport }) {
   // A pretend friend answers every own send after a moment
   const answered = useRef(new Set<string>());
   const newestOwn = conversation.messages.find((m) => m.isOwn && !isTemp(m));
-  if (newestOwn && !answered.current.has(newestOwn.id)) {
+  useEffect(() => {
+    if (!newestOwn || answered.current.has(newestOwn.id)) return;
     answered.current.add(newestOwn.id);
     transport.push({ type: 'typing', conversationId: ROOM, userId: ONA.id, displayName: ONA.displayName, active: true });
     setTimeout(() => {
@@ -108,7 +109,7 @@ function Room({ transport }: { transport: FakeTransport }) {
       transport.push({ type: 'message', message: reply });
       transport.push({ type: 'read', conversationId: ROOM, readerId: ONA.id, messageIds: [newestOwn.id] });
     }, 1500);
-  }
+  }, [newestOwn, transport]);
 
 
   return (
@@ -221,24 +222,23 @@ function Room({ transport }: { transport: FakeTransport }) {
 
 export default function ExampleRoom() {
 
-  const backend = useRef<FakeTransport | null>(null);
-  if (!backend.current) {
-    backend.current = fakeTransport({
+  const [backend] = useState(() =>
+    fakeTransport({
       self: ME,
       echoSends: true,
       participants: [ME, ONA],
       conversation: { id: ROOM, type: 'direct', title: null, avatarEmoji: null },
       messages: [seed('1', ONA, 'Labas! This room is the kit drawn by the engine.', 3), seed('2', ME, 'Long-press me: reactions, reply, edit, unsend.', 2), seed('3', ONA, 'Send something — I will answer.', 1)],
-    });
-  }
+    }),
+  );
   const storage = useMemo(() => memoryStorage(), []);
   const notify = useCallback((n: EngineNotice) => console.warn('chat notice', n.code, n.detail ?? ''), []);
 
 
   return (
-    <ChatEngineProvider transport={backend.current} currentUser={ME} storage={storage} notify={notify}>
+    <ChatEngineProvider transport={backend} currentUser={ME} storage={storage} notify={notify}>
       <ChatUiKitProvider labels={defaultLabels.en} locale="en">
-        <Room transport={backend.current} />
+        <Room transport={backend} />
       </ChatUiKitProvider>
     </ChatEngineProvider>
   );

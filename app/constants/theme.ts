@@ -30,7 +30,7 @@
 // -----------------------------------------------------------
 
 // Navigation base themes to derive ours from
-import { DarkTheme, DefaultTheme, type Theme } from '@react-navigation/native';
+import { DarkTheme, DefaultTheme, type Theme } from "expo-router/react-navigation";
 
 // Feeds the CSS variables behind every className token
 import { vars } from 'nativewind';

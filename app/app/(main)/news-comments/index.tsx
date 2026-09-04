@@ -33,7 +33,6 @@ import { CommentComposer, CommentRow, type KitComment } from '@knf/socialuikit';
 
 // UI kit and theming
 import { EmptyState, ErrorState, LoadingSpinner, RefreshSpinner, Screen } from '@/components/ui';
-import { useTheme } from '@/hooks/useTheme';
 
 // Paginated feed engine and the backend contract
 import { useFeed, type UseFeedResult } from '@knf/dataengine';
@@ -48,7 +47,7 @@ import { showToast } from '@/context/NetworkContext';
 // offset
 import { useReturnHref } from '@/hooks/useReturnHref';
 import { useRouteParam } from '@/hooks/useRouteParam';
-import { useHeaderHeight } from '@react-navigation/elements';
+import { useHeaderHeight } from "expo-router/react-navigation";
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -61,7 +60,6 @@ import {
   KeyboardAvoidingView,
   type ListRenderItemInfo,
   Platform,
-  RefreshControl,
   View,
 } from 'react-native';
 
@@ -105,7 +103,6 @@ const toKitComment = (comment: CommentResponse, viewerId: string | null): KitCom
 function CommentsBody({ feed }: { feed: UseFeedResult<CommentResponse> }) {
 
   const { t } = useTranslation();
-  const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
 

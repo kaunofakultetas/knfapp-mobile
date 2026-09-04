@@ -88,8 +88,8 @@ import * as Linking from 'expo-linking';
 import { useReturnHref } from '@/hooks/useReturnHref';
 import type { NewsPost } from '@/types';
 import { Ionicons } from '@expo/vector-icons';
-import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
-import { useIsFocused, type ParamListBase } from '@react-navigation/native';
+import type { BottomTabNavigationProp } from "expo-router/js-tabs";
+import { useIsFocused, type ParamListBase } from "expo-router/react-navigation";
 import { useFocusEffect, useNavigation, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState, type Ref, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -524,14 +524,14 @@ export default function NewsTab() {
   // to the focused tab instead of navigating, so a press from
   // ANOTHER tab (which switches here) is left alone — the reader
   // returns to where they were
-  const { topOffset, reveal: revealHeader } = header;
+  const { reveal: revealHeader } = header;
   useEffect(() => {
     return navigation.addListener('tabPress', () => {
       if (!navigation.isFocused()) return;
-      scrollRef.current?.scrollTo({ y: topOffset, animated: true });
+      scrollRef.current?.scrollTo({ y: 0, animated: true });
       revealHeader();
     });
-  }, [navigation, topOffset, revealHeader]);
+  }, [navigation, revealHeader]);
 
 
   // One chip selection drives the feed; mode and source filter
@@ -546,9 +546,7 @@ export default function NewsTab() {
   // filter the guest branch of GET /news can never match — with
   // the chip itself hidden from guests, so nothing on screen
   // would explain the permanently empty feed
-  useEffect(() => {
-    if (!isAuthenticated && selection === 'user') setSelection('');
-  }, [isAuthenticated, selection]);
+  if (!isAuthenticated && selection === 'user') setSelection('');
 
 
   // The community endpoint serves guests its public posts —
@@ -767,14 +765,12 @@ export default function NewsTab() {
   };
 
 
-  // The pill: fold the waiting posts in at the top (the kit
-  // scrolls to offset 0 itself; under the iOS inset "the top"
-  // is -barHeight, so the screen scrolls once more to the real
-  // one) and bring the header back with them
+  // The pill: fold the waiting posts in at the top and bring
+  // the header back with them
   const showNewPosts = () => {
     void feed.refresh('merge');
     freshness.clear();
-    scrollRef.current?.scrollTo({ y: header.topOffset, animated: true });
+    scrollRef.current?.scrollTo({ y: 0, animated: true });
     header.reveal();
   };
 
@@ -812,7 +808,10 @@ export default function NewsTab() {
           onMomentumScrollEnd: props.onMomentumScrollEnd,
         }}
         scrollRef={scrollRef}
-        refreshOffset={barHeight}
+        // Placed by eye on device: just under the bar with half
+        // a spinner's worth of air, after −28 climbed into the
+        // header and −10 still hugged it
+        refreshOffset={Math.max(0, barHeight + 6)}
         onScroll={scrollHandler}
       />
     ),
@@ -837,12 +836,10 @@ export default function NewsTab() {
 
       {/* The header floats OVER the list (rendered after it, so
           it stacks on top) and scrolls away with the content by
-          pure translation — the list makes room for it through
-          the hook's listProps (an iOS content inset, so the
-          pull-to-refresh spinner lands in the gap under the
-          pinned bar) or content padding elsewhere.
-          overflow-hidden clips the bar as it slides up behind
-          the brand band. */}
+          pure translation — the list makes room for it with the
+          hook's content padding, and refreshOffset drops the
+          pull spinner below the pinned bar. overflow-hidden
+          clips the bar as it slides up behind the brand band. */}
       <View className="flex-1 overflow-hidden">
 
       {/* Body — spinner / error / the virtualized feed. The list
@@ -888,7 +885,6 @@ export default function NewsTab() {
             />
           }
           flatListProps={{
-            ...header.listProps,
             renderScrollComponent,
             scrollEventThrottle: 16,
             // A merge refresh may prepend new posts above the

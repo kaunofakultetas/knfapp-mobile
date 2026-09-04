@@ -153,7 +153,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Resolve the three-way setting to what actually renders
   const scheme: 'light' | 'dark' =
-    state.theme === 'system' ? (systemScheme ?? 'light') : state.theme;
+    state.theme === 'system' ? (systemScheme === 'dark' ? 'dark' : 'light') : state.theme;
 
 
   // Hydrate once; on a fresh install fall back to the DEVICE

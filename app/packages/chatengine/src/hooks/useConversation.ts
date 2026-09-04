@@ -38,7 +38,7 @@ import { AppState } from 'react-native';
 import { clearActiveConversation, setActiveConversation } from '../core/activeConversation';
 import { isRetryable, toTransportError } from '../core/errors';
 import { readOutboxTemps } from '../core/outbox';
-import { getTaskQueue, type PendingTask } from '../core/tasks';
+import { getTaskQueue } from '../core/tasks';
 import {
   adoptTemp,
   appendOlderPage,
@@ -317,6 +317,7 @@ export function useConversation(conversationId: string, options: { focused?: boo
   // First load per conversation (and per retry)
   useEffect(() => {
     if (!conversationId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch kickoff: no room means no fetch, so the spinner drops at once
       setLoading(false);
       return;
     }

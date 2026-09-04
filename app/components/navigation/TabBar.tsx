@@ -23,6 +23,10 @@
 //    TabBar    — the bar (default export)
 // -----------------------------------------------------------
 
+/* eslint-disable react-hooks/immutability -- reanimated shared
+   values are mutable boxes by contract (`.value` writes are the
+   documented API); the compiler rule reads them as frozen */
+
 // The shared tab roster and the pinned-tab setting
 import { TABS } from '@/constants/tabs';
 import { useApp } from '@/context/AppContext';
@@ -32,7 +36,7 @@ import { useUnreadCount } from '@/hooks/useUnreadCount';
 import { useTheme } from '@/hooks/useTheme';
 
 // Navigation types and rendering
-import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
+import type { BottomTabBarProps } from "expo-router/js-tabs";
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useEffect } from 'react';

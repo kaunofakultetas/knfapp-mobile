@@ -92,7 +92,7 @@ import { activeLocale, formatDateTime } from '@/services/format';
 import { useAuth } from '@/context/AuthContext';
 import { useReturnHref } from '@/hooks/useReturnHref';
 import { useTheme } from '@/hooks/useTheme';
-import { useIsFocused } from '@react-navigation/native';
+import { useIsFocused } from "expo-router/react-navigation";
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 
 // Primitives
@@ -105,7 +105,6 @@ import {
   AppState,
   BackHandler,
   FlatList,
-  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -579,7 +578,7 @@ function ChatRoom({ convId, type, unreadCount }: { convId: string; type?: string
   const mentionNames = useMemo(() => chat.profiles.map((p) => p.displayName), [chat.profiles]);
   const openMemberProfile = useCallback((userId: string) => {
     router.push({ pathname: '/(main)/profile', params: { userId } });
-  }, []);
+  }, [router]);
   const onPressMention = useCallback(
     (name: string) => {
       const member = chat.profiles.find((p) => p.displayName === name);
@@ -790,6 +789,7 @@ function ChatRoom({ convId, type, unreadCount }: { convId: string; type?: string
   // close it instead of silently jumping to the oldest photo
   useEffect(() => {
     if (viewerImageId !== null && viewerIndex < 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- the unsend that removed the photo is the event; the close rides it together with the toast
       setViewerImageId(null);
       showToast('info', t('chat.imageRemoved'));
     }
@@ -847,7 +847,9 @@ function ChatRoom({ convId, type, unreadCount }: { convId: string; type?: string
     setMenuTarget(null);
     closePicker();
   }, [closePicker]);
-  closeMenuRef.current = closeMenu;
+  useEffect(() => {
+    closeMenuRef.current = closeMenu;
+  }, [closeMenu]);
   // The source row hides once the floating copy is on screen and
   // reappears when the close animation ends; a reply chosen in
   // the menu is applied on close too, so the composer focuses
@@ -1009,7 +1011,9 @@ function ChatRoom({ convId, type, unreadCount }: { convId: string; type?: string
   // startEdit rides in a ref like closeMenu: the menu rows are
   // memoised on the catalog alone, never on the composer object
   const startEditRef = useRef(composer.startEdit);
-  startEditRef.current = composer.startEdit;
+  useEffect(() => {
+    startEditRef.current = composer.startEdit;
+  }, [composer.startEdit]);
   // Forward: the picker fetches the room list on open (fresh —
   // rooms come and go), the pick re-sends the content with the
   // mark; the source room is left out of its own list

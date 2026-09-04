@@ -670,7 +670,6 @@ export default function AdminScreen() {
 
   const { t } = useTranslation();
   const { user, hydrated } = useAuth();
-  const { colors } = useTheme();
   const router = useRouter();
 
 
@@ -739,6 +738,7 @@ export default function AdminScreen() {
   // Data loading is gated on the role — no 403 calls (and no
   // error toast) ever fire over the no-access screen
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch kickoff: load flips its spinner flag before the request it starts
     if (canView) void load(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canView]);

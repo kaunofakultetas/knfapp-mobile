@@ -32,7 +32,7 @@ import 'react-native-reanimated';
 import '../global.css';
 
 // Navigation shell
-import { ThemeProvider } from '@react-navigation/native';
+import { ThemeProvider } from "expo-router/react-navigation";
 import { useFonts } from 'expo-font';
 import { router, Stack, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';

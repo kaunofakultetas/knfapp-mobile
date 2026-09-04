@@ -52,6 +52,12 @@ function noticeKey(notice: EngineNotice): string {
 }
 
 
+// Deliberately still the DEPRECATED thumbnails package: the
+// engine uploads the poster, so a FILE URI is non-negotiable —
+// the successor API returns a native image ref with no path,
+// and converting one to a file would cost an extra dependency
+// plus an imperative player lifecycle. Revisit only when the
+// deprecated package actually stops shipping.
 const makeVideoPoster = async (uri: string) => {
   const thumb = await VideoThumbnails.getThumbnailAsync(uri, { time: 500, quality: 0.7 });
   return { uri: thumb.uri, width: thumb.width, height: thumb.height };

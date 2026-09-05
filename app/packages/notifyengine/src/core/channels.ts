@@ -46,6 +46,16 @@ export function validateChannelSpecs(specs: readonly ChannelSpec[]): void {
     if (seen.has(spec.id)) throw new Error(`Channel id "${spec.id}" is declared twice`);
     seen.add(spec.id);
   }
+  // The platform takes the pattern as millisecond durations —
+  // a negative or non-finite entry is a native exception at
+  // apply time, on a device, with the id long forgotten
+  for (const spec of specs) {
+    const pattern = spec.vibrationPattern;
+    if (pattern === undefined) continue;
+    if (pattern.length === 0 || pattern.some((ms) => !Number.isFinite(ms) || ms < 0)) {
+      throw new Error(`Channel "${spec.id}" vibrationPattern must be non-empty, finite, non-negative milliseconds`);
+    }
+  }
 }
 
 

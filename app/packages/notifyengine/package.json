@@ -1,6 +1,6 @@
 {
   "name": "@knf/notifyengine",
-  "version": "1.0.1",
+  "version": "1.0.3",
   "description": "Headless push-notification engine for React Native / Expo — a permission state machine, a token-to-backend lifecycle with dedupe and rotation, a declarative Android channel registry, tap-to-route intents, per-feature preferences and a data-driven foreground policy, behind injectable transport/device/storage seams. Bring your own backend adapter; ships fakes and a transport conformance suite.",
   "main": "src/index.ts",
   "types": "src/index.ts",

@@ -37,7 +37,10 @@ export interface PrefsLike {
 
 export interface RegisterResultLike {
   ok: boolean;
-  reason?: 'unsupported' | 'permission' | 'network' | 'disabled' | 'superseded';
+  // 'unauthenticated' — the host's gate turned a guest away;
+  // the intent is recorded and a later login claims it, so
+  // the panel reads it like 'network': the switch stays ON
+  reason?: 'unsupported' | 'permission' | 'network' | 'disabled' | 'superseded' | 'unauthenticated';
 }
 
 // The slice of the engine the components actually touch

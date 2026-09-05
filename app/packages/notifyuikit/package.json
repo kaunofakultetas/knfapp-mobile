@@ -1,6 +1,6 @@
 {
   "name": "@knf/notifyuikit",
-  "version": "1.0.1",
+  "version": "1.1.1",
   "description": "Presentational companions to a notification engine: a permission gate that renders by permission state and a settings panel for the master switch, channel toggles and the chat-preview flag. Engine handed in as a prop, every label handed in by the host — no i18n, no navigation, no native modules.",
   "main": "src/index.ts",
   "types": "src/index.ts",

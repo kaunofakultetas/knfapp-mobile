@@ -2,8 +2,9 @@
 //  [*] App — root layout
 //
 //  The provider stack and navigation shell every route mounts
-//  under: crash boundary > gestures > app settings > auth >
-//  network > themed shell. The shell carries the nativewind
+//  under: crash boundary > gestures > app settings > data
+//  engine > auth > network > themed shell. The shell carries
+//  the nativewind
 //  themeVars style, so every className token in the tree
 //  resolves against the active scheme and switching theme is
 //  a single style swap on one View.
@@ -20,7 +21,7 @@
 //
 //  Split into (root component last):
 //
-//    AppNavigation — nav theme, route stack, notification taps
+//    AppNavigation — nav theme, route stack, the notify host
 //    ThemedShell   — theme vars wrapper, font gate, toast host
 //    RootLayout    — the provider stack (default export)
 // -----------------------------------------------------------
@@ -34,7 +35,7 @@ import '../global.css';
 // Navigation shell
 import { ThemeProvider } from "expo-router/react-navigation";
 import { useFonts } from 'expo-font';
-import { router, Stack, useRouter } from 'expo-router';
+import { router, Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
@@ -62,13 +63,9 @@ import { ConfirmHost, toastConfig } from '@/components/ui';
 // Root crashes land in the error trail the crash screen reports
 import { logError } from '@/services/log';
 
-// Notification taps deep-link into the app
-import * as Notifications from 'expo-notifications';
-import {
-  getNotificationData,
-  initNotifications,
-  setupNotificationChannel,
-} from '@/services/notifications';
+// The push engine's root host — tap resolver, channel names,
+// readiness; it needs the router, so it mounts in the stack
+import NotifyEngineHost from '@/components/notify/NotifyEngineHost';
 
 
 // Keep the native splash up over the font gate so cold start
@@ -88,12 +85,15 @@ SplashScreen.preventAutoHideAsync().catch(() => {
 // AppNavigation
 // -----------------------------------------------------------
 //
-// The route stack under the scheme-matched navigation theme.
-// Also owns the WARM notification-tap listener: chat messages
-// open their conversation, news and admin announcements land
-// on the news tab, schedule updates on the schedule tab.
-// Cold-start taps are handled by app/index.tsx, which reads
-// the last notification response inside its startup gate.
+// The route stack under the scheme-matched navigation theme,
+// plus the push engine's host. Notification taps are routed
+// through the one map in services/notifyRouting from two
+// places, neither of them here: warm taps by the resolver the
+// host installs once app/index.tsx has settled the launch
+// decision, the cold-start tap by app/index.tsx itself inside
+// its startup gate. The host sits at this level because the
+// resolver needs the router, which only exists inside the
+// navigation shell.
 //
 // Used by:
 //   - ThemedShell (below)
@@ -101,44 +101,11 @@ SplashScreen.preventAutoHideAsync().catch(() => {
 
 function AppNavigation() {
   const { scheme } = useApp();
-  const router = useRouter();
-
-
-  // Android needs its channel registered before any push can
-  // display; the foreground presentation handler installs here
-  // too, so nothing notification-flavored runs at module load
-  useEffect(() => {
-    initNotifications();
-    setupNotificationChannel();
-
-    const subscription = Notifications.addNotificationResponseReceivedListener(
-      (response) => {
-        const data = getNotificationData(response.notification);
-        if (!data || !data.type) return;
-
-        if ((data.type === 'chat_message' || data.type === 'chat_mention') && data.conversationId) {
-          // Collapse to the messages tab first so repeated taps
-          // reuse one shell and one room instance; the title is
-          // unknown at tap time — the room resolves it itself
-          router.dismissTo('/(main)/tabs/messages');
-          router.push({
-            pathname: '/(main)/chat-room',
-            params: { conversationId: data.conversationId, title: '' },
-          });
-        } else if (data.type === 'news' || data.type === 'admin_announcement') {
-          router.navigate('/(main)/tabs/news');
-        } else if (data.type === 'schedule_update') {
-          router.navigate('/(main)/tabs/schedule');
-        }
-      },
-    );
-
-    return () => subscription.remove();
-  }, [router]);
 
 
   return (
     <ThemeProvider value={navigationThemes[scheme]}>
+      <NotifyEngineHost />
       <Stack>
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="login" options={{ headerShown: false }} />

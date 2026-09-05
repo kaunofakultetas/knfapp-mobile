@@ -10,5 +10,4 @@ export * from './admin';
 export * from './info';
 export * from './uploads';
 export * from './memes';
-export * from './notifications';
 export * from './wayfind';

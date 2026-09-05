@@ -22,9 +22,8 @@
 //    ThemeSetting            — the three-way theme choice
 //    AppSettings             — device-local settings
 //    LoginForm               — login screen field values
-//    ChatReplyRef            — the quoted message of a reply
-//    ChatReaction            — one emoji group on a message
-//    ChatMessage             — the unified UI message shape
+//    Chat model              — @knf/chatengine's message types,
+//                              re-exported under the app's names
 // -----------------------------------------------------------
 
 
@@ -181,7 +180,12 @@ export type ThemeSetting = 'light' | 'dark' | 'system';
 // -----------------------------------------------------------
 //
 // Everything the user can change without an account —
-// persisted to AsyncStorage under 'app_settings'.
+// persisted to AsyncStorage under 'app_settings'. The push
+// master switch is NOT here: it is the notification engine's
+// own 'notify.masterEnabled' key. Blobs written by older app
+// versions still carry a `notifications` boolean; hydration
+// ignores it and services/notifyEngine.ts bridges it into the
+// engine key once.
 //
 // Used by:
 //   - context/AppContext.tsx — reducer state + hydration
@@ -190,7 +194,6 @@ export type ThemeSetting = 'light' | 'dark' | 'system';
 export interface AppSettings {
   language: 'lt' | 'en';
   theme: ThemeSetting;
-  notifications: boolean;
   pinnedTabs: string[];
 }
 

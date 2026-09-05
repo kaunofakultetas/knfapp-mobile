@@ -7,8 +7,10 @@
 //  confirmed state, the three-way merge that reverts only a
 //  failed batch's keys while an in-flight flip keeps its
 //  optimistic value, the guarded channel union, the
-//  client-only master switch, and the chat-preview flag's
-//  optimistic/revert/answer-commit dance.
+//  client-only master switch (hydrated from disk once, never
+//  reverted by a refresh that was already in flight), and the
+//  chat-preview flag's optimistic/revert/answer-commit dance
+//  with its confirmed/reverted verdict.
 // -----------------------------------------------------------
 
 import { createPrefsMachine, type PrefsMachine } from '../prefs';
@@ -19,12 +21,26 @@ const DEBOUNCE_MS = 300;
 
 let machines: PrefsMachine[] = [];
 
-const setup = () => {
+const setup = (seed: Record<string, string> = {}) => {
   const transport = createFakeTransport();
-  const storage = createMemoryStorage();
+  const storage = createMemoryStorage(seed);
   const machine = createPrefsMachine({ transport, storage });
   machines.push(machine);
   return { transport, storage, machine };
+};
+
+// A GET the test releases by hand — the master switch is
+// toggled while it hangs
+const deferredChannels = (transport: ReturnType<typeof createFakeTransport>) => {
+  let resolve!: (state: Record<ChannelKey, boolean>) => void;
+  let reject!: (error: Error) => void;
+  transport.getChannels = () =>
+    new Promise((res, rej) => {
+      transport.calls.push({ method: 'getChannels', payload: null });
+      resolve = res;
+      reject = rej;
+    });
+  return { resolve: (state: Record<ChannelKey, boolean>) => resolve(state), reject: (error: Error) => reject(error) };
 };
 
 const putCalls = (transport: ReturnType<typeof createFakeTransport>) =>
@@ -57,6 +73,62 @@ describe('refresh', () => {
     });
     expect(transport.calls.filter((c) => c.method === 'getChannels')).toHaveLength(1);
     expect(transport.calls.filter((c) => c.method === 'getChatPreview')).toHaveLength(1);
+  });
+
+  it('a master toggle-off while the GET is in flight survives the answer landing', async () => {
+    const { transport, machine } = setup();
+    const gate = deferredChannels(transport);
+
+    const flight = machine.refresh();
+    await jest.advanceTimersByTimeAsync(0);
+    await machine.setMasterEnabled(false);
+    expect(machine.store.get().masterEnabled).toBe(false);
+
+    gate.resolve({ news: false, chat: true, schedule: true, admin: true });
+    await flight;
+
+    expect(machine.store.get()).toEqual({
+      masterEnabled: false,
+      channels: { news: false, chat: true, schedule: true, admin: true },
+      chatPreview: true,
+      syncState: 'fresh',
+    });
+  });
+
+  it('the same toggle survives a GET that FAILS — the error branch never writes the switch either', async () => {
+    const { transport, machine } = setup();
+    const gate = deferredChannels(transport);
+
+    const flight = machine.refresh();
+    await jest.advanceTimersByTimeAsync(0);
+    await machine.setMasterEnabled(false);
+
+    gate.reject(new Error('backend down'));
+    await flight;
+
+    expect(machine.store.get()).toEqual({
+      masterEnabled: false,
+      channels: { news: true, chat: true, schedule: true, admin: true },
+      chatPreview: true,
+      syncState: 'error',
+    });
+  });
+
+  it('the mirror case: a toggle-ON during the GET is not reverted to off', async () => {
+    const { transport, machine } = setup({ 'notify.masterEnabled': '0' });
+    await machine.hydrate();
+    expect(machine.store.get().masterEnabled).toBe(false);
+    const gate = deferredChannels(transport);
+
+    const flight = machine.refresh();
+    await jest.advanceTimersByTimeAsync(0);
+    await machine.setMasterEnabled(true);
+
+    gate.resolve({ news: true, chat: true, schedule: true, admin: true });
+    await flight;
+
+    expect(machine.store.get().masterEnabled).toBe(true);
+    expect(machine.store.get().syncState).toBe('fresh');
   });
 });
 
@@ -197,6 +269,67 @@ describe('master switch (scenario 46)', () => {
 });
 
 
+describe('hydrate — the one disk→snapshot projection', () => {
+  it('a stored "0" lands the snapshot OFF with no wire traffic', async () => {
+    const { transport, machine } = setup({ 'notify.masterEnabled': '0' });
+    expect(machine.store.get().masterEnabled).toBe(true); // the pre-hydrate default
+
+    await machine.hydrate();
+
+    expect(machine.store.get()).toEqual({
+      masterEnabled: false,
+      channels: { news: true, chat: true, schedule: true, admin: true },
+      chatPreview: true,
+      syncState: 'stale',
+    });
+    expect(transport.calls).toEqual([]);
+  });
+
+  it('a stored "1" and an absent key both read ON', async () => {
+    const stored = setup({ 'notify.masterEnabled': '1' });
+    await stored.machine.hydrate();
+    expect(stored.machine.store.get().masterEnabled).toBe(true);
+
+    const fresh = setup();
+    await fresh.machine.hydrate();
+    expect(fresh.machine.store.get().masterEnabled).toBe(true);
+  });
+
+  it('a toggle made while hydrate() is reading the disk wins over the older stored value', async () => {
+    const { storage, machine } = setup({ 'notify.masterEnabled': '1' });
+    // The disk answers only when released — the user taps OFF in
+    // the meantime
+    let release!: (value: string | null) => void;
+    const read = storage.get;
+    storage.get = (key) =>
+      key === 'notify.masterEnabled'
+        ? new Promise<string | null>((resolve) => {
+            release = resolve;
+          })
+        : read(key);
+
+    const hydrating = machine.hydrate();
+    await jest.advanceTimersByTimeAsync(0);
+    await machine.setMasterEnabled(false);
+
+    release('1');
+    await hydrating;
+
+    expect(machine.store.get().masterEnabled).toBe(false);
+    expect(storage.map.get('notify.masterEnabled')).toBe('0');
+  });
+
+  it('a throwing disk leaves the snapshot as it was', async () => {
+    const { storage, machine } = setup({ 'notify.masterEnabled': '0' });
+    storage.failing = true;
+
+    await expect(machine.hydrate()).resolves.toBeUndefined();
+
+    expect(machine.store.get().masterEnabled).toBe(true);
+  });
+});
+
+
 describe('chat preview (scenario 47)', () => {
   it('flips optimistically, then reverts when the transport fails', async () => {
     const { transport, machine } = setup();
@@ -207,14 +340,15 @@ describe('chat preview (scenario 47)', () => {
     const flight = machine.setChatPreview(false);
     expect(machine.store.get().chatPreview).toBe(false); // optimistic
 
-    await flight;
+    // The revert is the caller's verdict too
+    await expect(flight).resolves.toBe(false);
     expect(machine.store.get().chatPreview).toBe(true); // reverted
     expect(transport.calls.filter((c) => c.method === 'putChatPreview')).toEqual([
       { method: 'putChatPreview', payload: false },
     ]);
   });
 
-  it('commits the transport ANSWER on success, not the requested value', async () => {
+  it('commits the transport ANSWER on success, not the requested value — and a disagreeing answer reads false', async () => {
     const { transport, machine } = setup();
     // The server clamps the flag back on — its answer disagrees
     transport.putChatPreview = async (on) => {
@@ -222,11 +356,20 @@ describe('chat preview (scenario 47)', () => {
       return true;
     };
 
-    await machine.setChatPreview(false);
+    await expect(machine.setChatPreview(false)).resolves.toBe(false);
 
     expect(transport.calls.filter((c) => c.method === 'putChatPreview')).toEqual([
       { method: 'putChatPreview', payload: false },
     ]);
     expect(machine.store.get().chatPreview).toBe(true);
+  });
+
+  it('resolves true when the wire confirms the requested value', async () => {
+    const { transport, machine } = setup();
+
+    await expect(machine.setChatPreview(false)).resolves.toBe(true);
+
+    expect(machine.store.get().chatPreview).toBe(false);
+    expect(transport.chatPreview).toBe(false);
   });
 });

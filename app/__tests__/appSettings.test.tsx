@@ -2,16 +2,28 @@
 //  [*] Tests — AppProvider hydration and persistence
 //
 //  Device-local settings rules: a stored blob hydrates (and a
-//  corrupt one is sanitized), a fresh install falls back to
-//  the device language, i18n follows the hydrated language,
-//  and the persist effect is gated until hydration finishes so
+//  corrupt one is sanitized; an old blob's `notifications`
+//  key is simply ignored), a fresh install falls back to the
+//  device language, i18n follows the hydrated language, and
+//  the persist effect is gated until hydration finishes so
 //  mount-time defaults can never clobber the stored record.
+//  Hydration itself writes nothing back — the legacy blob
+//  survives verbatim, `notifications` key included, until the
+//  first real change rewrites it sanitized; that ordering is
+//  what lets services/notifyEngine.ts bridge the old master
+//  switch on startup.
 // -----------------------------------------------------------
+
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { act, renderHook, waitFor } from '@testing-library/react-native';
+
+import { AppProvider, useApp } from '@/context/AppContext';
+
 
 const mockChangeLanguage = jest.fn(async (_language: string) => {});
 
 jest.mock('@react-native-async-storage/async-storage', () =>
-  require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
+  jest.requireActual('@react-native-async-storage/async-storage/jest/async-storage-mock'),
 );
 jest.mock('@/i18n', () => ({
   __esModule: true,
@@ -22,12 +34,6 @@ jest.mock('@/i18n', () => ({
   },
   deviceLanguage: 'en',
 }));
-jest.mock('@/services/notifications', () => ({ setupNotificationChannel: jest.fn(async () => {}) }));
-
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { act, renderHook, waitFor } from '@testing-library/react-native';
-
-import { AppProvider, useApp } from '@/context/AppContext';
 
 
 const renderApp = () => renderHook(() => useApp(), { wrapper: AppProvider });
@@ -58,12 +64,40 @@ describe('AppProvider', () => {
     expect(result.current.language).toBe('en');
     expect(result.current.theme).toBe('dark');
     expect(result.current.scheme).toBe('dark');
-    expect(result.current.notifications).toBe(false);
     // The junk entry is dropped and the hard pins re-imposed
     expect(result.current.pinnedTabs).toEqual(['news', 'messages', 'schedule']);
 
     // i18n follows the hydrated language, not the reducer default
     await waitFor(() => expect(mockChangeLanguage).toHaveBeenCalledWith('en'));
+
+    // Hydration writes NOTHING back: the stored blob keeps its
+    // legacy `notifications` key for the notify bridge to read
+    await act(async () => {});
+    expect(storedBlobs()).toEqual([]);
+    const raw = await AsyncStorage.getItem('app_settings');
+    expect(JSON.parse(raw as string).notifications).toBe(false);
+  });
+
+
+  it('the first real change writes exactly once, sanitized — the legacy key goes with it', async () => {
+    await AsyncStorage.setItem(
+      'app_settings',
+      JSON.stringify({ language: 'en', theme: 'system', notifications: false, pinnedTabs: ['news', 'messages'] }),
+    );
+    (AsyncStorage.setItem as jest.Mock).mockClear();
+
+    const { result } = await renderApp();
+    await waitFor(() => expect(result.current.hydrated).toBe(true));
+    await act(async () => {});
+    expect(storedBlobs()).toEqual([]);
+
+    await act(async () => {
+      result.current.setTheme('dark');
+    });
+
+    await waitFor(() => expect(storedBlobs()).toHaveLength(1));
+    expect(storedBlobs()[0]).toEqual({ language: 'en', theme: 'dark', pinnedTabs: ['news', 'messages'] });
+    expect(storedBlobs()[0]).not.toHaveProperty('notifications');
   });
 
 
@@ -112,8 +146,7 @@ describe('AppProvider', () => {
 
 
 describe('language change side effects', () => {
-  it('switches i18n and re-creates the Android channel under the new name', async () => {
-    const { setupNotificationChannel } = require('@/services/notifications');
+  it('switches i18n to the new language', async () => {
     // Stored 'lt' matches the i18n mock's language, so hydration
     // itself changes nothing — only the later setLanguage does
     await AsyncStorage.setItem(
@@ -128,26 +161,13 @@ describe('language change side effects', () => {
     const { result } = await renderApp();
     await waitFor(() => expect(result.current.hydrated).toBe(true));
     mockChangeLanguage.mockClear();
-    (setupNotificationChannel as jest.Mock).mockClear();
 
     await act(async () => {
       result.current.setLanguage('en');
     });
 
     await waitFor(() => expect(mockChangeLanguage).toHaveBeenCalledWith('en'));
-    // Same channel id, new user-visible name — Android renames in place
-    await waitFor(() => expect(setupNotificationChannel).toHaveBeenCalled());
     const last = storedBlobs().at(-1);
     expect(last?.language).toBe('en');
-  });
-
-  it('persists the notifications master switch', async () => {
-    const { result } = await renderApp();
-    await waitFor(() => expect(result.current.hydrated).toBe(true));
-
-    await act(async () => {
-      result.current.setNotifications(false);
-    });
-    expect(storedBlobs().at(-1)?.notifications).toBe(false);
   });
 });

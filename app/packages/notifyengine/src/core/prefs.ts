@@ -4,7 +4,12 @@
 //  Three layers with three different truths:
 //
 //    master switch — CLIENT truth, one boolean in storage
-//      (absent means enabled); ON re-registers, OFF detaches;
+//      (absent means enabled); ON re-registers, OFF detaches.
+//      hydrate() projects the stored value into the snapshot
+//      once at init, and from then on the SNAPSHOT is the
+//      session's truth — a refresh() never re-reads the disk
+//      for it, so a toggle made while a GET is in flight, or
+//      one the disk failed to record, is never reverted;
 //    channel opt-outs — SERVER truth: flips apply
 //      optimistically, debounce into ONE merged PUT, and the
 //      response's full state becomes the confirmed truth. On
@@ -12,15 +17,17 @@
 //      made while the batch was in flight keeps its optimistic
 //      value (the three-way merge the tests pin);
 //    chat preview — a privacy flag, optimistic with revert,
-//      cache committed only after transport success.
+//      cache committed only after transport success; the
+//      caller learns whether the wire agreed (true) or the
+//      switch snapped back (false).
 //
 //  Unknown channel keys are rejected before any write, by
 //  name — the union mirrors the server's list and garbage
 //  never reaches the wire.
 //
 //  Used by:
-//    - engine.ts — snapshot store + master-switch reader for
-//      the token machine's gates
+//    - engine.ts — snapshot store, hydrate() at init, and the
+//      master-switch reader for the token machine's gates
 // -----------------------------------------------------------
 
 import { createStore, type MutableStore } from './store';
@@ -37,10 +44,11 @@ const ALL_ON: Record<ChannelKey, boolean> = { news: true, chat: true, schedule: 
 
 export interface PrefsMachine {
   store: MutableStore<PrefsSnapshot>;
+  hydrate(): Promise<void>;
   isMasterEnabled(): Promise<boolean>;
   setMasterEnabled(on: boolean): Promise<void>;
   setChannelEnabled(key: ChannelKey, on: boolean): void;
-  setChatPreview(on: boolean): Promise<void>;
+  setChatPreview(on: boolean): Promise<boolean>;
   refresh(): Promise<void>;
   dispose(): void;
 }
@@ -86,13 +94,28 @@ export function createPrefsMachine(deps: {
     }
   };
 
+  // Counts explicit toggles so a hydrate() that started before
+  // one cannot land its older disk value on top of it
+  let masterWrites = 0;
+
   const setMasterEnabled = async (on: boolean): Promise<void> => {
+    masterWrites += 1;
     try {
       await storage.set(MASTER_KEY, on ? '1' : '0');
     } catch {
       // The store still reflects the intent this session
     }
     store.set({ ...store.get(), masterEnabled: on });
+  };
+
+  // The one disk→snapshot projection of the master switch — a
+  // persisted OFF is visible the moment init() resolves, with
+  // no wire round-trip needed
+  const hydrate = async (): Promise<void> => {
+    const writesBefore = masterWrites;
+    const masterEnabled = await isMasterEnabled();
+    if (masterWrites !== writesBefore) return;
+    store.set({ ...store.get(), masterEnabled });
   };
 
 
@@ -143,23 +166,31 @@ export function createPrefsMachine(deps: {
   };
 
 
-  const setChatPreview = async (on: boolean): Promise<void> => {
+  // Resolves true only when the wire agreed with the request —
+  // a revert AND a server that answered the other value both
+  // read false, since either way the switch did not take
+  const setChatPreview = async (on: boolean): Promise<boolean> => {
     const before = store.get().chatPreview;
     store.set({ ...store.get(), chatPreview: on });
     try {
       const confirmedValue = await transport.putChatPreview(on);
       store.set({ ...store.get(), chatPreview: confirmedValue });
+      return confirmedValue === on;
     } catch {
       store.set({ ...store.get(), chatPreview: before });
+      return false;
     }
   };
 
 
+  // Server truth only: channels and the preview flag. The
+  // master switch is never part of the write — the snapshot's
+  // value at commit time IS the session's, and a copy taken
+  // before the GET would revert a toggle made during it
   const refresh = async (): Promise<void> => {
     // Wait out any PUT in flight — its answer is newer truth
     // than whatever this GET is about to fetch
     await wireLock.catch(() => undefined);
-    const masterEnabled = await isMasterEnabled();
     try {
       const [channels, chatPreview] = await Promise.all([transport.getChannels(), transport.getChatPreview()]);
       // Validate shape before trusting — a garbage body must
@@ -170,13 +201,13 @@ export function createPrefsMachine(deps: {
       }
       confirmed = next;
       store.set({
-        masterEnabled,
+        ...store.get(),
         channels: { ...confirmed, ...pending },
         chatPreview: typeof chatPreview === 'boolean' ? chatPreview : store.get().chatPreview,
         syncState: Object.keys(pending).length === 0 ? 'fresh' : 'stale',
       });
     } catch {
-      store.set({ ...store.get(), masterEnabled, syncState: 'error' });
+      store.set({ ...store.get(), syncState: 'error' });
     }
   };
 
@@ -187,5 +218,5 @@ export function createPrefsMachine(deps: {
     }
   };
 
-  return { store, isMasterEnabled, setMasterEnabled, setChannelEnabled, setChatPreview, refresh, dispose };
+  return { store, hydrate, isMasterEnabled, setMasterEnabled, setChannelEnabled, setChatPreview, refresh, dispose };
 }

@@ -6,11 +6,15 @@
 //  leans on. init() is IDEMPOTENT — called twice it installs
 //  ONE foreground handler and ONE set of listeners (the
 //  fast-refresh double-mount is a named production hazard),
-//  and it reconciles rather than trusts: re-poll permission,
-//  re-apply the channel registry, re-register when the stored
-//  tuple's TTL lapsed. dispose() removes every listener the
-//  engine installed; events after dispose are dropped, never
-//  thrown into dead handlers.
+//  and it reconciles rather than trusts: seed the master
+//  switch from storage, re-poll permission, re-register when
+//  the stored tuple's TTL lapsed (the channel registry is
+//  re-applied by the host, whose i18n owns the names).
+//  dispose() removes every listener the engine installed;
+//  events after dispose are dropped, never thrown into dead
+//  handlers. The host's optional canRegister gate rides into
+//  the token machine: a guest's register() is a pure typed
+//  'unauthenticated', nothing stored, nothing on the wire.
 //
 //  Used by:
 //    - hosts: createNotifyEngine(config) once, near the root
@@ -53,6 +57,11 @@ export interface NotifyEngineConfig {
   channels: ChannelSpec[];
   presentation: PresentationPolicy;
   language: () => Language;
+  // Consulted by every register() right after runtime support
+  // and BEFORE the master switch: false → {ok:false,
+  // reason:'unauthenticated'} with zero store writes. Absent
+  // means always allowed
+  canRegister?: () => boolean | Promise<boolean>;
   now?: () => number;
   onError?: (scope: string, error: unknown) => void;
 }
@@ -71,7 +80,9 @@ export interface NotifyEngine {
   readonly prefs: StateStore<PrefsSnapshot>;
   setMasterEnabled(on: boolean): Promise<RegisterResult | void>;
   setChannelEnabled(key: ChannelKey, on: boolean): void;
-  setChatPreview(on: boolean): Promise<void>;
+  // true when the wire agreed with the request, false when the
+  // flag snapped back
+  setChatPreview(on: boolean): Promise<boolean>;
   refreshPrefs(): Promise<void>;
 
   applyChannels(names: Record<string, string>): Promise<void>;
@@ -104,6 +115,7 @@ export function createNotifyEngine(config: NotifyEngineConfig): NotifyEngine {
     storage: config.storage,
     language: config.language,
     canDeliver: () => permission.store.get().canDeliver,
+    canRegister: config.canRegister ?? (() => true),
     isMasterEnabled: prefs.isMasterEnabled,
     now,
   });
@@ -154,11 +166,15 @@ export function createNotifyEngine(config: NotifyEngineConfig): NotifyEngine {
     );
     subscriptions.push(config.device.onHandleError((error) => report('foreground', error)));
 
-    // Reconcile, never trust: current permission, registry
-    // re-applied by the host's applyChannels call (names live
-    // there), and a TTL re-register when the tuple went stale.
-    // Every await re-checks disposed — a teardown racing this
-    // tail must not trigger a post-mortem POST
+    // Reconcile, never trust: the master switch seeded from
+    // storage (a persisted OFF must be visible without a wire
+    // round-trip), current permission, registry re-applied by
+    // the host's applyChannels call (names live there), and a
+    // TTL re-register when the tuple went stale. Every await
+    // re-checks disposed — a teardown racing this tail must
+    // not trigger a post-mortem POST
+    await prefs.hydrate();
+    if (disposed) return;
     await permission.poll();
     if (disposed) return;
     try {

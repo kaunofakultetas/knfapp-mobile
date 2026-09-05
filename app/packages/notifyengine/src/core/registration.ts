@@ -9,6 +9,11 @@
 //                        failed(reason)  detached ◀─detach()
 //
 //  The hard-won rules, each pinned by a test:
+//    - the pre-flight gates (runtime support, the host's
+//      canRegister, the master switch, permission) answer a
+//      pure typed rejection with ZERO store writes — a guest
+//      or a master-off user bouncing off them keeps whatever
+//      phase they had, 'detached' included;
 //    - concurrent register() calls COALESCE into one attempt;
 //      a NEWER call supersedes — the older resolves
 //      {ok:false,'superseded'} and a generation counter makes
@@ -88,10 +93,13 @@ export function createRegistrationMachine(deps: {
   storage: KeyValueStorage;
   language: () => Language;
   canDeliver: () => boolean;
+  // The host's session gate — false means nobody is signed in
+  // to claim the token; the attempt rejects 'unauthenticated'
+  canRegister: () => boolean | Promise<boolean>;
   isMasterEnabled: () => Promise<boolean>;
   now: () => number;
 }): RegistrationMachine {
-  const { device, transport, storage, language, canDeliver, isMasterEnabled, now } = deps;
+  const { device, transport, storage, language, canDeliver, canRegister, isMasterEnabled, now } = deps;
 
   const store = createStore<RegistrationSnapshot>(IDLE);
 
@@ -116,6 +124,16 @@ export function createRegistrationMachine(deps: {
   // result, zero store writes — a background lane bouncing off
   // the master switch must not stamp 'failed' over 'detached'
   const reject = (reason: RegisterFailure['reason']): RegisterFailure => ({ ok: false, reason });
+
+  // Fails CLOSED: a session the host cannot vouch for must not
+  // claim a token — the backend would orphan or refuse it anyway
+  const sessionAllows = async (): Promise<boolean> => {
+    try {
+      return await canRegister();
+    } catch {
+      return false;
+    }
+  };
 
   const readTuple = async (): Promise<StoredTuple | null> => {
     try {
@@ -146,9 +164,12 @@ export function createRegistrationMachine(deps: {
     if (gen !== generation) return { ok: false, reason: 'superseded' };
 
     // STEP 1: the gates — typed failures, never throws, and
-    // NEVER store writes: nothing has started yet
+    // NEVER store writes: nothing has started yet. The session
+    // gate sits BEFORE the master switch: a guest's master-ON
+    // records intent for the login that will claim the token
     // =====================================================
     if (!device.supportsRemotePush()) return reject('unsupported');
+    if (!(await sessionAllows())) return reject('unauthenticated');
     if (!(await isMasterEnabled())) return reject('disabled');
     if (!canDeliver()) return reject('permission');
     if (gen !== generation) return reject('superseded');

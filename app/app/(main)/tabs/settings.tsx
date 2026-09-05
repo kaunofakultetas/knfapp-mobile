@@ -7,41 +7,49 @@
 //  button, the backend notification-channel switches and the
 //  admin link (admin/curator roles only).
 //
-//  Channel switches are optimistic and debounced: every flip
-//  lands in a pending ref and ONE merged request goes out
-//  after the flush delay, so two different switches flipped
-//  back to back both reach the backend (the old per-channel
-//  payload dropped the first one). A failed save reverts only
-//  the channels of the failed batch and toasts; a batch still
-//  pending on unmount is flushed as a fire-and-forget request.
-//  A failed LOAD never masquerades as server state — the
-//  switches stay locked behind a compact retry row until a
-//  real GET succeeds.
+//  The notification block is the kit's: PermissionGate decides
+//  whether the OS lets us deliver at all (prompt card, open-
+//  settings card, or the honest "no push here" note), and
+//  NotifySettingsPanel renders the master switch, the four
+//  channel rows and the chat-preview flag straight off the
+//  engine's prefs store. Debounced saves, batch rollback and
+//  the guest gate (a signed-out master-ON records the intent,
+//  answers 'unauthenticated' and never touches the wire —
+//  login claims the token) are the engine's; the master-ON
+//  snap-back is the kit's. This screen adds only what neither
+//  can know: whether there is an account to read server truth
+//  from (guests see the master row alone), whether THIS
+//  screen's own read of that truth has landed (rows stay
+//  locked behind a retry row until it does — the prefs store
+//  is a process-wide singleton, so a 'fresh' left behind by
+//  the previous account must never unlock the next account's
+//  rows), and the app's toasts.
 //
-//  The push master switch awaits the token registration and
-//  snaps back OFF with a toast when the OS denies permission
-//  (or the platform has no push at all). Turning it off calls
-//  the unregister helper, which no-ops unless a token was
-//  actually registered this session.
+//  The kit is structural and owns no strings, so the toasts
+//  ride on a FACADE over the engine: the panel and the reset
+//  talk to the facade, which forwards every call and speaks
+//  where the engine is silent — a master-ON that failed on the
+//  wire (toast.networkError, switch left ON: the intent is
+//  stored and the next register re-asserts it) and a chat-
+//  preview save the engine reverted (channelUpdateError).
 //
 //  Reset restores device-local defaults only — the backend
 //  channel switches are account state and stay. Because the
-//  defaults turn the push master switch back on, reset also
-//  performs the toggle's registration side effect (and snaps
-//  back off on failure). The language re-sync after reset
-//  happens inside AppContext (its i18n effect follows the
-//  language setting), not here.
+//  defaults mean push ON, reset also flips the engine's master
+//  switch back on (and snaps it off again, with the reason,
+//  when delivery is impossible). The language re-sync after
+//  reset happens inside AppContext (its i18n effect follows
+//  the language setting), not here.
 //
 //  Split into (root component last):
 //
-//    DEFAULT_CHANNELS — switch state before the backend answers
-//    CHANNEL_META     — per-channel icon + i18n keys
-//    SegmentedControl — theme / language option pills
-//    SwitchRow        — icon + label + themed Switch row
-//    LinkRow          — chevron navigation row
-//    UserCard         — avatar + identity + logout
-//    GuestCard        — login prompt for guests
-//    SettingsScreen   — the tab itself (default export)
+//    SegmentedControl  — theme / language option pills
+//    LinkRow           — chevron navigation row
+//    ChannelsRetryRow  — the failed-load row with Try again
+//    UserCard          — avatar + identity + logout
+//    GuestCard         — login prompt for guests
+//    useChannelsSync   — per-session server-truth read + latch
+//    SettingsScreen    — the tab itself (default export)
 // -----------------------------------------------------------
 
 // Device-local settings and the session
@@ -49,21 +57,14 @@ import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { showToast } from '@/context/NetworkContext';
 
-// Backend channel switches and push token plumbing; the
-// resolved base URL renders in the footer so a misconfigured
-// build is distinguishable from being offline
-import {
-  API_BASE_URL,
-  fetchChatPreview,
-  fetchNotificationChannels,
-  updateChatPreview,
-  updateNotificationChannels,
-  type NotificationChannel,
-} from '@/services/api';
-import {
-  registerForPushNotifications,
-  unregisterPushNotifications,
-} from '@/services/notifications';
+// The resolved base URL renders in the footer so a
+// misconfigured build is distinguishable from being offline
+import { API_BASE_URL } from '@/services/api';
+
+// The one engine: permission, master switch and server truth
+// all read from its stores; readyNotifyEngine gates the first
+// read behind the legacy master-switch migration
+import { notifyEngine, readyNotifyEngine } from '@/services/notifyEngine';
 
 // UI kit and JS-side colors
 import {
@@ -84,31 +85,23 @@ import { useReturnHref } from '@/hooks/useReturnHref';
 // Icons, navigation, i18n and primitives
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  Pressable,
-  ScrollView,
-  Switch,
-  Text,
-  View,
-} from 'react-native';
+import { Linking, Pressable, ScrollView, Text, View } from 'react-native';
 
 // The session user shown on the account card
 import type { User } from '@/types';
 
+import {
+  NotifySettingsPanel,
+  PermissionGate,
+  useStoreValue,
+  type NotifyColors,
+  type NotifySettingsIcons,
+  type NotifySettingsLabels,
+  type PermissionGateLabels,
+} from '@knf/notifyuikit';
 
-// Everything on until the backend says otherwise — matches the
-// backend's own default for a fresh account
-const DEFAULT_CHANNELS: Record<NotificationChannel, boolean> = {
-  news: true,
-  chat: true,
-  schedule: true,
-  admin: true,
-};
-
-// Debounce window for merging rapid channel flips into one save
-const CHANNEL_FLUSH_DELAY_MS = 300;
 
 // One selectable pill of a SegmentedControl; a11yLabel lets a
 // terse visible label ("LT") announce as its full language name
@@ -118,16 +111,6 @@ interface SegmentedOption<T extends string> {
   a11yLabel?: string;
 }
 
-interface SwitchRowProps {
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  description?: string;
-  value: boolean;
-  disabled?: boolean;
-  onToggle: (value: boolean) => void;
-  divider?: boolean;
-}
-
 interface LinkRowProps {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
@@ -135,55 +118,17 @@ interface LinkRowProps {
   divider?: boolean;
 }
 
+// The reasons a master-ON cannot be honoured — each has its
+// own toast, shared by the panel's onBlocked and the reset
+type BlockedReason = 'permission' | 'unsupported';
 
-
-
-
-
-
-// -----------------------------------------------------------
-// CHANNEL_META
-// -----------------------------------------------------------
-//
-// Display metadata for the four backend notification channels.
-// The keys MUST match the api layer's NotificationChannel —
-// the switch state and the save payloads are keyed by them.
-//
-// Used by:
-//   - SettingsScreen (below) — the channel switch list
-// -----------------------------------------------------------
-
-const CHANNEL_META: {
-  key: NotificationChannel;
-  icon: keyof typeof Ionicons.glyphMap;
-  labelKey: string;
-  descKey: string;
-}[] = [
-  {
-    key: 'news',
-    icon: 'newspaper-outline',
-    labelKey: 'settings.channelNews',
-    descKey: 'settings.channelNewsDesc',
-  },
-  {
-    key: 'chat',
-    icon: 'chatbubble-outline',
-    labelKey: 'settings.channelChat',
-    descKey: 'settings.channelChatDesc',
-  },
-  {
-    key: 'schedule',
-    icon: 'calendar-outline',
-    labelKey: 'settings.channelSchedule',
-    descKey: 'settings.channelScheduleDesc',
-  },
-  {
-    key: 'admin',
-    icon: 'megaphone-outline',
-    labelKey: 'settings.channelAdmin',
-    descKey: 'settings.channelAdminDesc',
-  },
-];
+// The channel-row latch: the session it belongs to, the
+// generation its reads are stamped with, and whether one landed
+interface ChannelsLatch {
+  session: boolean;
+  generation: number;
+  loaded: boolean;
+}
 
 
 
@@ -269,75 +214,6 @@ function SegmentedControl<T extends string>({
 
 
 // -----------------------------------------------------------
-// SwitchRow
-// -----------------------------------------------------------
-//
-// Icon + label (+ optional description) with a themed Switch:
-// track brand-soft/line, thumb brand/surface, all from the
-// active palette so the row reads correctly in dark mode.
-//
-// Used by:
-//   - SettingsScreen (below) — the push master switch and the
-//     four channel switches
-// -----------------------------------------------------------
-
-function SwitchRow({
-  icon,
-  label,
-  description,
-  value,
-  disabled = false,
-  onToggle,
-  divider = false,
-}: SwitchRowProps) {
-
-  const { colors } = useTheme();
-
-
-  return (
-    <View
-      className={
-        divider
-          ? 'flex-row items-center gap-sm border-b border-line px-md py-md'
-          : 'flex-row items-center gap-sm px-md py-md'
-      }
-    >
-
-      <Ionicons name={icon} size={20} color={colors.brand} />
-
-      <View className="mr-sm flex-1">
-        <Text className="font-raleway-medium text-base text-ink">{label}</Text>
-        {description ? (
-          <Text className="mt-xs font-raleway text-xs leading-4 text-ink-soft">
-            {description}
-          </Text>
-        ) : null}
-      </View>
-
-      <Switch
-        value={value}
-        onValueChange={onToggle}
-        disabled={disabled}
-        trackColor={{ false: colors.line, true: colors.brandSoft }}
-        thumbColor={value ? colors.brand : colors.surface}
-        // react-native-web ignores thumbColor for the ON state and
-        // paints its own teal unless activeThumbColor is given
-        {...({ activeThumbColor: colors.brand } as Record<string, unknown>)}
-        accessibilityRole="switch"
-        accessibilityLabel={label}
-        accessibilityState={{ checked: value, disabled }}
-      />
-    </View>
-  );
-}
-
-
-
-
-
-
-
-// -----------------------------------------------------------
 // LinkRow
 // -----------------------------------------------------------
 //
@@ -370,6 +246,54 @@ function LinkRow({ icon, label, onPress, divider = false }: LinkRowProps) {
       <Ionicons name={icon} size={20} color={colors.brand} />
       <Text className="flex-1 font-raleway-medium text-base text-ink">{label}</Text>
       <Ionicons name="chevron-forward" size={18} color={colors.inkFaint} />
+    </Pressable>
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ChannelsRetryRow
+// -----------------------------------------------------------
+//
+// The compact row shown when the first server read of the
+// channel switches failed: the engine's defaults are
+// placeholders, never server truth, so instead of four
+// confident switches the user gets the reason and a Try again.
+// The whole row is the button — the label is what a screen
+// reader announces.
+//
+// Used by:
+//   - SettingsScreen (below) — above the locked panel
+// -----------------------------------------------------------
+
+function ChannelsRetryRow({ onRetry }: { onRetry: () => void }) {
+
+  const { t } = useTranslation();
+  const { colors } = useTheme();
+
+
+  return (
+    <Pressable
+      onPress={onRetry}
+      accessibilityRole="button"
+      accessibilityLabel={t('common.tryAgain')}
+      className="flex-row items-center gap-sm border-b border-line px-md py-md"
+      style={({ pressed }) =>
+        pressed ? { backgroundColor: colors.surfaceSoft } : undefined
+      }
+    >
+      <Ionicons name="cloud-offline-outline" size={20} color={colors.inkSoft} />
+      <Text className="flex-1 font-raleway text-sm text-ink-soft">
+        {t('settings.channelsLoadError')}
+      </Text>
+      <Text className="font-raleway-semibold text-sm text-brand">
+        {t('common.tryAgain')}
+      </Text>
     </Pressable>
   );
 }
@@ -502,6 +426,104 @@ function GuestCard() {
 
 
 // -----------------------------------------------------------
+// useChannelsSync
+// -----------------------------------------------------------
+//
+//   const channels = useChannelsSync(isAuthenticated)
+//     channels.loaded — a read THIS hook started landed without
+//                       error this session; sticky, because a
+//                       later failed save or a failed pull must
+//                       not re-lock rows that already show truth
+//     channels.failed — nothing loaded yet and the store's last
+//                       read errored; the retry row's cue
+//     channels.read() — one awaited server read that latches
+//                       `loaded` when it lands; the hook fires
+//                       it on sign-in, the screen on retry and
+//                       pull-to-refresh
+//
+// The engine's prefs store is a process-wide singleton and its
+// syncState a live signal ('fresh' / 'stale' / 'flushing' /
+// 'error'), not a "has ever loaded" flag — so the latch lives
+// here and answers to reads this hook started, never to the
+// store's current value: a 'fresh' left behind by the previous
+// account would otherwise unlock rows showing that account's
+// switches. Every read is stamped with the generation it
+// started in and a session flip bumps the generation, so an
+// answer that lands after a sign-out is dropped. The flip is
+// handled in the render phase (compare-with-previous), so no
+// frame ever paints unlocked rows across a session change.
+//
+// Used by:
+//   - SettingsScreen (below) — channelsLocked, the retry row
+//     and pull-to-refresh
+// -----------------------------------------------------------
+
+function useChannelsSync(isAuthenticated: boolean): {
+  loaded: boolean;
+  failed: boolean;
+  read: () => Promise<void>;
+} {
+
+  const { syncState } = useStoreValue(notifyEngine.prefs);
+  const [latch, setLatch] = useState<ChannelsLatch>({
+    session: isAuthenticated,
+    generation: 0,
+    loaded: false,
+  });
+
+
+  // A session flip — either direction — starts locked again
+  // and moves the generation on, so a read still in flight for
+  // the old session can never unlock the new one
+  if (latch.session !== isAuthenticated) {
+    setLatch({ session: isAuthenticated, generation: latch.generation + 1, loaded: false });
+  }
+
+
+  // Server truth, read behind the engine's readiness: the
+  // legacy master-switch migration has to land before this
+  // read snapshots the master key, or a user who opted out in
+  // the old version sees the switch ON. refreshPrefs never
+  // rejects — a failed GET lands as syncState 'error', and a
+  // read that errored leaves the rows locked. A promise chain
+  // rather than async/await: the latch closes inside the
+  // continuation, so the effect below calls no setState itself
+  const generation = latch.generation;
+  const read = useCallback(
+    () =>
+      readyNotifyEngine()
+        .then(() => notifyEngine.refreshPrefs())
+        .then(() => {
+          if (notifyEngine.prefs.get().syncState === 'error') return;
+          setLatch((previous) =>
+            previous.generation === generation && !previous.loaded ? { ...previous, loaded: true } : previous,
+          );
+        }),
+    [generation],
+  );
+
+
+  // Channel switches are account state — read them once per
+  // session. `read` changes identity exactly when the
+  // generation does, so this fires once per sign-in, never on
+  // the latch closing
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    void read();
+  }, [isAuthenticated, read]);
+
+
+  const loaded = latch.session === isAuthenticated && latch.loaded;
+  return { loaded, failed: isAuthenticated && !loaded && syncState === 'error', read };
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // SettingsScreen (default export)
 // -----------------------------------------------------------
 //
@@ -511,178 +533,104 @@ function GuestCard() {
 
 export default function SettingsScreen() {
 
-  const { theme, language, notifications, setTheme, setLanguage, setNotifications, resetSettings } = useApp();
+  const { theme, language, setTheme, setLanguage, resetSettings } = useApp();
   const { isAuthenticated, user, logout, loggingOut } = useAuth();
   const { colors } = useTheme();
   const { t } = useTranslation();
   const router = useRouter();
-
-
-  // Optimistic switch state plus two refs the debounce needs:
-  // the last server-confirmed map (the revert baseline) and
-  // the pending flips not yet sent
-  const [channels, setChannels] =
-    useState<Record<NotificationChannel, boolean>>(DEFAULT_CHANNELS);
-  const [channelsLoaded, setChannelsLoaded] = useState(false);
-  const [channelsError, setChannelsError] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [chatPreview, setChatPreview] = useState(true);
-  const [chatPreviewLoaded, setChatPreviewLoaded] = useState(false);
-  const confirmedRef = useRef<Record<NotificationChannel, boolean>>(DEFAULT_CHANNELS);
-  const pendingRef = useRef<Partial<Record<NotificationChannel, boolean>>>({});
-  const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const mounted = useRef(true);
+  const channels = useChannelsSync(isAuthenticated);
 
 
-  // Stable so the load effect can depend on it; server truth
-  // wins over local state except for flips still pending. The
-  // preview flag rides the same load: one failure, one retry row
-  const loadChannels = useCallback(async () => {
-    const [res, preview] = await Promise.all([
-      fetchNotificationChannels(),
-      fetchChatPreview(),
-    ]);
-    confirmedRef.current = res.channels;
-    if (mounted.current) {
-      setChannels({ ...res.channels, ...pendingRef.current });
-      setChannelsLoaded(true);
-      setChannelsError(false);
-      setChatPreview(preview.enabled);
-      setChatPreviewLoaded(true);
-    }
-  }, []);
+  // The kit paints from tokens, not classNames — hand it the
+  // active palette so the rows follow the theme like the rest
+  const kitColors: NotifyColors = {
+    ink: colors.ink,
+    inkSoft: colors.inkSoft,
+    line: colors.line,
+    brand: colors.brand,
+    surface: colors.surface,
+  };
 
+  const gateLabels: PermissionGateLabels = {
+    promptTitle: t('settings.pushPromptTitle'),
+    promptBody: t('settings.pushPromptBody'),
+    promptButton: t('settings.pushPromptButton'),
+    blockedTitle: t('settings.pushBlockedTitle'),
+    blockedBody: t('settings.pushBlockedBody'),
+    blockedButton: t('settings.pushBlockedButton'),
+    unsupportedBody: t('settings.pushUnsupported'),
+  };
 
-  // The retry row under a failed load — same GET, same locks
-  const retryChannels = () => {
-    setChannelsError(false);
-    loadChannels().catch(() => {
-      if (mounted.current) setChannelsError(true);
-    });
+  const panelLabels: NotifySettingsLabels = {
+    master: t('settings.pushNotifications'),
+    masterHint: t('settings.pushNotificationsDesc'),
+    channels: {
+      news: t('settings.channelNews'),
+      chat: t('settings.channelChat'),
+      schedule: t('settings.channelSchedule'),
+      admin: t('settings.channelAdmin'),
+    },
+    chatPreview: t('settings.chatPreview'),
+    // Privacy, not a subscription: with this off the push says
+    // only "Nauja žinutė" and the message text never leaves
+    chatPreviewHint: t('settings.chatPreviewDesc'),
+  };
+
+  const channelHints = {
+    news: t('settings.channelNewsDesc'),
+    chat: t('settings.channelChatDesc'),
+    schedule: t('settings.channelScheduleDesc'),
+    admin: t('settings.channelAdminDesc'),
+  };
+
+  const panelIcons: NotifySettingsIcons = {
+    master: <Ionicons name="notifications-outline" size={20} color={colors.inkSoft} />,
+    news: <Ionicons name="newspaper-outline" size={20} color={colors.inkSoft} />,
+    chat: <Ionicons name="chatbubble-outline" size={20} color={colors.inkSoft} />,
+    schedule: <Ionicons name="calendar-outline" size={20} color={colors.inkSoft} />,
+    admin: <Ionicons name="megaphone-outline" size={20} color={colors.inkSoft} />,
+    chatPreview: <Ionicons name="eye-off-outline" size={20} color={colors.inkSoft} />,
   };
 
 
-  // Send ONE merged request for everything toggled inside the
-  // debounce window — a per-channel payload used to silently
-  // drop the first flip when two switches changed back to back
-  const flushChannels = () => {
-    const batch = pendingRef.current;
-    if (Object.keys(batch).length === 0) return;
-    pendingRef.current = {};
+  // Delivery is impossible for a reason the engine reported —
+  // the switch already snapped back, this is the explanation
+  const toastBlocked = (reason: BlockedReason) =>
+    showToast('error', t(reason === 'unsupported' ? 'settings.pushUnsupported' : 'settings.pushPermissionDenied'));
 
-    updateNotificationChannels(batch)
-      .then((res) => {
-        confirmedRef.current = res.channels;
-        if (mounted.current) {
-          setChannels({ ...res.channels, ...pendingRef.current });
+
+  // The engine the kit and the reset talk to is a FACADE over
+  // the real one: the kit is structural and owns no strings, so
+  // the toasts the engine cannot speak are added here, on the
+  // two calls whose failures the panel keeps quiet about. A
+  // master-ON that failed on the wire → toast.networkError with
+  // the switch left ON (the intent is stored; the next register
+  // re-asserts it) — never for 'unauthenticated', a guest
+  // recording the intent is exactly right, and never for the
+  // reasons the panel hands back through onBlocked. A chat-
+  // preview save the engine reverted → channelUpdateError,
+  // because the row merely snaps back. Everything else forwards
+  // untouched, and the stores are the same objects, so the
+  // kit's subscriptions still watch the real engine
+  const panelEngine = useMemo(
+    () => ({
+      ...notifyEngine,
+      setMasterEnabled: async (on: boolean) => {
+        const result = await notifyEngine.setMasterEnabled(on);
+        if (on && result && !result.ok && result.reason === 'network') {
+          showToast('error', t('toast.networkError'));
         }
-      })
-      .catch(() => {
-        if (!mounted.current) return;
-        // Revert ONLY the failed batch — a flip that became
-        // pending during the request keeps its optimistic value
-        setChannels((prev) => {
-          const next = { ...prev };
-          (Object.keys(batch) as NotificationChannel[]).forEach((key) => {
-            if (!(key in pendingRef.current)) next[key] = confirmedRef.current[key];
-          });
-          return next;
-        });
-        showToast('error', t('settings.channelUpdateError'));
-      });
-  };
-
-
-  // Flip optimistically, record the pending value, restart the
-  // debounce — the timer always flushes the MERGED batch
-  const handleToggleChannel = (channel: NotificationChannel, value: boolean) => {
-    setChannels((prev) => ({ ...prev, [channel]: value }));
-    pendingRef.current[channel] = value;
-    if (flushTimer.current) clearTimeout(flushTimer.current);
-    flushTimer.current = setTimeout(flushChannels, CHANNEL_FLUSH_DELAY_MS);
-  };
-
-
-  // The preview toggle: optimistic flip, server answer wins,
-  // failure reverts with the shared save-error toast
-  const handleToggleChatPreview = (value: boolean) => {
-    setChatPreview(value);
-    updateChatPreview(value)
-      .then((res) => {
-        if (mounted.current) setChatPreview(res.enabled);
-      })
-      .catch(() => {
-        if (!mounted.current) return;
-        setChatPreview(!value);
-        showToast('error', t('settings.channelUpdateError'));
-      });
-  };
-
-
-  // registerForPushNotifications historically returned a bare
-  // boolean; the discriminated { ok, reason } result supersedes
-  // it — both shapes are accepted here so the service half can
-  // land independently. Returns whether the switch may stay ON:
-  // a transient network failure keeps it on (the token registers
-  // later), denied permission / unsupported platform snap it off
-  // with their own message.
-  const applyRegisterResult = (result: unknown): boolean => {
-    const asObject =
-      typeof result === 'object' && result !== null
-        ? (result as { ok?: boolean; reason?: string })
-        : null;
-    const ok = asObject ? asObject.ok === true : result === true;
-    if (ok) return true;
-
-    const reason = asObject?.reason;
-    if (reason === 'network' || reason === 'failed') {
-      showToast('error', t('toast.networkError'));
-      return true;
-    }
-    if (reason === 'unsupported') {
-      showToast('error', t('settings.pushUnsupported'));
-    } else {
-      showToast('error', t('settings.pushPermissionDenied'));
-    }
-    return false;
-  };
-
-
-  // Master switch: ON awaits token registration and snaps back
-  // OFF when the OS denies permission (or the platform has no
-  // push); guests only store the preference — login registers.
-  // OFF unregisters, a no-op unless a token was registered.
-  // setNotifications persists the flag, which the notification
-  // service re-checks so nothing can re-register it unasked.
-  const handleToggleNotifications = async (value: boolean) => {
-    setNotifications(value);
-
-    if (!value) {
-      await unregisterPushNotifications();
-      return;
-    }
-
-    if (!isAuthenticated) return;
-
-    const result: unknown = await registerForPushNotifications();
-    if (!applyRegisterResult(result) && mounted.current) {
-      setNotifications(false);
-    }
-  };
-
-
-  // A language switch re-registers the push token so the
-  // server-stored copy language never goes stale; deferred a
-  // tick so AppContext's i18n effect applies the new language
-  // first. Best-effort — the register no-ops without a token.
-  const handleLanguageChange = (next: 'lt' | 'en') => {
-    setLanguage(next);
-    if (isAuthenticated && notifications) {
-      setTimeout(() => {
-        void registerForPushNotifications();
-      }, 0);
-    }
-  };
+        return result;
+      },
+      setChatPreview: async (on: boolean) => {
+        if (!(await notifyEngine.setChatPreview(on))) {
+          showToast('error', t('settings.channelUpdateError'));
+        }
+      },
+    }),
+    [t],
+  );
 
 
   // Alert.alert is a no-op on web — confirmAction covers both.
@@ -705,9 +653,13 @@ export default function SettingsScreen() {
 
   // Device-local defaults only (tab bar included); AppContext
   // re-syncs i18n when the language snaps back to Lithuanian.
-  // The defaults flip the push master switch back ON, so the
-  // reset performs the toggle's registration side effect too —
-  // otherwise the switch would claim push without a token.
+  // Defaults mean push ON, so the reset re-enables the engine's
+  // master switch through the facade — which registers, or for
+  // a guest records the intent and never touches the wire — and
+  // snaps it back OFF with the reason when the OS denies or the
+  // platform has no push, exactly as the panel's own toggle
+  // would. No account guard here: the engine's gate is the one
+  // truth about who may register
   const handleReset = async () => {
     const confirmed = await confirmAction({
       title: t('settings.resetDefaults'),
@@ -716,70 +668,49 @@ export default function SettingsScreen() {
       cancelLabel: t('common.cancel'),
     });
     if (!confirmed) return;
-    const pushWasOn = notifications;
     resetSettings();
     showToast('success', t('settings.resetDone'));
 
-    if (!pushWasOn && isAuthenticated) {
-      const result: unknown = await registerForPushNotifications();
-      if (!applyRegisterResult(result) && mounted.current) {
-        setNotifications(false);
-      }
+    if (notifyEngine.prefs.get().masterEnabled) return;
+    const result = await panelEngine.setMasterEnabled(true);
+    if (result && !result.ok && (result.reason === 'permission' || result.reason === 'unsupported')) {
+      await panelEngine.setMasterEnabled(false);
+      toastBlocked(result.reason);
     }
   };
 
 
   // Pull-to-refresh re-reads the backend switches; for guests
-  // there is no server state, so the pull just retracts
+  // there is no server state, so the pull just retracts. A read
+  // that fails is a failed READ, so it gets the generic toast,
+  // never the failed-save one
   const handleRefresh = async () => {
     if (!isAuthenticated) return;
     setRefreshing(true);
     try {
-      await loadChannels();
-    } catch {
-      showToast('error', t('toast.genericError'));
+      await channels.read();
+      if (notifyEngine.prefs.get().syncState === 'error') {
+        showToast('error', t('toast.genericError'));
+      }
     } finally {
-      if (mounted.current) setRefreshing(false);
+      setRefreshing(false);
     }
   };
 
 
-  // Channel switches are account state — (re)load per session;
-  // logged out, everything snaps back to the defaults
+  // The engine reverts a failed channel save by itself but
+  // says nothing — the row would just snap back. A failed save
+  // is the ONE transition that passes through 'flushing' (a
+  // failed read never does), so that edge carries the toast
   useEffect(() => {
-    if (!isAuthenticated) {
-      pendingRef.current = {};
-      confirmedRef.current = DEFAULT_CHANNELS;
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- the logout is the event: switches and their ref mirrors snap to defaults as one
-      setChannels(DEFAULT_CHANNELS);
-      setChannelsLoaded(false);
-      setChannelsError(false);
-      return;
-    }
-    loadChannels().catch(() => {
-      // DEFAULT_CHANNELS are placeholders, never server truth —
-      // the switches stay locked behind the retry row until a
-      // real GET succeeds
-      if (mounted.current) setChannelsError(true);
-    });
-  }, [isAuthenticated, loadChannels]);
-
-
-  // Flush-on-unmount: the merged pending batch must not die
-  // with the screen; reverts are pointless by then, so the
-  // request goes out fire-and-forget
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-      if (flushTimer.current) clearTimeout(flushTimer.current);
-      const batch = pendingRef.current;
-      pendingRef.current = {};
-      if (Object.keys(batch).length > 0) {
-        updateNotificationChannels(batch).catch(() => {});
+    let previous = notifyEngine.prefs.get().syncState;
+    return notifyEngine.prefs.subscribe(({ syncState }) => {
+      if (previous === 'flushing' && syncState === 'error') {
+        showToast('error', t('settings.channelUpdateError'));
       }
-    };
-  }, []);
+      previous = syncState;
+    });
+  }, [t]);
 
 
   const isAdminOrCurator =
@@ -811,20 +742,11 @@ export default function SettingsScreen() {
           <GuestCard />
         )}
 
-        {/* Preferences — push master switch, theme, language */}
+        {/* Preferences — theme and language */}
         <View className="mb-sm mt-lg">
           <SectionTitle>{t('settings.preferences')}</SectionTitle>
         </View>
         <Card padding="none">
-          <SwitchRow
-            icon="notifications-outline"
-            label={t('settings.pushNotifications')}
-            description={t('settings.pushNotificationsDesc')}
-            value={notifications}
-            onToggle={handleToggleNotifications}
-            divider
-          />
-
           {/* Theme is three-way, so the control gets its own line */}
           <View className="border-b border-line px-md py-md">
             <View className="mb-sm flex-row items-center gap-sm">
@@ -851,78 +773,51 @@ export default function SettingsScreen() {
               {t('settings.language')}
             </Text>
             {/* LT / EN are locale codes, identical in both
-                languages; screen readers get the full names */}
+                languages; screen readers get the full names.
+                The engine host re-registers the token in the
+                new language — nothing to do here */}
             <SegmentedControl
               options={[
                 { value: 'lt', label: 'LT', a11yLabel: 'Lietuvių' },
                 { value: 'en', label: 'EN', a11yLabel: 'English' },
               ]}
               value={language}
-              onChange={handleLanguageChange}
+              onChange={setLanguage}
             />
           </View>
         </Card>
 
-        {/* Channel switches — account state, only meaningful
-            while the master switch is on. Until a real GET
-            succeeded the hardcoded defaults are NOT presented
-            as server state: a failed load shows a compact
-            retry row instead of four confident switches. */}
-        {isAuthenticated && notifications && (
-          <>
-            <View className="mb-sm mt-lg">
-              <SectionTitle>{t('settings.notificationChannels')}</SectionTitle>
+        {/* Notifications — the gate decides whether push can be
+            delivered at all; inside it the panel shows the
+            master switch for everyone and the server-truth rows
+            for an account, locked until the first read lands.
+            The gate wraps the Card (not the reverse) so its own
+            prompt card never sits boxed inside ours. */}
+        <View className="mb-sm mt-lg">
+          <SectionTitle>{t('settings.notifications')}</SectionTitle>
+        </View>
+        <PermissionGate
+          engine={panelEngine}
+          labels={gateLabels}
+          onOpenSettings={() => Linking.openSettings()}
+          colors={kitColors}
+        >
+          <Card padding="none">
+            {channels.failed ? <ChannelsRetryRow onRetry={() => void channels.read()} /> : null}
+            <View className="px-md">
+              <NotifySettingsPanel
+                engine={panelEngine}
+                labels={panelLabels}
+                colors={kitColors}
+                showChannels={isAuthenticated}
+                channelsLocked={isAuthenticated && !channels.loaded}
+                channelHints={channelHints}
+                icons={panelIcons}
+                onBlocked={toastBlocked}
+              />
             </View>
-            <Card padding="none">
-              {!channelsLoaded && channelsError ? (
-                <Pressable
-                  onPress={retryChannels}
-                  accessibilityRole="button"
-                  accessibilityLabel={t('common.tryAgain')}
-                  className="flex-row items-center gap-sm px-md py-md"
-                  style={({ pressed }) =>
-                    pressed ? { backgroundColor: colors.surfaceSoft } : undefined
-                  }
-                >
-                  <Ionicons name="cloud-offline-outline" size={20} color={colors.inkSoft} />
-                  <Text className="flex-1 font-raleway text-sm text-ink-soft">
-                    {t('settings.channelsLoadError')}
-                  </Text>
-                  <Text className="font-raleway-semibold text-sm text-brand">
-                    {t('common.tryAgain')}
-                  </Text>
-                </Pressable>
-              ) : (
-                <>
-                  {CHANNEL_META.map((channel) => (
-                    <SwitchRow
-                      key={channel.key}
-                      icon={channel.icon}
-                      label={t(channel.labelKey)}
-                      description={t(channel.descKey)}
-                      value={channels[channel.key]}
-                      disabled={!channelsLoaded}
-                      onToggle={(value) => handleToggleChannel(channel.key, value)}
-                      divider
-                    />
-                  ))}
-                  {/* Privacy, not a subscription: with this off
-                      the push says only "Nauja žinutė" and the
-                      message text never leaves for Expo */}
-                  <SwitchRow
-                    icon="eye-off-outline"
-                    label={t('settings.chatPreview')}
-                    description={t('settings.chatPreviewDesc')}
-                    value={chatPreview}
-                    disabled={!chatPreviewLoaded}
-                    onToggle={handleToggleChatPreview}
-                    divider={false}
-                  />
-                </>
-              )}
-            </Card>
-          </>
-        )}
+          </Card>
+        </PermissionGate>
 
         {/* Links — faculty info for everyone, admin by role, and
             the account-deletion path for anyone signed in */}

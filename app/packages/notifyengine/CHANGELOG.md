@@ -1,5 +1,89 @@
 # Changelog
 
+## 1.0.3 — 2026-09-05
+
+Behaviour release — the second review round over the wired
+host, every finding fixed and pinned:
+
+- **The session gate** — `NotifyEngineConfig.canRegister`, an
+  optional host predicate (sync or async) the token machine
+  consults right after runtime support and BEFORE the master
+  switch. A guest's register() answers the new typed
+  `'unauthenticated'` with zero device calls, zero wire traffic
+  and not one store emission; a master-ON while signed out
+  records the intent and the later `register('login')` claims
+  the token. A throwing gate fails CLOSED. Absent means always
+  allowed.
+- **The master switch is seeded at init** — `init()` projects
+  the stored value into the snapshot before its permission
+  poll, so a persisted OFF is visible without a refreshPrefs().
+  `refresh()` never writes the switch any more: the snapshot at
+  commit time is the session's truth, and a toggle made while
+  the GET was in flight (or one the disk failed to record) is
+  no longer reverted when the answer lands — success and error
+  branch alike.
+- **`setChatPreview` answers** — `Promise<boolean>`: true when
+  the wire confirmed the requested value, false when the flag
+  snapped back (a revert, or a server that answered the other
+  value). The stub agrees.
+- **The launch tap that arrives warm** — while NO resolver is
+  installed and the buffer holds an intent, `consumeInitial()`
+  adopts the OLDEST buffered intent as the cold start
+  (`coldStart: true`) instead of reading the device; buffered
+  intents keep their identifier, so the later device read of
+  the same response dedupes to null. With a resolver installed
+  the warm path is untouched.
+- **Channels** — `ChannelSpec.vibrationPattern` (off/on
+  millisecond pairs) rides through the device adapter next to
+  `enableVibrate`; the validator rejects an empty, negative or
+  non-finite pattern by channel id at build time.
+- **The device adapter on web** — `onPushToken` returns a no-op
+  unsubscribe on `'web'` and `'unknown'` without subscribing the
+  primitive, mirroring supportsRemotePush — no startup warning.
+- **Pins** — the `'disabled'` STEP-1 gate from the start (pure
+  typed reject, store stays 'idle'; after detach() stays
+  'detached'), gate order, the default gate, init seeding from
+  '0' / '1' / absent, the mid-flight toggle in both refresh
+  branches, the hydrate-vs-toggle race, the chat-preview
+  verdict, buffered adoption and its device dedupe, the pattern
+  passthrough, the silent web token listener.
+- **Battery** — 167 → 194 scenarios across twelve suites.
+
+## 1.0.2 — 2026-09-05
+
+Tests only — nothing under src/ changed but the specs. The
+three seams the retired app-level suite used to cover on its
+own now live inside the package, where the engine's battery
+runs them on every change:
+
+- **The pre-flight gates, pinned at the machine** — a
+  registration bouncing off an undeliverable permission or a
+  runtime without remote push answers its typed reason with
+  zero device calls, zero wire traffic and not one store
+  emission (a subscriber sees only the snapshot it was handed
+  on subscribe). The detach chain's last two links are
+  exercised positively: a stored copy is DELETEd without
+  probing the device, and with nothing anywhere plus
+  permission granted the device is asked exactly once and its
+  token DELETEd with the captured bearer.
+- **The device adapter has its own suite** — createExpoDevice
+  over a hand-mocked primitive, so no native module boots and
+  no import-time token auto-registration runs: supportsRemotePush
+  per runtime (web never, the dev shell's Android never, iOS
+  always, an unknown OS never), projectId passthrough and the
+  .data unwrap, permission normalisation with the provisional
+  tier as its own status and unknown → undetermined,
+  canAskAgain untouched, the fetch-echo swallow on the token
+  listener (a non-string token never reaches the engine), the
+  foreground handler bridged onto the four behaviour flags
+  with handleError fan-out that a throwing subscriber cannot
+  starve, responses reduced to {identifier, actionIdentifier,
+  data} with the null default and data left RAW for the
+  routing hub, the Android-only channel calls guarded off
+  every other platform (sound undefined vs null told apart),
+  and the app-active edge.
+- **Battery** — 131 → 167 scenarios across twelve suites.
+
 ## 1.0.1 — 2026-09-02
 
 The adversarial review round over the fresh core — 26 confirmed

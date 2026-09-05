@@ -19,6 +19,10 @@ import { NotifySettingsPanel, PermissionGate } from '@knf/notifyuikit';
     labels={panelLabels}
     onBlocked={(reason) => showPermissionSheet(reason)}
     colors={myTokens}                 // optional; neutral defaults
+    showChannels={signedIn}           // optional; server-truth rows only with an account
+    channelsLocked={!serverRead}      // optional; dim + disable until the first server read
+    channelHints={{ news: t('…') }}   // optional; a line under a channel label
+    icons={{ master: <Bell /> }}      // optional; a glyph per row, 24-wide gutter
   />
 </PermissionGate>
 ```
@@ -34,9 +38,29 @@ one row per feature channel (disabled while the master is off), the
 chat-preview privacy flag. Its one piece of judgment: when turning
 the master ON comes back impossible — permission denied or an
 unsupported runtime — the switch snaps back OFF and your `onBlocked`
-callback gets the reason; a mere network failure keeps the switch ON
-because the intent is recorded and re-asserted later.
+callback gets the reason; a mere network failure — or an engine that
+answers `unauthenticated` because its host gate turned a guest away —
+keeps the switch ON because the intent is recorded and a later
+register claims it.
+
+## NotifySettingsPanel props
+
+| Prop | Default | What it does |
+| --- | --- | --- |
+| `engine` | — | `NotifyEngineLike` — the panel reads `prefs` and calls `setMasterEnabled` / `setChannelEnabled` / `setChatPreview`; the type also carries `permission` + `requestPermission()`, shared with `PermissionGate`, so one engine object serves both components |
+| `labels` | — | `NotifySettingsLabels` — master, its hint, the four channel labels, chat preview and its hint |
+| `onBlocked` | — | Called with `'permission'` or `'unsupported'` after a master-ON snapped back; the host prompts |
+| `colors` | `defaultColors` | `NotifyColors` — ink, inkSoft, line, brand, surface |
+| `showChannels` | `true` | `false` drops the channel rows, both hairlines and the chat-preview row from the tree; the master row stays. Those rows are server state — a host with no account to read them from hides them |
+| `channelsLocked` | `false` | `true` dims + disables the channel and chat-preview rows even with the master ON — until the host's first successful server read. The master never locks, and only the host lifts the lock |
+| `channelHints` | — | `NotifyChannelHints`: a hint line under a channel label, keyed by channel |
+| `icons` | — | `NotifySettingsIcons`: a leading glyph per row, keyed `master`, `chatPreview` or a channel key. Any glyph reserves a 24-wide gutter on every row so labels stay in one column; no glyph renders no gutter. Glyphs are hidden from screen readers — the switch's label speaks the row |
+
+Row testIDs are stable across all of it: `notifyuikit-settings`,
+`notifyuikit-master`, `notifyuikit-channel-<key>`,
+`notifyuikit-chat-preview`.
 
 `npm test` inside the package (or the host's root jest run) pins the
 gate's five states, the panel's wiring and the snap-back contract,
-and the export surface.
+the four host props against the rendered tree, and the export
+surface.

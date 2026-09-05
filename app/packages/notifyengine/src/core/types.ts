@@ -27,9 +27,12 @@ export type RegisterReason = 'login' | 'restore' | 'toggle' | 'language' | 'rota
 
 export type RegisterFailure = {
   ok: false;
-  // 'unsupported' — this runtime cannot do remote push at all
-  // 'superseded'  — a newer register() call took over
-  reason: 'unsupported' | 'permission' | 'network' | 'disabled' | 'superseded';
+  // 'unsupported'     — this runtime cannot do remote push at all
+  // 'unauthenticated' — the host's canRegister gate said no: a
+  //                     guest has nothing to claim the token
+  //                     with, so the wire is never touched
+  // 'superseded'      — a newer register() call took over
+  reason: 'unsupported' | 'unauthenticated' | 'permission' | 'network' | 'disabled' | 'superseded';
 };
 // tokenId is the backend's identifier for the row — an opaque
 // STRING (the server mints UUIDs); 'cached' marks a dedupe hit
@@ -108,6 +111,9 @@ export interface ChannelSpec {
   nameKey: ChannelKey | 'default';
   importance: number;
   vibration?: boolean;
+  // Off/on millisecond pairs ([0, 250, 250, 250] — a double
+  // buzz); frozen at creation like everything else here
+  vibrationPattern?: number[];
   lightColor?: string;
   sound?: boolean;
 }

@@ -2,13 +2,16 @@
 //  [*] Tests — the registration machine
 //
 //  register()/detach() driven end to end over scripted seams:
-//  the exact wire payload, supersede generations (a stale
-//  completion physically unable to overwrite), the watchdog
-//  that settles a device that never answers, the master
-//  switch re-read between token acquire and POST, tuple
-//  dedupe with TTL + force reasons + fail-open storage,
+//  the exact wire payload, the pre-flight gates (runtime, the
+//  host's session gate, the master switch, permission) that
+//  reject typed without a single store write, supersede generations
+//  (a stale completion physically unable to overwrite), the
+//  watchdog that settles a device that never answers, the
+//  master switch re-read between token acquire and POST,
+//  tuple dedupe with TTL + force reasons + fail-open storage,
 //  rotation, and a detach that never throws, never prompts,
-//  and never hangs. Every outcome is an exact shape.
+//  never hangs — and walks its whole token chain down to the
+//  device. Every outcome is an exact shape.
 // -----------------------------------------------------------
 
 import { createRegistrationMachine, type RegistrationMachine } from '../registration';
@@ -37,11 +40,12 @@ interface Rig {
   setLanguage(next: Language): void;
   setCanDeliver(next: boolean): void;
   setMasterEnabled(next: boolean): void;
+  setAuthenticated(next: boolean): void;
 }
 
 // One machine over all three fakes, with every closure the
-// machine reads (now / language / canDeliver / isMasterEnabled)
-// exposed as a settable knob
+// machine reads (now / language / canDeliver / canRegister /
+// isMasterEnabled) exposed as a settable knob
 const buildRig = (seed: Record<string, string> = {}): Rig => {
   const device = createFakeDevice();
   const transport = createFakeTransport();
@@ -50,6 +54,7 @@ const buildRig = (seed: Record<string, string> = {}): Rig => {
   let lang: Language = 'lt';
   let deliverable = true;
   let masterEnabled = true;
+  let authenticated = true;
 
   const machine = createRegistrationMachine({
     device,
@@ -57,6 +62,7 @@ const buildRig = (seed: Record<string, string> = {}): Rig => {
     storage,
     language: () => lang,
     canDeliver: () => deliverable,
+    canRegister: () => authenticated,
     isMasterEnabled: async () => masterEnabled,
     now: () => nowMs,
   });
@@ -77,6 +83,9 @@ const buildRig = (seed: Record<string, string> = {}): Rig => {
     },
     setMasterEnabled: (next) => {
       masterEnabled = next;
+    },
+    setAuthenticated: (next) => {
+      authenticated = next;
     },
   };
 };
@@ -117,6 +126,121 @@ describe('register — the happy path', () => {
       registeredAt: T0,
     });
     expect(rig.storage.map.get(LEGACY_KEY)).toBe(TOKEN);
+  });
+});
+
+
+describe('register — the pre-flight gates', () => {
+  // A gate rejection is a pure typed answer: the attempt never
+  // started, so the store must not even flicker — a subscriber
+  // sees exactly the one snapshot it was handed on subscribe
+  const phasesSeen = (rig: Rig): string[] => {
+    const seen: string[] = [];
+    rig.machine.store.subscribe((snapshot) => seen.push(snapshot.phase));
+    return seen;
+  };
+
+  it('permission not deliverable rejects typed — no device call, no wire, no store phase change', async () => {
+    const rig = buildRig();
+    rig.setCanDeliver(false);
+    const seen = phasesSeen(rig);
+
+    await expect(rig.machine.register('login')).resolves.toEqual({ ok: false, reason: 'permission' });
+
+    expect(rig.device.calls).toEqual([]);
+    expect(rig.transport.calls).toEqual([]);
+    expect(seen).toEqual(['idle']);
+  });
+
+  it('a runtime without remote push rejects unsupported — likewise untouched', async () => {
+    const rig = buildRig();
+    rig.device.remotePushSupported = false;
+    const seen = phasesSeen(rig);
+
+    await expect(rig.machine.register('login')).resolves.toEqual({ ok: false, reason: 'unsupported' });
+
+    expect(rig.device.calls).toEqual([]);
+    expect(rig.transport.calls).toEqual([]);
+    expect(seen).toEqual(['idle']);
+  });
+
+  it("the host's session gate saying no rejects unauthenticated — no device call, no wire, no store emission", async () => {
+    const rig = buildRig();
+    rig.setAuthenticated(false);
+    const seen = phasesSeen(rig);
+
+    await expect(rig.machine.register('toggle')).resolves.toEqual({ ok: false, reason: 'unauthenticated' });
+
+    expect(rig.device.calls).toEqual([]);
+    expect(rig.transport.calls).toEqual([]);
+    expect(seen).toEqual(['idle']);
+  });
+
+  it('the session gate is asked BEFORE the master switch — a guest with master off still reads unauthenticated', async () => {
+    const rig = buildRig();
+    rig.setAuthenticated(false);
+    rig.setMasterEnabled(false);
+
+    await expect(rig.machine.register('restore')).resolves.toEqual({ ok: false, reason: 'unauthenticated' });
+  });
+
+  it('an async session gate is awaited; a throwing one fails CLOSED as unauthenticated', async () => {
+    const asyncRig = createRegistrationMachine({
+      device: createFakeDevice(),
+      transport: createFakeTransport(),
+      storage: createMemoryStorage(),
+      language: () => 'lt',
+      canDeliver: () => true,
+      canRegister: async () => true,
+      isMasterEnabled: async () => true,
+      now: () => T0,
+    });
+    await expect(asyncRig.register('login')).resolves.toEqual({ ok: true, tokenId: 'tok-1' });
+
+    const throwingRig = createRegistrationMachine({
+      device: createFakeDevice(),
+      transport: createFakeTransport(),
+      storage: createMemoryStorage(),
+      language: () => 'lt',
+      canDeliver: () => true,
+      canRegister: () => {
+        throw new Error('secure store unreadable');
+      },
+      isMasterEnabled: async () => true,
+      now: () => T0,
+    });
+    await expect(throwingRig.register('login')).resolves.toEqual({ ok: false, reason: 'unauthenticated' });
+    expect(throwingRig.store.get().phase).toBe('idle');
+  });
+
+  it('master off from the start rejects disabled as a pure typed answer — the store stays idle', async () => {
+    const rig = buildRig();
+    rig.setMasterEnabled(false);
+    const seen = phasesSeen(rig);
+
+    await expect(rig.machine.register('restore')).resolves.toEqual({ ok: false, reason: 'disabled' });
+
+    expect(rig.device.calls).toEqual([]);
+    expect(rig.transport.calls).toEqual([]);
+    expect(seen).toEqual(['idle']);
+  });
+
+  it("a master-off register after detach() leaves 'detached' standing — never stamped 'failed'", async () => {
+    const rig = buildRig();
+    await rig.machine.detach();
+    expect(rig.machine.store.get().phase).toBe('detached');
+    rig.setMasterEnabled(false);
+    const seen = phasesSeen(rig);
+
+    await expect(rig.machine.register('restore')).resolves.toEqual({ ok: false, reason: 'disabled' });
+
+    expect(rig.machine.store.get()).toEqual({
+      phase: 'detached',
+      token: null,
+      lastError: null,
+      registeredAt: null,
+    });
+    expect(seen).toEqual(['detached']);
   });
 });
 
@@ -361,6 +485,37 @@ describe('detach — the token chain', () => {
       method: 'unregister',
       payload: { token: TOKEN, authToken: 'session-jwt' },
     });
+    expect(rig.machine.store.get()).toEqual({
+      phase: 'detached',
+      token: null,
+      lastError: null,
+      registeredAt: null,
+    });
+  });
+
+  it('memory empty but a stored copy exists: the stored token is DELETEd and the device is not probed', async () => {
+    const STORED = 'ExponentPushToken[stored-00000001]';
+    const rig = buildRig({ [LEGACY_KEY]: STORED });
+
+    await rig.machine.detach();
+
+    expect(rig.device.calls).toEqual([]);
+    expect(rig.transport.calls).toEqual([
+      { method: 'unregister', payload: { token: STORED, authToken: undefined } },
+    ]);
+    // Confirmed on the wire, so the stored copy is forgotten
+    expect(rig.storage.map.has(LEGACY_KEY)).toBe(false);
+  });
+
+  it('nothing in memory or storage, permission granted: the device is probed ONCE and its token DELETEd', async () => {
+    const rig = buildRig();
+
+    await rig.machine.detach({ authToken: 'session-jwt' });
+
+    expect(rig.device.calls).toEqual([{ method: 'getPushToken', args: [] }]);
+    expect(rig.transport.calls).toEqual([
+      { method: 'unregister', payload: { token: TOKEN, authToken: 'session-jwt' } },
+    ]);
     expect(rig.machine.store.get()).toEqual({
       phase: 'detached',
       token: null,

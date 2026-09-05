@@ -8,7 +8,16 @@
 //  session drop ultimately runs through.
 // -----------------------------------------------------------
 
+import { authReducer, isAuthRejection } from '@/context/AuthContext';
+import { ApiError } from '@/services/api/client';
+import type { AuthState, User } from '@/types';
+
+
+// jest.mock is hoisted above the imports at transform time, so
+// the factories below still intercept AuthContext's module graph
+// — they follow the imports here only so the imports read first
 jest.mock('@react-native-async-storage/async-storage', () =>
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- a mock factory runs before the module graph loads; only require() can reach the shipped mock
   require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
 );
 jest.mock('@/i18n', () => ({
@@ -22,16 +31,12 @@ jest.mock('@/services/session', () => ({
   clearStoredSession: jest.fn(),
 }));
 jest.mock('@/services/socket', () => ({ connectSocket: jest.fn(), disconnectSocket: jest.fn() }));
-jest.mock('@/services/notifications', () => ({
-  registerForPushNotifications: jest.fn(),
-  unregisterPushNotifications: jest.fn(),
+jest.mock('@/services/notifyEngine', () => ({
+  notifyEngine: { register: jest.fn(), detach: jest.fn() },
+  readyNotifyEngine: jest.fn(),
 }));
 jest.mock('@/context/NetworkContext', () => ({ showToast: jest.fn() }));
 jest.mock('expo-notifications', () => ({ dismissAllNotificationsAsync: jest.fn() }));
-
-import { authReducer, isAuthRejection } from '@/context/AuthContext';
-import { ApiError } from '@/services/api/client';
-import type { AuthState, User } from '@/types';
 
 
 const http = (status: number) => new ApiError('failed', status, 'http');

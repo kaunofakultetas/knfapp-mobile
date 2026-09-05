@@ -447,6 +447,8 @@ export function createNotifyEngineStub() {
     setChatPreview: async (on: boolean) => {
       log('setChatPreview', on);
       prefs.set({ ...prefs.get(), chatPreview: on });
+      // The stub's wire always agrees
+      return true;
     },
     refreshPrefs: async () => log('refreshPrefs'),
     applyChannels: async (names: Record<string, string>) => log('applyChannels', names),

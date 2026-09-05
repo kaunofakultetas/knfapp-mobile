@@ -1,5 +1,49 @@
 # Changelog
 
+## 1.1.1 — 2026-09-05
+
+The engine's host gate reaches the mirror:
+
+- `RegisterResultLike.reason` gains `'unauthenticated'` — the
+  engine's answer when its host gate turns a guest away. The
+  panel treats it exactly like a network failure: the switch
+  stays ON, `onBlocked` stays silent, and the intent waits for
+  a login to claim it. The settings-panel suite pins the case
+  — one `setMasterEnabled(true)`, no retraction.
+- The README's `engine` row states the whole `NotifyEngineLike`
+  shape: the panel reads `prefs` and calls the three setters,
+  while `permission` + `requestPermission()` on the same type
+  serve `PermissionGate` — an object built to the row's
+  description now type-checks against the prop.
+- NotifySettingsPanel's helpers carry their own section
+  banners and the file header its split table — comments only,
+  the rendered tree is untouched.
+
+## 1.1.0 — 2026-09-05
+
+The settings panel learns the host's side of the truth — four optional
+props, and the default rendering is the 1.0 tree to the pixel:
+
+- `showChannels={false}` drops the channel rows, both hairlines and
+  the chat-preview row from the tree and keeps the master switch.
+  Those rows are SERVER state; a host with no account to read them
+  from has nothing honest to show, while the master is a device-local
+  intent that stands on its own.
+- `channelsLocked` dims + disables the channel and chat-preview rows
+  even with the master ON — the window before the host's first
+  successful server read, when a flip would overwrite an unread
+  snapshot. The master never locks, and a prefs emission does not
+  lift the lock: it is the host's to release.
+- `channelHints` — a hint line under a channel label, in the same
+  typography as the master and chat-preview hints.
+- `icons` — a leading glyph per row (`master`, `chatPreview`, the four
+  channel keys) in a fixed 24-wide box. Any glyph reserves the box on
+  EVERY row so the label column stays aligned; no glyph at all renders
+  no box. Glyphs are hidden from screen readers — the switch's label
+  already speaks the row.
+- New type exports: `NotifySettingsIcons`, `NotifyChannelHints`; the
+  surface test pins them at the type level.
+
 ## 1.0.1 — 2026-09-02
 
 The review round's kit share:

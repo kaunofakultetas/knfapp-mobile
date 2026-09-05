@@ -5,14 +5,16 @@
 //  call counts: warm ingest, the consume-exactly-once cold
 //  path (device copy cleared, identifier persisted so a hub
 //  rebuilt over the same storage never replays), the pre-
-//  resolver buffer with its order and cap, action-id mapping,
-//  throwing resolvers, garbage payloads, and the normalizer's
-//  stringify / drop-null / legacy-envelope rules.
+//  resolver buffer with its order and cap, the launch tap that
+//  reached the warm listener first and is adopted as the cold
+//  start while no resolver exists, action-id mapping, throwing
+//  resolvers, garbage payloads, and the normalizer's stringify
+//  / drop-null / legacy-envelope rules.
 // -----------------------------------------------------------
 
 import { createRoutingHub, normalizeData } from '../routing';
 import type { DeviceNotificationResponse, RouteIntent } from '../types';
-import { createMemoryStorage, fixtureChatMessage, fixtureResponse } from '../../testing';
+import { createMemoryStorage, fixtureChatMessage, fixtureNewsPush, fixtureResponse } from '../../testing';
 
 // Mirror the module's private constants — the persisted marker
 // key and the platform's identifier for the plain default tap
@@ -248,6 +250,79 @@ describe('cold-start consume', () => {
     // copy is always emptied, even on a suppressed replay
     expect(clears).toBe(2);
     expect(JSON.parse(storage.map.get(CONSUMED_KEY) as string)).toContain('resp-chat-1');
+  });
+
+  it('with NO resolver installed, a buffered warm intent is adopted as the cold start — oldest first, coldStart true', async () => {
+    const slot = makeSlot(null);
+    const { hub } = makeHub(slot);
+    const heard: RouteIntent[] = [];
+    hub.onIntent((intent) => heard.push(intent));
+
+    // The launch tap lands through the warm listener before the
+    // launch consumer ever asks — then a second tap queues
+    await hub.ingest(fixtureChatMessage, false);
+    await hub.ingest(fixtureResponse('news', { postId: 'n1' }, 'later-1'), false);
+    expect(heard).toHaveLength(2);
+
+    const cold = await hub.consumeInitial();
+
+    expect(cold).toEqual({
+      type: 'chat_message',
+      data: { type: 'chat_message', conversationId: 'c1' },
+      coldStart: true,
+      actionId: null,
+    });
+    // The device was never consulted — the parked intent was the answer
+    expect(slot.log).toEqual([]);
+    // Adoption returns to the caller only; listeners already heard it warm
+    expect(heard).toHaveLength(2);
+
+    // The second tap is still parked for the resolver
+    const flushed: RouteIntent[] = [];
+    hub.setResolver((intent) => flushed.push(intent));
+    expect(flushed).toEqual([
+      { type: 'news', data: { type: 'news', postId: 'n1' }, coldStart: false, actionId: null },
+    ]);
+  });
+
+  it('the later device read of the adopted response answers null — one tap, one navigation', async () => {
+    // The primitive holds the very response the warm listener
+    // already delivered (the launch tap fires both)
+    const slot = makeSlot(fixtureChatMessage);
+    const { hub, storage } = makeHub(slot);
+    await hub.ingest(fixtureChatMessage, false);
+
+    await expect(hub.consumeInitial()).resolves.toMatchObject({ coldStart: true, type: 'chat_message' });
+
+    hub.setResolver(() => undefined);
+    await expect(hub.consumeInitial()).resolves.toBeNull();
+    // The device copy was read and cleared on that second pass,
+    // and the identifier is in the persisted ring
+    expect(slot.log).toEqual(['read', 'clear']);
+    expect(JSON.parse(storage.map.get(CONSUMED_KEY) as string)).toContain('resp-chat-1');
+  });
+
+  it('with a resolver installed the warm path is untouched — consumeInitial reads the device', async () => {
+    const slot = makeSlot(fixtureNewsPush);
+    const { hub } = makeHub(slot);
+    const resolved: RouteIntent[] = [];
+    hub.setResolver((intent) => resolved.push(intent));
+
+    // A warm tap routes straight through; nothing is parked
+    await hub.ingest(fixtureChatMessage, false);
+    expect(resolved).toHaveLength(1);
+
+    const cold = await hub.consumeInitial();
+
+    expect(cold).toEqual({
+      type: 'news',
+      data: { type: 'news', postId: 'n1' },
+      coldStart: true,
+      actionId: null,
+    });
+    expect(slot.log).toEqual(['read', 'clear']);
+    // The warm intent was never re-delivered as a cold one
+    expect(resolved).toHaveLength(1);
   });
 
   it('a NEW hub over the same storage never replays the consumed response (34)', async () => {

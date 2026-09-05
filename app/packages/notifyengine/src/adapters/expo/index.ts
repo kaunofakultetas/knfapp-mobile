@@ -12,7 +12,9 @@
 //  runtime question: web has no transport here, and the
 //  dev-shell Android runtime lost remote push in SDK 53 — the
 //  engine turns that into the 'unsupported' state instead of
-//  an error loop.
+//  an error loop. The token listener follows the same answer:
+//  where remote push cannot exist the primitive is never
+//  subscribed, so a web session boots without its warning.
 //
 //  Used by:
 //    - hosts: createExpoDevice({projectId}) into engine config
@@ -90,6 +92,9 @@ export function createExpoDevice(options: { projectId?: string } = {}): DeviceAd
       return token.data;
     },
     onPushToken: (listener): Unsubscribe => {
+      // No remote push, no rotations to hear — and the web
+      // build of the primitive logs a warning per subscription
+      if (platform === 'web' || platform === 'unknown') return () => undefined;
       const subscription = ExpoNotifications.addPushTokenListener((token) => {
         if (typeof token.data !== 'string') return;
         // Fetch echoes are not rotations
@@ -115,6 +120,7 @@ export function createExpoDevice(options: { projectId?: string } = {}): DeviceAd
         name: spec.name,
         importance: spec.importance,
         enableVibrate: spec.vibration,
+        vibrationPattern: spec.vibrationPattern,
         lightColor: spec.lightColor,
         sound: spec.sound === false ? null : undefined,
       });

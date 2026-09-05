@@ -6,11 +6,18 @@
 //  and the panel's one piece of judgment — master-ON failures
 //  snapping the switch back off — is pinned reason by reason:
 //  permission/unsupported retract and report through
-//  onBlocked, network keeps the recorded intent, turning OFF
-//  never snaps. Call payloads are asserted exactly.
+//  onBlocked, network and unauthenticated keep the recorded
+//  intent, turning OFF never snaps. Call payloads are asserted
+//  exactly. The 1.1
+//  host props are pinned against the host tree: hidden rows
+//  and hairlines absent, locked rows disabled + dimmed, hints
+//  under their own label, glyphs inside their own row in a
+//  gutter every row reserves — and no gutter at all without.
 // -----------------------------------------------------------
 
 import { act, fireEvent, render } from '@testing-library/react-native';
+import type { ComponentProps } from 'react';
+import { Text } from 'react-native';
 
 import NotifySettingsPanel, { type NotifySettingsLabels } from '../NotifySettingsPanel';
 import type {
@@ -93,10 +100,11 @@ function makeEngine(prefsOver: Partial<PrefsLike> = {}, masterResult?: RegisterR
   return { engine, prefs, masterCalls, channelCalls, previewCalls };
 }
 
-const renderPanel = (
-  bits: EngineBits,
-  extra: { onBlocked?: (reason: 'permission' | 'unsupported') => void } = {},
-) => render(<NotifySettingsPanel engine={bits.engine} labels={LABELS} {...extra} />);
+// Everything but the two required props — the host-side knobs
+type PanelExtras = Omit<ComponentProps<typeof NotifySettingsPanel>, 'engine' | 'labels'>;
+
+const renderPanel = (bits: EngineBits, extra: PanelExtras = {}) =>
+  render(<NotifySettingsPanel engine={bits.engine} labels={LABELS} {...extra} />);
 
 type PanelView = Awaited<ReturnType<typeof render>>;
 
@@ -146,6 +154,23 @@ const collectTestIDs = (view: PanelView): string[] => {
 
 const flat = (style: unknown): Record<string, unknown> =>
   Object.assign({}, ...([style].flat(Infinity).filter(Boolean) as object[]));
+
+// Depth-first, document order — the strings are the rendered texts
+const descendants = (node: HostNode | string): (HostNode | string)[] => {
+  if (typeof node === 'string') return [node];
+  return (node.children ?? []).flatMap((child) => [child, ...(typeof child === 'string' ? [] : descendants(child))]);
+};
+
+const rowTexts = (row: HostNode): string[] => descendants(row).filter((n): n is string => typeof n === 'string');
+
+const hostsIn = (node: HostNode): HostNode[] => descendants(node).filter((n): n is HostNode => typeof n !== 'string');
+
+// The icon gutter has no testID either — it is the one 24-wide box in a row
+const guttersIn = (row: HostNode): HostNode[] => hostsIn(row).filter((n) => flat(n.props.style).width === 24);
+
+// Hairlines are the 1px-tall hosts between the sections
+const hairlineCount = (view: PanelView): number =>
+  roots(view).flatMap(hostsIn).filter((n) => flat(n.props.style).height === 1).length;
 
 describe('rendering', () => {
   it('renders the master, the four channels IN ORDER, and the chat preview — labels verbatim', async () => {
@@ -244,6 +269,17 @@ describe('master snap-back', () => {
     expect(onBlocked.mock.calls).toEqual([]);
   });
 
+  it('unauthenticated (a guest recording intent) keeps the switch ON — no snap-back, no onBlocked', async () => {
+    const bits = makeEngine({ masterEnabled: false }, { ok: false, reason: 'unauthenticated' });
+    const onBlocked = jest.fn();
+    const view = await renderPanel(bits, { onBlocked });
+    await fireEvent(view.getByTestId('notifyuikit-master'), 'valueChange', true);
+    await flush();
+    // Exactly the one call — no retraction; login claims the intent later
+    expect(bits.masterCalls).toEqual([true]);
+    expect(onBlocked.mock.calls).toEqual([]);
+  });
+
   it('turning OFF resolves void and never snaps back', async () => {
     const bits = makeEngine(); // master on; setMasterEnabled resolves undefined
     const onBlocked = jest.fn();
@@ -266,5 +302,129 @@ describe('store-driven re-render', () => {
     expect(view.getByTestId('notifyuikit-channel-chat').props.value).toBe(false);
     expect(view.getByTestId('notifyuikit-channel-news').props.value).toBe(true);
     expect(view.getByTestId('notifyuikit-chat-preview').props.value).toBe(true);
+  });
+});
+
+describe('showChannels', () => {
+  it('false leaves the master standing alone — channel rows, both hairlines and the chat preview leave the tree', async () => {
+    const bits = makeEngine();
+    const view = await renderPanel(bits, { showChannels: false });
+    expect(collectTestIDs(view)).toEqual(['notifyuikit-settings', 'notifyuikit-master']);
+    for (const id of [...CHANNEL_IDS, 'notifyuikit-chat-preview']) expect(view.queryByTestId(id)).toBeNull();
+    for (const label of ['Naujienos', 'Pokalbiai', 'Tvarkaraštis', 'Administracija', 'Rodyti žinutės tekstą']) {
+      expect(view.queryByText(label)).toBeNull();
+    }
+    expect(hairlineCount(view)).toBe(0);
+    // The master is untouched by the hiding — still live, still wired
+    expect(view.getByTestId('notifyuikit-master')).toBeEnabled();
+    await fireEvent(view.getByTestId('notifyuikit-master'), 'valueChange', false);
+    await flush();
+    expect(bits.masterCalls).toEqual([false]);
+  });
+
+  it('the default keeps every row and both hairlines — the 1.0 tree', async () => {
+    const view = await renderPanel(makeEngine());
+    expect(hairlineCount(view)).toBe(2);
+  });
+});
+
+describe('channelsLocked', () => {
+  it('locks + dims the channel and chat-preview rows even with the master ON; the master stays live', async () => {
+    const bits = makeEngine();
+    const view = await renderPanel(bits, { channelsLocked: true });
+    for (const id of [...CHANNEL_IDS, 'notifyuikit-chat-preview']) {
+      expect(view.getByTestId(id).props.disabled).toBe(true);
+      expect(flat(rowHosting(view, id).props.style).opacity).toBe(0.4);
+    }
+    expect(view.getByTestId('notifyuikit-master')).toBeEnabled();
+    expect(view.getByTestId('notifyuikit-master').props.value).toBe(true);
+    expect(flat(rowHosting(view, 'notifyuikit-master').props.style).opacity).toBe(1);
+    // A lock is a UI state, not an engine event
+    expect(bits.masterCalls).toEqual([]);
+    expect(bits.channelCalls).toEqual([]);
+  });
+
+  it('a prefs emission does not unlock — the lock is the HOST\'s to lift', async () => {
+    const bits = makeEngine({ masterEnabled: false });
+    const view = await renderPanel(bits, { channelsLocked: true });
+    await act(async () => {
+      bits.prefs.emit(basePrefs({ masterEnabled: true }));
+    });
+    expect(view.getByTestId('notifyuikit-master').props.value).toBe(true);
+    for (const id of [...CHANNEL_IDS, 'notifyuikit-chat-preview']) {
+      expect(view.getByTestId(id).props.disabled).toBe(true);
+    }
+  });
+
+  it('the default is unlocked — master ON enables the rows exactly as before', async () => {
+    const view = await renderPanel(makeEngine(), { channelsLocked: false });
+    for (const id of [...CHANNEL_IDS, 'notifyuikit-chat-preview']) expect(view.getByTestId(id)).toBeEnabled();
+  });
+});
+
+describe('channelHints', () => {
+  it('a hint renders under its own channel label, and nowhere else', async () => {
+    const view = await renderPanel(makeEngine(), {
+      channelHints: { news: 'Fakulteto naujienos', schedule: 'Paskaitų pakeitimai' },
+    });
+    expect(rowTexts(rowHosting(view, 'notifyuikit-channel-news'))).toEqual(['Naujienos', 'Fakulteto naujienos']);
+    expect(rowTexts(rowHosting(view, 'notifyuikit-channel-schedule'))).toEqual(['Tvarkaraštis', 'Paskaitų pakeitimai']);
+    // Channels without a hint keep the single-line row
+    expect(rowTexts(rowHosting(view, 'notifyuikit-channel-chat'))).toEqual(['Pokalbiai']);
+    expect(rowTexts(rowHosting(view, 'notifyuikit-channel-admin'))).toEqual(['Administracija']);
+    // The label hints are untouched by the channel ones
+    expect(rowTexts(rowHosting(view, 'notifyuikit-master'))).toEqual(['Pranešimai', 'Leisti programai pranešti']);
+    expect(rowTexts(rowHosting(view, 'notifyuikit-chat-preview'))).toEqual(['Rodyti žinutės tekstą', 'Išjungus — tik siuntėjas']);
+  });
+
+  it('a hint wears the hint typography, not the label\'s', async () => {
+    const view = await renderPanel(makeEngine(), { channelHints: { chat: 'Žinutės ir paminėjimai' } });
+    expect(flat(view.getByText('Žinutės ir paminėjimai').props.style).fontSize).toBe(12);
+    expect(flat(view.getByText('Pokalbiai').props.style).fontSize).toBe(14);
+  });
+});
+
+describe('icons', () => {
+  const glyph = (id: string) => <Text testID={id}>●</Text>;
+
+  it('a glyph renders inside its own row, and every row reserves the same 24-wide gutter', async () => {
+    const view = await renderPanel(makeEngine(), {
+      icons: { master: glyph('glyph-master'), chat: glyph('glyph-chat'), chatPreview: glyph('glyph-preview') },
+    });
+    const inRow = (rowID: string, glyphID: string) =>
+      hostsIn(rowHosting(view, rowID)).some((n) => n.props.testID === glyphID);
+    expect(inRow('notifyuikit-master', 'glyph-master')).toBe(true);
+    expect(inRow('notifyuikit-channel-chat', 'glyph-chat')).toBe(true);
+    expect(inRow('notifyuikit-chat-preview', 'glyph-preview')).toBe(true);
+    // Not leaked into a neighbour
+    expect(inRow('notifyuikit-channel-news', 'glyph-chat')).toBe(false);
+    expect(inRow('notifyuikit-channel-chat', 'glyph-master')).toBe(false);
+    // Rows WITHOUT a glyph still carry an empty gutter — the label column stays aligned
+    for (const id of ['notifyuikit-master', ...CHANNEL_IDS, 'notifyuikit-chat-preview']) {
+      const gutters = guttersIn(rowHosting(view, id));
+      expect(gutters).toHaveLength(1);
+      expect(flat(gutters[0].props.style)).toMatchObject({ width: 24, height: 24, alignItems: 'center', justifyContent: 'center' });
+    }
+    expect(descendants(guttersIn(rowHosting(view, 'notifyuikit-channel-news'))[0])).toHaveLength(0);
+  });
+
+  it('the gutter sits before the texts and is hidden from screen readers', async () => {
+    const view = await renderPanel(makeEngine(), { icons: { master: glyph('glyph-master') } });
+    const row = rowHosting(view, 'notifyuikit-master');
+    const [gutter] = row.children ?? [];
+    expect(typeof gutter !== 'string' && guttersIn(row)[0] === gutter).toBe(true);
+    expect(guttersIn(row)[0].props.accessibilityElementsHidden).toBe(true);
+    expect(guttersIn(row)[0].props.importantForAccessibility).toBe('no-hide-descendants');
+    expect(rowTexts(row)).toEqual(['●', 'Pranešimai', 'Leisti programai pranešti']);
+  });
+
+  it('no icons ⇒ no gutter on any row — the pre-1.1 layout to the pixel', async () => {
+    const bare = await renderPanel(makeEngine());
+    const empty = await renderPanel(makeEngine(), { icons: {} });
+    for (const view of [bare, empty]) {
+      for (const id of ['notifyuikit-master', ...CHANNEL_IDS, 'notifyuikit-chat-preview']) {
+        expect(guttersIn(rowHosting(view, id))).toHaveLength(0);
+      }
+    }
   });
 });

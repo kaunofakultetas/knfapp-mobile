@@ -14,7 +14,7 @@
 export { default as PermissionGate } from './PermissionGate';
 export type { PermissionGateLabels } from './PermissionGate';
 export { default as NotifySettingsPanel } from './NotifySettingsPanel';
-export type { NotifySettingsLabels } from './NotifySettingsPanel';
+export type { NotifyChannelHints, NotifySettingsIcons, NotifySettingsLabels } from './NotifySettingsPanel';
 export { useStoreValue } from './hooks/useStoreValue';
 export { defaultColors } from './core/types';
 export type {

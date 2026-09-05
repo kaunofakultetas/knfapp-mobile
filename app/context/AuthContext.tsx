@@ -20,9 +20,21 @@
 //  a forced login screen.
 //
 //  Both success paths (login AND register) persist first,
-//  then connect the chat socket and register the push token —
-//  the api and socket layers read the token per request, so
-//  persistence must land before either side-effect starts.
+//  then connect the chat socket and ask the notify engine to
+//  register the push token — the api and socket layers read
+//  the token per request, so persistence must land before
+//  either side-effect starts. Push is the engine's business
+//  (services/notifyEngine): this provider only says WHEN
+//  (login, restore, logout) and never WHETHER — the engine
+//  owns the master switch and answers {ok:false, reason:
+//  'disabled'} on its own when the user has push off. Two
+//  answers get a follow-up here, both fire-and-forget: a
+//  'permission' refusal while the OS can still be asked raises
+//  the system prompt (the engine never prompts by itself, and a
+//  fresh install must still get the dialog on sign-in — the
+//  NotifyEngineHost grant-edge effect registers on the grant),
+//  and 'disabled' on a restore retries the detach a toggle-time
+//  DELETE may have left unfinished.
 //
 //  Login/register failures THROW the normalized ApiError —
 //  the thrown error is the whole failure interface; screens
@@ -31,8 +43,8 @@
 //
 //  logout() tears down locally FIRST (socket, session record,
 //  schedule prefs, caches, state) so the UI drops to guest
-//  immediately, then fires the server-side steps (push
-//  unregister, POST /logout) detached with the captured token
+//  immediately, then fires the server-side steps (engine
+//  detach, POST /logout) detached with the captured token
 //  and a short timeout — it can never throw, block, or leave
 //  the user stuck signed in. The cache purge matters: the
 //  conversations cache holds the user's private chat list and
@@ -72,7 +84,8 @@ import {
 // cache, session-expired toast
 import { showToast } from '@/context/NetworkContext';
 import { useDataEngine } from '@knf/dataengine';
-import { registerForPushNotifications, unregisterPushNotifications } from '@/services/notifications';
+import type { NotifyEngine, RegisterResult } from '@knf/notifyengine';
+import { notifyEngine, readyNotifyEngine } from '@/services/notifyEngine';
 import { connectSocket, disconnectSocket } from '@/services/socket';
 
 // State shapes, toast text and guest-scoped storage
@@ -152,20 +165,6 @@ const isValidStoredUser = (user: User | null): user is User =>
   typeof user.displayName === 'string' &&
   typeof user.role === 'string';
 
-// The notifications master switch, read straight from the
-// persisted settings blob — session restore must never
-// re-register a push token the user has switched off
-const readNotificationsEnabled = async (): Promise<boolean> => {
-  try {
-    const raw = await AsyncStorage.getItem('app_settings');
-    if (!raw) return true;
-    const parsed = JSON.parse(raw) as { notifications?: unknown };
-    return parsed.notifications !== false;
-  } catch {
-    return true;
-  }
-};
-
 // Cap for the detached logout-time server calls — they run
 // after the local teardown and must never linger
 const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T> =>
@@ -175,6 +174,24 @@ const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T> =>
       setTimeout(() => reject(new Error('timeout')), ms),
     ),
   ]);
+
+// The engine's register() never prompts: on a fresh install (or
+// for a user who never answered the OS dialog) it hands back a
+// pure typed {ok:false, reason:'permission'} and stops. The
+// legacy flow raised the OS permission dialog on every sign-in
+// and restore, so those same moments still have to ask — here,
+// fire-and-forget, and without a second register(): the
+// NotifyEngineHost grant-edge effect registers the moment the
+// snapshot turns deliverable. Only an askable state prompts; a
+// denied-forever device belongs to the settings tab's deep-link
+// into system settings, never to a nag on every login.
+const promptForPermission = (engine: NotifyEngine, result: RegisterResult): void => {
+  if (result.ok || result.reason !== 'permission') return;
+  const { status, canAskAgain } = engine.permission.get();
+  if (status === 'undetermined' || (status === 'denied' && canAskAgain)) {
+    void engine.requestPermission();
+  }
+};
 
 
 
@@ -248,11 +265,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 
   // Mount-only listeners (session-invalid, AppState) read live
-  // values through these refs; the push-registration promise is
-  // held so logout can await it before unregistering
+  // values through these refs
   const loggingOutRef = useRef(false);
   const authenticatedRef = useRef(false);
-  const pushRegistration = useRef<Promise<unknown> | null>(null);
 
 
   useEffect(() => {
@@ -332,7 +347,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // null instead of building a socket for the fresh token
     disconnectSocket();
     connectSocket().catch(() => {});
-    pushRegistration.current = registerForPushNotifications().catch(() => false);
+    // Fire-and-forget: the session is live regardless of whether
+    // the token ever reaches the server, and the engine settles
+    // every register() itself (watchdog, coalescing); the only
+    // answer acted on is a still-askable permission refusal
+    void readyNotifyEngine()
+      .then(async (engine) => promptForPermission(engine, await engine.register('login')))
+      .catch(() => {});
   }, [cache]);
 
 
@@ -388,13 +409,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(freshUser);
         connectSocket().catch(() => {});
 
-        // Push honors the master switch: register when it is on,
-        // clean up any leftover token when it is off
-        if (await readNotificationsEnabled()) {
-          pushRegistration.current = registerForPushNotifications().catch(() => false);
-        } else {
-          unregisterPushNotifications().catch(() => {});
-        }
+        // No master-switch check here: the engine answers
+        // {ok:false, reason:'disabled'} by itself when push is
+        // off. That answer still gets a detach: switching push
+        // off while offline leaves the DELETE unsent, and the
+        // engine keeps the stored token precisely so a later
+        // detach can retry it — without this retry the server
+        // would keep pushing to an opted-out device for as long
+        // as the token lives. A no-op when nothing is stored.
+        void readyNotifyEngine()
+          .then(async (engine) => {
+            const result = await engine.register('restore');
+            promptForPermission(engine, result);
+            if (!result.ok && result.reason === 'disabled') void engine.detach();
+          })
+          .catch(() => {});
       } catch (err) {
         // The rejection proves THIS token dead, not whichever
         // session is current — a login completed while /me was
@@ -483,8 +512,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setLoggingOut(true);
 
     const token = state.token;
-    const pendingRegistration = pushRegistration.current;
-    pushRegistration.current = null;
 
     try {
       await clearSession();
@@ -494,16 +521,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     // Detached: nothing below blocks the signed-out UI. The
-    // in-flight push registration is awaited first so it cannot
-    // re-register the token after the unregister below.
+    // captured bearer rides along with the detach because the
+    // local wipe already emptied the api layer's token — without
+    // it the DELETE would go out unauthenticated and the server
+    // would keep pushing to a signed-out device. The engine
+    // awaits its own in-flight register() before deleting, so a
+    // login-time registration can never land after the detach.
     (async () => {
       try {
-        if (pendingRegistration) await withTimeout(pendingRegistration, 5000);
-      } catch {
-        // Registration never finished — nothing extra to remove
-      }
-      try {
-        await withTimeout(unregisterPushNotifications(token ?? undefined), 5000);
+        await withTimeout(notifyEngine.detach({ authToken: token ?? undefined }), 5000);
       } catch {
         // Token stays registered server-side — harmless, expires
       }
@@ -550,7 +576,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 //   - app/index.tsx — waits for `hydrated` before routing
 //   - app/login.tsx / app/register.tsx — credential flows
 //   - app/(main)/tabs/* and (main)/* screens — user + role gates
+//   - components/notify/NotifyEngineHost.tsx,
+//     components/chat/ChatEngineHost.tsx,
+//     components/social/SocialEngineHost.tsx — the engine
+//     hosts' auth gates
 //   - components/LoginRequiredOverlay.tsx — auth prompt
+//   - components/Sidebar.tsx — signed-in header + menu gates
+//   - components/chat/ConversationRow.tsx — the "me" side of
+//     a conversation
+//   - components/news/PollWidget.tsx — vote gate
 //   - hooks/useUnreadCount.ts — resets on user change
 // -----------------------------------------------------------
 

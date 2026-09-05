@@ -128,4 +128,14 @@ describe('validateChannelSpecs', () => {
   it('accepts a well-formed versioned list', () => {
     expect(() => validateChannelSpecs(SPECS_V1)).not.toThrow();
   });
+
+  it('a vibrationPattern must be non-empty, finite, non-negative milliseconds — the offending channel named', () => {
+    const withPattern = (pattern: number[]) => [S('default.v1', 'default', 3, { vibrationPattern: pattern })];
+
+    expect(() => validateChannelSpecs(withPattern([0, 250, 250, 250]))).not.toThrow();
+    for (const bad of [[], [0, -250], [0, Number.NaN], [0, Number.POSITIVE_INFINITY]]) {
+      expect(() => validateChannelSpecs(withPattern(bad)))
+        .toThrow('Channel "default.v1" vibrationPattern must be non-empty, finite, non-negative milliseconds');
+    }
+  });
 });

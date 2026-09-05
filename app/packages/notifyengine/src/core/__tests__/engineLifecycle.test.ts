@@ -8,8 +8,10 @@
 //  the lanes only the root can prove wired: token rotation →
 //  register POST, app-active → permission re-poll, stale
 //  stored tuple → TTL POST with no explicit call, an invalid
-//  channel spec dying at build time, and the master switch's
-//  register/detach round trip.
+//  channel spec dying at build time, the master switch's
+//  register/detach round trip and its seeding from storage at
+//  init, and the host's session gate turning a guest's
+//  register into a pure typed 'unauthenticated'.
 // -----------------------------------------------------------
 
 import { createNotifyEngine } from '../engine';
@@ -38,7 +40,9 @@ const flush = async (turns = 25): Promise<void> => {
   for (let i = 0; i < turns; i += 1) await Promise.resolve();
 };
 
-const rig = (opts: { seed?: Record<string, string>; now?: () => number } = {}) => {
+const rig = (
+  opts: { seed?: Record<string, string>; now?: () => number; canRegister?: () => boolean | Promise<boolean> } = {},
+) => {
   const device = createFakeDevice();
   const transport = createFakeTransport();
   const storage = createMemoryStorage(opts.seed ?? {});
@@ -50,6 +54,7 @@ const rig = (opts: { seed?: Record<string, string>; now?: () => number } = {}) =
     presentation: PRESENTATION,
     language: () => 'lt',
     ...(opts.now ? { now: opts.now } : {}),
+    ...(opts.canRegister ? { canRegister: opts.canRegister } : {}),
   });
   return { device, transport, storage, engine };
 };
@@ -246,6 +251,104 @@ describe('the wiring lanes', () => {
     // A CONFIRMED delete forgets the stored tuple + legacy copy
     expect(storage.map.has('notify.lastRegistration')).toBe(false);
     expect(storage.map.has('push_last_token')).toBe(false);
+  });
+
+  it('setChatPreview forwards the machine verdict — true confirmed, false reverted', async () => {
+    const { transport, engine } = rig();
+    await engine.init();
+
+    await expect(engine.setChatPreview(false)).resolves.toBe(true);
+    expect(engine.prefs.get().chatPreview).toBe(false);
+
+    transport.overrides.putChatPreview = () => Promise.reject(new Error('backend down'));
+    await expect(engine.setChatPreview(true)).resolves.toBe(false);
+    expect(engine.prefs.get().chatPreview).toBe(false);
+  });
+});
+
+
+describe('init() seeds the master switch from storage', () => {
+  it('a stored "0" is visible as OFF the moment init() resolves — no refreshPrefs, no wire', async () => {
+    const { transport, engine } = rig({ seed: { 'notify.masterEnabled': '0' } });
+    expect(engine.prefs.get().masterEnabled).toBe(true);
+
+    await engine.init();
+
+    expect(engine.prefs.get().masterEnabled).toBe(false);
+    expect(transport.calls).toEqual([]);
+  });
+
+  it('a stored "1" and an absent key both read ON', async () => {
+    const stored = rig({ seed: { 'notify.masterEnabled': '1' } });
+    await stored.engine.init();
+    expect(stored.engine.prefs.get().masterEnabled).toBe(true);
+
+    const fresh = rig();
+    await fresh.engine.init();
+    expect(fresh.engine.prefs.get().masterEnabled).toBe(true);
+  });
+
+  it('a seeded OFF gates the register lanes: a restore answers disabled without touching the wire', async () => {
+    const { device, transport, engine } = rig({ seed: { 'notify.masterEnabled': '0' } });
+    device.permission = fixtureGranted;
+    await engine.init();
+
+    await expect(engine.register('restore')).resolves.toEqual({ ok: false, reason: 'disabled' });
+    expect(transport.calls).toEqual([]);
+    expect(engine.registration.get().phase).toBe('idle');
+  });
+});
+
+
+describe("the host's session gate", () => {
+  it('without canRegister every register lane is allowed (the default gate)', async () => {
+    const { device, engine } = rig();
+    device.permission = fixtureGranted;
+    await engine.init();
+
+    await expect(engine.register('restore')).resolves.toEqual({ ok: true, tokenId: 'tok-1' });
+  });
+
+  it("a guest's register is a pure typed unauthenticated — no device acquire, no wire, store untouched", async () => {
+    const { device, transport, engine } = rig({ canRegister: () => false });
+    device.permission = fixtureGranted;
+    await engine.init();
+    const phases: string[] = [];
+    engine.registration.subscribe((snapshot) => phases.push(snapshot.phase));
+
+    await expect(engine.register('restore')).resolves.toEqual({ ok: false, reason: 'unauthenticated' });
+
+    expect(device.calls.filter((call) => call.method === 'getPushToken')).toEqual([]);
+    expect(transport.calls).toEqual([]);
+    expect(phases).toEqual(['idle']);
+  });
+
+  it("a guest's master-ON records the intent and answers unauthenticated; login later claims the token", async () => {
+    let signedIn = false;
+    const { device, transport, storage, engine } = rig({ canRegister: async () => signedIn });
+    device.permission = fixtureGranted;
+    await engine.init();
+
+    await expect(engine.setMasterEnabled(true)).resolves.toEqual({ ok: false, reason: 'unauthenticated' });
+    expect(storage.map.get('notify.masterEnabled')).toBe('1');
+    expect(engine.prefs.get().masterEnabled).toBe(true);
+    expect(transport.calls).toEqual([]);
+
+    signedIn = true;
+    await expect(engine.register('login')).resolves.toEqual({ ok: true, tokenId: 'tok-1' });
+    expect(registerPosts(transport)).toHaveLength(1);
+  });
+
+  it('a rotation delivered to a guest never POSTs', async () => {
+    const { device, transport, engine } = rig({ canRegister: () => false });
+    device.permission = fixtureGranted;
+    await engine.init();
+
+    device.emitTokenRotation('ExponentPushToken[rotated-guest]');
+    await flush();
+
+    expect(transport.calls).toEqual([]);
+    expect(engine.registration.get().phase).toBe('idle');
   });
 });
 

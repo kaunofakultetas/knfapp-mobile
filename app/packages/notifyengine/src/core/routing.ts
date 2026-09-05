@@ -15,6 +15,12 @@
 //    - intents that arrive before the resolver exists (router
 //      not mounted yet) are BUFFERED, capped, and flushed in
 //      order the moment setResolver lands — never dropped;
+//    - a launch tap can reach the warm listener before the
+//      launch consumer asks for it, so while NO resolver is
+//      installed consumeInitial() adopts the OLDEST buffered
+//      intent as the cold start instead of reading the device
+//      — the buffer keeps each identifier so the later device
+//      read of that same response still dedupes to null;
 //    - the same identifier delivered twice by the OS emits one
 //      intent; a throwing resolver is caught and the next
 //      intent still delivers;
@@ -90,7 +96,9 @@ export function createRoutingHub(deps: {
 
   let resolver: RouteResolver | null = null;
   const listeners = new Set<(intent: RouteIntent) => void>();
-  const buffer: RouteIntent[] = [];
+  // Identifier kept beside each parked intent: adopting one as
+  // the cold start must leave the device's copy deduplicable
+  const buffer: { identifier: string; intent: RouteIntent }[] = [];
   // Session-scope dedupe — the persisted ring guards restarts,
   // this set guards double delivery within one session
   const seen = new Set<string>();
@@ -120,7 +128,7 @@ export function createRoutingHub(deps: {
     }
   };
 
-  const deliver = (intent: RouteIntent) => {
+  const deliver = (identifier: string, intent: RouteIntent) => {
     for (const listener of [...listeners]) {
       try {
         listener(intent);
@@ -136,7 +144,7 @@ export function createRoutingHub(deps: {
       }
       return;
     }
-    buffer.push(intent);
+    buffer.push({ identifier, intent });
     if (buffer.length > BUFFER_CAP) buffer.shift();
   };
 
@@ -155,13 +163,22 @@ export function createRoutingHub(deps: {
     if (seen.has(response.identifier)) return;
     seen.add(response.identifier);
     await markConsumed(response.identifier);
-    deliver(toIntent(response, coldStart));
+    deliver(response.identifier, toIntent(response, coldStart));
   };
 
   const consumeInitial = (): Promise<RouteIntent | null> => {
     // Serialized: the second concurrent caller runs after the
     // first finished marking, and so sees the dedupe
     const run = consumeLock.then(async (): Promise<RouteIntent | null> => {
+      // The launch tap already came through the warm listener
+      // and is parked: it IS the cold start. Its identifier is
+      // in `seen` and the ring, so the device read that would
+      // have found the same response answers null later
+      if (!resolver && buffer.length > 0) {
+        const parked = buffer.shift() as { identifier: string; intent: RouteIntent };
+        return { ...parked.intent, coldStart: true };
+      }
+
       const response = await readLastResponse().catch(() => null);
       if (!response) return null;
 
@@ -189,7 +206,7 @@ export function createRoutingHub(deps: {
     setResolver: (next: RouteResolver) => {
       resolver = next;
       while (buffer.length > 0) {
-        const intent = buffer.shift() as RouteIntent;
+        const { intent } = buffer.shift() as { identifier: string; intent: RouteIntent };
         try {
           next(intent);
         } catch {

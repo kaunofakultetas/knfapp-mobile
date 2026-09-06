@@ -11,12 +11,15 @@
     "test": "jest"
   },
   "dependencies": {
+    "@assistant-ui/ai-sdk": "0.0.4",
+    "@assistant-ui/react-native": "0.1.40",
     "@expo/vector-icons": "^15.0.3",
     "@formatjs/intl-getcanonicallocales": "^3.2.11",
     "@formatjs/intl-pluralrules": "^6.3.13",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/netinfo": "12.0.1",
     "@types/three": "^0.185.4",
+    "ai": "7.0.93",
     "axios": "^1.7.7",
     "expo": "^57.0.0",
     "expo-asset": "~57.0.16",
@@ -65,7 +68,8 @@
     "react-native-worklets": "0.10.1",
     "socket.io-client": "^4.8.3",
     "tailwindcss": "^3.4.17",
-    "three": "^0.170.0"
+    "three": "^0.170.0",
+    "zod": "4.5.4"
   },
   "devDependencies": {
     "@babel/core": "^7.29.0",
@@ -85,7 +89,7 @@
   "jest": {
     "preset": "jest-expo",
     "transformIgnorePatterns": [
-      "node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|native-base|react-native-svg|nativewind|react-native-css-interop|standard-navigation)"
+      "node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|native-base|react-native-svg|nativewind|react-native-css-interop|standard-navigation|@assistant-ui/.*|assistant-stream|assistant-cloud|ai/|@ai-sdk/.*|zod|nanoid|@standard-schema/.*|@workflow/.*|eventsource-parser|@vercel/oidc|pkce-challenge)"
     ],
     "testMatch": [
       "**/__tests__/**/*.test.ts?(x)",
@@ -107,7 +111,11 @@
       "context/**/*.{ts,tsx}",
       "hooks/**/*.{ts,tsx}",
       "services/**/*.{ts,tsx}",
-      "!**/node_modules/**"
+      "!**/node_modules/**",
+      "packages/notifyengine/src/**/*.{ts,tsx}",
+      "packages/notifyuikit/src/**/*.{ts,tsx}",
+      "packages/assistantengine/src/**/*.{ts,tsx}",
+      "packages/assistantuikit/src/**/*.{ts,tsx}"
     ],
     "setupFilesAfterEnv": [
       "<rootDir>/jest.setup.worklets.js"

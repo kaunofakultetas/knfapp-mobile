@@ -14,7 +14,7 @@ module.exports = defineConfig([
     // the next quick fix
     // The packages' SOURCE is sealed; their example/ folders are
     // documentation and may show the two packages used together
-    files: ['packages/chatuikit/src/**/*.{ts,tsx}', 'packages/chatengine/src/**/*.{ts,tsx}', 'packages/dataengine/src/**/*.{ts,tsx}', 'packages/timetableengine/src/**/*.{ts,tsx}', 'packages/timetableuikit/src/**/*.{ts,tsx}', 'packages/socialengine/src/**/*.{ts,tsx}', 'packages/socialuikit/src/**/*.{ts,tsx}', 'packages/wayfindengine/src/**/*.{ts,tsx}', 'packages/wayfinduikit/src/**/*.{ts,tsx}', 'packages/wayfindeditor/src/**/*.{ts,tsx}', 'packages/wayfindsync/src/**/*.{ts,tsx}', 'packages/wayfindcapture/src/**/*.{ts,tsx}', 'packages/notifyengine/src/**/*.{ts,tsx}', 'packages/notifyuikit/src/**/*.{ts,tsx}'],
+    files: ['packages/chatuikit/src/**/*.{ts,tsx}', 'packages/chatengine/src/**/*.{ts,tsx}', 'packages/dataengine/src/**/*.{ts,tsx}', 'packages/timetableengine/src/**/*.{ts,tsx}', 'packages/timetableuikit/src/**/*.{ts,tsx}', 'packages/socialengine/src/**/*.{ts,tsx}', 'packages/socialuikit/src/**/*.{ts,tsx}', 'packages/wayfindengine/src/**/*.{ts,tsx}', 'packages/wayfinduikit/src/**/*.{ts,tsx}', 'packages/wayfindeditor/src/**/*.{ts,tsx}', 'packages/wayfindsync/src/**/*.{ts,tsx}', 'packages/wayfindcapture/src/**/*.{ts,tsx}', 'packages/notifyengine/src/**/*.{ts,tsx}', 'packages/notifyuikit/src/**/*.{ts,tsx}', 'packages/assistantengine/src/**/*.{ts,tsx}', 'packages/assistantuikit/src/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-imports': [
         'error',
@@ -43,6 +43,10 @@ module.exports = defineConfig([
             { target: './packages/wayfindeditor/src', from: './', except: ['./packages/wayfindeditor/src', './node_modules'] },
             { target: './packages/wayfindsync/src', from: './', except: ['./packages/wayfindsync/src', './node_modules'] },
             { target: './packages/wayfindcapture/src', from: './', except: ['./packages/wayfindcapture/src', './node_modules'] },
+            { target: './packages/notifyengine/src', from: './', except: ['./packages/notifyengine/src', './node_modules'] },
+            { target: './packages/notifyuikit/src', from: './', except: ['./packages/notifyuikit/src', './node_modules'] },
+            { target: './packages/assistantengine/src', from: './', except: ['./packages/assistantengine/src', './node_modules'] },
+            { target: './packages/assistantuikit/src', from: './', except: ['./packages/assistantuikit/src', './node_modules'] },
           ],
         },
       ],

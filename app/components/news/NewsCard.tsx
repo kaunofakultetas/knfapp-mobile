@@ -48,7 +48,7 @@ import { ActionRow } from '@knf/socialuikit';
 
 // Feed shape, upload resolution and date formatting
 import { getUploadUrl, type SocialFeedPost } from '@/services/api';
-import { stripScrapedPreamble } from '@/services/newsText';
+import { stripMarkdown, stripScrapedPreamble } from '@/services/newsText';
 import { formatDate } from '@/services/format';
 import type { NewsPost } from '@/types';
 
@@ -271,7 +271,9 @@ function NewsCard({
     () =>
       post.postType === 'poll'
         ? null
-        : makeSnippet(stripScrapedPreamble(post.summary || post.content, post)),
+        // The content fallback is markdown for scraped posts —
+        // a teaser is prose, never markers
+        : makeSnippet(stripMarkdown(stripScrapedPreamble(post.summary || post.content, post))),
     [post],
   );
 

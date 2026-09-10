@@ -71,7 +71,10 @@ import type { NewsPost } from '@/types';
 // rows; app-wide toasts and connectivity for the error flavour
 import { useAuth } from '@/context/AuthContext';
 import { showToast, useNetwork } from '@/context/NetworkContext';
-import { stripScrapedPreamble } from '@/services/newsText';
+import { isScrapedSource, stripScrapedPreamble } from '@/services/newsText';
+
+// Markdown-aware article body renderer
+import NewsBody from '@/components/news/NewsBody';
 
 // Route param, navigation, the login round-trip href and the
 // stack-header offset
@@ -340,9 +343,10 @@ function ArticleHeader({
       {post.author ? (
         <Text className="px-md pt-xs font-raleway text-sm text-ink-soft">{post.author}</Text>
       ) : null}
-      <Text className="px-md pt-sm font-raleway text-base leading-6 text-ink">
-        {body}
-      </Text>
+      {/* Scraped bodies are the scraper's light markdown —
+          paragraphs, headings, lists, bold and tappable links;
+          hand-written posts render exactly as typed */}
+      <NewsBody text={body} markdown={isScrapedSource(post)} />
 
       {post.postType === 'poll' && (
         <View className="px-md pt-sm">

@@ -62,3 +62,21 @@ describe('stripScrapedPreamble', () => {
     expect(stripScrapedPreamble('', post)).toBe('');
   });
 });
+
+
+describe('stripScrapedPreamble on markdown bodies', () => {
+  it('drops markdown-shaped chrome: a "- " date, a "## " title repeat, a category link', () => {
+    const body = [
+      '- 2026 m. rugsėjo 7 d.',
+      '',
+      '## Vicky Reiter: Visi indoeuropeistai – šiek tiek keistoki',
+      '',
+      '[VU naujienos](https://www.vu.lt/lt/visos-naujienos?categories=vu-naujienos)',
+      '',
+      'Priežastys, kodėl žmonės mokosi lietuvių kalbos, yra skirtingos.',
+    ].join('\n');
+    expect(stripScrapedPreamble(body, post)).toBe(
+      'Priežastys, kodėl žmonės mokosi lietuvių kalbos, yra skirtingos.',
+    );
+  });
+});

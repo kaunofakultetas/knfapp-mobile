@@ -31,8 +31,67 @@ const MAX_PREAMBLE_LINES = 5;
 // "2026 m. rugpjūčio 27 d.", "27.08.2026", "2026-08-27"
 const DATE_LINE_RE = /^(\d{4}\s*m\.\s+\S+\s+\d{1,2}\s*d\.|\d{1,2}\.\d{1,2}\.\d{4}|\d{4}-\d{2}-\d{2})\.?$/i;
 
-// Case- and whitespace-insensitive line comparison
-const normalize = (text: string) => text.trim().toLowerCase().replace(/\s+/g, ' ');
+// Case- and whitespace-insensitive line comparison, blind to
+// markdown markers — a "## Title" heading line must still
+// match the post's own plain title
+const normalize = (text: string) => stripMarkdown(text).trim().toLowerCase().replace(/\s+/g, ' ');
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// isScrapedSource
+// -----------------------------------------------------------
+//
+// The one predicate for "this body came off a scraped page":
+// community, faculty and app posts name their source; every
+// other value (knf.vu.lt, vu.lt, a missing field) is the
+// scraper's. Scraped bodies are stored as light markdown and
+// may open with page chrome — both consumers below branch on
+// exactly this.
+//
+// Used by:
+//   - stripScrapedPreamble (below)
+//   - app/(main)/news-post/index.tsx — markdown vs plain body
+// -----------------------------------------------------------
+
+export function isScrapedSource(post: Pick<NewsPost, 'source'>): boolean {
+  return post.source !== 'user' && post.source !== 'faculty' && post.source !== 'app';
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// stripMarkdown
+// -----------------------------------------------------------
+//
+//   stripMarkdown(text) — the same text with every markdown
+//                         marker removed
+//
+// The inverse of the scraper's light markdown: links keep
+// their text and lose the URL, bold/italic keep their text,
+// heading and list markers drop. Card snippets and the
+// chrome comparison run on prose, never on markers.
+//
+// Used by:
+//   - normalize (above) — the chrome line comparison
+//   - components/news/NewsCard.tsx — the card snippet
+// -----------------------------------------------------------
+
+export function stripMarkdown(text: string): string {
+  return text
+    .replace(/\[([^\]]*)\]\([^)\s]*\)/g, '$1')
+    .replace(/\*{1,2}([^*\n]+)\*{1,2}/g, '$1')
+    .replace(/^#{2,3} /gm, '')
+    .replace(/^- /gm, '');
+}
 
 
 
@@ -63,7 +122,7 @@ export function stripScrapedPreamble(
   // Only scraped articles carry page chrome — a community,
   // faculty or app post opening with a short line wrote it
   // on purpose
-  if (post.source === 'user' || post.source === 'faculty' || post.source === 'app') {
+  if (!isScrapedSource(post)) {
     return content;
   }
 
@@ -89,8 +148,12 @@ export function stripScrapedPreamble(
       continue;
     }
     if (stripped >= MAX_PREAMBLE_LINES) break;
-    const isChrome = known.has(normalize(line)) || DATE_LINE_RE.test(line);
-    const isLabel = line.length <= LABEL_MAX_LENGTH && !/[.!?…:]$/.test(line);
+    // The chrome heuristics judge PROSE — a scraped body's
+    // leading date can arrive as a "- " list line and its title
+    // repeat as a "## " heading
+    const prose = stripMarkdown(line).trim();
+    const isChrome = known.has(normalize(line)) || DATE_LINE_RE.test(prose);
+    const isLabel = prose.length <= LABEL_MAX_LENGTH && !/[.!?…:]$/.test(prose);
     if (isChrome || isLabel) {
       if (isChrome) sawChrome = true;
       stripped += 1;

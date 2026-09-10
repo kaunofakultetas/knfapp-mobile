@@ -91,8 +91,7 @@ function PendingBanner({ count, onPress }: { count: number; onPress: () => void 
 
   return (
     <Pressable
-      className="mb-sm mt-md flex-row items-center justify-between rounded-xl bg-brand p-md"
-      style={({ pressed }) => (pressed ? { backgroundColor: colors.brandStrong } : undefined)}
+      className="mb-sm mt-md flex-row items-center justify-between rounded-xl bg-brand p-md active:bg-brand-strong"
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={t('friends.pendingRequests', { count })}

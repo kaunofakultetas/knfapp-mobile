@@ -92,11 +92,17 @@ function FallbackButton({
         opacity: outline && pressed ? 0.7 : 1,
       })}
     >
+      {/* includeFontPadding off — same Android fix as the kit
+          Button: Raleway's tall ascent otherwise pushes the
+          label below the button's visual center */}
       <Text
         style={{
           fontFamily: fonts.medium,
           fontSize: 16,
           color: outline ? c.brand : c.onBrand,
+          textAlign: 'center',
+          includeFontPadding: false,
+          textAlignVertical: 'center',
         }}
       >
         {title}

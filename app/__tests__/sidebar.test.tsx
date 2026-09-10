@@ -135,10 +135,10 @@ describe('Sidebar', () => {
   it('shows the always-pinned mark, not a toggle, on hard-pinned surfaces', async () => {
     const { getAllByLabelText } = await render(<Sidebar />);
 
-    // news + messages are locked; the other four carry a switch
+    // news + messages are locked; the other five carry a switch
     expect(getAllByLabelText('menu.alwaysPinned')).toHaveLength(2);
     expect(getAllByLabelText('menu.unpinTab')).toHaveLength(2); // schedule, id
-    expect(getAllByLabelText('menu.pinTab')).toHaveLength(2); // map, settings
+    expect(getAllByLabelText('menu.pinTab')).toHaveLength(3); // assistant, map, settings
   });
 
   it('unpins an inactive surface without navigating', async () => {
@@ -162,9 +162,9 @@ describe('Sidebar', () => {
   it('pins an unpinned surface', async () => {
     const { getAllByLabelText } = await render(<Sidebar />);
 
-    // First pin switch in section order is map's
+    // First pin switch in section order is the assistant's
     await fireEvent.press(getAllByLabelText('menu.pinTab')[0], pressEvent);
-    expect(mockSetPinnedTabs).toHaveBeenCalledWith(['news', 'messages', 'schedule', 'id', 'map']);
+    expect(mockSetPinnedTabs).toHaveBeenCalledWith(['news', 'messages', 'schedule', 'id', 'assistant']);
   });
 });
 

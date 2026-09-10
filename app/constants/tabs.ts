@@ -2,7 +2,7 @@
 //  [*] Tabs — the single tab roster
 //
 //  The one table every part of the navigation shell derives
-//  the six app surfaces from: the drawer's section rows, the
+//  the seven app surfaces from: the drawer's section rows, the
 //  bottom bar's glyphs and the tabs layout's screen list all
 //  read TABS, and the hard-pinned rule reads HARD_PINNED_TABS
 //  — so adding, removing or hard-pinning a surface is one
@@ -62,6 +62,7 @@ export const TABS: TabDef[] = [
   { key: 'news', icon: 'newspaper-outline', iconFilled: 'newspaper', route: '/(main)/tabs/news', hardPinned: true },
   { key: 'messages', icon: 'chatbubbles-outline', iconFilled: 'chatbubbles', route: '/(main)/tabs/messages', hardPinned: true },
   { key: 'schedule', icon: 'calendar-outline', iconFilled: 'calendar', route: '/(main)/tabs/schedule', hardPinned: false },
+  { key: 'assistant', icon: 'sparkles-outline', iconFilled: 'sparkles', route: '/(main)/tabs/assistant', hardPinned: false },
   { key: 'id', icon: 'id-card-outline', iconFilled: 'id-card', route: '/(main)/tabs/id', hardPinned: false },
   { key: 'map', icon: 'map-outline', iconFilled: 'map', route: '/(main)/tabs/map', hardPinned: false },
   { key: 'settings', icon: 'settings-outline', iconFilled: 'settings', route: '/(main)/tabs/settings', hardPinned: false },

@@ -157,8 +157,7 @@ function IdentityCard({ onNavigate }: { onNavigate: (route: Href) => void }) {
         {/* A white pill on the burgundy card — the kit's variants
             are all designed for surfaces, not for brand backgrounds */}
         <Pressable
-          className="mt-sm h-10 self-start justify-center rounded-full bg-on-brand px-lg"
-          style={({ pressed }) => (pressed ? { opacity: 0.85 } : null)}
+          className="mt-sm h-10 self-start justify-center rounded-full bg-on-brand px-lg active:opacity-85"
           onPress={() => onNavigate({ pathname: '/login', params: { returnTo: returnHref } } as Href)}
           accessibilityRole="button"
           accessibilityLabel={t('settings.login')}
@@ -174,8 +173,7 @@ function IdentityCard({ onNavigate }: { onNavigate: (route: Href) => void }) {
   return (
     <SafeAreaView edges={['top']} className="bg-brand-header">
     <Pressable
-      className="px-md pb-md pt-3"
-      style={({ pressed }) => (pressed ? { opacity: 0.85 } : null)}
+      className="px-md pb-md pt-3 active:opacity-85"
       onPress={() => onNavigate('/(main)/profile')}
       accessibilityRole="button"
       accessibilityLabel={t('menu.myProfile')}
@@ -244,8 +242,7 @@ function SectionRow({
 
   return (
     <Pressable
-      className={active ? 'flex-row items-center rounded-xl bg-brand-soft px-2 py-2' : 'flex-row items-center rounded-xl px-2 py-2'}
-      style={({ pressed }) => (pressed && !active ? { backgroundColor: colors.surfaceSoft } : null)}
+      className={active ? 'flex-row items-center rounded-xl bg-brand-soft px-2 py-2' : 'flex-row items-center rounded-xl px-2 py-2 active:bg-surface-soft'}
       onPress={onOpen}
       accessible={false}
     >
@@ -297,8 +294,7 @@ function SectionRow({
             onTogglePin();
           }}
           hitSlop={10}
-          className="h-9 w-9 items-center justify-center"
-          style={({ pressed }) => (pressed ? { opacity: 0.7 } : null)}
+          className="h-9 w-9 items-center justify-center active:opacity-70"
           accessibilityRole="switch"
           accessibilityState={{ checked: pinned }}
           accessibilityLabel={pinned ? t('menu.unpinTab', { tab: label }) : t('menu.pinTab', { tab: label })}
@@ -351,8 +347,7 @@ function MoreRow({ item, badge, onOpen }: { item: (typeof MORE)[number]; badge?:
 
   return (
     <Pressable
-      className="flex-row items-center rounded-xl px-2 py-2"
-      style={({ pressed }) => (pressed ? { backgroundColor: colors.surfaceSoft } : null)}
+      className="flex-row items-center rounded-xl px-2 py-2 active:bg-surface-soft"
       onPress={onOpen}
       accessibilityRole="button"
       accessibilityLabel={label}

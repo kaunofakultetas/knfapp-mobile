@@ -233,11 +233,8 @@ function LinkRow({ icon, label, onPress, divider = false }: LinkRowProps) {
     <Pressable
       className={
         divider
-          ? 'flex-row items-center gap-sm border-b border-line px-md py-md'
-          : 'flex-row items-center gap-sm px-md py-md'
-      }
-      style={({ pressed }) =>
-        pressed ? { backgroundColor: colors.surfaceSoft } : undefined
+          ? 'flex-row items-center gap-sm border-b border-line px-md py-md active:bg-surface-soft'
+          : 'flex-row items-center gap-sm px-md py-md active:bg-surface-soft'
       }
       onPress={onPress}
       accessibilityRole="button"
@@ -282,10 +279,7 @@ function ChannelsRetryRow({ onRetry }: { onRetry: () => void }) {
       onPress={onRetry}
       accessibilityRole="button"
       accessibilityLabel={t('common.tryAgain')}
-      className="flex-row items-center gap-sm border-b border-line px-md py-md"
-      style={({ pressed }) =>
-        pressed ? { backgroundColor: colors.surfaceSoft } : undefined
-      }
+      className="flex-row items-center gap-sm border-b border-line px-md py-md active:bg-surface-soft"
     >
       <Ionicons name="cloud-offline-outline" size={20} color={colors.inkSoft} />
       <Text className="flex-1 font-raleway text-sm text-ink-soft">

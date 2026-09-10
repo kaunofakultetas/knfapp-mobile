@@ -268,8 +268,7 @@ function WelcomeStep({ onContinue, onGuest }: WelcomeStepProps) {
             the brand-screen CTA is its own pressable */}
         <Pressable
           onPress={onContinue}
-          className="mt-xl h-14 w-full items-center justify-center rounded-full bg-surface"
-          style={({ pressed }) => (pressed ? { opacity: 0.85 } : undefined)}
+          className="mt-xl h-14 self-stretch items-center justify-center rounded-full bg-surface active:opacity-85"
           accessibilityRole="button"
           accessibilityLabel={t('login.continue')}
         >

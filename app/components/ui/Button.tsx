@@ -25,7 +25,7 @@
 import { Ionicons } from '@expo/vector-icons';
 
 // Press handling, spinner and label primitives
-import { ActivityIndicator, Pressable, Text, type ViewStyle } from 'react-native';
+import { ActivityIndicator, Pressable, Text } from 'react-native';
 
 // Spinner, icon and pressed colors for the active scheme
 import { useTheme } from '@/hooks/useTheme';
@@ -49,13 +49,17 @@ interface ButtonProps {
 }
 
 // Container fill per variant; outline keeps a constant-width
-// brand border so toggling variants never shifts layout
+// brand border so toggling variants never shifts layout.
+// Pressed feedback rides on active: pseudo-classes — a style
+// FUNCTION on the Pressable makes css-interop drop the
+// resolved styles' layout half on device (the justify bug),
+// so the pressed state must never come from one
 const CONTAINER_VARIANTS: Record<ButtonVariant, string> = {
-  primary: 'bg-brand',
-  secondary: 'bg-surface-soft',
-  outline: 'border border-brand bg-transparent',
-  ghost: 'bg-transparent',
-  danger: 'bg-danger',
+  primary: 'bg-brand active:bg-brand-strong',
+  secondary: 'bg-surface-soft active:bg-line',
+  outline: 'border border-brand bg-transparent active:bg-surface-soft',
+  ghost: 'bg-transparent active:bg-surface-soft',
+  danger: 'bg-danger active:opacity-80',
 };
 
 // Min-heights keep the loading-spinner swap jump-free; the
@@ -130,27 +134,22 @@ export default function Button({
         : colors.brand;
 
 
-  // Pressed feedback via dedicated tokens where the palette
-  // has them; danger dims instead (no danger-strong exists).
-  // Inline style wins over the className fill only while held.
-  const pressedStyles: Record<ButtonVariant, ViewStyle> = {
-    primary: { backgroundColor: colors.brandStrong },
-    secondary: { backgroundColor: colors.line },
-    outline: { backgroundColor: colors.surfaceSoft },
-    ghost: { backgroundColor: colors.surfaceSoft },
-    danger: { opacity: 0.8 },
-  };
-
-
   // The sm height is 40px — hitSlop restores the 44pt target
   const hitSlop = size === 'sm' ? 4 : undefined;
 
 
+  // fullWidth rides on self-stretch, NOT w-full: a percentage
+  // width inside an auto-width wrapper (ErrorState/EmptyState
+  // center a hugging button) trips a css-interop measure bug
+  // once the pressable has interaction styles, inflating the
+  // box and shoving the label off-center. Cross-axis stretch
+  // gives the same fill in real containers and hugs cleanly
+  // in auto-width ones.
   const containerClasses = [
     'flex-row items-center justify-center gap-sm rounded-md',
     CONTAINER_VARIANTS[variant],
     CONTAINER_SIZES[size],
-    fullWidth ? 'w-full' : 'self-start',
+    fullWidth ? 'self-stretch' : 'self-start',
     isDisabled ? 'opacity-50' : '',
   ].join(' ');
 
@@ -158,7 +157,6 @@ export default function Button({
   return (
     <Pressable
       className={containerClasses}
-      style={({ pressed }) => (pressed && !isDisabled ? pressedStyles[variant] : undefined)}
       onPress={onPress}
       disabled={isDisabled}
       hitSlop={hitSlop}
@@ -171,7 +169,14 @@ export default function Button({
       ) : (
         <>
           {leftIcon && <Ionicons name={leftIcon} size={ICON_SIZES[size]} color={contentColor} />}
-          <Text className={`font-raleway-medium ${TEXT_VARIANTS[variant]} ${TEXT_SIZES[size]}`}>
+          {/* includeFontPadding off: Android pads the label with
+              Raleway's tall ascent and the text sits below the
+              button's visual center; text-center keeps a wrapped
+              label centered too */}
+          <Text
+            className={`text-center font-raleway-medium ${TEXT_VARIANTS[variant]} ${TEXT_SIZES[size]}`}
+            style={{ includeFontPadding: false, textAlignVertical: 'center' }}
+          >
             {title}
           </Text>
         </>

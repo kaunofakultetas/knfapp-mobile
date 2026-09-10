@@ -85,14 +85,13 @@ export default function Card({ children, onPress, padding = 'md', className, acc
   }
 
 
-  // Inline pressed backgroundColor outranks the className
-  // fill only while held, then falls away again
+  // Pressed tint via active: — a style FUNCTION next to
+  // className corrupts class layout styles on device (see
+  // Button.tsx); the shadow stays as a plain object style
   return (
     <Pressable
-      className={classes}
-      style={({ pressed }) =>
-        pressed ? [CARD_SHADOW, { backgroundColor: colors.surfaceSoft }] : CARD_SHADOW
-      }
+      className={`${classes} active:bg-surface-soft`}
+      style={CARD_SHADOW}
       onPress={onPress}
       accessible={accessible}
       // No button role when the card is opted out of grouping —

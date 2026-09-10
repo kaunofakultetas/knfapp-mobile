@@ -524,10 +524,8 @@ function FaqItem({
       // never reach the conditional answer Text below
       accessibilityLabel={expanded ? `${item.q}. ${item.a}` : item.q}
       accessibilityState={{ expanded }}
-      className="rounded-xl bg-surface p-md"
-      style={({ pressed }) =>
-        pressed ? [FAQ_ROW_SHADOW, { backgroundColor: colors.surfaceSoft }] : FAQ_ROW_SHADOW
-      }
+      className="rounded-xl bg-surface p-md active:bg-surface-soft"
+      style={FAQ_ROW_SHADOW}
     >
 
       <View className="flex-row items-center justify-between gap-sm">

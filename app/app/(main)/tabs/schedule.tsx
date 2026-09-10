@@ -235,8 +235,7 @@ function DayStepper({
         hitSlop={12}
         accessibilityRole="button"
         accessibilityLabel={t('schedule.prevDay')}
-        className="h-11 w-8 items-center justify-center"
-        style={({ pressed }) => [pressed && { opacity: 0.7 }]}
+        className="h-11 w-8 items-center justify-center active:opacity-70"
       >
         <Ionicons name="chevron-back" size={20} color={colors.onBrand} />
       </Pressable>
@@ -255,8 +254,7 @@ function DayStepper({
         hitSlop={12}
         accessibilityRole="button"
         accessibilityLabel={t('schedule.nextDay')}
-        className="h-11 w-8 items-center justify-center"
-        style={({ pressed }) => [pressed && { opacity: 0.7 }]}
+        className="h-11 w-8 items-center justify-center active:opacity-70"
       >
         <Ionicons name="chevron-forward" size={20} color={colors.onBrand} />
       </Pressable>
@@ -309,8 +307,7 @@ function DayTabs({
             accessibilityRole="tab"
             accessibilityState={{ selected: active }}
             accessibilityLabel={t(`schedule.${DAY_FULL_KEYS[day]}`)}
-            className="flex-1 items-center"
-            style={({ pressed }) => [pressed && { opacity: 0.7 }]}
+            className="flex-1 items-center active:opacity-70"
           >
             <View className={`items-center border-b-2 py-3 ${active ? 'border-brand' : 'border-transparent'}`}>
               <Text className={`text-sm ${active ? 'font-raleway-bold text-brand-text' : 'font-raleway-medium text-ink-soft'}`}>
@@ -414,8 +411,7 @@ function FilterBar({
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={t('schedule.filterTitle')}
-      className="flex-1 flex-row items-center justify-between px-md py-3"
-      style={({ pressed }) => [pressed && { backgroundColor: colors.surfaceSoft }]}
+      className="flex-1 flex-row items-center justify-between px-md py-3 active:bg-surface-soft"
     >
 
       <View className="flex-1 flex-row items-center">

@@ -304,8 +304,7 @@ function NewsCard({
       // width — cover edge to edge, no rounding, cards separated
       // by a sliver of canvas — so the feed reads like the
       // faculty news page, not a stack of floating tiles
-      className="mb-2 bg-surface"
-      style={({ pressed }) => (pressed ? { opacity: 0.92 } : null)}
+      className="mb-2 bg-surface active:opacity-90"
       onPress={onPress}
       accessible={false}
     >

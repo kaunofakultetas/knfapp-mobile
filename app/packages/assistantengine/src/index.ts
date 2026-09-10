@@ -10,8 +10,9 @@
 //  the frozen tool contract with its schema mirrors and the
 //  conformance describe. The upstream runtime provider rides
 //  through here so the app imports one package for runtime
-//  concerns; the testing doubles ship from
-//  '@knf/assistantengine/testing'.
+//  concerns, and the local-runtime door at the bottom lets a
+//  host run the thread with no wire at all; the testing
+//  doubles ship from '@knf/assistantengine/testing'.
 //
 //  Used by:
 //    - the mobile app's assistant screen wiring, once it lands
@@ -78,3 +79,37 @@ export type {
   SearchNewsInput,
   SearchNewsOutput,
 } from './tools/contract';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// The local-runtime door
+// -----------------------------------------------------------
+//
+// The house rule keeps the upstream out of the app, so the one
+// runtime that needs NO wire ships through here too: a host
+// hands useLocalRuntime a ChatModelAdapter and the thread runs
+// against it on the device — a development stand-in before the
+// AI container lands, or an offline mode — without ever
+// importing the upstream. Nothing of the README's SERVER
+// CONTRACT applies on this path; the wire-backed path stays
+// useKnfAssistantRuntime over the transport above. A yielded
+// ChatModelRunResult carries the assistant message's WHOLE
+// content so far, not a delta.
+//
+// Used by:
+//   - the assistant screen's streaming stub, once it lands
+//     (nothing imports this door yet)
+// -----------------------------------------------------------
+
+export { useLocalRuntime } from '@assistant-ui/react-native';
+export type {
+  ChatModelAdapter,
+  ChatModelRunOptions,
+  ChatModelRunResult,
+  LocalRuntimeOptions,
+} from '@assistant-ui/react-native';

@@ -5,7 +5,9 @@
 //  Both doors are pinned — the package the app imports, and
 //  the testing doubles hosts reach through
 //  '@knf/assistantengine/testing'. Nothing DOM-shaped leaves
-//  either.
+//  either. Type-only exports are erased at runtime, so the
+//  local-runtime door's types are pinned by compilation below,
+//  not by the key list.
 // -----------------------------------------------------------
 
 import * as pkg from '../index';
@@ -37,7 +39,23 @@ describe('@knf/assistantengine surface', () => {
       'useAssistantFailure',
       'useAssistantTokenUsage',
       'useKnfAssistantRuntime',
+      'useLocalRuntime',
     ]);
+  });
+
+  it('the local-runtime door types ride through', () => {
+    // Object.keys cannot see type-only exports — this adapter is
+    // typed against the door instead, so an upstream rename of
+    // ChatModelAdapter / ChatModelRunOptions / ChatModelRunResult /
+    // LocalRuntimeOptions fails compilation here, not in a host
+    const adapter: pkg.ChatModelAdapter = {
+      async *run(options: pkg.ChatModelRunOptions): AsyncGenerator<pkg.ChatModelRunResult, void> {
+        yield { content: [{ type: 'text', text: 'Labas! ' }] };
+      },
+    };
+    const runtimeOptions: pkg.LocalRuntimeOptions = { initialMessages: [] };
+    expect(typeof adapter.run).toBe('function');
+    expect(runtimeOptions.initialMessages).toEqual([]);
   });
 });
 

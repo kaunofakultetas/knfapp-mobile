@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.1.0 — 2026-09-06
+
+The local-runtime door, nothing else.
+
+- **Local runtime** — `useLocalRuntime` and the types
+  `ChatModelAdapter`, `ChatModelRunOptions`, `ChatModelRunResult`
+  and `LocalRuntimeOptions` re-exported from the main door: a host
+  runs the thread against a local adapter — a development stand-in
+  before the AI container lands, or an offline mode — without ever
+  importing the upstream. A yielded `ChatModelRunResult` carries
+  the assistant message's WHOLE content so far, not a delta. The
+  SERVER CONTRACT does not apply to this path; the wire-backed
+  path stays `useKnfAssistantRuntime`.
+
 ## 1.0.0 — 2026-09-05
 
 The assistant runtime seam, built against the upstream chat

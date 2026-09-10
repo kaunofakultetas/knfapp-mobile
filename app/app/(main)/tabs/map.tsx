@@ -197,8 +197,7 @@ const RoomRow = memo(function RoomRow({
       accessibilityRole="button"
       accessibilityLabel={`${name}, ${match.level.label}`}
       testID={`map-room-${match.room.id}`}
-      style={({ pressed }) => ({ backgroundColor: pressed ? colors.surfaceSoft : 'transparent' })}
-      className="flex-row items-center px-md py-sm"
+      className="flex-row items-center px-md py-sm active:bg-surface-soft"
     >
       <View className="h-10 w-10 items-center justify-center rounded-xl bg-brand-soft">
         <Ionicons name="location" size={20} color={colors.brand} />

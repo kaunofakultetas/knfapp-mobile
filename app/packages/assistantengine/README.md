@@ -34,6 +34,30 @@ in `/api` is the classic mistake: the two fixed paths already carry it.
 `joinUrl(base, path)` is exported and pinned: exactly one slash at the
 seam, a base prefix kept.
 
+## Local runtime (no backend)
+
+The same door also ships the upstream's local runtime, so a host can
+run the thread against an adapter on the device — a development
+stand-in before the AI container lands, or an offline mode:
+
+```tsx
+import { useLocalRuntime, type ChatModelAdapter } from '@knf/assistantengine';
+
+const stub: ChatModelAdapter = {
+  async *run() {
+    yield { content: [{ type: 'text', text: 'Labas! ' }] };
+    yield { content: [{ type: 'text', text: 'Labas! Čia vietinis atsakymas.' }] };
+  },
+};
+const runtime = useLocalRuntime(stub); // then the provider as above
+```
+
+Each yielded `ChatModelRunResult` carries the assistant message's
+WHOLE content so far, not a delta. The SERVER CONTRACT below does not
+apply to this path — nothing touches the wire, no headers, no failure
+mapping; the wire-backed path stays `useKnfAssistantRuntime` over the
+transport.
+
 ## The transport
 
 `createKnfAssistantTransport(config)` builds the upstream transport

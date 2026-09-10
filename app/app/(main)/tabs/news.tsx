@@ -311,8 +311,8 @@ function CreatePostFab({ onPress }: { onPress: () => void }) {
 
   return (
     <Pressable
-      className="absolute bottom-lg right-md h-14 w-14 items-center justify-center rounded-full bg-brand"
-      style={({ pressed }) => [FAB_SHADOW, pressed && { backgroundColor: colors.brandStrong }]}
+      className="absolute bottom-lg right-md h-14 w-14 items-center justify-center rounded-full bg-brand active:bg-brand-strong"
+      style={FAB_SHADOW}
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={t('news.a11yCreatePost')}

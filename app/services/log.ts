@@ -27,6 +27,18 @@ const MAX_ENTRIES = 50;
 const entries: string[] = [];
 
 
+// logError lines stay on the dev console but must not summon
+// LogBox's floating error pill: these are EXPECTED failures
+// (a dead backend, a lost socket), and with the backend down
+// the pill would sit broken and blank over the tab bar on
+// every screen. The [scope] prefix is logError's signature,
+// so genuine unexpected errors still pop the pill.
+if (__DEV__) {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  require('react-native').LogBox.ignoreLogs([/^\[[\w-]+\]/]);
+}
+
+
 
 
 

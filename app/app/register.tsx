@@ -733,7 +733,13 @@ export default function RegisterScreen() {
   return (
     <KeyboardAvoidingView
       className="flex-1 bg-canvas"
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      // iOS lift comes from the ScrollView's own keyboard
+      // insets below — unlike 'padding', they also scroll the
+      // focused field into view, which this form needs: it is
+      // the app's longest, and the lower fields sat hidden
+      // behind the keyboard. Android keeps the height behavior
+      // like every other form screen.
+      behavior={Platform.OS === 'ios' ? undefined : 'height'}
     >
 
       <FormTopBar title={t('register.title')} onBack={goToLogin} />
@@ -744,6 +750,7 @@ export default function RegisterScreen() {
           contentContainerClassName="flex-grow px-lg py-xl"
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
+          automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
         >
 
           <Text className="text-center font-raleway text-base leading-6 text-ink-soft">

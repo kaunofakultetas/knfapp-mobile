@@ -650,9 +650,9 @@ function Conversations() {
     const ids = directIdsRef.current;
     if (ids.length === 0) return;
     const seq = ++presenceSeqRef.current;
-    const online = await fetchOnlineStatus(ids);
+    const presence = await fetchOnlineStatus(ids);
     if (seq !== presenceSeqRef.current) return;
-    if (online) setOnlineMap(online);
+    if (presence) setOnlineMap(presence.online);
   }, []);
 
 

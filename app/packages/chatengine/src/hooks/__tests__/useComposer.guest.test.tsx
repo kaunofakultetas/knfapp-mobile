@@ -9,6 +9,10 @@ import { ChatEngineProvider, draftReplyKey, fakeTransport, memoryStorage, useCom
 
 const SELF = { id: 'u1', displayName: 'Me' };
 
+// Persistence lands under the signed-in account's namespace
+// (ChatEngineProvider scopes storage keys per user)
+const scoped = (key: string) => `u:${SELF.id}:${key}`;
+
 async function setup(options: { guest?: boolean; storage?: ReturnType<typeof memoryStorage> } = {}) {
   const transport = fakeTransport({ self: SELF });
   const storage = options.storage ?? memoryStorage();
@@ -57,7 +61,7 @@ describe('useComposer', () => {
       first.result.current.composer.setReplyTo(quoted);
       first.result.current.composer.onChangeText('atsakymas');
     });
-    await waitFor(() => expect(storage.dump()[draftReplyKey('c1')]).toBeDefined());
+    await waitFor(() => expect(storage.dump()[scoped(draftReplyKey('c1'))]).toBeDefined());
     await first.unmount();
     const second = await setup({ storage });
     await waitFor(() => expect(second.result.current.composer.text).toBe('atsakymas'));
@@ -67,6 +71,6 @@ describe('useComposer', () => {
       second.result.current.composer.sendMessage();
     });
     await waitFor(() => expect(second.result.current.messages[0]?.status).toBe('sent'));
-    expect(storage.dump()[draftReplyKey('c1')]).toBeUndefined();
+    expect(storage.dump()[scoped(draftReplyKey('c1'))]).toBeUndefined();
   });
 });

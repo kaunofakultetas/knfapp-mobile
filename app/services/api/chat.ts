@@ -634,30 +634,39 @@ export const searchMessagesApi = (convId: string, q: string, limit = 20) =>
 // -----------------------------------------------------------
 //
 // Fail-soft: presence is decoration, so any failure resolves
-// to null and callers KEEP their previous map — a failed poll
+// to null and callers KEEP their previous maps — a failed poll
 // must never assert everyone offline. Ids go out in chunks of
 // 200 (the endpoint's cap) and the maps are merged, so no id
-// past the cap is silently dropped.
+// past the cap is silently dropped. lastSeen carries the
+// counterpart's last socket activity (ISO, or null when the
+// backend's relationship gate withheld it) — the "buvo
+// aktyvus (-i) prieš X" line under a direct chat's title.
 //
 // Used by:
 //   - app/(main)/tabs/messages.tsx — online dots on rows
-//   - app/(main)/chat-room/index.tsx — the header presence dot
+//   - app/(main)/chat-room/index.tsx — the header presence
+//     dot and the last-active line
 // -----------------------------------------------------------
 
-export async function fetchOnlineStatus(
-  userIds: string[],
-): Promise<Record<string, boolean> | null> {
+export interface PresenceResult {
+  online: Record<string, boolean>;
+  lastSeen: Record<string, string | null>;
+}
+
+export async function fetchOnlineStatus(userIds: string[]): Promise<PresenceResult | null> {
   try {
     const online: Record<string, boolean> = {};
+    const lastSeen: Record<string, string | null> = {};
     for (let i = 0; i < userIds.length; i += 200) {
       const data = await request(
-        api.post<{ online: Record<string, boolean> }>('/chat/online-status', {
+        api.post<PresenceResult>('/chat/online-status', {
           userIds: userIds.slice(i, i + 200),
         }),
       );
       Object.assign(online, data.online);
+      Object.assign(lastSeen, data.lastSeen ?? {});
     }
-    return online;
+    return { online, lastSeen };
   } catch {
     return null;
   }

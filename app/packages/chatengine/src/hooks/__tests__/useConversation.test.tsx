@@ -46,6 +46,10 @@ const later = (ms = 0) => new Promise<void>((resolve) => setTimeout(resolve, ms)
 
 const SELF = { id: 'u1', displayName: 'Me' };
 
+// Persistence lands under the signed-in account's namespace
+// (ChatEngineProvider scopes storage keys per user)
+const scoped = (key: string) => `u:${SELF.id}:${key}`;
+
 async function setup(messages: ChatMessage[] = [], options: { focused?: boolean; guest?: boolean; arm?: (t: FakeTransport) => void } = {}) {
   const transport = fakeTransport({
     messages,
@@ -90,7 +94,7 @@ describe('useConversation', () => {
 
   it('restores the persisted outbox as failed temps on top of the page', async () => {
     const storage = memoryStorage();
-    await storage.setItem('outbox:c1', JSON.stringify({ [`${TEMP_ID_PREFIX}7-1`]: { text: 'nepavyko', createdAt: iso(5) } }));
+    await storage.setItem(scoped('outbox:c1'), JSON.stringify({ [`${TEMP_ID_PREFIX}7-1`]: { text: 'nepavyko', createdAt: iso(5) } }));
     const transport = fakeTransport({ messages: [row({ id: 'a' })], self: SELF });
     const wrapper = ({ children }: { children: ReactNode }) => (
       <ChatEngineProvider transport={transport} currentUser={SELF} storage={storage}>{children}</ChatEngineProvider>

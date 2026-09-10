@@ -190,6 +190,12 @@ export function createRegistrationMachine(deps: {
       }
     }
     if (gen !== generation) return { ok: false, reason: 'superseded' };
+    // A raw APNs/FCM DEVICE token here (64 hex chars, no
+    // ExponentPushToken[] envelope) is what Expo Go hands out
+    // since SDK 53 removed its remote-push service — only a
+    // development build mints real Expo tokens. The shape gate
+    // keeps such a token off the backend, where Expo's push
+    // API could do nothing with it anyway.
     if (!TOKEN_RE.test(token)) return fail(gen, 'network');
 
     // STEP 3: dedupe against the persisted tuple — unless the

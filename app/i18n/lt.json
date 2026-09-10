@@ -487,6 +487,7 @@
     "reported": "Pranešimas išsiųstas",
     "reportReason": "Pranešimas iš pokalbio",
     "online": "Prisijungęs (-usi)",
+    "lastActive": "Buvo aktyvus (-i) {{time}}",
     "groupMembers_one": "{{count}} narys",
     "groupMembers_few": "{{count}} nariai",
     "groupMembers_other": "{{count}} narių",

@@ -98,17 +98,34 @@ export function ChatEngineProvider({
   // nothing, and a host that wants persistence passes its own
   const fallbackStorage = useMemo(() => memoryStorage(), []);
 
+  // Persistence is namespaced PER ACCOUNT: outbox and draft
+  // keys carry only a conversation id, and a ported/shared
+  // conversation id is the same id for whoever signs in on
+  // this device — without the prefix, one account's failed
+  // send resurfaced in the next account's chat as their own
+  // unsent message
+  const scopedStorage = useMemo<KeyValueStorage>(() => {
+    const base = storage ?? fallbackStorage;
+    if (!currentUser) return base;
+    const prefix = `u:${currentUser.id}:`;
+    return {
+      getItem: (key) => base.getItem(prefix + key),
+      setItem: (key, value) => base.setItem(prefix + key, value),
+      removeItem: (key) => base.removeItem(prefix + key),
+    };
+  }, [storage, fallbackStorage, currentUser]);
+
   const value = useMemo<ChatEngineEnv>(
     () => ({
       transport,
       currentUser,
-      storage: storage ?? fallbackStorage,
+      storage: scopedStorage,
       notify: notify ?? (() => {}),
       onNetworkRestore: onNetworkRestore ?? (() => () => {}),
       makeVideoPoster,
       limits: { ...defaultLimits, ...(limits ?? {}) },
     }),
-    [transport, currentUser, storage, fallbackStorage, notify, onNetworkRestore, makeVideoPoster, limits],
+    [transport, currentUser, scopedStorage, notify, onNetworkRestore, makeVideoPoster, limits],
   );
 
   return <ChatEngineContext.Provider value={value}>{children}</ChatEngineContext.Provider>;

@@ -18,6 +18,10 @@ import { ChatEngineProvider, fakeTransport, memoryStorage, useComposer, type Cha
 
 const SELF = { id: 'u1', displayName: 'Me' };
 
+// Persistence lands under the signed-in account's namespace
+// (ChatEngineProvider scopes storage keys per user)
+const scoped = (key: string) => `u:${SELF.id}:${key}`;
+
 async function setup(options: { echoSends?: boolean } = {}) {
   const transport = fakeTransport({ self: SELF, echoSends: options.echoSends });
   const storage = memoryStorage();
@@ -91,7 +95,7 @@ describe('useComposer', () => {
     });
     await waitFor(() => expect(h.result.current.messages[0]?.status).toBe('failed'));
     expect(h.notices.map((n) => n.code)).toEqual(['send_failed']);
-    expect(JSON.parse((await h.storage.getItem('outbox:c1')) ?? '{}')).toHaveProperty(h.result.current.messages[0].id);
+    expect(JSON.parse((await h.storage.getItem(scoped('outbox:c1'))) ?? '{}')).toHaveProperty(h.result.current.messages[0].id);
 
     const release = h.transport.stall('sendMessage');
     await act(async () => {
@@ -101,7 +105,7 @@ describe('useComposer', () => {
     release();
     await waitFor(() => expect(h.result.current.messages[0]?.status).toBe('sent'));
     expect(sends(h.transport)).toHaveLength(2);
-    expect(await h.storage.getItem('outbox:c1')).toBeNull();
+    expect(await h.storage.getItem(scoped('outbox:c1'))).toBeNull();
   });
 
   it('a definitive 4xx keeps the bubble failed with a specific notice and out of the sweep', async () => {

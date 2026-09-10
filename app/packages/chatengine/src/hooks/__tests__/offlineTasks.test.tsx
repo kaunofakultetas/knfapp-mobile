@@ -14,6 +14,10 @@ import type { ReactNode } from 'react';
 import { ChatEngineProvider, TaskQueue, fakeTransport, memoryStorage, tasksStorageKey, useChatRoom, type ChatMessage, type EngineNotice } from '../../index';
 
 const SELF = { id: 'u1', displayName: 'Me' };
+
+// Persistence lands under the signed-in account's namespace
+// (ChatEngineProvider scopes storage keys per user)
+const scoped = (key: string) => `u:${SELF.id}:${key}`;
 const row = (id: string, over: Partial<ChatMessage> = {}): ChatMessage => ({ id, conversationId: 'c1', senderId: 'u1', senderName: 'Me', text: id, createdAt: `2026-08-29T10:0${id.length}:00Z`, isOwn: true, status: 'read', reactions: [], deleted: false, ...over });
 const offline = () => Object.assign(new Error('offline'), { code: 'network' });
 
@@ -45,7 +49,7 @@ describe('offline tasks', () => {
       h.result.current.reactions.reactTo('c', '❤️');
     });
     // Optimistic state stays, nothing was reported
-    await waitFor(() => expect(JSON.parse(h.storage.dump()[tasksStorageKey('c1')] ?? '[]')).toHaveLength(3));
+    await waitFor(() => expect(JSON.parse(h.storage.dump()[scoped(tasksStorageKey('c1'))] ?? '[]')).toHaveLength(3));
     const list = h.result.current.conversation.messages;
     expect(list.find((m) => m.id === 'a')?.text).toBe('pataisyta');
     expect(list.find((m) => m.id === 'b')?.deleted).toBe(true);
@@ -55,7 +59,7 @@ describe('offline tasks', () => {
     await act(async () => {
       h.restore();
     });
-    await waitFor(() => expect(h.storage.dump()[tasksStorageKey('c1')]).toBeUndefined());
+    await waitFor(() => expect(h.storage.dump()[scoped(tasksStorageKey('c1'))]).toBeUndefined());
     const replayed = h.transport.calls.filter((c) => ['editMessage', 'deleteMessage', 'setReaction'].includes(c.method)).map((c) => c.method);
     // Replayed in enqueue order — the three rejections land in the same tick, so only the set is pinned
     expect(replayed.slice(-3).sort()).toEqual(['deleteMessage', 'editMessage', 'setReaction']);
@@ -73,14 +77,14 @@ describe('offline tasks', () => {
       first.result.current.composer.onChangeText('po restarto');
       first.result.current.composer.sendMessage();
     });
-    await waitFor(() => expect(storage.dump()[tasksStorageKey('c1')]).toBeDefined());
+    await waitFor(() => expect(storage.dump()[scoped(tasksStorageKey('c1'))]).toBeDefined());
     await first.unmount();
     const second = await setup(storage);
     await act(async () => {
       second.restore();
     });
     await waitFor(() => expect(second.transport.rows.find((m) => m.id === 'a')?.text).toBe('po restarto'));
-    expect(storage.dump()[tasksStorageKey('c1')]).toBeUndefined();
+    expect(storage.dump()[scoped(tasksStorageKey('c1'))]).toBeUndefined();
   });
 
   it('a refusal on replay reverts the edit and reports; a later edit replaces the queued one', async () => {
@@ -96,15 +100,15 @@ describe('offline tasks', () => {
       h.result.current.composer.onChangeText('antras');
       h.result.current.composer.sendMessage();
     });
-    await waitFor(() => expect(JSON.parse(h.storage.dump()[tasksStorageKey('c1')] ?? '[]')).toHaveLength(1));
-    expect(JSON.parse(h.storage.dump()[tasksStorageKey('c1')])[0].text).toBe('antras');
+    await waitFor(() => expect(JSON.parse(h.storage.dump()[scoped(tasksStorageKey('c1'))] ?? '[]')).toHaveLength(1));
+    expect(JSON.parse(h.storage.dump()[scoped(tasksStorageKey('c1'))])[0].text).toBe('antras');
     h.transport.fail('editMessage', Object.assign(new Error('forbidden'), { status: 403, code: 'http' }));
     await act(async () => {
       h.restore();
     });
     await waitFor(() => expect(h.notices.map((n) => n.code)).toContain('edit_failed'));
     expect(h.result.current.conversation.messages.find((m) => m.id === 'a')?.text).toBe('a');
-    expect(h.storage.dump()[tasksStorageKey('c1')]).toBeUndefined();
+    expect(h.storage.dump()[scoped(tasksStorageKey('c1'))]).toBeUndefined();
   });
 
   it('TaskQueue keeps one entry per message and kind, ordered by time', async () => {

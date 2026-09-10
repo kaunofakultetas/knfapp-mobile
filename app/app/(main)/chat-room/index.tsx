@@ -101,7 +101,7 @@ import { showToast, useNetwork } from '@/context/NetworkContext';
 // Search + presence endpoints and render-time helpers
 import { fetchConversations, fetchMemesApi, fetchOnlineStatus, getUploadUrl, pushMemeApi, reactToMessageApi, removeReactionApi, reportTarget, searchMessagesApi, type ApiMeme, type MessageSearchResult } from '@/services/api';
 import { chatTransport } from '@/services/chatTransport';
-import { activeLocale, formatDateTime } from '@/services/format';
+import { activeLocale, formatDateTime, formatRelativeAgo } from '@/services/format';
 
 // Session, theme and navigation
 import { useAuth } from '@/context/AuthContext';
@@ -1091,7 +1091,7 @@ function useMenuActions({
 // usePresence
 // -----------------------------------------------------------
 //
-//   const online = usePresence(counterpartId)
+//   const { online, lastSeenMs } = usePresence(counterpartId)
 //
 // Presence of the other party — polled only while this room
 // is the focused screen (a room buried under the stack stays
@@ -1099,35 +1099,48 @@ function useMenuActions({
 // the primitive id, not the profile object, so a resync's
 // fresh array never restarts the poll; a failed poll (null)
 // keeps the last known state instead of asserting offline.
-// A group has no counterpart: no poll, and false.
+// A group has no counterpart: no poll, false and null.
+// lastSeenMs is the counterpart's last socket activity — the
+// backend reveals it under the same relationship gate as the
+// boolean, so null means "never seen or not yours to know".
+// The minute tick re-renders so the "prieš X min" phrase in
+// the header keeps aging while the room stays open.
 //
 // Used by:
 //   - ChatRoom (below)
 // -----------------------------------------------------------
 
-function usePresence(counterpartId: string | undefined): boolean {
+function usePresence(counterpartId: string | undefined): { online: boolean; lastSeenMs: number | null } {
 
   const [online, setOnline] = useState(false);
+  const [lastSeenMs, setLastSeenMs] = useState<number | null>(null);
+  const [, setTick] = useState(0);
   useFocusEffect(
     useCallback(() => {
       if (!counterpartId) return;
       let cancelled = false;
       const poll = async () => {
         if (AppState.currentState !== 'active') return;
-        const map = await fetchOnlineStatus([counterpartId]);
-        if (!cancelled && map) setOnline(!!map[counterpartId]);
+        const presence = await fetchOnlineStatus([counterpartId]);
+        if (cancelled || !presence) return;
+        setOnline(!!presence.online[counterpartId]);
+        const iso = presence.lastSeen[counterpartId];
+        const ms = iso ? Date.parse(iso) : NaN;
+        setLastSeenMs(Number.isFinite(ms) ? ms : null);
       };
       void poll();
       const timer = setInterval(() => void poll(), PRESENCE_MS);
+      const ager = setInterval(() => setTick((n) => n + 1), 60_000);
       return () => {
         cancelled = true;
         clearInterval(timer);
+        clearInterval(ager);
       };
     }, [counterpartId]),
   );
 
 
-  return online;
+  return { online, lastSeenMs };
 }
 
 
@@ -1641,7 +1654,7 @@ function ChatRoom({ convId, type, unreadCount }: { convId: string; type?: string
     () => others.map((p) => ({ name: p.displayName, uri: p.avatarUrl ? getUploadUrl(p.avatarUrl) ?? undefined : undefined })),
     [others],
   );
-  const online = usePresence(counterpartId);
+  const { online, lastSeenMs } = usePresence(counterpartId);
 
 
   // Mentions: the members feed the composer's @-strip (groups —
@@ -1666,14 +1679,18 @@ function ChatRoom({ convId, type, unreadCount }: { convId: string; type?: string
   // Header: portrait + name + status on the burgundy bar, and
   // the timer + search buttons. A group shows its member count
   // only once the first page has named the members — never a
-  // false "0 members"
+  // false "0 members". A direct shows "Prisijungęs (-usi)"
+  // live, else when the counterpart was last active — nothing
+  // at all for a never-seen (or gated) account
   const subtitle = isGroup
     ? chat.profiles.length > 0
       ? t('chat.groupMembers', { count: chat.profiles.length })
       : undefined
     : online
       ? t('chat.online')
-      : undefined;
+      : lastSeenMs
+        ? t('chat.lastActive', { time: formatRelativeAgo(lastSeenMs) })
+        : undefined;
   useEffect(() => {
     navigation.setOptions({
       title: roomTitle,

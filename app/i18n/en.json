@@ -432,6 +432,7 @@
     "reported": "Report sent",
     "reportReason": "Reported from a conversation",
     "online": "Online",
+    "lastActive": "Last active {{time}}",
     "groupMembers_one": "{{count}} member",
     "groupMembers_other": "{{count}} members",
     "searchNotLoaded": "That message is older than the loaded history",

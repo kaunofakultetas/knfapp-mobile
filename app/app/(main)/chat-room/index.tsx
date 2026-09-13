@@ -26,7 +26,11 @@
 //  long-press menu's open/close cycle, and which overlay is
 //  open. Reaction-viewer rows and the image-viewer dataset
 //  are DERIVED from live message state each render, so both
-//  stay current while open.
+//  stay current while open. The generic room machinery — the
+//  timeline hook, the jump-with-highlight, the context-menu
+//  cycle and the emoji strip — lives in @knf/chatuikit; this
+//  file hands it the app's toasts, the focus flag and the
+//  engine's temp-id test.
 //
 //  The screen only has value with an account (a conversation
 //  id implies one) — logged out it renders a friendly login
@@ -34,11 +38,9 @@
 //
 //  Split into (root component last):
 //
-//    QUICK_EMOJI       — the tap-to-append emoji strip's set
 //    PRESENCE_MS       — presence polling period
 //    LoginPrompt       — logged-out body with a login action
 //    MessageSearch     — debounced in-conversation search (overlay)
-//    EmojiQuickRow     — emoji strip above the composer
 //    MemeLibrary       — the meme tab: searched grid + push sheet
 //    RoomHeaderRight   — the header's timer + search buttons
 //    FeedFallback      — spinner / access-denied / load-error body
@@ -49,10 +51,7 @@
 //    typingText        — the typers → "X rašo…" line
 //    useMenuActions    — the long-press menu's host rows
 //    usePresence       — the other party's online poll
-//    useTimeline       — the kit's rows + the unread line
 //    useImageViewer    — the fullscreen photo gallery
-//    useJumpToMessage  — scroll-to-message with highlight
-//    useContextMenu    — the long-press menu's target + close cycle
 //    useForward        — the forward-to-room sheet
 //    ChatRoom          — the room itself (hooks + feed)
 //    ChatRoomScreen    — the auth / param gate (default export)
@@ -62,27 +61,29 @@
 import { useChatComposer, type UseChatComposerResult } from '@/hooks/chat/useChatComposer';
 import { useVoiceRecorder } from '@/hooks/chat/useVoiceRecorder';
 import { TEMP_ID_PREFIX, useChatMessages, type ParticipantProfile, type UseChatMessagesResult } from '@/hooks/chat/useChatMessages';
-import { useChatReactions, type UseChatReactionsResult } from '@/hooks/chat/useChatReactions';
+import { useChatReactions } from '@/hooks/chat/useChatReactions';
 import { useTypingIndicator, type TypingUser } from '@/hooks/chat/useTypingIndicator';
 
 // The messaging kit
-import { forwardPayload, usePins, useRealtimeStatus, type UsePinsResult } from '@knf/chatengine';
+import { forwardPayload, isTempId, usePins, useRealtimeStatus, type UsePinsResult } from '@knf/chatengine';
 import * as ImagePicker from 'expo-image-picker';
 
 import {
-  buildTimeline,
   Composer,
   ConnectionBanner,
+  EmojiQuickRow,
   MemePicker,
   MessageContextMenu,
   MessageList,
   PinnedBanner,
   RoomHeaderTitle,
+  useContextMenu,
+  useJumpToMessage,
   useKitLabels,
+  useTimeline,
   KitKeyboardAvoidingView,
   VideoPlayerModal,
   openHref,
-  type ContextTarget,
   type KitMessage,
   type KitMessageAction,
   type MessageListHandle,
@@ -113,7 +114,7 @@ import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from '
 // Primitives
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ActivityIndicator,
@@ -122,26 +123,15 @@ import {
   FlatList,
   Platform,
   Pressable,
-  ScrollView,
   Text,
   TextInput,
   View,
 } from 'react-native';
 
 
-// The strip appends into the draft — reactions have their own
-// set in useChatReactions
-const QUICK_EMOJI = ['😀', '😂', '😍', '😮', '😢', '😡', '👍', '🙏', '🎉', '🔥', '❤️', '👏'];
-
 // How often the other party's presence is refreshed while the
-// room is open, and how often the day rolls over for the
-// "Today" stamps
+// room is open
 const PRESENCE_MS = 30_000;
-const DAY_TICK_MS = 60_000;
-
-// How many render beats a jump waits for the anchored window's
-// rows to land before giving up on the scroll
-const JUMP_RENDER_RETRIES = 6;
 
 // The translate function as the plain helpers below take it —
 // i18next's own signature is far wider than what they call
@@ -395,52 +385,6 @@ function MessageSearch({
       />
 
     </View>
-  );
-}
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// EmojiQuickRow
-// -----------------------------------------------------------
-//
-// The strip the composer's emoji button toggles — each tap
-// appends into the draft (which also drives the typing emit).
-//
-// Used by:
-//   - ChatRoom (below)
-// -----------------------------------------------------------
-
-function EmojiQuickRow({ onPick }: { onPick: (emoji: string) => void }) {
-  return (
-    <ScrollView
-      // grow-0 shrink-0 is load-bearing: a ScrollView is flex-
-      // elastic by default, and here it sat in a column next to
-      // the flex-1 message list — so it grew to split the height
-      // with it and opened a tall empty box between the strip
-      // and the composer whenever the strip was shown
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      keyboardShouldPersistTaps="always"
-      className="grow-0 shrink-0 border-t border-line bg-surface"
-      contentContainerClassName="px-sm py-xs"
-    >
-      {QUICK_EMOJI.map((emoji) => (
-        <Pressable
-          key={emoji}
-          onPress={() => onPick(emoji)}
-          accessibilityRole="button"
-          accessibilityLabel={emoji}
-          className="h-11 w-11 items-center justify-center rounded-full active:bg-surface-soft"
-        >
-          <Text style={{ fontSize: 24 }}>{emoji}</Text>
-        </Pressable>
-      ))}
-    </ScrollView>
   );
 }
 
@@ -1150,86 +1094,6 @@ function usePresence(counterpartId: string | undefined): { online: boolean; last
 
 
 // -----------------------------------------------------------
-// useTimeline
-// -----------------------------------------------------------
-//
-//   const { timeline, unreadMarker } = useTimeline(chat.messages, chat.hasMore, unreadCount, labels)
-//
-// The kit's rows from the live list: grouped runs + time
-// separators, the "new messages" line and the day labels. The
-// day key ticks over at midnight — only while focused, and
-// the immediate tick catches a midnight that passed while the
-// room sat behind another screen — so "Today" becomes
-// "Yesterday" in a room left open. hasMore rides along so the
-// kit can suppress the false "pause" separator above the
-// oldest LOADED message while older history still exists
-// server-side.
-//
-// The unread stretch: the room opened with N unread, and the
-// list is newest-first, so the Nth newest loaded row is the
-// oldest unread one. Fixed once from the first loaded page —
-// messages sent or received afterwards must not move the
-// line. The marker is handed back for the list's own unread
-// prop.
-//
-// Used by:
-//   - ChatRoom (below)
-// -----------------------------------------------------------
-
-function useTimeline(messages: KitMessage[], hasMore: boolean, unreadCount: number, labels: ReturnType<typeof useKitLabels>) {
-
-  const timelineLabels = useMemo(
-    () => ({ today: labels.today, yesterday: labels.yesterday, locale: activeLocale() }),
-    [labels],
-  );
-
-
-  const [dayKey, setDayKey] = useState(() => new Date().toDateString());
-  useFocusEffect(
-    useCallback(() => {
-      const tick = () => {
-        const next = new Date().toDateString();
-        setDayKey((current) => (current === next ? current : next));
-      };
-      tick();
-      const timer = setInterval(tick, DAY_TICK_MS);
-      return () => clearInterval(timer);
-    }, []),
-  );
-
-
-  const unreadMarkerRef = useRef<{ firstUnreadId: string; count: number } | null>(null);
-  const [unreadMarker, setUnreadMarker] = useState<{ firstUnreadId: string; count: number } | null>(null);
-  useEffect(() => {
-    if (unreadMarkerRef.current || unreadCount <= 0 || messages.length === 0) return;
-    const index = Math.min(unreadCount, messages.length) - 1;
-    const marker = { firstUnreadId: messages[index].id, count: unreadCount };
-    unreadMarkerRef.current = marker;
-    setUnreadMarker(marker);
-  }, [messages, unreadCount]);
-
-
-  const timeline = useMemo(
-    () =>
-      buildTimeline(messages, timelineLabels, hasMore, {
-        unreadFromId: unreadMarker?.firstUnreadId,
-        unreadCount: unreadMarker?.count,
-      }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- dayKey forces the relabel
-    [messages, timelineLabels, hasMore, dayKey, unreadMarker],
-  );
-
-
-  return { timeline, unreadMarker };
-}
-
-
-
-
-
-
-
-// -----------------------------------------------------------
 // useImageViewer
 // -----------------------------------------------------------
 //
@@ -1295,194 +1159,6 @@ function useImageViewer(messages: KitMessage[]) {
 
 
   return { images, index, visible: openId !== null, openImage, openGalleryImage, close };
-}
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// useJumpToMessage
-// -----------------------------------------------------------
-//
-//   const listRef = useRef<MessageListHandle>(null)
-//   const jump = useJumpToMessage(listRef, chat.jumpTo)
-//   <MessageList ref={listRef} highlightedId={jump.highlightedId} onJumpFailed={jump.onJumpFailed} … />
-//   jump.jumpToMessage(id)  — a search hit, a pin
-//   jump.jumpToQuoted(m)    — the bubble's quote tap
-//
-// Jump to a message: scroll it into view and wash it for a
-// beat. A hit beyond the loaded history is anchored by the
-// engine in ONE round trip (the transport's around-window)
-// behind the spinner overlay (`jumping`), then the fresh rows
-// get a few beats to render before the scroll retries; only a
-// truly missing message gets the toast. The kit reports its
-// own give-up too (it ran out of scrollToIndex retries and
-// landed near its estimate), so the reader hears why nothing
-// is highlighted.
-//
-// The list ref is the room's (it also goes on the list): a
-// ref handed back inside the result would mark the whole
-// result as ref-like for the compiler-era hook lint.
-//
-// Used by:
-//   - ChatRoom (below)
-// -----------------------------------------------------------
-
-function useJumpToMessage(listRef: RefObject<MessageListHandle | null>, jumpTo: UseChatMessagesResult['jumpTo']) {
-
-  const { t } = useTranslation();
-
-
-  // The wash: one timer, restarted by every jump, cleared on unmount
-  const [highlightedId, setHighlightedId] = useState<string | null>(null);
-  const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const highlight = useCallback((targetId: string) => {
-    if (highlightTimer.current) clearTimeout(highlightTimer.current);
-    setHighlightedId(targetId);
-    highlightTimer.current = setTimeout(() => setHighlightedId(null), 1500);
-  }, []);
-  useEffect(() => () => {
-    if (highlightTimer.current) clearTimeout(highlightTimer.current);
-  }, []);
-
-
-  const onJumpFailed = useCallback(() => showToast('info', t('chat.jumpFailed')), [t]);
-
-
-  // One anchor at a time: the ref guards synchronously, the
-  // state drives the overlay
-  const [jumping, setJumping] = useState(false);
-  const jumpingRef = useRef(false);
-  const jumpToMessage = useCallback(
-    async (targetId: string) => {
-      if (listRef.current?.scrollToMessage(targetId)) {
-        highlight(targetId);
-        return;
-      }
-
-      if (jumpingRef.current) return;
-      jumpingRef.current = true;
-      setJumping(true);
-      try {
-        const outcome = await jumpTo(targetId);
-        if (outcome !== 'missing') {
-          for (let attempt = 0; attempt < JUMP_RENDER_RETRIES; attempt++) {
-            await new Promise((resolve) => setTimeout(resolve, 80));
-            if (listRef.current?.scrollToMessage(targetId)) {
-              highlight(targetId);
-              return;
-            }
-          }
-        }
-        showToast('info', t('chat.searchNotLoaded'));
-      } finally {
-        jumpingRef.current = false;
-        setJumping(false);
-      }
-    },
-    [highlight, jumpTo, t, listRef],
-  );
-  const jumpToQuoted = useCallback(
-    (message: KitMessage) => {
-      if (message.replyTo?.id) void jumpToMessage(message.replyTo.id);
-    },
-    [jumpToMessage],
-  );
-
-
-  return { jumping, highlightedId, jumpToMessage, jumpToQuoted, onJumpFailed };
-}
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// useContextMenu
-// -----------------------------------------------------------
-//
-//   const menu = useContextMenu(chat.messages, reactions, composer.setReplyTo)
-//   <MessageList onLongPressMessage={menu.open} menuTargetId={menu.hiddenId} … />
-//   <MessageContextMenu target={reactions.pickerOpen ? menu.target : null} onOpened={menu.onOpened} onClosed={menu.onClosed} … />
-//
-// The long-press menu's target and close cycle. The menu aims
-// at the long-pressed message; the LIVE row is looked up each
-// render (`message`, `target`) so reaction toggles reflect
-// while the menu is open, and its own reaction (bySelf) is
-// the ringed emoji. Optimistic bubbles have no server row
-// yet: a sending one has no menu, a failed one can only be
-// discarded (`isTemp`, `canAct`).
-//
-// The source row hides (`hiddenId`) once the floating copy is
-// on screen and reappears when the close animation ends; a
-// reply chosen in the menu (`replyTo`) is applied on close
-// too, so the composer focuses after the Modal has given the
-// window back. onClosed is the authoritative cleanup —
-// however the menu went away, no stale target or open picker
-// survives it.
-//
-// Used by:
-//   - ChatRoom (below)
-// -----------------------------------------------------------
-
-function useContextMenu(messages: KitMessage[], reactions: UseChatReactionsResult, setReplyTo: UseChatComposerResult['setReplyTo']) {
-
-  // The reactions hook returns a fresh object each render; the
-  // stable members are what the memoised handlers depend on
-  const { openPicker, closePicker } = reactions;
-  const [target, setTarget] = useState<ContextTarget | null>(null);
-  const [hiddenId, setHiddenId] = useState<string | null>(null);
-
-
-  const message = target ? messages.find((m) => m.id === target.message.id) ?? null : null;
-  const liveTarget = target && message ? { ...target, message } : null;
-  const selectedEmoji = message?.reactions.find((r) => r.bySelf)?.emoji ?? null;
-  const isTemp = !!message?.id.startsWith(TEMP_ID_PREFIX);
-  const canAct = !!message && !isTemp && !message.deleted;
-
-
-  const open = useCallback(
-    (next: ContextTarget) => {
-      // No 'sending' guard here — the list's canAct is where that
-      // invariant is actually enforced, before the long-press
-      // ever reaches this handler
-      setTarget(next);
-      openPicker(next.message.id);
-    },
-    [openPicker],
-  );
-  const close = useCallback(() => {
-    setTarget(null);
-    closePicker();
-  }, [closePicker]);
-
-
-  const pendingReplyRef = useRef<KitMessage | null>(null);
-  const onOpened = useCallback((id: string) => setHiddenId(id), []);
-  const onClosed = useCallback(() => {
-    setHiddenId(null);
-    setTarget(null);
-    closePicker();
-    if (pendingReplyRef.current) {
-      setReplyTo(pendingReplyRef.current);
-      pendingReplyRef.current = null;
-    }
-  }, [setReplyTo, closePicker]);
-  const replyTo = useCallback(
-    (m: KitMessage) => {
-      pendingReplyRef.current = m;
-      close();
-    },
-    [close],
-  );
-
-
-  return { message, target: liveTarget, selectedEmoji, isTemp, canAct, hiddenId, open, close, onOpened, onClosed, replyTo };
 }
 
 
@@ -1599,13 +1275,20 @@ function ChatRoom({ convId, type, unreadCount }: { convId: string; type?: string
 
   // The screen units: the menu's cycle, the jumps, the forward
   // sheet, the photo gallery and the timeline rows
-  const menu = useContextMenu(chat.messages, reactions, setReplyTo);
+  const menu = useContextMenu(chat.messages, reactions, setReplyTo, { isTemp: isTempId });
   const { close: closeMenu } = menu;
   const listRef = useRef<MessageListHandle>(null);
-  const jump = useJumpToMessage(listRef, chat.jumpTo);
+  const jump = useJumpToMessage(listRef, chat.jumpTo, {
+    onMissing: () => showToast('info', t('chat.searchNotLoaded')),
+    onJumpFailed: () => showToast('info', t('chat.jumpFailed')),
+  });
   const forward = useForward(convId);
   const viewer = useImageViewer(chat.messages);
-  const { timeline, unreadMarker } = useTimeline(chat.messages, chat.hasMore, unreadCount, labels);
+  const timelineLabels = useMemo(
+    () => ({ today: labels.today, yesterday: labels.yesterday, locale: activeLocale() }),
+    [labels],
+  );
+  const { timeline, unreadMarker } = useTimeline(chat.messages, chat.hasMore, unreadCount, timelineLabels, { isActive: isFocused });
 
 
   // The realtime door for the banner, and the room's pins

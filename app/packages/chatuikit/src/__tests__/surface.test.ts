@@ -11,14 +11,15 @@ describe('@knf/chatuikit surface', () => {
   it('exports exactly these runtime members', () => {
     expect(Object.keys(kit).sort()).toEqual(
       [
-        'AudioAttachment', 'ChatUiKitProvider', 'Composer', 'ConnectionBanner', 'ConversationIntro', 'DEFAULT_ASPECT', 'DEFAULT_AVATAR_COLORS', 'DEFAULT_MAX_LENGTH', 'EXTREME_MAX_ASPECT', 'EXTREME_MIN_ASPECT',
+        'AudioAttachment', 'ChatUiKitProvider', 'Composer', 'ConnectionBanner', 'ConversationIntro', 'DEFAULT_ASPECT', 'DEFAULT_AVATAR_COLORS', 'DEFAULT_MAX_LENGTH', 'DEFAULT_QUICK_EMOJI', 'EXTREME_MAX_ASPECT', 'EXTREME_MIN_ASPECT',
+        'EmojiQuickRow',
         'FileCard', 'FloatingDay', 'GROUP_GAP_MS', 'GalleryAttachment', 'ImageAttachment', 'KNOWN_KINDS', 'KitAvatar', 'KitKeyboardAvoidingView', 'LinkPreviewCard', 'MAX_ASPECT', 'MIN_ASPECT',
         'MemePicker', 'MessageBubble', 'BubbleBody', 'MessageContextMenu', 'MessageList', 'MessageText', 'PinnedBanner', 'ReactionPills', 'ReplyQuote', 'RoomHeaderTitle', 'SEPARATOR_GAP_MS',
         'ScrollToLatestButton', 'StackedAvatars', 'SystemMessage', 'TimeSeparator', 'TypingBubble', 'UnreadPill', 'UnreadSeparator', 'VideoAttachment', 'VideoPlayerModal',
         'avatarColorFor', 'buildMenuRows', 'buildTimeline', 'composeAccessibilityLabel', 'darkTheme', 'dayKey', 'dayLabel', 'defaultLabels', 'defaultTheme',
         'fileGlyph', 'fitMedia', 'floatingDayFor', 'formatBytes', 'formatDuration', 'hashKey', 'isExtremeAspect', 'linkify', 'mediaBoxFor', 'messageKind',
-        'normalizeHref', 'openHref', 'parseStamp', 'replySnippet', 'resolveTheme', 'useKitComponents', 'useKitEnv', 'useKitLabels', 'useKitTheme',
-        'useMediaFit', 'useReducedMotionSafe', 'useScreenReaderEnabled', 'useScreenReaderEnabledRef',
+        'normalizeHref', 'openHref', 'parseStamp', 'replySnippet', 'resolveTheme', 'useContextMenu', 'useJumpToMessage', 'useKitComponents', 'useKitEnv', 'useKitLabels', 'useKitTheme',
+        'useMediaFit', 'useReducedMotionSafe', 'useScreenReaderEnabled', 'useScreenReaderEnabledRef', 'useTimeline',
       ].sort(),
     );
   });

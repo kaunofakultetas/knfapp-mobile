@@ -32,6 +32,10 @@ export { ChatUiKitProvider, useKitComponents, useKitEnv, useKitLabels, useKitThe
 export { DEFAULT_AVATAR_COLORS, darkTheme, defaultTheme, resolveTheme, type KitColors, type KitFonts, type KitResolvedTheme, type KitTextStyles, type KitTheme } from './provider/theme';
 export { avatarColorFor, hashKey } from './core/avatarColor';
 export { composeAccessibilityLabel, useReducedMotionSafe, useScreenReaderEnabled, useScreenReaderEnabledRef } from './hooks/a11y';
+export { default as EmojiQuickRow, DEFAULT_QUICK_EMOJI } from './composer/EmojiQuickRow';
+export { useTimeline, type UnreadMarker } from './hooks/useTimeline';
+export { useJumpToMessage } from './hooks/useJumpToMessage';
+export { useContextMenu } from './hooks/useContextMenu';
 export { normalizeHref, openHref } from './platform/openHref';
 export { linkify, type LinkKind, type TextSegment } from './core/linkify';
 export { DEFAULT_ASPECT, EXTREME_MAX_ASPECT, EXTREME_MIN_ASPECT, MAX_ASPECT, MIN_ASPECT, fitMedia, formatBytes, formatDuration, isExtremeAspect, mediaBoxFor, type MediaBox } from './core/media';

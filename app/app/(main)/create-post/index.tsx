@@ -21,11 +21,18 @@
 //
 //  Split into (root component last):
 //
-//    AuthorRow        — avatar + display name + role line
-//    ImageAttachment  — picker row, or preview with remove
-//    PollForm         — question + 2–10 option fields
-//    PollRetryPanel   — step-3 failure: retry or continue
-//    CreatePostScreen — the form and flow (default export)
+//    AuthorRow         — avatar + display name + role line
+//    ImageAttachment   — picker row, or preview with remove
+//    PollForm          — question + 2–10 option fields
+//    PollRetryPanel    — step-3 failure: retry or continue
+//    uploadErrorKey    — step-1 rejection → translation key
+//    useKeyboardReveal — scroll the focused field clear of
+//                        the keyboard by the measured overlap
+//    usePollDraft      — the poll section's state + handlers
+//    useLeaveGuard     — discard confirm on back, and the
+//                        success exits' bypass door
+//    PollToggleRow     — the add/remove-poll switch row
+//    CreatePostScreen  — the form and flow (default export)
 // -----------------------------------------------------------
 
 // Auth gate and the signed-in author
@@ -61,7 +68,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useLoad } from '@knf/dataengine';
 import { useRouteParam } from '@/hooks/useRouteParam';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Image,
@@ -73,6 +80,8 @@ import {
   Text,
   TextInput,
   View,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from 'react-native';
 
 // The author's shape for AuthorRow
@@ -393,6 +402,287 @@ function uploadErrorKey(err: unknown): string {
 
 
 // -----------------------------------------------------------
+// useKeyboardReveal
+// -----------------------------------------------------------
+//
+//   const reveal = useKeyboardReveal()
+//   <ScrollView ref={reveal.scrollRef} onScroll={reveal.onScroll}
+//               onLayout={reveal.onLayout} />
+//
+// The form's flavour of the feed screens' scroll
+// compensation: a blind offset shift would scroll the TITLE
+// field away when it is the one focused, so instead the
+// focused input is measured against the keyboard's top edge
+// and the form scrolls only by the overlap. Matters most for
+// the poll question and option fields at the bottom of the
+// form.
+//
+// The reveal runs once on the keyboard event (best effort —
+// scrollTo clamps against the PRE-shrink viewport, so on a
+// short form it can no-op) and once more from the
+// ScrollView's onLayout, when the KAV's resize is real and
+// the clamp is correct.
+//
+// Used by:
+//   - CreatePostScreen (below)
+// -----------------------------------------------------------
+
+function useKeyboardReveal() {
+
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollOffsetRef = useRef(0);
+  const pendingRevealRef = useRef<number | null>(null);
+
+
+  const revealFocusedInput = useCallback((keyboardTop: number) => {
+    const input = TextInput.State.currentlyFocusedInput();
+    if (!input) return;
+    input.measureInWindow((_x, y, _width, height) => {
+      // 16pt of breathing room under the field's bottom edge
+      const overlap = y + height + 16 - keyboardTop;
+      if (overlap <= 0) return;
+      scrollRef.current?.scrollTo({
+        y: scrollOffsetRef.current + overlap,
+        animated: true,
+      });
+    });
+  }, []);
+
+  const onLayout = useCallback(() => {
+    const keyboardTop = pendingRevealRef.current;
+    if (keyboardTop == null) return;
+    pendingRevealRef.current = null;
+    revealFocusedInput(keyboardTop);
+  }, [revealFocusedInput]);
+
+  const onScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    scrollOffsetRef.current = event.nativeEvent.contentOffset.y;
+  }, []);
+
+
+  useEffect(() => {
+    const show = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (event) => {
+        pendingRevealRef.current = event.endCoordinates.screenY;
+        revealFocusedInput(event.endCoordinates.screenY);
+      },
+    );
+    const hide = Keyboard.addListener('keyboardDidHide', () => {
+      pendingRevealRef.current = null;
+    });
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, [revealFocusedInput]);
+
+
+  return { scrollRef, onScroll, onLayout };
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// usePollDraft
+// -----------------------------------------------------------
+//
+// The poll section's whole state surface: question, option
+// rows and their handlers. Switching the section off also
+// clears its draft, so a reopened section never resurrects
+// stale options. validOptions is the trimmed non-empty list
+// the backend actually receives.
+//
+// Used by:
+//   - CreatePostScreen (below)
+// -----------------------------------------------------------
+
+function usePollDraft() {
+
+  const [showPoll, setShowPoll] = useState(false);
+  const [pollTitle, setPollTitle] = useState('');
+  const [pollOptions, setPollOptions] = useState<PollOptionDraft[]>(() => [
+    makePollOption(),
+    makePollOption(),
+  ]);
+
+
+  const validOptions = pollOptions
+    .map((option) => option.text.trim())
+    .filter((option) => option.length > 0);
+
+
+  const updateOption = (id: string, text: string) => {
+    setPollOptions((prev) => prev.map((option) => (option.id === id ? { ...option, text } : option)));
+  };
+
+  const addOption = () => {
+    setPollOptions((prev) =>
+      prev.length < MAX_POLL_OPTIONS ? [...prev, makePollOption()] : prev,
+    );
+  };
+
+  const removeOption = (id: string) => {
+    setPollOptions((prev) =>
+      prev.length > MIN_POLL_OPTIONS ? prev.filter((option) => option.id !== id) : prev,
+    );
+  };
+
+  const toggle = () => {
+    if (showPoll) {
+      setPollTitle('');
+      setPollOptions([makePollOption(), makePollOption()]);
+    }
+    setShowPoll((visible) => !visible);
+  };
+
+
+  return {
+    showPoll,
+    pollTitle,
+    setPollTitle,
+    pollOptions,
+    validOptions,
+    updateOption,
+    addOption,
+    removeOption,
+    toggle,
+  };
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// useLeaveGuard
+// -----------------------------------------------------------
+//
+//   const guard = useLeaveGuard(hasDraft)
+//
+// Back, the header arrow and gestures all funnel through
+// beforeRemove — while `hasDraft` a leave is confirmed away,
+// never silently discarded. The ref mirror feeds the
+// []-deps listener; guard.allowLeave() opens the door for
+// the exits that must not ask (success, or an edit target
+// that bounced). guard.leaveScreen() is the success exits'
+// shared door: it bypasses the confirm and survives a
+// deep-linked mount with no back stack to pop.
+//
+// Used by:
+//   - CreatePostScreen (below)
+// -----------------------------------------------------------
+
+function useLeaveGuard(hasDraft: boolean) {
+
+  const navigation = useNavigation();
+  const router = useRouter();
+  const { t } = useTranslation();
+
+
+  const allowLeaveRef = useRef(false);
+  const hasDraftRef = useRef(hasDraft);
+  useEffect(() => {
+    hasDraftRef.current = hasDraft;
+  });
+
+
+  useEffect(() => {
+    return navigation.addListener('beforeRemove', (event) => {
+      if (allowLeaveRef.current || !hasDraftRef.current) return;
+      event.preventDefault();
+      void confirmAction({
+        title: t('createPost.discardTitle'),
+        message: t('createPost.discardMessage'),
+        confirmLabel: t('createPost.discardConfirm'),
+        cancelLabel: t('common.cancel'),
+        destructive: true,
+      }).then((confirmed) => {
+        if (confirmed) navigation.dispatch(event.data.action);
+      });
+    });
+  }, [navigation, t]);
+
+
+  // Stable identities — the guard rides effect dep arrays
+  const allowLeave = useCallback(() => {
+    allowLeaveRef.current = true;
+  }, []);
+
+  const leaveScreen = useCallback(() => {
+    allowLeaveRef.current = true;
+    if (router.canGoBack()) router.back();
+    else router.replace('/(main)/tabs/news');
+  }, [router]);
+
+
+  return useMemo(() => ({ allowLeave, leaveScreen }), [allowLeave, leaveScreen]);
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// PollToggleRow
+// -----------------------------------------------------------
+//
+// The add-poll switch: an outlined row that fills with the
+// brand wash while the poll section is open, with the close
+// affordance on the right.
+//
+// Used by:
+//   - CreatePostScreen (below)
+// -----------------------------------------------------------
+
+function PollToggleRow({ active, onToggle }: { active: boolean; onToggle: () => void }) {
+
+  const { t } = useTranslation();
+  const { colors } = useTheme();
+
+
+  return (
+    <Pressable
+      className={`mb-md min-h-12 flex-row items-center gap-sm rounded-md border px-md py-sm ${
+        active ? 'border-brand bg-brand-soft' : 'border-line-strong'
+      }`}
+      onPress={onToggle}
+      accessibilityRole="button"
+      accessibilityLabel={t('createPost.addPoll')}
+      accessibilityState={{ expanded: active }}
+    >
+      <Ionicons
+        name={active ? 'stats-chart' : 'stats-chart-outline'}
+        size={20}
+        color={active ? colors.brand : colors.inkSoft}
+      />
+      <Text
+        className={`flex-1 font-raleway-medium text-sm ${
+          active ? 'text-brand' : 'text-ink-soft'
+        }`}
+      >
+        {t('createPost.addPoll')}
+      </Text>
+      {active && <Ionicons name="close-circle" size={20} color={colors.brand} />}
+    </Pressable>
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // CreatePostScreen (default export)
 // -----------------------------------------------------------
 //
@@ -405,7 +695,6 @@ export default function CreatePostScreen() {
 
   const { user } = useAuth();
   const { t } = useTranslation();
-  const { colors } = useTheme();
   const router = useRouter();
   const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
@@ -436,12 +725,7 @@ export default function CreatePostScreen() {
   const [editOriginal, setEditOriginal] = useState<{ title: string; content: string } | null>(null);
 
 
-  const [showPoll, setShowPoll] = useState(false);
-  const [pollTitle, setPollTitle] = useState('');
-  const [pollOptions, setPollOptions] = useState<PollOptionDraft[]>(() => [
-    makePollOption(),
-    makePollOption(),
-  ]);
+  const poll = usePollDraft();
 
 
   // Step-3 failure state: the post with this id is already
@@ -454,60 +738,7 @@ export default function CreatePostScreen() {
   const contentRef = useRef<TextInput>(null);
 
 
-  // Keyboard reveal — the form's flavour of the feed screens'
-  // scroll compensation: a blind offset shift would scroll the
-  // TITLE field away when it is the one focused, so instead the
-  // focused input is measured against the keyboard's top edge
-  // and the form scrolls only by the overlap. Matters most for
-  // the poll question and option fields, which sit at the
-  // bottom of the form.
-  const scrollRef = useRef<ScrollView>(null);
-  const scrollOffsetRef = useRef(0);
-
-  // The reveal runs once on the keyboard event (best effort —
-  // scrollTo clamps against the PRE-shrink viewport, so on a
-  // short form it can no-op) and once more from the
-  // ScrollView's onLayout, when the KAV's resize is real and
-  // the clamp is correct.
-  const pendingRevealRef = useRef<number | null>(null);
-
-  const revealFocusedInput = useCallback((keyboardTop: number) => {
-    const input = TextInput.State.currentlyFocusedInput();
-    if (!input) return;
-    input.measureInWindow((_x, y, _width, height) => {
-      // 16pt of breathing room under the field's bottom edge
-      const overlap = y + height + 16 - keyboardTop;
-      if (overlap <= 0) return;
-      scrollRef.current?.scrollTo({
-        y: scrollOffsetRef.current + overlap,
-        animated: true,
-      });
-    });
-  }, []);
-
-  const applyPendingReveal = useCallback(() => {
-    const keyboardTop = pendingRevealRef.current;
-    if (keyboardTop == null) return;
-    pendingRevealRef.current = null;
-    revealFocusedInput(keyboardTop);
-  }, [revealFocusedInput]);
-
-  useEffect(() => {
-    const show = Keyboard.addListener(
-      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
-      (event) => {
-        pendingRevealRef.current = event.endCoordinates.screenY;
-        revealFocusedInput(event.endCoordinates.screenY);
-      },
-    );
-    const hide = Keyboard.addListener('keyboardDidHide', () => {
-      pendingRevealRef.current = null;
-    });
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, [revealFocusedInput]);
+  const reveal = useKeyboardReveal();
 
 
   // A successful upload outlives a failed publish — keyed on
@@ -518,17 +749,12 @@ export default function CreatePostScreen() {
 
 
   const isStaff = !!user && STAFF_ROLES.includes(user.role);
-  const validPollOptions = pollOptions
-    .map((option) => option.text.trim())
-    .filter((option) => option.length > 0);
 
 
   // Anything composed means leaving must ask first; once the
   // post is published (success or PollRetryPanel), there is no
-  // draft left to lose. The ref mirror feeds the []-deps
-  // listener below; allowLeaveRef lets the success exits pass.
+  // draft left to lose
   const navigation = useNavigation();
-  const allowLeaveRef = useRef(false);
   const editDirty =
     !!editOriginal && (title !== editOriginal.title || content !== editOriginal.content);
   const hasDraft = editing
@@ -538,13 +764,10 @@ export default function CreatePostScreen() {
         content.trim() ||
         title.trim() ||
         imageAsset ||
-        pollTitle.trim() ||
-        pollOptions.some((option) => option.text.trim())
+        poll.pollTitle.trim() ||
+        poll.pollOptions.some((option) => option.text.trim())
       );
-  const hasDraftRef = useRef(hasDraft);
-  useEffect(() => {
-    hasDraftRef.current = hasDraft;
-  });
+  const guard = useLeaveGuard(hasDraft);
 
 
   // Prefill once per edit target; a post that is not the
@@ -556,7 +779,7 @@ export default function CreatePostScreen() {
 
     if (editLoad.error || (!editLoad.loading && !editLoad.data)) {
       showToast('error', t('createPost.error'));
-      allowLeaveRef.current = true;
+      guard.allowLeave();
       router.back();
       return;
     }
@@ -565,7 +788,7 @@ export default function CreatePostScreen() {
 
     if (!user || post.authorId !== user.id) {
       showToast('error', t('createPost.notYours'));
-      allowLeaveRef.current = true;
+      guard.allowLeave();
       router.back();
       return;
     }
@@ -574,7 +797,7 @@ export default function CreatePostScreen() {
     setEditOriginal({ title: post.title ?? '', content: post.content ?? '' });
     setTitle(post.title ?? '');
     setContent(post.content ?? '');
-  }, [editing, editOriginal, editLoad.data, editLoad.error, editLoad.loading, user, router, t]);
+  }, [editing, editOriginal, editLoad.data, editLoad.error, editLoad.loading, user, router, t, guard]);
 
 
   // The stack registers this screen as "New post" — flip the
@@ -582,66 +805,6 @@ export default function CreatePostScreen() {
   useEffect(() => {
     if (editing) navigation.setOptions({ title: t('createPost.editTitle') });
   }, [editing, navigation, t]);
-
-
-  // Back, the header arrow and gestures all funnel through
-  // beforeRemove — a composed post is confirmed away, never
-  // silently discarded
-  useEffect(() => {
-    return navigation.addListener('beforeRemove', (event) => {
-      if (allowLeaveRef.current || !hasDraftRef.current) return;
-      event.preventDefault();
-      void confirmAction({
-        title: t('createPost.discardTitle'),
-        message: t('createPost.discardMessage'),
-        confirmLabel: t('createPost.discardConfirm'),
-        cancelLabel: t('common.cancel'),
-        destructive: true,
-      }).then((confirmed) => {
-        if (confirmed) navigation.dispatch(event.data.action);
-      });
-    });
-  }, [navigation, t]);
-
-
-  // The success exits share one door: bypass the discard
-  // confirm and survive a deep-linked mount with no back
-  // stack to pop
-  const leaveScreen = () => {
-    allowLeaveRef.current = true;
-    if (router.canGoBack()) router.back();
-    else router.replace('/(main)/tabs/news');
-  };
-
-
-  const updatePollOption = (id: string, text: string) => {
-    setPollOptions((prev) => prev.map((option) => (option.id === id ? { ...option, text } : option)));
-  };
-
-
-  const addPollOption = () => {
-    setPollOptions((prev) =>
-      prev.length < MAX_POLL_OPTIONS ? [...prev, makePollOption()] : prev,
-    );
-  };
-
-
-  const removePollOption = (id: string) => {
-    setPollOptions((prev) =>
-      prev.length > MIN_POLL_OPTIONS ? prev.filter((option) => option.id !== id) : prev,
-    );
-  };
-
-
-  // Switching the poll off also clears its draft, so a
-  // reopened section never resurrects stale options
-  const togglePoll = () => {
-    if (showPoll) {
-      setPollTitle('');
-      setPollOptions([makePollOption(), makePollOption()]);
-    }
-    setShowPoll((visible) => !visible);
-  };
 
 
   // launchImageLibraryAsync can reject (permissions, platform
@@ -662,7 +825,7 @@ export default function CreatePostScreen() {
   };
 
 
-  const attachPoll = (postId: string) => createPollApi(postId, pollTitle.trim(), validPollOptions);
+  const attachPoll = (postId: string) => createPollApi(postId, poll.pollTitle.trim(), poll.validOptions);
 
 
   // The three-step publish flow from the file header
@@ -672,11 +835,11 @@ export default function CreatePostScreen() {
       showToast('error', t('createPost.contentRequired'));
       return;
     }
-    if (showPoll && !pollTitle.trim()) {
+    if (poll.showPoll && !poll.pollTitle.trim()) {
       showToast('error', t('createPost.pollTitleRequired'));
       return;
     }
-    if (showPoll && validPollOptions.length < MIN_POLL_OPTIONS) {
+    if (poll.showPoll && poll.validOptions.length < MIN_POLL_OPTIONS) {
       showToast('error', t('createPost.pollMinOptions'));
       return;
     }
@@ -689,7 +852,7 @@ export default function CreatePostScreen() {
       try {
         await updatePost(editPostId, { title: title.trim(), content: trimmedContent });
         showToast('success', t('createPost.updateSuccess'));
-        leaveScreen();
+        guard.leaveScreen();
       } catch (err) {
         if (err instanceof ApiError && err.code === 'timeout') {
           showToast('error', t('createPost.publishTimeout'));
@@ -742,7 +905,7 @@ export default function CreatePostScreen() {
       // switches to retry-in-place instead of navigating away.
       // A 409 means the poll already exists server-side (an
       // earlier attempt landed) — that IS success.
-      if (showPoll) {
+      if (poll.showPoll) {
         try {
           await attachPoll(post.id);
         } catch (err) {
@@ -755,7 +918,7 @@ export default function CreatePostScreen() {
       }
 
       showToast('success', t('createPost.success'));
-      leaveScreen();
+      guard.leaveScreen();
     } catch (err) {
       // A timeout cannot tell a lost request from a lost
       // response — the post may already exist server-side, so
@@ -778,13 +941,13 @@ export default function CreatePostScreen() {
     try {
       await attachPoll(pollFailedPostId);
       showToast('success', t('createPost.pollRetrySuccess'));
-      leaveScreen();
+      guard.leaveScreen();
     } catch (err) {
       // 409 — the "failed" first attempt actually landed;
       // retrying forever against "already exists" helps nobody
       if (err instanceof ApiError && err.status === 409) {
         showToast('success', t('createPost.pollRetrySuccess'));
-        leaveScreen();
+        guard.leaveScreen();
         return;
       }
       showToast('error', t('createPost.pollError'));
@@ -796,7 +959,7 @@ export default function CreatePostScreen() {
 
   // The post is already published — leaving just drops the poll
   const discardPoll = () => {
-    leaveScreen();
+    guard.leaveScreen();
   };
 
 
@@ -818,21 +981,19 @@ export default function CreatePostScreen() {
           keyboardVerticalOffset={headerHeight}
         >
           <ScrollView
-            ref={scrollRef}
+            ref={reveal.scrollRef}
             className="flex-1"
             contentContainerClassName="p-md"
             contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
             keyboardShouldPersistTaps="handled"
-            onScroll={(event) => {
-              scrollOffsetRef.current = event.nativeEvent.contentOffset.y;
-            }}
+            onScroll={reveal.onScroll}
             scrollEventThrottle={32}
-            onLayout={applyPendingReveal}
+            onLayout={reveal.onLayout}
           >
 
             {pollFailedPostId ? (
               <PollRetryPanel
-                pollTitle={pollTitle.trim()}
+                pollTitle={poll.pollTitle.trim()}
                 retrying={retryingPoll}
                 onRetry={retryPoll}
                 onDiscard={discardPoll}
@@ -872,40 +1033,16 @@ export default function CreatePostScreen() {
                 )}
 
                 {/* Poll toggle — switching off clears the draft */}
-                {!editing && (
-                <Pressable
-                  className={`mb-md min-h-12 flex-row items-center gap-sm rounded-md border px-md py-sm ${
-                    showPoll ? 'border-brand bg-brand-soft' : 'border-line-strong'
-                  }`}
-                  onPress={togglePoll}
-                  accessibilityRole="button"
-                  accessibilityLabel={t('createPost.addPoll')}
-                  accessibilityState={{ expanded: showPoll }}
-                >
-                  <Ionicons
-                    name={showPoll ? 'stats-chart' : 'stats-chart-outline'}
-                    size={20}
-                    color={showPoll ? colors.brand : colors.inkSoft}
-                  />
-                  <Text
-                    className={`flex-1 font-raleway-medium text-sm ${
-                      showPoll ? 'text-brand' : 'text-ink-soft'
-                    }`}
-                  >
-                    {t('createPost.addPoll')}
-                  </Text>
-                  {showPoll && <Ionicons name="close-circle" size={20} color={colors.brand} />}
-                </Pressable>
-                )}
+                {!editing && <PollToggleRow active={poll.showPoll} onToggle={poll.toggle} />}
 
-                {!editing && showPoll && (
+                {!editing && poll.showPoll && (
                   <PollForm
-                    title={pollTitle}
-                    options={pollOptions}
-                    onChangeTitle={setPollTitle}
-                    onChangeOption={updatePollOption}
-                    onAddOption={addPollOption}
-                    onRemoveOption={removePollOption}
+                    title={poll.pollTitle}
+                    options={poll.pollOptions}
+                    onChangeTitle={poll.setPollTitle}
+                    onChangeOption={poll.updateOption}
+                    onAddOption={poll.addOption}
+                    onRemoveOption={poll.removeOption}
                   />
                 )}
 

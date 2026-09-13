@@ -17,9 +17,25 @@
 import type { ReactNode } from 'react';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// AssistantColors
+// -----------------------------------------------------------
+//
 // Neutral by default; a host maps its own tokens on. onBrand
 // is the ink that sits ON the brand colour (the user bubble),
-// surfaceSoft the recessed fill behind code and tool details
+// surfaceSoft the recessed fill behind code and tool details.
+//
+// Used by:
+//   - every surface in the package — all take `colors`, with
+//     defaultColors (below) as the default
+//   - app/(main)/tabs/assistant.tsx — the host's token mapping
+// -----------------------------------------------------------
+
 export interface AssistantColors {
   ink: string;
   inkSoft: string;
@@ -30,6 +46,22 @@ export interface AssistantColors {
   surfaceSoft: string;
   danger: string;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// defaultColors
+// -----------------------------------------------------------
+//
+// Used by:
+//   - every surface's `colors` default — the thread, composer,
+//     banner, markdown, tool cards, typing dots and the kit
+//     context provider
+// -----------------------------------------------------------
 
 export const defaultColors: AssistantColors = {
   ink: '#111827',
@@ -43,9 +75,26 @@ export const defaultColors: AssistantColors = {
 };
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// AssistantLabels
+// -----------------------------------------------------------
+//
 // Every string the surfaces can show. All required: a missing
 // label is a host bug the type checker catches, not a blank
-// button a tester finds
+// button a tester finds.
+//
+// Used by:
+//   - AssistantThread.tsx / AssistantComposer.tsx /
+//     AssistantErrorBanner.tsx / ToolCardShell.tsx — read
+//     through props or the kit context
+//   - app/(main)/tabs/assistant.tsx — the host's translations
+// -----------------------------------------------------------
+
 export interface AssistantLabels {
   placeholder: string;
   send: string;
@@ -70,11 +119,44 @@ export interface AssistantLabels {
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// ToolCardStatus
+// -----------------------------------------------------------
+//
+// The three states a tool card can show; 'failed' carries the
+// error text when the runtime had one.
+//
+// Used by:
+//   - ToolCardPart (below) — the status field
+//   - ToolCardShell.tsx — the status row's label and colour
+// -----------------------------------------------------------
+
+export type ToolCardStatus = 'running' | 'done' | 'failed';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ToolCardPart
+// -----------------------------------------------------------
+//
 // The tool-card contract. `input` is whatever the model sent
 // (a partial parse while its arguments still stream), `output`
-// the container's result once it landed; 'failed' carries the
-// error text when the runtime had one
-export type ToolCardStatus = 'running' | 'done' | 'failed';
+// the container's result once it landed.
+//
+// Used by:
+//   - ToolCardRenderer (below) — the renderer's argument
+//   - ToolCardShell.tsx — toToolCardPart builds one per part
+//   - hosts' custom cards, through the root export
+// -----------------------------------------------------------
 
 export interface ToolCardPart {
   toolName: string;
@@ -84,11 +166,47 @@ export interface ToolCardPart {
   errorText?: string;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ToolCardRenderer
+// -----------------------------------------------------------
+//
+// One tool card, from the part it renders. The host maps tool
+// names to these; a name with no renderer falls to the
+// generic card.
+//
+// Used by:
+//   - core/context.tsx — the registry's value type
+//   - AssistantThread.tsx — the `tools` prop
+//   - nothing in-tree registers one yet — hosts may, through
+//     the root export
+// -----------------------------------------------------------
+
 export type ToolCardRenderer = (part: ToolCardPart) => ReactNode;
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// AssistantSuggestion
+// -----------------------------------------------------------
+//
 // An empty-state chip: the title is what the chip shows, the
-// prompt is what gets sent when it is tapped
+// prompt is what gets sent when it is tapped.
+//
+// Used by:
+//   - AssistantThread.tsx — the chips and the `suggestions` prop
+//   - app/(main)/tabs/assistant.tsx — the host's chip list
+// -----------------------------------------------------------
+
 export interface AssistantSuggestion {
   title: string;
   prompt: string;

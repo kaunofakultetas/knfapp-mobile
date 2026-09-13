@@ -19,7 +19,44 @@
 import type { NoticeCode } from './transport';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// TransportErrorKind
+// -----------------------------------------------------------
+//
+// The four ways a request fails — what the retry policy
+// triages on.
+//
+// Used by:
+//   - TransportError (below) — its `kind`
+//   - index.ts — on the package surface for hosts typing
+//     error handling
+// -----------------------------------------------------------
+
 export type TransportErrorKind = 'http' | 'timeout' | 'network' | 'canceled';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// TransportError
+// -----------------------------------------------------------
+//
+// The class every adapter failure ends up as. Carries the
+// kind, the HTTP status when there is one, and the backend's
+// own machine-readable code when it sent one.
+//
+// Used by:
+//   - adapters/knf/rest.ts — throws it for every failure
+//   - testing/fakeTransport.ts — scripted failures
+// -----------------------------------------------------------
 
 export class TransportError extends Error {
   kind: TransportErrorKind;
@@ -40,9 +77,26 @@ export class TransportError extends Error {
 }
 
 
-// Reads the fields most HTTP clients' errors carry (axios-style
-// wrappers, fetch wrappers, the app's ApiError) — `code` may be
-// the kind itself ('timeout' / 'network' / 'http' / 'canceled')
+
+
+
+
+
+// -----------------------------------------------------------
+// toTransportError
+// -----------------------------------------------------------
+//
+// Duck-typed normalisation: reads the fields most HTTP
+// clients' errors carry (axios-style wrappers, fetch wrappers,
+// the app's ApiError) — `code` may be the kind itself
+// ('timeout' / 'network' / 'http' / 'canceled').
+//
+// Used by:
+//   - isRetryable / sendFailureCode (below)
+//   - hooks/useConversation.ts, hooks/useComposer.ts — triage
+//   - the host's transport wrapper (services/chatTransport.ts)
+// -----------------------------------------------------------
+
 export function toTransportError(err: unknown): TransportError {
   if (err instanceof TransportError) return err;
   const any = (err ?? {}) as { message?: unknown; status?: unknown; code?: unknown; serverCode?: unknown; data?: unknown };
@@ -59,13 +113,44 @@ export function toTransportError(err: unknown): TransportError {
 }
 
 
-// Transport failures and transient server states (5xx, 429)
-// heal; a definitive 4xx never does
+
+
+
+
+
+// -----------------------------------------------------------
+// isRetryable
+// -----------------------------------------------------------
+//
+// The retry policy: transport failures and transient server
+// states (5xx, 429) heal; a definitive 4xx never does.
+//
+// Used by:
+//   - hooks/useComposer.ts — failed send → outbox or notice
+//   - hooks/useConversation.ts, hooks/useReactions.ts — queue
+//     an offline task vs roll back
+// -----------------------------------------------------------
+
 export function isRetryable(err: unknown): boolean {
   const e = toTransportError(err);
   return e.kind === 'network' || e.kind === 'timeout' || e.status >= 500 || e.status === 429;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// sendFailureCode
+// -----------------------------------------------------------
+//
+// The NoticeCode a definitively failed send surfaces as.
+//
+// Used by:
+//   - hooks/useComposer.ts — the send catch block
+// -----------------------------------------------------------
 
 export function sendFailureCode(err: unknown): NoticeCode {
   const e = toTransportError(err);

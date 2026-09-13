@@ -19,6 +19,27 @@
 
 
 
+
+
+
+
+// -----------------------------------------------------------
+// KitLabels
+// -----------------------------------------------------------
+//
+// Every string as one flat shape; the count-taking keys are
+// functions so Lithuanian's three plural forms stay reachable
+// in any custom catalog. Per-key roles are inline.
+//
+// Used by:
+//   - provider/index.tsx — the host's Partial<KitLabels> is
+//     merged over the locale's defaults, and useKitLabels
+//     serves the result
+//   - time/RelativeTime.tsx, notifications/NotificationRow.tsx
+//     — typed helper parameters
+//   - defaultLabels (below) — both catalogs implement it
+// -----------------------------------------------------------
+
 export interface KitLabels {
   // The action row under a post; the WithCount forms are the
   // buttons' accessibility names carrying the current tally
@@ -105,43 +126,6 @@ export interface KitLabels {
   avatarA11y: (name: string) => string;
   timeA11y: (datetime: string) => string;
 }
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// Lithuanian plural
-// -----------------------------------------------------------
-//
-// 1 / 2–9 (and not x1) / the rest — teens take the 'other'
-// form even when their last digit says otherwise (11 žinučių,
-// not 11 žinutė).
-//
-// Used by:
-//   - defaultLabels.lt — every count-taking key
-// -----------------------------------------------------------
-
-const ltPlural = (count: number, one: string, few: string, other: string): string => {
-  const mod10 = count % 10;
-  const mod100 = count % 100;
-  if (mod10 === 1 && mod100 !== 11) return one;
-  if (mod10 >= 2 && mod10 <= 9 && !(mod100 >= 11 && mod100 <= 19)) return few;
-  return other;
-};
-
-// The 'ir dar N žmonės' fragment grouped activity rows share
-const ltOthers = (count: number): string =>
-  ltPlural(count, `ir dar ${count} žmogus`, `ir dar ${count} žmonės`, `ir dar ${count} žmonių`);
-
-const enOthers = (count: number): string => (count === 1 ? 'and 1 other' : `and ${count} others`);
-
-const ltLikes = (count: number): string =>
-  ltPlural(count, `${count} patiktukas`, `${count} patiktukai`, `${count} patiktukų`);
-
-const enLikes = (count: number): string => (count === 1 ? '1 like' : `${count} likes`);
 
 
 
@@ -323,3 +307,105 @@ export const defaultLabels: { lt: KitLabels; en: KitLabels } = {
     timeA11y: (datetime) => `Posted ${datetime}`,
   },
 };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ltPlural
+// -----------------------------------------------------------
+//
+// Lithuanian plural: 1 / 2–9 (and not x1) / the rest — teens
+// take the 'other' form even when their last digit says
+// otherwise (11 žinučių, not 11 žinutė). Every count-taking
+// key of defaultLabels.lt selects through this.
+//
+// Used by:
+//   - defaultLabels.lt (above) — every count-taking key
+//   - ltOthers, ltLikes (below)
+// -----------------------------------------------------------
+
+const ltPlural = (count: number, one: string, few: string, other: string): string => {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  if (mod10 === 1 && mod100 !== 11) return one;
+  if (mod10 >= 2 && mod10 <= 9 && !(mod100 >= 11 && mod100 <= 19)) return few;
+  return other;
+};
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ltOthers
+// -----------------------------------------------------------
+//
+// The 'ir dar N žmonės' fragment grouped activity rows share.
+//
+// Used by:
+//   - defaultLabels.lt (above) — the notif* keys and andOthers
+// -----------------------------------------------------------
+
+const ltOthers = (count: number): string =>
+  ltPlural(count, `ir dar ${count} žmogus`, `ir dar ${count} žmonės`, `ir dar ${count} žmonių`);
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// enOthers
+// -----------------------------------------------------------
+//
+// The English side of the same fragment.
+//
+// Used by:
+//   - defaultLabels.en (above) — the notif* keys and andOthers
+// -----------------------------------------------------------
+
+const enOthers = (count: number): string => (count === 1 ? 'and 1 other' : `and ${count} others`);
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ltLikes
+// -----------------------------------------------------------
+//
+// The like tally the action row's accessibility name carries.
+//
+// Used by:
+//   - defaultLabels.lt (above) — likeWithCount, unlikeWithCount
+// -----------------------------------------------------------
+
+const ltLikes = (count: number): string =>
+  ltPlural(count, `${count} patiktukas`, `${count} patiktukai`, `${count} patiktukų`);
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// enLikes
+// -----------------------------------------------------------
+//
+// The English side of the like tally.
+//
+// Used by:
+//   - defaultLabels.en (above) — likeWithCount, unlikeWithCount
+// -----------------------------------------------------------
+
+const enLikes = (count: number): string => (count === 1 ? '1 like' : `${count} likes`);

@@ -48,6 +48,22 @@ import type { RelationshipState } from '../core/types';
 import { useSocialEngine } from '../provider';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// UseRelationshipResult
+// -----------------------------------------------------------
+//
+// What the hook hands the connect button.
+//
+// Used by:
+//   - useRelationship (below) — the return shape
+//   - src/index.ts — the public surface hosts import from
+// -----------------------------------------------------------
+
 export interface UseRelationshipResult {
   state: RelationshipState;
   // True while a transport call is in flight (UIs may dim)

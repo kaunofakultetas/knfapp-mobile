@@ -26,6 +26,24 @@
 //    - every component in the package
 // -----------------------------------------------------------
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// KitLevel
+// -----------------------------------------------------------
+//
+// One floor as the kit shows it — id, display label, the
+// drawing's viewBox and the stacking ordinal.
+//
+// Used by:
+//   - plan/FloorPlan.tsx, plan/FloorSwitcher.tsx
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export interface KitLevel {
   id: string;
   // The display label as the host shows it ("2 aukštas"); the
@@ -35,7 +53,46 @@ export interface KitLevel {
   ordinal: number;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// KitTurnDirection
+// -----------------------------------------------------------
+//
+// The six turn shapes a step can carry — 'straight' renders
+// as a continue (see core/format.ts).
+//
+// Used by:
+//   - KitInstruction (below) — the turn step's direction
+//   - core/format.ts — turnLabel and instructionText
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export type KitTurnDirection = 'straight' | 'slight-left' | 'slight-right' | 'left' | 'right' | 'u-turn';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// KitInstruction
+// -----------------------------------------------------------
+//
+// One step of the route, in display terms — names, never ids;
+// each variant carries only what its sentence needs.
+//
+// Used by:
+//   - core/format.ts — instructionText's input
+//   - route/InstructionLine.tsx, route/RouteSheet.tsx
+//   - app/(main)/tabs/map.tsx — maps the engine's steps in
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
 
 export type KitInstruction =
   | { type: 'depart'; distanceM: number; towardsRoom?: string | null }
@@ -47,11 +104,46 @@ export type KitInstruction =
   | { type: 'connector'; via: 'stairs' | 'elevator' | 'ramp'; toLevelLabel: string; direction: 'up' | 'down'; distanceM: number }
   | { type: 'arrive'; roomName?: string | null; side?: 'left' | 'right' | 'ahead' | null };
 
-// One level's stretch of the route, in plan pixels
+
+
+
+
+
+
+// -----------------------------------------------------------
+// KitRouteSegment
+// -----------------------------------------------------------
+//
+// One level's stretch of the route, in plan pixels.
+//
+// Used by:
+//   - plan/FloorPlan.tsx — the route polyline per floor
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export interface KitRouteSegment {
   level: string;
   points: [number, number][];
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// KitRouteSummary
+// -----------------------------------------------------------
+//
+// The whole route as the preview shows it: totals, the floors
+// it crosses, the steps, and the plan-space endpoints.
+//
+// Used by:
+//   - route/RoutePreview.tsx — the card's data
+//   - app/(main)/tabs/map.tsx — built from the engine's route
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
 
 export interface KitRouteSummary {
   distanceM: number;
@@ -63,6 +155,25 @@ export interface KitRouteSummary {
   start?: { level: string; x: number; y: number } | null;
   end?: { level: string; x: number; y: number } | null;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// KitNavigationState
+// -----------------------------------------------------------
+//
+// Where the walker is in the route, as the host tells it —
+// the sheet renders this and never counts steps itself.
+//
+// Used by:
+//   - route/RouteSheet.tsx — the walking face's whole input
+//   - app/(main)/tabs/map.tsx — mapped from the engine
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
 
 export interface KitNavigationState {
   stepIndex: number;
@@ -80,9 +191,25 @@ export interface KitNavigationState {
   position?: { level: string; x: number; y: number } | null;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// KitHotspot
+// -----------------------------------------------------------
+//
 // A hotspot on the panorama: where it sits in the sphere (yaw
 // in the photo's frame — 0 the centre column, growing right;
-// pitch above the horizon) and what tapping it does
+// pitch above the horizon) and what tapping it does.
+//
+// Used by:
+//   - pano/FlatPanorama.tsx, pano/PanoramaStage.tsx
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export interface KitHotspot {
   id: string;
   yaw: number;
@@ -91,10 +218,28 @@ export interface KitHotspot {
   label?: string | null;
 }
 
-// What a panorama covers, in degrees — the engine's PanoGeometry
-// twin. Absent on a stage means a full sphere, or, once the
-// photo is measured, a full turn with the vertical band its
-// aspect gives (a phone sweep at 3.4:1 is a band of ~106°)
+
+
+
+
+
+
+// -----------------------------------------------------------
+// KitPanoGeometry
+// -----------------------------------------------------------
+//
+// What a panorama covers, in degrees — the engine's
+// PanoGeometry twin. Absent on a stage means a full sphere,
+// or, once the photo is measured, a full turn with the
+// vertical band its aspect gives (a phone sweep at 3.4:1 is a
+// band of ~106°).
+//
+// Used by:
+//   - pano/FlatPanorama.tsx, pano/projection.ts
+//   - app/(main)/map-editor/align.tsx — the alignment screen
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export interface KitPanoGeometry {
   hfovDeg: number;
   vfovDeg: number;

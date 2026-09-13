@@ -32,11 +32,48 @@
 //      and synthetic poses
 // -----------------------------------------------------------
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// Vec3
+// -----------------------------------------------------------
+//
+// A plain 3-vector in the device/world frames these helpers
+// speak.
+//
+// Used by:
+//   - rotateVector (below), core/pose.ts — gyro and gravity
+//     samples
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export interface Vec3 {
   x: number;
   y: number;
   z: number;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// Quat
+// -----------------------------------------------------------
+//
+// A unit quaternion, w first — the tracker's orientation
+// state.
+//
+// Used by:
+//   - every helper below, core/pose.ts
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
 
 export interface Quat {
   w: number;
@@ -45,19 +82,70 @@ export interface Quat {
   z: number;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// Pose
+// -----------------------------------------------------------
+//
+// The Euler face of an orientation, in degrees, as the HUD
+// reads it.
+//
+// Used by:
+//   - poseFromQuat (below), core/pose.ts — the tracker's samples
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export interface Pose {
   yawDeg: number;
   pitchDeg: number;
   rollDeg: number;
 }
 
+// Radians → degrees for the Euler angles handed back
 const RAD_TO_DEG = 180 / Math.PI;
 
-// asin feeds on rotateVector output, which float error can push
-// a hair beyond ±1 — clamp or pitch turns NaN at the poles
+
+
+
+
+
+
+// -----------------------------------------------------------
+// clamp1
+// -----------------------------------------------------------
+//
+// asin feeds on rotateVector output, which float error can
+// push a hair beyond ±1 — clamp or pitch turns NaN at the
+// poles.
+//
+// Used by:
+//   - poseFromQuat (below)
+// -----------------------------------------------------------
+
 const clamp1 = (v: number) => Math.min(1, Math.max(-1, v));
 
-// The inverse rotation of a unit quaternion — world into device
+
+
+
+
+
+
+// -----------------------------------------------------------
+// conjugate
+// -----------------------------------------------------------
+//
+// The inverse rotation of a unit quaternion — world into
+// device.
+//
+// Used by:
+//   - poseFromQuat (below) — the roll's up-vector
+// -----------------------------------------------------------
+
 const conjugate = (q: Quat): Quat => ({ w: q.w, x: -q.x, y: -q.y, z: -q.z });
 
 

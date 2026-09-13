@@ -13,6 +13,8 @@
 import type { PickedAsset } from './outbox';
 
 
+// The extension the bytes really are, per mime type — the
+// rename below trusts this over whatever name the picker kept
 const EXT_BY_MIME: Record<string, string> = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
@@ -24,9 +26,25 @@ const EXT_BY_MIME: Record<string, string> = {
   'application/pdf': 'pdf',
 };
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// normalizeAssetName
+// -----------------------------------------------------------
+//
 // The name the upload carries: when the mime type is known and
 // the extension disagrees with it (HEIC → JPEG is the common
-// case), the extension follows the bytes
+// case), the extension follows the bytes.
+//
+// Used by:
+//   - hooks/useComposer.ts — attach() renames every picked
+//     asset before it enters the outbox
+// -----------------------------------------------------------
+
 export function normalizeAssetName(asset: Pick<PickedAsset, 'name' | 'mimeType' | 'uri' | 'kind'>): string | undefined {
   const name = asset.name?.trim();
   const ext = asset.mimeType ? EXT_BY_MIME[asset.mimeType.toLowerCase()] : undefined;

@@ -27,8 +27,13 @@ import { ComposerPrimitive, useAuiState } from '@assistant-ui/react-native';
 import { defaultColors, type AssistantColors, type AssistantLabels } from './core/types';
 
 
+// The input grows with its text between one line and
+// INPUT_MAX_LINES, then scrolls — min/max height are derived
+// from these, so the three must agree (all in dp)
 const INPUT_LINE_HEIGHT = 20;
+// Vertical padding inside the field, counted into both bounds
 const INPUT_PADDING_V = 10;
+// The tallest the field gets before it scrolls instead
 const INPUT_MAX_LINES = 6;
 
 // Static objects on purpose: a style FUNCTION on a Pressable is

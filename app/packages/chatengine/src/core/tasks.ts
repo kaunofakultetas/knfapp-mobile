@@ -24,14 +24,90 @@
 import type { KeyValueStorage } from '../provider/storage';
 
 
+// One queue per (storage, room): the hooks of a room share it
+// through the provider's storage instance. TaskQueue appears
+// here only as an erased type argument, so the class hoisting
+// below costs nothing at init
+const registry = new WeakMap<KeyValueStorage, Map<string, TaskQueue>>();
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// PendingTask
+// -----------------------------------------------------------
+//
+// The entry shapes — one per replayable action kind.
+//
+// Used by:
+//   - taskKey / TaskQueue (below)
+//   - hooks/useConversation.ts — the replay switch
+// -----------------------------------------------------------
+
 export type PendingTask =
   | { type: 'edit'; messageId: string; text: string; previousText: string; at: string }
   | { type: 'delete'; messageId: string; at: string }
   | { type: 'reaction'; messageId: string; emoji: string | null; at: string };
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// taskKey
+// -----------------------------------------------------------
+//
+// The one-entry-per-message-per-kind rule lives here: a later
+// task with the same key replaces the earlier one.
+//
+// Used by:
+//   - TaskQueue (below); exported for the tests' assertions
+// -----------------------------------------------------------
+
 export const taskKey = (task: Pick<PendingTask, 'type' | 'messageId'>) => `${task.type}:${task.messageId}`;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// tasksStorageKey
+// -----------------------------------------------------------
+//
+// Names a room's persisted queue.
+//
+// Used by:
+//   - TaskQueue (below) — load / persist; exported for the
+//     tests' assertions
+// -----------------------------------------------------------
+
 export const tasksStorageKey = (conversationId: string) => `tasks:${conversationId}`;
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// TaskQueue
+// -----------------------------------------------------------
+//
+// One room's queue, persisted on every change and rehydrated
+// once via load(). add() replaces an entry of the same
+// message + kind; subscribe() feeds the hooks' re-renders.
+//
+// Used by:
+//   - getTaskQueue (below) — the only constructor call site
+//   - hooks/useConversation.ts — replays it on reconnect
+// -----------------------------------------------------------
 
 export class TaskQueue {
   private tasks = new Map<string, PendingTask>();
@@ -121,9 +197,24 @@ export class TaskQueue {
 }
 
 
-// One queue per (storage, room): the hooks of a room share it
-// through the provider's storage instance
-const registry = new WeakMap<KeyValueStorage, Map<string, TaskQueue>>();
+
+
+
+
+
+// -----------------------------------------------------------
+// getTaskQueue
+// -----------------------------------------------------------
+//
+// The per-room registry, keyed by the provider's storage
+// instance (a WeakMap, so a torn-down provider's queues can be
+// collected).
+//
+// Used by:
+//   - hooks/useConversation.ts — replay + the pending badge
+//   - hooks/useComposer.ts — queues offline edits / unsends
+//   - hooks/useReactions.ts — queues offline reaction picks
+// -----------------------------------------------------------
 
 export function getTaskQueue(storage: KeyValueStorage, conversationId: string): TaskQueue {
   let rooms = registry.get(storage);

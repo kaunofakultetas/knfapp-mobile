@@ -61,6 +61,23 @@ import { validateGraph, type GraphIssue } from '../core/graph';
 import type { BuildingGraph, EdgeKind, GraphEdge, GraphNode, Level, NodeKind, Room } from '../core/types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// SvgToGraphOptions
+// -----------------------------------------------------------
+//
+// What one level's parse needs beyond the SVG text — the
+// level's identity and scale; field comments carry the rest.
+//
+// Used by:
+//   - svgToGraph (below) — the options argument
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export interface SvgToGraphOptions {
   levelId: string;
   ordinal: number;
@@ -74,6 +91,24 @@ export interface SvgToGraphOptions {
   plan?: string | null;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// SvgIssueCode
+// -----------------------------------------------------------
+//
+// The parse's own issue vocabulary — what the drawing did
+// wrong, as opposed to validateGraph's graph-level codes.
+//
+// Used by:
+//   - SvgToGraphIssue (below) — half its code union
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export type SvgIssueCode =
   | 'missing_viewbox'
   | 'bad_attribute'
@@ -84,6 +119,24 @@ export type SvgIssueCode =
   | 'room_without_node'
   | 'duplicate_id';
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// SvgToGraphIssue
+// -----------------------------------------------------------
+//
+// One authoring problem, from the parse or folded in from
+// validateGraph — a build script fails on 'error' severity.
+//
+// Used by:
+//   - svgToGraph / mergeLevels (below) — the issues lists
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export interface SvgToGraphIssue {
   severity: 'error' | 'warning';
   code: SvgIssueCode | GraphIssue['code'];
@@ -92,6 +145,24 @@ export interface SvgToGraphIssue {
   // validateGraph issues)
   ref: string;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// SvgToGraphResult
+// -----------------------------------------------------------
+//
+// One level parsed: the shapes it could read beside the
+// issues it found — nothing is thrown.
+//
+// Used by:
+//   - svgToGraph (below) — the answer; mergeLevels — the parts
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
 
 export interface SvgToGraphResult {
   level: Level;
@@ -102,9 +173,22 @@ export interface SvgToGraphResult {
 }
 
 
+// How close (plan px) two drawn endpoints must land to count
+// as the same node when no snap radius is given
 const DEFAULT_SNAP_PX = 6;
 
+// Every value is decoded once (see decodeEntities), ids and
+// numbers included, so the graph carries what the author typed
+// and the round trip is uniform. An entity the tool does not
+// know (a document-defined one) stays as written rather than
+// vanishing
+const NAMED_ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+
+// The kinds a data-kind attribute may claim — the SVG is
+// hand-authored text, so kinds are checked by value
 const NODE_KINDS: ReadonlySet<string> = new Set<NodeKind>(['corridor', 'door', 'stairs', 'elevator', 'ramp', 'entrance', 'room']);
+
+// Same guard for data-edge kinds
 const EDGE_KINDS: ReadonlySet<string> = new Set<EdgeKind>(['hallway', 'door', 'stairs', 'elevator', 'ramp']);
 
 type Attributes = Record<string, string>;
@@ -115,10 +199,24 @@ interface Shape {
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// shapes
+// -----------------------------------------------------------
+//
 // Every element of the tags we read, in document order, with
 // its attributes. Comments go first so a shape commented out
 // stays out; the attribute regex takes either quote style and
-// ignores bare words
+// ignores bare words.
+//
+// Used by:
+//   - svgToGraph (below) — the parse's first pass
+// -----------------------------------------------------------
+
 const shapes = (svg: string): Shape[] => {
   const clean = svg.replace(/<!--[\s\S]*?-->/g, '');
   const out: Shape[] = [];
@@ -127,6 +225,24 @@ const shapes = (svg: string): Shape[] => {
   return out;
 };
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// attributes
+// -----------------------------------------------------------
+//
+// One tag's attribute string as a map — either quote style,
+// bare words ignored, every value entity-decoded on the way
+// in.
+//
+// Used by:
+//   - shapes (above), viewBoxOf (below)
+// -----------------------------------------------------------
+
 const attributes = (raw: string): Attributes => {
   const out: Attributes = {};
   const attrRe = /([^\s=\/]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
@@ -134,11 +250,23 @@ const attributes = (raw: string): Attributes => {
   return out;
 };
 
-// Every value is decoded once here, ids and numbers included,
-// so the graph carries what the author typed and the round
-// trip is uniform. An entity the tool does not know (a
-// document-defined one) stays as written rather than vanishing
-const NAMED_ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+
+
+
+
+
+
+// -----------------------------------------------------------
+// decodeEntities
+// -----------------------------------------------------------
+//
+// The five named entities (NAMED_ENTITIES, top of file) plus
+// numeric forms; a code point past Unicode's end stays as
+// written.
+//
+// Used by:
+//   - attributes (above) — every value on the way in
+// -----------------------------------------------------------
 
 const decodeEntities = (value: string): string =>
   value.replace(/&(amp|lt|gt|quot|apos|#[xX][0-9a-fA-F]+|#\d+);/g, (whole, body: string) => {
@@ -148,15 +276,63 @@ const decodeEntities = (value: string): string =>
     return code <= 0x10ffff ? String.fromCodePoint(code) : whole;
   });
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// number
+// -----------------------------------------------------------
+//
+// A numeric attribute, or null — empty and non-numeric text
+// answer null so the caller decides the fallback.
+//
+// Used by:
+//   - svgToGraph / viewBoxOf (below)
+// -----------------------------------------------------------
+
 const number = (value: string | undefined): number | null => {
   if (value == null || value.trim() === '') return null;
   const n = Number(value.trim());
   return Number.isFinite(n) ? n : null;
 };
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// flag
+// -----------------------------------------------------------
+//
 // data-oneway="true" / "1" / "" all mean yes; only an explicit
-// no means no
+// no means no.
+//
+// Used by:
+//   - svgToGraph (below) — the data-oneway attribute
+// -----------------------------------------------------------
+
 const flag = (value: string | undefined): boolean => value != null && !['false', '0', 'no'].includes(value.trim().toLowerCase());
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// text
+// -----------------------------------------------------------
+//
+// A trimmed text attribute, or null when absent or blank.
+//
+// Used by:
+//   - svgToGraph (below) — ids, names and tag attributes
+// -----------------------------------------------------------
 
 const text = (value: string | undefined): string | null => (value != null && value.trim() !== '' ? value.trim() : null);
 
@@ -330,8 +506,22 @@ export function svgToGraph(svg: string, options: SvgToGraphOptions): SvgToGraphR
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// nearestNode
+// -----------------------------------------------------------
+//
 // The node within `snap` pixels of a point, nearest first; a
-// strict comparison keeps the first drawn of two equidistant
+// strict comparison keeps the first drawn of two equidistant.
+//
+// Used by:
+//   - svgToGraph (above) — snapping line ends to nodes
+// -----------------------------------------------------------
+
 const nearestNode = (nodes: GraphNode[], x: number, y: number, snap: number): GraphNode | null => {
   let best: GraphNode | null = null;
   let bestD = snap * snap;
@@ -346,8 +536,22 @@ const nearestNode = (nodes: GraphNode[], x: number, y: number, snap: number): Gr
 };
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// viewBoxOf
+// -----------------------------------------------------------
+//
 // The <svg viewBox>, else [0 0 width height], else the box
-// around every parsed coordinate (and a word about it)
+// around every parsed coordinate (and a word about it).
+//
+// Used by:
+//   - svgToGraph (above) — the level's viewBox
+// -----------------------------------------------------------
+
 const viewBoxOf = (svg: string, nodes: GraphNode[], rooms: Room[], missing: (message: string) => void): Level['viewBox'] => {
   const root = /<svg\b([^>]*)>/i.exec(svg);
   const attrs = root ? attributes(root[1]) : {};
@@ -386,7 +590,7 @@ const viewBoxOf = (svg: string, nodes: GraphNode[], rooms: Room[], missing: (mes
 
 
 // -----------------------------------------------------------
-// pathPolygon / rectPolygon / pointsPolygon
+// pathPolygon
 // -----------------------------------------------------------
 //
 // A room outline as a list of vertices. The path walker
@@ -396,7 +600,8 @@ const viewBoxOf = (svg: string, nodes: GraphNode[], rooms: Room[], missing: (mes
 // curve, an arc, a second subpath, a stray number — is
 // answered as { unsupported } with the reason, because a
 // room outline the tool guessed at is worse than a missing
-// one.
+// one. rectPolygon and pointsPolygon (below) answer the same
+// Outline shape for the other two tags.
 //
 // Used by:
 //   - svgToGraph (above)
@@ -470,6 +675,22 @@ function pathPolygon(d: string): Outline {
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// rectPolygon
+// -----------------------------------------------------------
+//
+// The rect's four corners in drawing order — the same
+// { unsupported } answer when width or height is missing.
+//
+// Used by:
+//   - svgToGraph (above)
+// -----------------------------------------------------------
+
 function rectPolygon(attrs: Attributes): Outline {
   const x = number(attrs.x) ?? 0;
   const y = number(attrs.y) ?? 0;
@@ -480,6 +701,23 @@ function rectPolygon(attrs: Attributes): Outline {
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// pointsPolygon
+// -----------------------------------------------------------
+//
+// A polygon's points list as vertices — whitespace or comma
+// separated; any non-numeric entry or odd count answers
+// { unsupported }.
+//
+// Used by:
+//   - svgToGraph (above)
+// -----------------------------------------------------------
+
 function pointsPolygon(points: string): Outline {
   const values = points.trim() === '' ? [] : points.trim().split(/[\s,]+/).map(Number);
   if (values.length % 2 !== 0 || values.some((v) => !Number.isFinite(v))) return { unsupported: 'the polygon points are not a list of numeric x,y pairs' };
@@ -489,8 +727,22 @@ function pointsPolygon(points: string): Outline {
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// finishPolygon
+// -----------------------------------------------------------
+//
 // Three distinct vertices make an outline; a closing vertex
-// repeating the first is the drawn Z and goes
+// repeating the first is the drawn Z and goes.
+//
+// Used by:
+//   - pathPolygon / pointsPolygon (above)
+// -----------------------------------------------------------
+
 const finishPolygon = (polygon: [number, number][]): Outline => {
   const first = polygon[0];
   const last = polygon[polygon.length - 1];
@@ -549,8 +801,22 @@ function roomNode(nodes: GraphNode[], polygon: [number, number][]): GraphNode | 
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// containsPoint
+// -----------------------------------------------------------
+//
 // Ray casting: a horizontal ray to the right crosses the
-// outline an odd number of times from inside
+// outline an odd number of times from inside.
+//
+// Used by:
+//   - roomNode (above) — the inside test
+// -----------------------------------------------------------
+
 const containsPoint = (x: number, y: number, polygon: [number, number][]): boolean => {
   let inside = false;
   for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
@@ -563,7 +829,23 @@ const containsPoint = (x: number, y: number, polygon: [number, number][]): boole
 };
 
 
-// The shortest distance from a point to any side of the outline
+
+
+
+
+
+// -----------------------------------------------------------
+// distanceToOutline
+// -----------------------------------------------------------
+//
+// The shortest distance from a point to any side of the
+// outline.
+//
+// Used by:
+//   - roomNode (above) — the boundary test and the outside
+//     ranking
+// -----------------------------------------------------------
+
 const distanceToOutline = (x: number, y: number, polygon: [number, number][]): number => {
   let best = Infinity;
   for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
@@ -578,6 +860,77 @@ const distanceToOutline = (x: number, y: number, polygon: [number, number][]): n
   }
   return best;
 };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// LevelConnector
+// -----------------------------------------------------------
+//
+// One authored cross-level joint: the two node ids, the way
+// between them and its real length.
+//
+// Used by:
+//   - MergeLevelsOptions / mergeLevels (below)
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
+export interface LevelConnector {
+  a: string;
+  b: string;
+  kind: 'stairs' | 'elevator' | 'ramp';
+  lengthM: number;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// MergeLevelsOptions
+// -----------------------------------------------------------
+//
+// What mergeLevels takes beside the parsed parts.
+//
+// Used by:
+//   - mergeLevels (below) — the options argument
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
+export interface MergeLevelsOptions {
+  building: string;
+  entranceNodeId?: string | null;
+  connectors: LevelConnector[];
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// MergeLevelsResult
+// -----------------------------------------------------------
+//
+// What mergeLevels answers — the whole graph beside every
+// issue found on the way.
+//
+// Used by:
+//   - mergeLevels (below) — the return shape
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
+export interface MergeLevelsResult {
+  graph: BuildingGraph;
+  issues: SvgToGraphIssue[];
+}
 
 
 
@@ -606,24 +959,6 @@ const distanceToOutline = (x: number, y: number, polygon: [number, number][]): n
 // Used by:
 //   - src/index.ts — public surface (a host's build script)
 // -----------------------------------------------------------
-
-export interface LevelConnector {
-  a: string;
-  b: string;
-  kind: 'stairs' | 'elevator' | 'ramp';
-  lengthM: number;
-}
-
-export interface MergeLevelsOptions {
-  building: string;
-  entranceNodeId?: string | null;
-  connectors: LevelConnector[];
-}
-
-export interface MergeLevelsResult {
-  graph: BuildingGraph;
-  issues: SvgToGraphIssue[];
-}
 
 export function mergeLevels(parts: SvgToGraphResult[], options: MergeLevelsOptions): MergeLevelsResult {
 

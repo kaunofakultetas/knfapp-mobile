@@ -30,9 +30,25 @@
 import type { RelationshipState } from './types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// PostShadow
+// -----------------------------------------------------------
+//
 // The viewer's standing intents on one post. `pending` is true
 // while a transport call is in flight (UIs may dim), `deleted`
-// tombstones a row the viewer removed
+// tombstones a row the viewer removed.
+//
+// Used by:
+//   - mergePostShadow (below) — the diff-merge input
+//   - provider/index.tsx — the post store's entry type
+//   - hooks/useLikeToggle.ts — patches and reads it
+// -----------------------------------------------------------
+
 export interface PostShadow {
   liked?: boolean;
   pending?: boolean;
@@ -43,7 +59,24 @@ export interface PostShadow {
   confirmedLiked?: boolean;
 }
 
-// The viewer's standing with one user
+
+
+
+
+
+
+// -----------------------------------------------------------
+// UserShadow
+// -----------------------------------------------------------
+//
+// The viewer's standing with one user.
+//
+// Used by:
+//   - mergeRelationship (below)
+//   - provider/index.tsx — the user store's entry type
+//   - hooks/useRelationship.ts — patches and reads it
+// -----------------------------------------------------------
+
 export interface UserShadow {
   relationship?: RelationshipState;
   pending?: boolean;
@@ -51,6 +84,25 @@ export interface UserShadow {
   // anchor (mergeRelationship ignores it)
   confirmedRelationship?: RelationshipState;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ShadowStore
+// -----------------------------------------------------------
+//
+// The subscription store one shadow family lives in — get /
+// patch / clear plus per-id listeners and the clearAll epoch.
+//
+// Used by:
+//   - createShadowStore (below) — the implementation
+//   - provider/index.tsx — postShadows and userShadows
+//   - hooks/useLikeToggle.ts, hooks/useRelationship.ts
+// -----------------------------------------------------------
 
 export interface ShadowStore<S> {
   get(id: string): S | undefined;

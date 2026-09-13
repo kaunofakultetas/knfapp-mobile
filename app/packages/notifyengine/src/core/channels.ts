@@ -23,6 +23,8 @@
 import type { ChannelSpec, DeviceAdapter, KeyValueStorage } from './types';
 
 
+// Persisted set of channel ids THIS module created — a later
+// apply may delete only what it owns, never a host's channel
 const OWNED_KEY = 'notify.ownedChannels';
 
 // [a-z0-9.] — survives every store, log and diff readably;
@@ -30,8 +32,24 @@ const OWNED_KEY = 'notify.ownedChannels';
 const ID_RE = /^[a-z0-9.]+$/;
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// validateChannelSpecs
+// -----------------------------------------------------------
+//
 // Throws with the offending id named — config errors must die
-// loudly at development time, not at apply time on a device
+// loudly at development time, not at apply time on a device.
+// Checks: the guaranteed default exists, ids match the charset
+// and are unique, vibration patterns are sane milliseconds.
+//
+// Used by:
+//   - engine.ts — on createNotifyEngine, before anything runs
+// -----------------------------------------------------------
+
 export function validateChannelSpecs(specs: readonly ChannelSpec[]): void {
   if (!specs.some((spec) => spec.nameKey === 'default')) {
     throw new Error('Channel registry needs the guaranteed default channel (nameKey "default")');
@@ -59,11 +77,45 @@ export function validateChannelSpecs(specs: readonly ChannelSpec[]): void {
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// ChannelApplier
+// -----------------------------------------------------------
+//
+// The one-method surface the applier returns.
+//
+// Used by:
+//   - createChannelApplier (below) — the return shape
+//   - engine.ts — wired behind engine.applyChannels
+// -----------------------------------------------------------
+
 export interface ChannelApplier {
   // names: nameKey → localized display name, supplied by the
   // host at apply time (the engine has no strings)
   apply(names: Record<string, string>): Promise<void>;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// createChannelApplier
+// -----------------------------------------------------------
+//
+// The diff-and-apply pass the header describes: create or
+// rename every desired channel, then delete stale owned ids —
+// but only when every replacement landed.
+//
+// Used by:
+//   - engine.ts — wired behind engine.applyChannels
+// -----------------------------------------------------------
 
 export function createChannelApplier(deps: {
   device: DeviceAdapter;
@@ -98,10 +150,9 @@ export function createChannelApplier(deps: {
     const desiredIds = new Set(specs.map((spec) => spec.id));
     const owned = await readOwned();
 
-    // STEP 1: create or rename every desired channel. Creating
-    // an existing id with the same settings is a rename-in-
-    // place on Android — importance stays frozen either way.
-    // ========================================================
+    // Create or rename every desired channel. Creating an
+    // existing id with the same settings is a rename-in-place
+    // on Android — importance stays frozen either way
     let everyCreateLanded = true;
     for (const spec of specs) {
       const name = names[spec.nameKey] ?? spec.nameKey;
@@ -115,11 +166,10 @@ export function createChannelApplier(deps: {
       }
     }
 
-    // STEP 2: delete stale versions — ONLY ids this registry
-    // has ever owned, and ONLY when every replacement landed:
-    // deleting v1 while v2 failed to create would leave the
-    // guaranteed default channel not existing at all
-    // ======================================================
+    // Delete stale versions — ONLY ids this registry has ever
+    // owned, and ONLY when every replacement landed: deleting
+    // v1 while v2 failed to create would leave the guaranteed
+    // default channel not existing at all
     if (everyCreateLanded) {
       for (const id of installedIds) {
         if (desiredIds.has(id) || !owned.has(id)) continue;

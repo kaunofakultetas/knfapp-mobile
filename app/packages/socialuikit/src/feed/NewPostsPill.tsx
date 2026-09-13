@@ -24,6 +24,21 @@ import { useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, Animated, Pressable, Text } from 'react-native';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// NewPostsPill (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - feed/FeedList.tsx — overlaid on the feed while
+//     newCount > 0
+//   - a host floating its own chrome over a custom list
+// -----------------------------------------------------------
+
 export default function NewPostsPill({ count, onPress }: { count: number; onPress: () => void }) {
 
   const { colors, fonts, radii } = useKitTheme();

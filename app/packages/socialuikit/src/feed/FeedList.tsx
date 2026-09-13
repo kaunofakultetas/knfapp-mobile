@@ -50,6 +50,24 @@ import { ActivityIndicator, FlatList, Platform, RefreshControl, View, useWindowD
 const MIN_ROW_HEIGHT = 140;
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// FeedListProps
+// -----------------------------------------------------------
+//
+// The whole contract, generic over the host's row type — the
+// kit never inspects a row, it only keys and renders them.
+// Per-prop behavior is inline.
+//
+// Used by:
+//   - FeedList (below); the type is not re-exported through
+//     the barrel, so nothing else in-tree names it directly
+// -----------------------------------------------------------
+
 export interface FeedListProps<T> {
   // The rows in display order — the kit never sorts or dedupes
   items: readonly T[];

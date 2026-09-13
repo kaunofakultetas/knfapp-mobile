@@ -18,11 +18,43 @@ import type { OutgoingMessage } from './transport';
 import type { ChatMessage } from './types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// ForwardSource
+// -----------------------------------------------------------
+//
 // Only the CONTENT travels — a structural subset, so a host's
-// UI row (chatuikit's KitMessage) forwards without a cast
+// UI row (chatuikit's KitMessage) forwards without a cast.
+//
+// Used by:
+//   - forwardPayload (below) — its input
+// -----------------------------------------------------------
+
 export type ForwardSource = Pick<ChatMessage, 'text'> &
   Partial<Pick<ChatMessage, 'imageUrl' | 'gallery' | 'video' | 'audio' | 'file' | 'kind' | 'mediaSize' | 'mediaPreview'>>;
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// forwardPayload
+// -----------------------------------------------------------
+//
+// The OutgoingMessage for the target room: content and stored
+// upload paths as they are, `forwarded: true` as the only mark
+// — no quote, no link card (see the file header).
+//
+// Used by:
+//   - app/(main)/chat-room/index.tsx — the forward flow's
+//     pick-a-room → send step
+// -----------------------------------------------------------
 
 export function forwardPayload(message: ForwardSource, clientId: string): OutgoingMessage {
 

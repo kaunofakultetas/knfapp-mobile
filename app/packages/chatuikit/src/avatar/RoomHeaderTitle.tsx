@@ -17,6 +17,19 @@ import KitAvatar from './KitAvatar';
 import StackedAvatars, { type StackMember } from './StackedAvatars';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// RoomHeaderTitle (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - app/(main)/chat-room/index.tsx — the header's title slot
+// -----------------------------------------------------------
+
 export default function RoomHeaderTitle({
   title,
   subtitle,

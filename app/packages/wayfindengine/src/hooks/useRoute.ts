@@ -36,12 +36,30 @@ import type { Route, RoutingOptions } from '../core/types';
 import { routingKey, useWayfind } from '../provider';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// UseRouteResult
+// -----------------------------------------------------------
+//
+// The hook's answer — a route, or the reason there is none.
+//
+// Used by:
+//   - useRoute (below) — the return shape
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export interface UseRouteResult {
   route: Route | null;
   // Why route is null; null when there is a route
   reason: 'unknown_node' | 'no_path' | 'idle' | null;
 }
 
+// The one shared "not asked yet" answer — referentially stable
+// so callers comparing results see no change between idle renders
 const IDLE: UseRouteResult = { route: null, reason: 'idle' };
 
 

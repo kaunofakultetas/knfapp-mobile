@@ -21,6 +21,29 @@ import type { ChatMessage, ReactionGroup } from '../../core/types';
 import { toChatMessage, toMessagesPage, toReactionGroups, type ApiChangesResponse, type ApiMessage, type ApiMessagesResponse, type ApiReactionGroup, type ApiUploadResponse } from './wire';
 
 
+// Ids and cursors ride in URL paths — always escape them
+const enc = encodeURIComponent;
+
+// Upload timeouts (ms) by asset kind — video gets the longest
+// leash; overridable per host via uploadTimeoutMs
+const defaultTimeouts = { image: 30_000, file: 45_000, video: 120_000, audio: 45_000 };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// HttpRequestOptions
+// -----------------------------------------------------------
+//
+// The per-request extras the adapter passes the host's client.
+//
+// Used by:
+//   - HttpClient (below) — every method's options
+// -----------------------------------------------------------
+
 export interface HttpRequestOptions {
   params?: Record<string, string | number | boolean | undefined>;
   timeoutMs?: number;
@@ -31,12 +54,48 @@ export interface HttpRequestOptions {
   onUploadProgress?: (fraction: number) => void;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// HttpClient
+// -----------------------------------------------------------
+//
+// What the host injects — its own axios / fetch wrapper with
+// the auth header, base URL and interceptors it already has.
+//
+// Used by:
+//   - KnfRestOptions / createKnfRest (below)
+//   - the host's services wiring the adapter up
+// -----------------------------------------------------------
+
 export interface HttpClient {
   get<T>(path: string, options?: HttpRequestOptions): Promise<T>;
   post<T>(path: string, body?: unknown, options?: HttpRequestOptions): Promise<T>;
   put<T>(path: string, body?: unknown, options?: HttpRequestOptions): Promise<T>;
   delete<T>(path: string, options?: HttpRequestOptions): Promise<T>;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// KnfRestOptions
+// -----------------------------------------------------------
+//
+// The factory's argument — the client plus the two upload
+// knobs.
+//
+// Used by:
+//   - createKnfRest (below) — the one argument
+//   - adapters/knf/index.ts — passed through from the adapter
+// -----------------------------------------------------------
 
 export interface KnfRestOptions {
   http: HttpClient;
@@ -48,7 +107,21 @@ export interface KnfRestOptions {
 }
 
 
-const enc = encodeURIComponent;
+
+
+
+
+
+// -----------------------------------------------------------
+// guard
+// -----------------------------------------------------------
+//
+// Every REST call leaves through this: whatever the HTTP
+// client throws reaches the engine as a coded TransportError.
+//
+// Used by:
+//   - createKnfRest (below) — wraps every request
+// -----------------------------------------------------------
 
 const guard = async <T>(call: () => Promise<T>): Promise<T> => {
   try {
@@ -57,8 +130,6 @@ const guard = async <T>(call: () => Promise<T>): Promise<T> => {
     throw toTransportError(err);
   }
 };
-
-const defaultTimeouts = { image: 30_000, file: 45_000, video: 120_000, audio: 45_000 };
 
 
 

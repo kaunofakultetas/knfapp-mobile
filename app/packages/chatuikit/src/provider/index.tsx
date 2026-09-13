@@ -44,6 +44,25 @@ import type UnreadPill from '../list/UnreadPill';
 import type UnreadSeparator from '../list/UnreadSeparator';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// KitComponents
+// -----------------------------------------------------------
+//
+// The replaceable pieces: MessageList falls back to the kit's
+// own component wherever a slot is empty, so a host overrides
+// one detail without forking the list.
+//
+// Used by:
+//   - KitEnv (below) — the `components` field
+//   - list/MessageList.tsx / message/MessageBubble.tsx — read
+//     the slots through useKitComponents
+// -----------------------------------------------------------
+
 export interface KitComponents {
   // The list with nothing in it (default: a centred labels.emptyChat)
   EmptyState: ComponentType<{ label: string }>;
@@ -62,6 +81,24 @@ export interface KitComponents {
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// KitEnv
+// -----------------------------------------------------------
+//
+// What the context carries: the resolved theme, the labels,
+// the locale, the host's component overrides and the two host
+// functions the kit cannot supply itself.
+//
+// Used by:
+//   - ChatUiKitProvider (below) — builds it
+//   - useKitEnv (below) — hands it to MessageBubble
+// -----------------------------------------------------------
+
 export interface KitEnv {
   theme: KitResolvedTheme;
   // Host-swapped pieces; MessageList fills the gaps with its own
@@ -78,13 +115,14 @@ export interface KitEnv {
 }
 
 
-// The provider-less fallback
-const fallbackFormatTime = (iso: string): string => {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso;
-  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
-};
 
+
+
+
+
+// What the hooks answer with no provider mounted — neutral
+// theme, English labels, identity URL resolver, plain HH:MM —
+// so tests and demos need no ceremony
 const defaultEnv: KitEnv = {
   theme: resolveTheme(defaultTheme),
   components: {},
@@ -94,7 +132,35 @@ const defaultEnv: KitEnv = {
   formatTime: fallbackFormatTime,
 };
 
+// The one context the whole kit reads — private so hosts go
+// through ChatUiKitProvider and the hooks, never the raw object
 const KitContext = createContext<KitEnv>(defaultEnv);
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// fallbackFormatTime
+// -----------------------------------------------------------
+//
+// The provider-less fallback — a plain HH:MM in the device
+// zone, the unparseable stamp echoed back untouched. A hoisted
+// `function` declaration on purpose: defaultEnv (above) reads
+// it at module init, and the data consts sit at the top per
+// const-order.
+//
+// Used by:
+//   - defaultEnv (above)
+// -----------------------------------------------------------
+
+function fallbackFormatTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
 
 
 
@@ -157,25 +223,67 @@ export function ChatUiKitProvider({
 
 
 // -----------------------------------------------------------
-// useKitTheme / useKitLabels / useKitEnv
+// useKitTheme
 // -----------------------------------------------------------
 //
 // Used by:
-//   - every kit component (theme), the kit roots (labels),
-//     MessageBubble (env: image resolution, time formatting)
+//   - every kit component — the resolved theme
 // -----------------------------------------------------------
 
 export function useKitTheme(): KitResolvedTheme {
   return useContext(KitContext).theme;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// useKitComponents
+// -----------------------------------------------------------
+//
+// Used by:
+//   - MessageList / MessageBubble — the host's override slots
+// -----------------------------------------------------------
+
 export function useKitComponents(): Partial<KitComponents> {
   return useContext(KitContext).components;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// useKitLabels
+// -----------------------------------------------------------
+//
+// Used by:
+//   - the kit roots — the merged label set for the locale
+// -----------------------------------------------------------
+
 export function useKitLabels(): KitLabels {
   return useContext(KitContext).labels;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// useKitEnv
+// -----------------------------------------------------------
+//
+// Used by:
+//   - MessageBubble — image resolution and time formatting,
+//     the whole env in one read
+// -----------------------------------------------------------
 
 export function useKitEnv(): KitEnv {
   return useContext(KitContext);

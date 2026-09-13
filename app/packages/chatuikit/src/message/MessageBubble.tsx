@@ -99,17 +99,39 @@ import ReactionPills from './ReactionPills';
 import ReplyQuote from './ReplyQuote';
 
 
+// One platform read for the whole file — web flips the
+// entering animation and skips haptics
 const isWeb = Platform.OS === 'web';
 
 // Swipe-to-reply: how far the bubble may travel, where it
 // triggers, and the spring that brings it home
 const SWIPE_MAX = 72;
+// Past this travel the reply arms — the haptic fires here
 const SWIPE_TRIGGER = 52;
+// The spring that brings the bubble home after release
 const SWIPE_SPRING = { damping: 22, stiffness: 260, mass: 0.8, overshootClamping: true };
 
 // What the 'React' accessibility action applies — the same
 // thumbs-up the composer's quick-like sends
 const DEFAULT_REACTION_EMOJI = '👍';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// haptic
+// -----------------------------------------------------------
+//
+// One door to haptics — a no-op on web, failures swallowed
+// (simulators have no engine).
+//
+// Used by:
+//   - MessageBubbleInner (below) — long-press and the
+//     swipe-to-reply arming tick
+// -----------------------------------------------------------
 
 const haptic = (kind: 'light' | 'medium' | 'select') => {
   if (isWeb) return;
@@ -149,20 +171,6 @@ export function bubbleRadii(position: GroupPosition, own: boolean): ViewStyle {
 
 
 // -----------------------------------------------------------
-// BubbleBody
-// -----------------------------------------------------------
-//
-// The bubble alone — background, corners, quote, photo or
-// text. MessageBubble wraps it with gestures, avatar, name,
-// reactions and the receipt; MessageContextMenu renders a
-// second copy of it at the measured frame.
-//
-// Used by:
-//   - MessageBubble (below)
-//   - chatuikit/menu/MessageContextMenu.tsx — the floating copy
-// -----------------------------------------------------------
-
-// -----------------------------------------------------------
 // BubbleGuard
 // -----------------------------------------------------------
 //
@@ -197,6 +205,23 @@ class BubbleGuard extends Component<{ fallback: ReactNode; children: ReactNode }
 
 
 
+
+// -----------------------------------------------------------
+// BubbleBody
+// -----------------------------------------------------------
+//
+// The bubble alone — background, corners, text segments,
+// attachments, quote — without the pressable shell around it.
+// MessageBubble wraps it with gestures, avatar, name,
+// reactions and the receipt; the context menu renders a second
+// copy of it at the measured frame, so the floating copy is
+// the exact same body the list bubble measured, pixel for
+// pixel.
+//
+// Used by:
+//   - MessageBubble (below) — inside BubbleGuard
+//   - menu/MessageContextMenu.tsx — the floating copy
+// -----------------------------------------------------------
 
 export function BubbleBody({
   message,
@@ -523,15 +548,17 @@ function ReceiptLine({
 
 
 // -----------------------------------------------------------
-// MessageBubble (default export)
+// MessageBubbleInner
 // -----------------------------------------------------------
 //
-// Memoised on its props — the list re-renders on every socket
-// event, and only the rows whose message object or flags
-// changed should paint.
+// The bubble itself; exported as MessageBubble, memoised on
+// its props (the wrapper below) — the list re-renders on every
+// socket event, and only the rows whose message object or
+// flags changed should paint.
 //
 // Used by:
-//   - chatuikit/list/MessageList.tsx — one per message row
+//   - MessageBubble (below) — the memo wrapper, the default
+//     export chatuikit/list/MessageList.tsx renders per row
 // -----------------------------------------------------------
 
 function MessageBubbleInner({
@@ -909,5 +936,7 @@ function MessageBubbleInner({
   );
 }
 
+// memo: a socket event replaces one message object — every
+// other row keeps its props and skips the re-render
 const MessageBubble = memo(MessageBubbleInner);
 export default MessageBubble;

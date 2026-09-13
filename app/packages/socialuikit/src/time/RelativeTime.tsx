@@ -33,16 +33,41 @@ import { parseServerStamp } from '../core/format';
 import type { KitLabels } from '../provider/labels';
 
 
+// The bucket thresholds, all in ms — a delta renders in the
+// largest unit it fills, and the wake arithmetic below counts
+// in the same constants
 const SECOND = 1000;
+// Under this: 'just now'
 const MINUTE = 60 * SECOND;
+// Under this: minutes copy
 const HOUR = 60 * MINUTE;
+// Under this: hours copy; also the wake ceiling in clampWait
 const DAY = 24 * HOUR;
+// Under this: days copy; past it the stamp renders as a date
 const WEEK = 7 * DAY;
 
 // A feed of fifty stamps must not wake fifty times a second,
 // so no wake comes sooner than 10 s; the day ceiling keeps the
 // wait far under the 32-bit timer limit
 const MIN_WAIT_MS = 10 * SECOND;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// clampWait
+// -----------------------------------------------------------
+//
+// Every scheduled wake passes through here — the MIN_WAIT_MS
+// floor and the DAY ceiling in one place, so no band's wait
+// arithmetic can spin the timer or overshoot it.
+//
+// Used by:
+//   - composeStamp (below) — every waitMs it answers
+// -----------------------------------------------------------
 
 const clampWait = (ms: number): number => Math.min(Math.max(ms, MIN_WAIT_MS), DAY);
 

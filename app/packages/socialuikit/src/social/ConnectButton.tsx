@@ -32,6 +32,24 @@ import type { KitRelationship } from '../core/types';
 import { useKitLabels, useKitTheme } from '../provider';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// ConnectAction
+// -----------------------------------------------------------
+//
+// The verb a tap fires back at the host — never a state: the
+// host mutates the relationship and hands the new state down.
+//
+// Used by:
+//   - FaceButton, ConnectButton (below)
+//   - app/(main)/profile/index.tsx — handleConnectAction maps
+//     each verb onto its API call
+// -----------------------------------------------------------
+
 export type ConnectAction = 'connect' | 'cancel' | 'accept' | 'decline' | 'disconnect' | 'unblock';
 
 

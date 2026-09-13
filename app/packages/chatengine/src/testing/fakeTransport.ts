@@ -20,6 +20,22 @@ import type { ChatMessage, ConversationMeta, Participant, ReactionGroup } from '
 import { TransportError } from '../core/errors';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// FakeTransportOptions
+// -----------------------------------------------------------
+//
+// How a fake room starts — its seed, its self user, and the
+// echo / guest switches.
+//
+// Used by:
+//   - fakeTransport (below) — the one argument
+// -----------------------------------------------------------
+
 export interface FakeTransportOptions {
   // Seeded history, OLDEST first (as a page arrives)
   messages?: ChatMessage[];
@@ -36,6 +52,24 @@ export interface FakeTransportOptions {
 }
 
 type Method = 'fetchMessages' | 'sendMessage' | 'editMessage' | 'deleteMessage' | 'setReaction' | 'removeReaction' | 'markRead' | 'upload' | 'fetchChanges' | 'pinMessage' | 'unpinMessage' | 'fetchPins' | 'setMessageTtl';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// FakeTransport
+// -----------------------------------------------------------
+//
+// The fake's scripting surface on top of ChatTransport — the
+// call/signal logs, the server rows, and the drive doors.
+//
+// Used by:
+//   - fakeTransport (below) — the return shape
+//   - the engine's hook tests / transportContract.ts
+// -----------------------------------------------------------
 
 export interface FakeTransport extends ChatTransport {
   // Every request, in order
@@ -61,7 +95,45 @@ export interface FakeTransport extends ChatTransport {
 
 
 let sequence = 0;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// nextId
+// -----------------------------------------------------------
+//
+// Server ids for committed rows — module-wide (the `sequence`
+// above) so two fakes in one test can never mint the same id.
+//
+// Used by:
+//   - fakeTransport (below) — sends, uploads, edits
+// -----------------------------------------------------------
+
 const nextId = (prefix: string) => `${prefix}-${++sequence}`;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// fakeTransport
+// -----------------------------------------------------------
+//
+//   const t = fakeTransport()                — an empty room
+//   fakeTransport({ messages, echoSends })   — seeded, echoing
+//   t.push(event) / t.fail(...) / t.stall(...) — drive it
+//
+// Used by:
+//   - the engine's hook tests (hooks/__tests__/*)
+//   - example/ExampleRoom.tsx — the demo room's backend
+//   - hosts' tests via the package surface
+// -----------------------------------------------------------
 
 export function fakeTransport(options: FakeTransportOptions = {}): FakeTransport {
   const self = options.self ?? { id: 'self', displayName: 'Me' };

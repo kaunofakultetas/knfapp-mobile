@@ -24,6 +24,22 @@ import type { ChatUser } from '../core/types';
 import { memoryStorage, type KeyValueStorage } from './storage';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// EngineLimits
+// -----------------------------------------------------------
+//
+// The send and upload ceilings the composer enforces.
+//
+// Used by:
+//   - defaultLimits / ChatEngineEnv (below)
+//   - hooks/useComposer.ts — via the env's `limits`
+// -----------------------------------------------------------
+
 export interface EngineLimits {
   // The composer clamps drafts to this many characters
   maxMessageLength: number;
@@ -33,6 +49,24 @@ export interface EngineLimits {
   maxVideoSeconds: number;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// defaultLimits
+// -----------------------------------------------------------
+//
+// What applies when the host passes no `limits` (a partial
+// override merges over these, field by field).
+//
+// Used by:
+//   - ChatEngineProvider (below) — the merge base
+//   - hosts that want to show the numbers they inherit
+// -----------------------------------------------------------
+
 export const defaultLimits: EngineLimits = {
   maxMessageLength: 5000,
   maxUploadBytes: 5 * 1024 * 1024,
@@ -40,6 +74,23 @@ export const defaultLimits: EngineLimits = {
   maxVideoSeconds: 180,
 };
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ChatEngineEnv
+// -----------------------------------------------------------
+//
+// What the context carries — the transport, the signed-in
+// user, persistence, the notice voice and the restore bus.
+//
+// Used by:
+//   - ChatEngineProvider / useChatEngine (below)
+//   - every hook — via useChatEngine()
+// -----------------------------------------------------------
 
 export interface ChatEngineEnv {
   transport: ChatTransport;
@@ -58,6 +109,8 @@ export interface ChatEngineEnv {
 }
 
 
+// Null means "no provider" — useChatEngine turns that into a
+// loud error rather than letting a room run without a transport
 const ChatEngineContext = createContext<ChatEngineEnv | null>(null);
 
 

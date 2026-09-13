@@ -18,11 +18,44 @@ import { useKitTheme } from '../provider';
 import KitAvatar from './KitAvatar';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// StackMember
+// -----------------------------------------------------------
+//
+// One member of the stack — a name for the initial disc, a
+// portrait uri where there is one.
+//
+// Used by:
+//   - StackedAvatars (below) — the `members` prop
+//   - list/ConversationIntro.tsx / avatar/RoomHeaderTitle.tsx —
+//     build the pair from room data
+// -----------------------------------------------------------
+
 export interface StackMember {
   name: string;
   uri?: string | null;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// StackedAvatars (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - components/chat/ConversationRow.tsx — the group rows in
+//     the conversations tab
+//   - list/ConversationIntro.tsx, avatar/RoomHeaderTitle.tsx
+// -----------------------------------------------------------
 
 export default function StackedAvatars({
   members,

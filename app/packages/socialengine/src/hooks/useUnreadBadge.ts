@@ -27,6 +27,22 @@ import { AppState } from 'react-native';
 import { useSocialEngine } from '../provider';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// UseUnreadBadgeResult
+// -----------------------------------------------------------
+//
+// What the hook hands the tab bar.
+//
+// Used by:
+//   - useUnreadBadge (below) — the return shape
+//   - src/index.ts — the public surface hosts import from
+// -----------------------------------------------------------
+
 export interface UseUnreadBadgeResult {
   // '' when there is nothing to show — render no pill at all
   badge: string;

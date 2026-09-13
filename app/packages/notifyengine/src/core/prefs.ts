@@ -34,13 +34,56 @@ import { createStore, type MutableStore } from './store';
 import type { ChannelKey, KeyValueStorage, NotifyTransport, PrefsSnapshot } from './types';
 
 
+// The master switch lives locally ('1'/'0' under this key) —
+// per-channel prefs are the server's, this one is the device's
 const MASTER_KEY = 'notify.masterEnabled';
+// Rapid channel flips settle this long (ms) before ONE request
+// carries the final state to the wire
 const DEBOUNCE_MS = 300;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// CHANNEL_KEYS
+// -----------------------------------------------------------
+//
+// The server's closed channel list — the guard every flip is
+// checked against before it reaches the wire.
+//
+// Used by:
+//   - createPrefsMachine (below) — the flip guard and the
+//     refresh loop; on the package surface, but no external
+//     caller at the moment
+// -----------------------------------------------------------
 
 export const CHANNEL_KEYS: readonly ChannelKey[] = ['news', 'chat', 'schedule', 'admin'];
 
+
+// Every channel on — the snapshot's seed until the server
+// answers, and the base a refresh rebuilds from
 const ALL_ON: Record<ChannelKey, boolean> = { news: true, chat: true, schedule: true, admin: true };
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// PrefsMachine
+// -----------------------------------------------------------
+//
+// The machine's surface — the snapshot store, hydration, the
+// master switch, the debounced channel flips, and dispose.
+//
+// Used by:
+//   - createPrefsMachine (below) — the return shape
+//   - engine.ts — holds one and exposes its store
+// -----------------------------------------------------------
 
 export interface PrefsMachine {
   store: MutableStore<PrefsSnapshot>;
@@ -52,6 +95,21 @@ export interface PrefsMachine {
   refresh(): Promise<void>;
   dispose(): void;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// createPrefsMachine
+// -----------------------------------------------------------
+//
+// Used by:
+//   - engine.ts — snapshot store, hydrate() at init, and the
+//     master-switch reader for the token machine's gates
+// -----------------------------------------------------------
 
 export function createPrefsMachine(deps: {
   transport: NotifyTransport;

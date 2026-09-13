@@ -17,6 +17,23 @@ import type { RealtimeStatus } from '../core/transport';
 import { useChatEngine } from '../provider';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// useRealtimeStatus
+// -----------------------------------------------------------
+//
+//   const status = useRealtimeStatus()   — 'connecting' |
+//     'connected' | 'reconnecting' | 'unauthorized'
+//
+// Used by:
+//   - app/(main)/chat-room/index.tsx — feeds chatuikit's
+//     ConnectionBanner
+// -----------------------------------------------------------
+
 export function useRealtimeStatus(): RealtimeStatus {
 
   const { transport } = useChatEngine();

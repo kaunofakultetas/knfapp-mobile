@@ -23,6 +23,24 @@ import { createContext, useContext, useMemo, type ReactNode } from 'react';
 import { defaultColors, type AssistantColors, type AssistantLabels, type ToolCardRenderer } from './types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// AssistantKitValue
+// -----------------------------------------------------------
+//
+// What travels by context: the labels, the colours, the tool
+// registry and the two host callbacks.
+//
+// Used by:
+//   - AssistantKitProvider / useAssistantKit (below)
+//   - not on the root barrel — hosts hand the pieces to the
+//     provider and read them back with the hook
+// -----------------------------------------------------------
+
 export interface AssistantKitValue {
   labels: AssistantLabels;
   colors: AssistantColors;
@@ -31,6 +49,8 @@ export interface AssistantKitValue {
   onPressLink?: (url: string) => void;
 }
 
+// null marks "no provider above" — the hook turns it into a
+// loud error naming the two valid roots
 const AssistantKitContext = createContext<AssistantKitValue | null>(null);
 
 // Frozen so a registry-less host shares one identity across

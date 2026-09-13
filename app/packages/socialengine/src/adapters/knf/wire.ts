@@ -23,9 +23,44 @@
 import type { Poll, SocialNotification } from '../../core/types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// HttpRequestOptions
+// -----------------------------------------------------------
+//
+// The one knob a call may carry — query parameters.
+//
+// Used by:
+//   - HttpClient (below) — every verb's options
+//   - src/index.ts — the public surface hosts import from
+// -----------------------------------------------------------
+
 export interface HttpRequestOptions {
   params?: Record<string, string | number | boolean | undefined>;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// HttpClient
+// -----------------------------------------------------------
+//
+// The four verbs the adapter needs — the host brings its own
+// implementation (see the file banner).
+//
+// Used by:
+//   - adapters/knf/index.ts — createKnfSocialTransport
+//   - services/socialTransport.ts — the host's axios wrapper
+//   - src/index.ts — the public surface hosts import from
+// -----------------------------------------------------------
 
 export interface HttpClient {
   get<T>(path: string, options?: HttpRequestOptions): Promise<T>;
@@ -34,7 +69,25 @@ export interface HttpClient {
   delete<T>(path: string, options?: HttpRequestOptions): Promise<T>;
 }
 
-// GET /news/<postId>/poll and the body a successful vote answers
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ApiPoll
+// -----------------------------------------------------------
+//
+// GET /news/<postId>/poll and the body a successful vote
+// answers.
+//
+// Used by:
+//   - toPoll (below)
+//   - adapters/knf/index.ts — fetchPoll and vote
+//   - adapters/knf/__tests__/contract.test.ts — fixtures
+// -----------------------------------------------------------
+
 export interface ApiPoll {
   id: string;
   postId: string;
@@ -48,20 +101,65 @@ export interface ApiPoll {
   options: { id: string; text: string; votes: number }[];
 }
 
-// POST /news/<postId>/like
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ApiLikeResponse
+// -----------------------------------------------------------
+//
+// POST /news/<postId>/like.
+//
+// Used by:
+//   - adapters/knf/index.ts — setLiked
+// -----------------------------------------------------------
+
 export interface ApiLikeResponse {
   liked: boolean;
   likes: number;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ApiFriendRequestResponse
+// -----------------------------------------------------------
+//
 // POST /social/friends/request — 'accepted' is the auto-accept
-// (the other side had already asked)
+// (the other side had already asked).
+//
+// Used by:
+//   - adapters/knf/index.ts — the connect action
+// -----------------------------------------------------------
+
 export interface ApiFriendRequestResponse {
   id?: string;
   status: 'pending' | 'accepted';
 }
 
-// One row of GET /social/activity
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ApiActivityRow
+// -----------------------------------------------------------
+//
+// One row of GET /social/activity.
+//
+// Used by:
+//   - ApiActivityResponse, toSocialNotification (below)
+// -----------------------------------------------------------
+
 export interface ApiActivityRow {
   id: string;
   kind: string;
@@ -72,14 +170,46 @@ export interface ApiActivityRow {
   subjectPreview?: string | null;
 }
 
-// GET /social/activity
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ApiActivityResponse
+// -----------------------------------------------------------
+//
+// GET /social/activity.
+//
+// Used by:
+//   - adapters/knf/index.ts — fetchNotifications
+// -----------------------------------------------------------
+
 export interface ApiActivityResponse {
   notifications: ApiActivityRow[];
   hasMore: boolean;
   cursor?: string;
 }
 
-// One row of GET /social/friends/requests
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ApiFriendRequestRow
+// -----------------------------------------------------------
+//
+// One row of GET /social/friends/requests — in BOTH directions
+// userId is the OTHER party.
+//
+// Used by:
+//   - adapters/knf/index.ts — findRequest resolves request ids
+//     through it
+// -----------------------------------------------------------
+
 export interface ApiFriendRequestRow {
   id: string;
   userId: string;

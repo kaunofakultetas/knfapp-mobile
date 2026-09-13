@@ -75,11 +75,11 @@ import { InteractionManager } from 'react-native';
 
 
 // -----------------------------------------------------------
-// FeedPage / UseFeedOptions / UseFeedResult
+// FeedPage
 // -----------------------------------------------------------
 //
-// FeedPage is the shape the caller's fetchPage adapter must
-// return; screens wrap their domain API in a one-liner:
+// The shape the caller's fetchPage adapter must return;
+// screens wrap their domain API in a one-liner:
 //   async (page) => { const r = await fetchNewsFeed(page);
 //                     return { items: r.posts, hasMore: r.hasMore }; }
 //
@@ -93,8 +93,45 @@ export interface FeedPage<T> {
   hasMore: boolean;
 }
 
-// How a silent refresh lands on a list that is already showing
+
+
+
+
+
+
+// -----------------------------------------------------------
+// RefreshStrategy
+// -----------------------------------------------------------
+//
+// How a silent refresh lands on a list that is already
+// showing: 'replace' swaps the rows, 'merge' keeps the
+// reader's place and marks any gap.
+//
+// Used by:
+//   - UseFeedOptions / UseFeedResult / useFeed (below)
+//   - list screens typing an explicit refresh('merge') call
+// -----------------------------------------------------------
+
 export type RefreshStrategy = 'replace' | 'merge';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// UseFeedOptions
+// -----------------------------------------------------------
+//
+// What tunes a feed: the offline copy (cacheKey / cacheMaxAge),
+// the deps that restart the page-1 pipeline, row identity, and
+// the silent-refresh strategy.
+//
+// Used by:
+//   - useFeed (below)
+//   - list screens passing options with their fetchPage
+// -----------------------------------------------------------
 
 export interface UseFeedOptions<T = unknown> {
   cacheKey?: string;
@@ -106,6 +143,25 @@ export interface UseFeedOptions<T = unknown> {
   // explicit refresh() call picks its own); defaults to replace
   silentRefreshMode?: RefreshStrategy;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// UseFeedResult
+// -----------------------------------------------------------
+//
+// What a screen renders from: the list, the four flags (see
+// the file header for which spinner covers what), the offline
+// copy's age, the gap marker, and the three actions.
+//
+// Used by:
+//   - useFeed (below)
+//   - list screens destructuring the hook's result
+// -----------------------------------------------------------
 
 export interface UseFeedResult<T> {
   items: T[];

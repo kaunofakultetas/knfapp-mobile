@@ -23,6 +23,22 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// UseFeedFreshnessResult
+// -----------------------------------------------------------
+//
+// What the hook returns — the count plus the two levers that
+// move it.
+//
+// Used by:
+//   - useFeedFreshness (below) — the return shape
+// -----------------------------------------------------------
+
 export interface UseFeedFreshnessResult {
   // How many peeked ids sit ahead of the feed's newest row —
   // 0 while the feed is current

@@ -50,6 +50,24 @@
 //      appendStreamTail
 // -----------------------------------------------------------
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// MarkdownInline
+// -----------------------------------------------------------
+//
+// One span of a line's text — plain text, an inline code run,
+// or bold / italic / link carrying spans of their own.
+//
+// Used by:
+//   - MarkdownListItem, MarkdownBlock, parseInline (below)
+//   - MarkdownText.tsx — the Inline renderer
+// -----------------------------------------------------------
+
 export type MarkdownInline =
   | { type: 'text'; text: string }
   | { type: 'code'; text: string }
@@ -57,11 +75,48 @@ export type MarkdownInline =
   | { type: 'italic'; spans: MarkdownInline[] }
   | { type: 'link'; url: string; title: string | null; spans: MarkdownInline[] };
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// MarkdownListItem
+// -----------------------------------------------------------
+//
+// One item of a list: its spans, and the nested list under it
+// when one opened.
+//
+// Used by:
+//   - MarkdownList (below) — the items array
+//   - nothing imports it directly at the moment — consumers
+//     reach it through MarkdownList
+// -----------------------------------------------------------
+
 export interface MarkdownListItem {
   spans: MarkdownInline[];
   // One level only — an even deeper indent joins this same list
   nested: MarkdownList | null;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// MarkdownList
+// -----------------------------------------------------------
+//
+// A whole list block — its kind, its start number and its
+// items.
+//
+// Used by:
+//   - MarkdownBlock (below) — the list variant
+//   - MarkdownText.tsx — the ListBlock renderer
+// -----------------------------------------------------------
 
 export interface MarkdownList {
   type: 'list';
@@ -70,6 +125,25 @@ export interface MarkdownList {
   start: number;
   items: MarkdownListItem[];
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// MarkdownBlock
+// -----------------------------------------------------------
+//
+// One block of the parsed tree — the union parseMarkdown
+// returns.
+//
+// Used by:
+//   - parseBlocks / appendStreamTail (below)
+//   - MarkdownText.tsx — the Block renderer
+//   - hosts, through the root export (with parseMarkdown)
+// -----------------------------------------------------------
 
 export type MarkdownBlock =
   | { type: 'paragraph'; spans: MarkdownInline[] }
@@ -84,13 +158,19 @@ export type MarkdownBlock =
 // of trailing whitespace. A fence's info string may not hold a
 // backtick — that is how "```code```" on one line stays inline
 const FENCE_OPEN_RE = /^ {0,3}(`{3,})[ \t]*([^`\s]*)[^`]*$/;
+// A closing fence carries NOTHING after its backticks
 const FENCE_CLOSE_RE = /^ {0,3}(`{3,})[ \t]*$/;
 // One to six hashes with a space after; the level clamps to 3
 // below. "#hashtag" has no space and stays prose
 const HEADING_RE = /^ {0,3}(#{1,6})(?:[ \t]+(.*?))?(?:[ \t]+#+)?$/;
+// Three or more of one of - * _, spaces allowed between
 const RULE_RE = /^ {0,3}([-*_])(?:[ \t]*\1){2,}$/;
+// '>' with an optional single space eaten — '>text' quotes too
 const QUOTE_RE = /^ {0,3}> ?(.*)$/;
+// List markers keep their leading whitespace — nesting depth
+// is read from it by indentWidth below
 const BULLET_RE = /^([ \t]*)([-*+])[ \t]+(.*)$/;
+// Up to nine digits, '.' or ')' — the start number is kept
 const ORDERED_RE = /^([ \t]*)(\d{1,9})[.)][ \t]+(.*)$/;
 
 // The characters a backslash may escape — ASCII punctuation
@@ -120,14 +200,63 @@ interface InlineHit {
   end: number;
 }
 
-// One line, trailing whitespace gone, CR endings normalised
+
+
+
+
+
+
+// -----------------------------------------------------------
+// toLines
+// -----------------------------------------------------------
+//
+// The document into lines: trailing whitespace gone per line,
+// CR endings normalised to LF.
+//
+// Used by:
+//   - parseMarkdown (below)
+// -----------------------------------------------------------
+
 const toLines = (text: string): string[] =>
   text
     .replace(/\r\n?/g, '\n')
     .split('\n')
     .map((line) => line.replace(/[ \t]+$/, ''));
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// indentWidth
+// -----------------------------------------------------------
+//
+// A tab counts as two spaces of indent, matching ItemLine.
+//
+// Used by:
+//   - readItem (below)
+// -----------------------------------------------------------
+
 const indentWidth = (ws: string): number => ws.replace(/\t/g, '  ').length;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// runLength
+// -----------------------------------------------------------
+//
+// How many of `ch` sit at `at` — delimiter runs (*, _, `).
+//
+// Used by:
+//   - settledEndOfLine, hasOpenConstruct, parseInline,
+//     readCodeSpan, readEmphasis, findEmphasisClose (below)
+// -----------------------------------------------------------
 
 const runLength = (src: string, at: number, ch: string): number => {
   let n = 0;
@@ -135,8 +264,40 @@ const runLength = (src: string, at: number, ch: string): number => {
   return n;
 };
 
-// End of string counts as whitespace on both sides
+
+
+
+
+
+
+// -----------------------------------------------------------
+// isSpace
+// -----------------------------------------------------------
+//
+// End of string counts as whitespace on both sides.
+//
+// Used by:
+//   - settledEndOfLine, canOpen, canClose (below)
+// -----------------------------------------------------------
+
 const isSpace = (ch: string): boolean => ch === '' || /\s/.test(ch);
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// isWordChar
+// -----------------------------------------------------------
+//
+// Word characters per WORD_CHAR_RE — what _ may not flank.
+//
+// Used by:
+//   - settledEndOfLine, canOpen, canClose (below)
+// -----------------------------------------------------------
+
 const isWordChar = (ch: string): boolean => WORD_CHAR_RE.test(ch);
 
 
@@ -305,10 +466,25 @@ function settledEndOfLine(line: string): number {
   return settled;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// hasOpenConstruct
+// -----------------------------------------------------------
+//
 // Does the slice hold a ` or [ that fails to complete inside
 // it? Emphasis needs no check — its inside is parsed as a
 // bounded slice — but code spans and links match on the whole
-// line, so an open one here could reach across the boundary
+// line, so an open one here could reach across the boundary.
+//
+// Used by:
+//   - settledEndOfLine (above) — the inner-construct guard
+// -----------------------------------------------------------
+
 function hasOpenConstruct(slice: string): boolean {
   let i = 0;
   while (i < slice.length) {
@@ -476,8 +652,23 @@ function parseBlocks(lines: readonly string[], depth: number): MarkdownBlock[] {
   return blocks;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// findFenceClose
+// -----------------------------------------------------------
+//
 // The closer must be at least as long as the opener; -1 when
-// the fence never closes
+// the fence never closes.
+//
+// Used by:
+//   - parseBlocks (above) — the fence branch
+// -----------------------------------------------------------
+
 function findFenceClose(lines: readonly string[], from: number, minLength: number): number {
   for (let j = from; j < lines.length; j += 1) {
     const close = FENCE_CLOSE_RE.exec(lines[j] ?? '');
@@ -486,16 +677,49 @@ function findFenceClose(lines: readonly string[], from: number, minLength: numbe
   return -1;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// startsBlock
+// -----------------------------------------------------------
+//
 // Would this line open a block of its own? Ends a paragraph.
 // An ordered marker interrupts only from 1 — "2025. rugsėjo
 // 1 d." after a sentence is a date, not a list — the way the
 // common renderers read it; after a blank line any number may
-// open a list (parseBlocks reads the marker itself there)
+// open a list (parseBlocks reads the marker itself there).
+//
+// Used by:
+//   - parseBlocks (above) — ends a paragraph
+//   - parseList (below) — ends a continuation line
+// -----------------------------------------------------------
+
 const startsBlock = (line: string): boolean => {
   if (FENCE_OPEN_RE.test(line) || HEADING_RE.test(line) || RULE_RE.test(line) || QUOTE_RE.test(line)) return true;
   const item = readItem(line);
   return item !== null && (!item.ordered || item.start === 1);
 };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// readItem
+// -----------------------------------------------------------
+//
+// A marker line into an ItemLine — null when the line opens
+// no item.
+//
+// Used by:
+//   - parseBlocks, startsBlock (above), parseList (below)
+// -----------------------------------------------------------
 
 function readItem(line: string): ItemLine | null {
   const bullet = BULLET_RE.exec(line);
@@ -685,9 +909,26 @@ function parseInline(src: string, depth: number): MarkdownInline[] {
   return spans;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// readCodeSpan
+// -----------------------------------------------------------
+//
 // A code span closes on a backtick run of exactly the opening
 // length; one space is shaved off each end when both carry one
-// (the way "`` `x` ``" is written), never from an all-space span
+// (the way "`` `x` ``" is written), never from an all-space
+// span.
+//
+// Used by:
+//   - settledEndOfLine, hasOpenConstruct, parseInline (above),
+//     findEmphasisClose (below)
+// -----------------------------------------------------------
+
 function readCodeSpan(src: string, at: number, run: number): InlineHit | null {
   let j = at + run;
   while (j < src.length) {
@@ -752,25 +993,76 @@ function readEmphasis(src: string, at: number, depth: number): InlineHit | null 
   return null;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// canOpen
+// -----------------------------------------------------------
+//
+// A run may open when the next character is not whitespace —
+// and for _ when the previous one is not a word character, so
+// snake_case stays whole.
+//
+// Used by:
+//   - readEmphasis (above), findEmphasisClose (below)
+// -----------------------------------------------------------
+
 function canOpen(src: string, at: number, run: number, marker: string): boolean {
   if (isSpace(src.charAt(at + run))) return false;
   return marker === '*' || !isWordChar(src.charAt(at - 1));
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// canClose
+// -----------------------------------------------------------
+//
+// The mirror of canOpen: a run may close when the character
+// before it is not whitespace — and for _ when the one after
+// the run is not a word character.
+//
+// Used by:
+//   - findEmphasisClose (below)
+// -----------------------------------------------------------
 
 function canClose(src: string, at: number, run: number, marker: string): boolean {
   if (isSpace(src.charAt(at - 1))) return false;
   return marker === '*' || !isWordChar(src.charAt(at + run));
 }
 
-// The first run of `marker` that closes OUR construct: at least
-// `count` long, able to close, with something before it. One
-// linear pass — escapes, code spans and complete links are
+
+
+
+
+
+
+// -----------------------------------------------------------
+// findEmphasisClose
+// -----------------------------------------------------------
+//
+// The first run of `marker` that closes OUR construct: at
+// least `count` long, able to close, with something before it.
+// One linear pass — escapes, code spans and complete links are
 // stepped over (a _ or * inside a URL closes nothing), and
 // inner openers of the same marker go on a stack that a closer
 // pays off first (nearest open one first), so in "*a *b* c*"
 // the star after b closes b and the last star closes ours. A
 // run over three long never opens — readEmphasis reads it as
-// text — but it still pays and closes
+// text — but it still pays and closes.
+//
+// Used by:
+//   - settledEndOfLine, readEmphasis (above)
+// -----------------------------------------------------------
+
 function findEmphasisClose(src: string, from: number, marker: string, count: number): number {
   const pending: number[] = [];
   let j = from;
@@ -860,6 +1152,26 @@ function readLink(src: string, at: number, depth: number): InlineHit | null {
   };
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// readLinkShape
+// -----------------------------------------------------------
+//
+// The [label](destination "title") structure alone, label
+// unparsed — so the emphasis closer scan and the streaming
+// scan can step over a link without recursing into it.
+//
+// Used by:
+//   - readLink (above) — then parses the label itself
+//   - settledEndOfLine, hasOpenConstruct, findEmphasisClose
+//     (above) — the shape alone
+// -----------------------------------------------------------
+
 function readLinkShape(src: string, at: number): LinkShape | null {
   const labelEnd = findBracketClose(src, at);
   if (labelEnd === -1 || src.charAt(labelEnd + 1) !== '(') return null;
@@ -905,8 +1217,23 @@ function readLinkShape(src: string, at: number): LinkShape | null {
   return { labelEnd, url, title, end: j + 1 };
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// findBracketClose
+// -----------------------------------------------------------
+//
 // The bracket that closes the one at `at`, nesting counted,
-// escapes stepped over; -1 when the label never closes
+// escapes stepped over; -1 when the label never closes.
+//
+// Used by:
+//   - readLinkShape (above)
+// -----------------------------------------------------------
+
 function findBracketClose(src: string, at: number): number {
   let depth = 0;
   for (let j = at; j < src.length; j += 1) {

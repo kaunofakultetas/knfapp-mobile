@@ -29,6 +29,24 @@ import { alwaysOnline, type NetworkSource } from '../core/network';
 import { memoryStorage, type KeyValueStorage } from '../core/storage';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// DataEngineEnv
+// -----------------------------------------------------------
+//
+// The context value every hook reads — the four services plus
+// the restore bus's two ends.
+//
+// Used by:
+//   - DataEngineProvider / useDataEngine (below)
+//   - hooks/useNetworkRestore.ts, hooks/useFeed.ts — via
+//     useDataEngine
+// -----------------------------------------------------------
+
 export interface DataEngineEnv {
   storage: KeyValueStorage;
   network: NetworkSource;
@@ -41,6 +59,8 @@ export interface DataEngineEnv {
   signalRestore(): void;
 }
 
+// Null means "no provider" — useDataEngine turns that into a
+// loud error rather than letting a screen read a missing env
 const DataEngineContext = createContext<DataEngineEnv | null>(null);
 
 

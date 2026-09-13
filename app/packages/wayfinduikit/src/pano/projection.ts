@@ -45,6 +45,7 @@
 import type { KitPanoGeometry } from '../core/types';
 
 
+// Degrees → radians, the unit all the trigonometry below runs in
 const DEG = Math.PI / 180;
 
 // Depth at or under this counts as behind the camera — see
@@ -272,25 +273,16 @@ export function flatMarkerX(
 
 
 // -----------------------------------------------------------
-// resolvePanoGeometry / viewLimits / limitYaw / limitPitch
+// ResolvedPanoGeometry
 // -----------------------------------------------------------
 //
-// What a photo covers, and how far a view may turn inside it.
-// An author's geometry wins; without one the photo's aspect
-// decides: 2:1 is the whole sphere, a phone sweep a full turn
-// with a vertical band of 360 · height / width degrees, and an
-// unmeasured photo is taken as whole. The limits keep the view
-// inside the picture: a partial turn may not swing past the
-// photo's ends by more than the view's own half-width shows,
-// so the edge of the photo reaches the edge of the stage and
-// no further; a coverage narrower than the view locks the view
-// on the photo's centre. A whole sphere keeps the old freedom
-// (any yaw, pitch to ±maxPitchDeg).
+// What a photo covers, every field settled — resolvePanoGeometry
+// answers it, viewLimits reads it, limitYaw / limitPitch hold a
+// view to what it allows.
 //
 // Used by:
-//   - pano/FlatPanorama.tsx — the strip's shape and the hotspot rows
-//   - pano/PanoramaStage.tsx — the band mesh and the drag / sensor clamps
-//   - the host app, through the root export
+//   - pano/PanoramaStage.tsx — the band mesh helpers
+//   - src/index.ts — re-exported with resolvePanoGeometry
 // -----------------------------------------------------------
 
 export interface ResolvedPanoGeometry {
@@ -300,6 +292,23 @@ export interface ResolvedPanoGeometry {
   vOffsetDeg: number;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ViewLimits
+// -----------------------------------------------------------
+//
+// How far a view may turn inside a coverage — viewLimits
+// builds it, limitYaw / limitPitch apply it.
+//
+// Used by:
+//   - pano/PanoramaStage.tsx — the sphere view's clamp state
+// -----------------------------------------------------------
+
 export interface ViewLimits {
   centreYawDeg: number;
   // null: a full turn, no yaw limit
@@ -308,9 +317,65 @@ export interface ViewLimits {
   pitchMaxDeg: number;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// foldYaw
+// -----------------------------------------------------------
+//
+// Yaw folded into [0, 360).
+//
+// Used by:
+//   - flatViewYaw (above), resolvePanoGeometry and limitYaw
+//     (below)
+// -----------------------------------------------------------
+
 const foldYaw = (yaw: number): number => ((yaw % 360) + 360) % 360;
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// finiteOr
+// -----------------------------------------------------------
+//
+// A finite number, or the fallback when the field is absent or
+// not a number.
+//
+// Used by:
+//   - resolvePanoGeometry (below) — every authored field
+// -----------------------------------------------------------
+
 const finiteOr = (value: unknown, fallback: number): number => (typeof value === 'number' && Number.isFinite(value) ? value : fallback);
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// resolvePanoGeometry
+// -----------------------------------------------------------
+//
+// What a photo covers. An author's geometry wins; without one
+// the photo's aspect decides: 2:1 is the whole sphere, a phone
+// sweep a full turn with a vertical band of 360 · height /
+// width degrees, and an unmeasured photo is taken as whole.
+//
+// Used by:
+//   - pano/FlatPanorama.tsx — the strip's shape
+//   - pano/PanoramaStage.tsx — the band mesh
+//   - src/index.ts — the public surface; nothing in the app
+//     calls it directly at the moment
+// -----------------------------------------------------------
 
 export function resolvePanoGeometry(geometry: KitPanoGeometry | null | undefined, aspect?: number | null): ResolvedPanoGeometry {
 
@@ -329,6 +394,28 @@ export function resolvePanoGeometry(geometry: KitPanoGeometry | null | undefined
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// viewLimits
+// -----------------------------------------------------------
+//
+// How far a view may turn inside the picture: a partial turn
+// may not swing past the photo's ends by more than the view's
+// own half-width shows, so the edge of the photo reaches the
+// edge of the stage and no further; a coverage narrower than
+// the view locks the view on the photo's centre. A whole
+// sphere keeps the old freedom (any yaw, pitch to
+// ±maxPitchDeg).
+//
+// Used by:
+//   - pano/PanoramaStage.tsx — once per (geometry, fov, frame)
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export function viewLimits(geometry: ResolvedPanoGeometry, viewHfovDeg: number, viewVfovDeg: number, maxPitchDeg = 85): ViewLimits {
 
   const yawHalfSpanDeg = geometry.hfovDeg >= 360 ? null : Math.max(0, (geometry.hfovDeg - viewHfovDeg) / 2);
@@ -342,6 +429,23 @@ export function viewLimits(geometry: ResolvedPanoGeometry, viewHfovDeg: number, 
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// limitYaw
+// -----------------------------------------------------------
+//
+// Holds a yaw inside the limits, folded into [0, 360); a full
+// turn only folds.
+//
+// Used by:
+//   - pano/PanoramaStage.tsx — the drag and sensor clamps
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export function limitYaw(yaw: number, limits: ViewLimits): number {
   if (limits.yawHalfSpanDeg === null) return foldYaw(yaw);
   const away = shortestArcDeg(limits.centreYawDeg, yaw);
@@ -349,6 +453,20 @@ export function limitYaw(yaw: number, limits: ViewLimits): number {
   return foldYaw(limits.centreYawDeg + held);
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// limitPitch
+// -----------------------------------------------------------
+//
+// Used by:
+//   - pano/PanoramaStage.tsx — the drag and sensor clamps
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
 
 export function limitPitch(pitch: number, limits: ViewLimits): number {
   return Math.max(limits.pitchMinDeg, Math.min(limits.pitchMaxDeg, pitch));

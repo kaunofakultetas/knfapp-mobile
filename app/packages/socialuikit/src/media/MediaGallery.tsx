@@ -44,9 +44,8 @@ const MAX_TILES = 4;
 
 // A lone image may bend the frame only this far either way
 const MIN_LONE_ASPECT = 0.5;
+// ...and this far the other way (wide panoramas)
 const MAX_LONE_ASPECT = 2.2;
-
-
 
 
 

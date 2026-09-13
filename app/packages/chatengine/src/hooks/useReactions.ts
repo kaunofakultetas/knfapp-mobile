@@ -27,8 +27,40 @@ import type { ChatMessage, ReactionGroup } from '../core/types';
 import { useChatEngine } from '../provider';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// DEFAULT_REACTION_OPTIONS
+// -----------------------------------------------------------
+//
+// The picker's emoji set when the host passes none.
+//
+// Used by:
+//   - useReactions (below) — the fallback
+//   - the host's picker rows (re-exported as REACTION_OPTIONS)
+// -----------------------------------------------------------
+
 export const DEFAULT_REACTION_OPTIONS = ['👍', '❤️', '😂', '😮', '😢', '😡'];
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// UseReactionsResult
+// -----------------------------------------------------------
+//
+// The picker state and the reaction verbs a room renders.
+//
+// Used by:
+//   - useReactions (below) — the return shape
+//   - useChatRoom.ts — the `reactions` part
+// -----------------------------------------------------------
 
 export interface UseReactionsResult {
   reactionOptions: string[];

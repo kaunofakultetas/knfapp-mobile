@@ -20,6 +20,25 @@
 //    - hooks/useNetworkRestore.ts — via the provider
 // -----------------------------------------------------------
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// NetworkSource
+// -----------------------------------------------------------
+//
+// The two-method connectivity surface: current state plus a
+// change subscription — everything the engine ever asks.
+//
+// Used by:
+//   - alwaysOnline / manualNetwork (below) — implementations
+//   - provider/index.tsx — the env's `network` field
+//   - example/ExampleOfflineScreen.tsx — a hand-driven source
+// -----------------------------------------------------------
+
 export interface NetworkSource {
   // Best knowledge right now; must never throw
   isOnline(): boolean;

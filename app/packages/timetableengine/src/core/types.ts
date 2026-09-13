@@ -15,8 +15,24 @@
 //    - hosts typing their entries and layout results
 // -----------------------------------------------------------
 
-// Day 0 = Monday .. 6 = Sunday — Lithuanian convention, and the
-// same indexing the backend stores
+
+
+
+
+
+
+// -----------------------------------------------------------
+// TimetableEntryBase
+// -----------------------------------------------------------
+//
+// Day 0 = Monday .. 6 = Sunday — Lithuanian convention, and
+// the same indexing the backend stores.
+//
+// Used by:
+//   - TimetableEntry (below) — the structural half of every
+//     entry
+// -----------------------------------------------------------
+
 export interface TimetableEntryBase {
   // Stable — React keys downstream ride on it
   id: string;
@@ -48,11 +64,48 @@ export interface TimetableEntryBase {
   isBlock?: boolean;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// TimetableEntry
+// -----------------------------------------------------------
+//
+// The working type everywhere: the structural base with the
+// host's own fields riding along untouched, typed back out on
+// the far side of every derivation.
+//
+// Used by:
+//   - every core module and the KNF adapter
+//   - components/schedule/TimetableView.tsx,
+//     app/(main)/tabs/schedule.tsx — the host's rows
+// -----------------------------------------------------------
+
 export type TimetableEntry<T = object> = TimetableEntryBase & T;
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// EntryLayout
+// -----------------------------------------------------------
+//
 // What the packer computes for one entry. Fractions of the day
 // column / visible window, so any pixel size renders the same
-// geometry — and so the numbers are exactly testable
+// geometry — and so the numbers are exactly testable.
+//
+// Used by:
+//   - PlacedEntry (below) — rides beside the entry
+//   - layout.ts — placeDay fills it; conflicts.ts —
+//     annotateConflicts flips isConflict
+// -----------------------------------------------------------
+
 export interface EntryLayout {
   clusterId: number;
   column: number;
@@ -69,27 +122,92 @@ export interface EntryLayout {
   isConflict: boolean;
 }
 
-// The caller's entry stays pristine — layout rides BESIDE it
+
+
+
+
+
+
+// -----------------------------------------------------------
+// PlacedEntry
+// -----------------------------------------------------------
+//
+// The caller's entry stays pristine — layout rides BESIDE it.
+//
+// Used by:
+//   - layout.ts — placeDay's rows; conflicts.ts —
+//     annotateConflicts
+//   - the UI kit mirrors this shape structurally as
+//     PlacedLesson
+// -----------------------------------------------------------
+
 export interface PlacedEntry<T = object> {
   entry: TimetableEntry<T>;
   layout: EntryLayout;
 }
 
-// The visible vertical span of a day, in wall-clock minutes
+
+
+
+
+
+
+// -----------------------------------------------------------
+// TimeWindow
+// -----------------------------------------------------------
+//
+// The visible vertical span of a day, in wall-clock minutes.
+//
+// Used by:
+//   - window.ts — deriveWindow's answer; layout.ts — placeDay's
+//     vertical yardstick
+// -----------------------------------------------------------
+
 export interface TimeWindow {
   startMin: number;
   endMin: number;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// NormalizeResult
+// -----------------------------------------------------------
+//
 // What normalize() answers: the clean entries plus how many
 // rows were dropped — malformed data degrades PER ENTRY, never
-// blanks the whole table
+// blanks the whole table.
+//
+// Used by:
+//   - normalize.ts — normalizeEntries' answer; adapters/knf —
+//     normalizeKnf hands it through
+// -----------------------------------------------------------
+
 export interface NormalizeResult<T = object> {
   entries: TimetableEntry<T>[];
   skipped: number;
 }
 
-// Where "now" falls inside one day's lessons
+
+
+
+
+
+
+// -----------------------------------------------------------
+// NowState
+// -----------------------------------------------------------
+//
+// Where "now" falls inside one day's lessons.
+//
+// Used by:
+//   - now.ts — nowState's answer
+// -----------------------------------------------------------
+
 export interface NowState<T = object> {
   current?: TimetableEntry<T>;
   next?: TimetableEntry<T>;

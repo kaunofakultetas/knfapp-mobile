@@ -21,13 +21,76 @@ import type { OutgoingMessage, UploadAsset } from './transport';
 import { isTempId, type ChatMessage, type ChatUser } from './types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// outboxKey
+// -----------------------------------------------------------
+//
+// The queue's storage key, one namespace per room.
+//
+// Used by:
+//   - readOutbox / writeOutbox (below)
+// -----------------------------------------------------------
+
 export const outboxKey = (conversationId: string) => `outbox:${conversationId}`;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// draftKey
+// -----------------------------------------------------------
+//
+// The room's saved draft text.
+//
+// Used by:
+//   - hooks/useComposer.ts — persists / restores the draft
+// -----------------------------------------------------------
+
 export const draftKey = (conversationId: string) => `draft:${conversationId}`;
-// The quoted message a draft answers, kept beside it
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// draftReplyKey
+// -----------------------------------------------------------
+//
+// The quoted message a draft answers, kept beside the draft.
+//
+// Used by:
+//   - hooks/useComposer.ts — persists the draft's quote
+// -----------------------------------------------------------
+
 export const draftReplyKey = (conversationId: string) => `draftreply:${conversationId}`;
 
 
-// A picked asset waiting for its upload
+
+
+
+
+
+// -----------------------------------------------------------
+// PickedAsset
+// -----------------------------------------------------------
+//
+// A picked asset waiting for its upload.
+//
+// Used by:
+//   - OutboxEntry (below) — the retry's asset(s)
+//   - hooks/useComposer.ts — attach / attachMany input
+// -----------------------------------------------------------
+
 export interface PickedAsset extends UploadAsset {
   width?: number;
   height?: number;
@@ -38,12 +101,28 @@ export interface PickedAsset extends UploadAsset {
   waveform?: number[];
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// OutboxEntry
+// -----------------------------------------------------------
+//
 // What a failed send needs to retry: the body, the uploaded
 // image path — or, when the upload itself failed, the picked
 // asset so the retry uploads again; `extra` is the attachment /
-// media of a send that failed AFTER its upload. createdAt is the
-// bubble's original stamp, persisted so a rehydrated bubble
-// keeps it
+// media of a send that failed AFTER its upload. createdAt is
+// the bubble's original stamp, persisted so a rehydrated
+// bubble keeps it.
+//
+// Used by:
+//   - readOutbox / writeOutbox / readOutboxTemps (below)
+//   - hooks/useComposer.ts — the retry queue's rows
+// -----------------------------------------------------------
+
 export interface OutboxEntry {
   text: string;
   imageUrl?: string;
@@ -56,6 +135,25 @@ export interface OutboxEntry {
   createdAt?: string;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// readOutbox
+// -----------------------------------------------------------
+//
+// The persisted queue back as a Map. Tolerant of both stored
+// shapes (record, or an entries array) and answers an empty
+// Map to anything unreadable; rows without a temp id are
+// dropped on the way in.
+//
+// Used by:
+//   - readOutboxTemps (below)
+//   - hooks/useComposer.ts — rehydrates the retry queue
+// -----------------------------------------------------------
 
 export async function readOutbox(storage: KeyValueStorage, conversationId: string): Promise<Map<string, OutboxEntry>> {
   const result = new Map<string, OutboxEntry>();
@@ -86,6 +184,23 @@ export async function readOutbox(storage: KeyValueStorage, conversationId: strin
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// writeOutbox
+// -----------------------------------------------------------
+//
+// Persists the queue as an id → payload record; an empty queue
+// removes the key. Storage failures are swallowed — the queue
+// is a convenience, never a crash.
+//
+// Used by:
+//   - hooks/useComposer.ts — after every queue change
+// -----------------------------------------------------------
+
 export async function writeOutbox(storage: KeyValueStorage, conversationId: string, entries: ReadonlyMap<string, OutboxEntry>): Promise<void> {
   const key = outboxKey(conversationId);
   try {
@@ -102,7 +217,24 @@ export async function writeOutbox(storage: KeyValueStorage, conversationId: stri
 }
 
 
-// The failed temp rows a persisted queue turns back into
+
+
+
+
+
+// -----------------------------------------------------------
+// readOutboxTemps
+// -----------------------------------------------------------
+//
+// The failed temp rows a persisted queue turns back into, so
+// a send that died with the app stays visible and retryable
+// on the first page. Answers [] without a signed-in sender —
+// there is no one to attribute the bubbles to.
+//
+// Used by:
+//   - hooks/useConversation.ts — merged into the first load
+// -----------------------------------------------------------
+
 export async function readOutboxTemps(storage: KeyValueStorage, conversationId: string, sender: ChatUser | null): Promise<ChatMessage[]> {
   if (!sender) return [];
   const entries = await readOutbox(storage, conversationId);

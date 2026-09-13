@@ -34,6 +34,30 @@ import { formatDuration } from '../../core/media';
 import type { KitAudio } from '../../core/types';
 
 
+// The row's fixed proportions — a voice note reads as a control,
+// not a picture, so it never claims the photo width
+const TRACK_WIDTH = 132;
+// The round play/pause control beside the track
+const BUTTON_SIZE = 34;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// loadExpoAudio
+// -----------------------------------------------------------
+//
+// The lazy require: expo-audio is an OPTIONAL peer, pulled in
+// at render time, not import time — jest never loads a native
+// module, and a host without it gets the inert row.
+//
+// Used by:
+//   - AudioAttachment (below) — every render
+// -----------------------------------------------------------
+
 type ExpoAudioModule = typeof import('expo-audio');
 
 function loadExpoAudio(): ExpoAudioModule | null {
@@ -44,12 +68,6 @@ function loadExpoAudio(): ExpoAudioModule | null {
     return null;
   }
 }
-
-
-// The row's fixed proportions — a voice note reads as a control,
-// not a picture, so it never claims the photo width
-const TRACK_WIDTH = 132;
-const BUTTON_SIZE = 34;
 
 
 

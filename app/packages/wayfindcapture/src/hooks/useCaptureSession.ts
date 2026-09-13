@@ -25,6 +25,23 @@ import { useMemo, useSyncExternalStore } from 'react';
 import type { CaptureSession, CaptureSnapshot } from '../core/session';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// UseCaptureSessionResult
+// -----------------------------------------------------------
+//
+// The hook answers the session's own snapshot unchanged — an
+// alias, so the two never drift.
+//
+// Used by:
+//   - useCaptureSession (below) — the return type
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export type UseCaptureSessionResult = CaptureSnapshot;
 
 // What a missing session looks like — one frozen object, so
@@ -39,9 +56,24 @@ const EMPTY_SNAPSHOT: CaptureSnapshot = Object.freeze({
   shotsTotal: 0,
 });
 
-// Without a session there is nothing to subscribe to
-const noSubscription = () => () => {};
 
+
+
+
+
+
+// -----------------------------------------------------------
+// noSubscription
+// -----------------------------------------------------------
+//
+// Without a session there is nothing to subscribe to.
+//
+// Used by:
+//   - useCaptureSession (below) — useSyncExternalStore's
+//     subscribe while session is null
+// -----------------------------------------------------------
+
+const noSubscription = () => () => {};
 
 
 

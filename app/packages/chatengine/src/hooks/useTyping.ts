@@ -24,6 +24,23 @@ import { useChatEngine } from '../provider';
 const TYPING_EXPIRY_MS = 5000;
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// TypingUser
+// -----------------------------------------------------------
+//
+// One member currently typing, as the indicator row lists
+// them.
+//
+// Used by:
+//   - useTyping (below) — the list's element
+//   - useChatRoom.ts — the `typingUsers` part
+// -----------------------------------------------------------
+
 export interface TypingUser {
   userId: string;
   displayName: string;

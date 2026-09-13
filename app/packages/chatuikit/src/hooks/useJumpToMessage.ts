@@ -38,9 +38,24 @@ import type { KitMessage } from '../core/types';
 // How many render beats a jump waits for the anchored window's
 // rows to land before giving up on the scroll
 const JUMP_RENDER_RETRIES = 6;
+// Milliseconds between those render-beat scroll retries
 const JUMP_RETRY_DELAY_MS = 80;
+// How long the landed message stays washed before fading back
 const HIGHLIGHT_MS = 1500;
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// useJumpToMessage
+// -----------------------------------------------------------
+//
+// Used by:
+//   - app/(main)/chat-room/index.tsx — beside MessageList
+// -----------------------------------------------------------
 
 export function useJumpToMessage(
   listRef: RefObject<MessageListHandle | null>,

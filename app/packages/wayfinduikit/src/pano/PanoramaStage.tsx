@@ -82,16 +82,50 @@ import FlatPanorama, { panoSourceKey, type FlatPanoramaProps, type PanoSourceKey
 import { type ResolvedPanoGeometry, type ViewLimits, clampToEdge, limitPitch, limitYaw, projectToScreen, resolvePanoGeometry, shortestArcDeg, viewLimits } from './projection';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// StageOrientation
+// -----------------------------------------------------------
+//
 // One sensor sample in degrees, the usual device triple:
 // alpha turns about the vertical (growing counter-clockwise
 // seen from above), beta tilts front-to-back, gamma side-to-
 // side. Only DIFFERENCES from the first sample ever reach the
-// view, so the host may hand in the raw device frame
+// view, so the host may hand in the raw device frame.
+//
+// Used by:
+//   - PanoramaStageProps / useSphereView (below)
+//   - app/(main)/map-editor/align.tsx — feeds the sensor in
+//     structurally through the orientation prop
+// -----------------------------------------------------------
+
 export interface StageOrientation {
   alpha: number;
   beta: number;
   gamma: number;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// PanoramaStageProps
+// -----------------------------------------------------------
+//
+// FlatPanoramaProps plus the sphere-only extras — the sensor
+// sample, the lens and the renderer pick — so the stage can
+// hand the base bundle straight to the strip on fallback.
+//
+// Used by:
+//   - PanoramaStage (below) — the component's props
+// -----------------------------------------------------------
 
 export interface PanoramaStageProps extends FlatPanoramaProps {
   orientation?: StageOrientation | null;
@@ -182,17 +216,25 @@ interface GlPeers {
 }
 
 
+// The vertical field of view a host gets without asking — a
+// natural room-scale framing
 const DEFAULT_FOV_DEG = 75;
 
 // The camera never looks past the poles — straight up or down
 // the yaw loses its meaning and the drag would spin the photo
 const MAX_PITCH_DEG = 85;
 
+// The width many mobile GPUs downsample or reject past — the
+// dev-only oversize warning's threshold
 const MAX_TEXTURE_PX = 4096;
 
 // Any radius works from the centre; this one keeps the near
 // plane comfortably inside
 const SPHERE_RADIUS = 10;
+
+// Sources already warned about, so a photo the walker returns
+// to all afternoon warns once
+const warnedOversize = new Set<string | number>();
 
 // The host hears the yaw only once it moved this much
 const YAW_REPORT_STEP_DEG = 3;
@@ -200,6 +242,8 @@ const YAW_REPORT_STEP_DEG = 3;
 // Breathing room between a clamped marker and the stage edge
 const MARKER_EDGE_INSET = 8;
 
+// A hotspot disc's diameter — a comfortable tap target that
+// still leaves the photo visible around it
 const HOTSPOT_SIZE = 36;
 
 // A press that travelled this far is a drag, even if it began
@@ -209,31 +253,37 @@ const DRAG_SLOP_PX = 4;
 // The frame the fling velocity is expressed per
 const FRAME_MS = 16;
 
-// A fling loses this share of its speed each frame and stops
-// once it turns less than the stop angle per frame
+// A fling keeps this share of its speed each frame…
 const INERTIA_DECAY = 0.92;
+
+// …and stops once it turns less than this per frame
 const INERTIA_STOP_DEG = 0.05;
 
 // No single frame of inertia turns further than this — a wild
 // fling should sweep the room, not whip around it
 const MAX_FLING_DEG = 10;
 
-// Of a sensor delta, at least the floor applies per sample and
-// the whole of it once the delta reaches the full step
+// Of a sensor delta, at least this share applies per sample…
 const GYRO_STEP_FLOOR = 0.12;
+
+// …and the whole delta applies once it reaches this many
+// degrees
 const GYRO_FULL_STEP_DEG = 10;
 
+// How long the swipe hint stays fully shown before it starts
+// to fade
 const HINT_HOLD_MS = 2600;
+
+// …and how long that fade-out takes
 const HINT_FADE_MS = 600;
 
 
+// The icon each hotspot kind shows on its disc
 const HOTSPOT_GLYPH: Record<KitHotspot['kind'], ComponentProps<typeof Ionicons>['name']> = {
   route: 'navigate',
   link: 'arrow-forward-circle',
   info: 'information-circle',
 };
-
-
 
 
 
@@ -630,9 +680,23 @@ interface SceneHandles {
 }
 
 
-// Sources already warned about, so a photo the walker returns
-// to all afternoon warns once
-const warnedOversize = new Set<string | number>();
+
+
+
+
+
+// -----------------------------------------------------------
+// warnOversize
+// -----------------------------------------------------------
+//
+// Development-only nag when a loaded photo is wider than
+// MAX_TEXTURE_PX — the GPU may quietly downsample or reject
+// it. warnedOversize (top of file) keeps it to once per
+// source.
+//
+// Used by:
+//   - SphereSurface (below) — on every texture landing
+// -----------------------------------------------------------
 
 const warnOversize = (source: string | number, texture: StageTexture) => {
   const width = texture.image?.width ?? 0;
@@ -641,11 +705,53 @@ const warnOversize = (source: string | number, texture: StageTexture) => {
   console.warn(`[wayfinduikit] panorama ${String(source)} is ${width} px wide; textures over ${MAX_TEXTURE_PX} px are downsampled or rejected by many mobile GPUs`);
 };
 
-// The one way a scene goes: the loop first, so no frame draws
-// with a released renderer; a scene that never started a loop
-// holds frame 0, which cancels nothing
+
+
+
+
+
+
 // -----------------------------------------------------------
-// buildSphere / bandKey
+// bandKey
+// -----------------------------------------------------------
+//
+// The coverage a mesh was built for, as a comparable string —
+// SphereSurface rebuilds the sphere only when this changes.
+//
+// Used by:
+//   - SphereSurface / PanoramaStage (below)
+// -----------------------------------------------------------
+
+const bandKey = (g: ResolvedPanoGeometry): string => `${g.hfovDeg}|${g.vfovDeg}|${g.centreYawDeg}|${g.vOffsetDeg}`;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// meshTurn
+// -----------------------------------------------------------
+//
+// The rotation that puts the band's centre yaw on the camera's
+// forward axis (the sphere's middle column sits at phi = π).
+//
+// Used by:
+//   - SphereSurface (below) — at build time and on a coverage
+//     change
+// -----------------------------------------------------------
+
+const meshTurn = (three: ThreeLib, g: ResolvedPanoGeometry): number => -Math.PI / 2 - three.MathUtils.degToRad(g.centreYawDeg);
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// buildSphere
 // -----------------------------------------------------------
 //
 // The mesh the photo is wrapped on: the whole sphere for a whole
@@ -653,19 +759,16 @@ const warnOversize = (source: string | number, texture: StageTexture) => {
 // own start / length angles. Horizontally the band is centred
 // on the full sphere's middle column (phi = π), so it lands on
 // the camera's forward axis exactly where the whole photo's
-// centre does; the mesh then turns by the band's centre yaw.
-// Vertically theta runs from the top, so the band starts at
-// 90° − (offset + half the coverage). Mirrored inside out like
-// the whole sphere, so the photo reads the right way round.
+// centre does; the mesh then turns by the band's centre yaw
+// (meshTurn above). Vertically theta runs from the top, so the
+// band starts at 90° − (offset + half the coverage). Mirrored
+// inside out like the whole sphere, so the photo reads the
+// right way round.
 //
 // Used by:
 //   - SphereSurface (below) — at context time and when the
 //     measured photo says the coverage differs
 // -----------------------------------------------------------
-
-const bandKey = (g: ResolvedPanoGeometry): string => `${g.hfovDeg}|${g.vfovDeg}|${g.centreYawDeg}|${g.vOffsetDeg}`;
-
-const meshTurn = (three: ThreeLib, g: ResolvedPanoGeometry): number => -Math.PI / 2 - three.MathUtils.degToRad(g.centreYawDeg);
 
 function buildSphere(three: ThreeLib, g: ResolvedPanoGeometry): StageGeometry {
 
@@ -681,6 +784,24 @@ function buildSphere(three: ThreeLib, g: ResolvedPanoGeometry): StageGeometry {
   return sphere;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// releaseScene
+// -----------------------------------------------------------
+//
+// The one way a scene goes: the loop first, so no frame draws
+// with a released renderer; a scene that never started a loop
+// holds frame 0, which cancels nothing.
+//
+// Used by:
+//   - SphereSurface (below) — a late context, a failed
+//     texture, and the unmount cleanup
+// -----------------------------------------------------------
 
 const releaseScene = (handles: SceneHandles) => {
   handles.disposed = true;

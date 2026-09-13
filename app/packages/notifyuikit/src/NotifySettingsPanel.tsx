@@ -39,7 +39,26 @@ import { useStoreValue } from './hooks/useStoreValue';
 import { defaultColors, type NotifyChannelKey, type NotifyColors, type NotifyEngineLike } from './core/types';
 
 
+// The switches render in this fixed order whatever the label
+// language — the snapshot's record carries no order of its own
 const CHANNEL_ORDER: readonly NotifyChannelKey[] = ['news', 'chat', 'schedule', 'admin'];
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// NotifySettingsLabels
+// -----------------------------------------------------------
+//
+// Every string the panel renders — the host owns the language,
+// the package ships none.
+//
+// Used by:
+//   - NotifySettingsPanel (below) — the `labels` prop
+// -----------------------------------------------------------
 
 export interface NotifySettingsLabels {
   master: string;
@@ -49,11 +68,42 @@ export interface NotifySettingsLabels {
   chatPreviewHint?: string;
 }
 
-// A hint line under a channel label — the master and chat-preview
-// hints live in labels already
+
+
+
+
+
+
+// -----------------------------------------------------------
+// NotifyChannelHints
+// -----------------------------------------------------------
+//
+// A hint line under a channel label — the master and
+// chat-preview hints live in labels already.
+//
+// Used by:
+//   - NotifySettingsPanel (below) — the `channelHints` prop
+// -----------------------------------------------------------
+
 export type NotifyChannelHints = Partial<Record<NotifyChannelKey, string>>;
 
-// One leading glyph per row, addressed by the row it decorates
+
+
+
+
+
+
+// -----------------------------------------------------------
+// NotifySettingsIcons
+// -----------------------------------------------------------
+//
+// One leading glyph per row, addressed by the row it
+// decorates.
+//
+// Used by:
+//   - NotifySettingsPanel (below) — the `icons` prop
+// -----------------------------------------------------------
+
 export type NotifySettingsIcons = Partial<Record<'master' | 'chatPreview' | NotifyChannelKey, ReactNode>>;
 
 

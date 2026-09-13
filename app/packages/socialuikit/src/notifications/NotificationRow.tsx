@@ -53,7 +53,10 @@ const MAX_STACKED_AVATARS = 5;
 // by the overlap; the ring is the row's own background so the
 // stack reads as separate heads, not one blob
 const AVATAR_SIZE = 36;
+// How far each later head tucks under the previous, in dp
 const AVATAR_OVERLAP = 10;
+// The ring around each stacked head — the row's own background
+// color, so the stack reads as separate heads
 const RING_WIDTH = 2;
 
 // The subject snippet is one visual line anyway; the character

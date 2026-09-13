@@ -23,6 +23,24 @@ import type { FrameUploadResult, PanoramaUploadResult, PlanUploadResult, SyncSto
 import { SyncRejected } from './types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// UploadItem
+// -----------------------------------------------------------
+//
+// One queued file and where it stands on the retry ladder;
+// field comments carry the target and notBefore contracts.
+//
+// Used by:
+//   - UploadQueue / createUploadQueue (below)
+//   - provider/index.tsx — SyncStatus.uploads
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export interface UploadItem {
   id: string;
   kind: 'panorama' | 'plan' | 'frame';
@@ -40,6 +58,25 @@ export interface UploadItem {
   queuedAt: number;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// UploadQueue
+// -----------------------------------------------------------
+//
+// The queue's face — load, enqueue, drain, acknowledge; the
+// header carries the retry and persistence contracts.
+//
+// Used by:
+//   - createUploadQueue (below) — the return shape
+//   - provider/index.tsx — one queue per building
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export interface UploadQueue {
   load(): Promise<void>;
   items(): readonly UploadItem[];
@@ -53,10 +90,49 @@ export interface UploadQueue {
   subscribe(listener: () => void): () => void;
 }
 
-// Milliseconds before the next attempt, indexed by failures made
-// minus one — the first failure retries at once, the last rung repeats
+
+
+
+
+
+
+// -----------------------------------------------------------
+// RETRY_DELAYS_MS
+// -----------------------------------------------------------
+//
+// Milliseconds before the next attempt, indexed by failures
+// made minus one — the first failure retries at once, the last
+// rung repeats.
+//
+// Used by:
+//   - createUploadQueue (below) — the backoff on a transport
+//     failure
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export const RETRY_DELAYS_MS = [0, 1000, 3000, 5000, 15000, 60000];
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// createUploadQueue
+// -----------------------------------------------------------
+//
+//   const uploads = createUploadQueue(storage, 'wayfind:uploads:b1')
+//   await uploads.load()
+//   uploads.enqueue({ id, kind, file, fields, target })
+//   await uploads.drain(transport, buildingId)
+//
+// The behaviour is the file header's story; `now` is
+// injectable so tests can pin the backoff clock.
+//
+// Used by:
+//   - provider/index.tsx — one queue per building
+// -----------------------------------------------------------
 
 export function createUploadQueue(storage: SyncStorage, key: string, now: () => number = () => Date.now()): UploadQueue {
 

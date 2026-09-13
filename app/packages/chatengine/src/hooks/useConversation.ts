@@ -70,6 +70,23 @@ const OLDER_RETRY_BACKOFF_MS = 4000;
 const READ_DEBOUNCE_MS = 1500;
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// UseConversationResult
+// -----------------------------------------------------------
+//
+// Everything a room screen renders from — the list, its
+// people, the load/error state and the paging verbs.
+//
+// Used by:
+//   - useConversation (below) — the return shape
+//   - useChatRoom.ts — the `conversation` part
+// -----------------------------------------------------------
+
 export interface UseConversationResult {
   messages: ChatMessage[];
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;

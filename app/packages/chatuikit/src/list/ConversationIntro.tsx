@@ -18,6 +18,23 @@ import { useKitTheme } from '../provider';
 import StackedAvatars, { type StackMember } from '../avatar/StackedAvatars';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// IntroInfo
+// -----------------------------------------------------------
+//
+// What the card shows — the host builds it from its room data
+// and hands it to MessageList's `intro` prop.
+//
+// Used by:
+//   - ConversationIntro (below) — the props
+//   - list/MessageList.tsx — the `intro` prop it threads down
+// -----------------------------------------------------------
+
 export interface IntroInfo {
   title: string;
   subtitle: string;
@@ -27,6 +44,20 @@ export interface IntroInfo {
   members?: StackMember[];
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ConversationIntro (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - list/MessageList.tsx — the default slot; hosts may
+//     replace it through the provider's `components`
+// -----------------------------------------------------------
 
 export default function ConversationIntro({ title, subtitle, avatarUrl, isGroup, members }: IntroInfo) {
 

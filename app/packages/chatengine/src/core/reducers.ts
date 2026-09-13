@@ -9,6 +9,8 @@
 //
 //  Split into:
 //
+//    validateIngest      — dev-only ingest checks
+//    sameRow             — row equality, keeps memoised bubbles
 //    normalizeForViewer  — isOwn / bySelf against the viewer
 //    findTempFor / adoptTemp — own-echo dedupe
 //    mergeFirstPage      — first load over live rows + outbox
@@ -29,12 +31,67 @@ import { isTempId, type ChatMessage, type ChatReaction, type ChatReplyRef, type 
 // ways that surface far from the cause — say so once per row,
 // never throw (production ingests it as-is)
 const warnedIds = new Set<string>();
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// isDev
+// -----------------------------------------------------------
+//
+// __DEV__ is a bundler global (Metro, Jest) — the typeof guard
+// keeps an environment without it from throwing at ingest
+// time.
+//
+// Used by:
+//   - validateIngest (below) — gates the dev-only checks
+// -----------------------------------------------------------
+
 const isDev = (): boolean => typeof __DEV__ !== 'undefined' && __DEV__;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// warnOnce
+// -----------------------------------------------------------
+//
+// One warning per row key, whatever how often it re-ingests —
+// see the warnedIds note above.
+//
+// Used by:
+//   - validateIngest (below) — every failed check
+// -----------------------------------------------------------
+
 function warnOnce(key: string, problem: string): void {
   if (warnedIds.has(key)) return;
   warnedIds.add(key);
   console.warn(`[chatengine] ${problem} (${key})`);
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// validateIngest
+// -----------------------------------------------------------
+//
+// The dev-only checks themselves: id, senderId, a readable
+// stamp, a reactions array. A no-op outside __DEV__.
+//
+// Used by:
+//   - normalizeForViewer (below) — every ingest runs it
+// -----------------------------------------------------------
+
 export function validateIngest(message: ChatMessage): void {
   if (!isDev()) return;
   const key = String(message.id ?? '?');
@@ -45,9 +102,23 @@ export function validateIngest(message: ChatMessage): void {
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// sameRow
+// -----------------------------------------------------------
+//
 // Two rows the server and the client agree on, field by field
 // that a bubble draws — used to keep the KNOWN object (and its
-// memoised bubble) when a resync page brings nothing new
+// memoised bubble) when a resync page brings nothing new.
+//
+// Used by:
+//   - mergeResyncPage / applyChanges (below)
+// -----------------------------------------------------------
+
 export function sameRow(a: ChatMessage, b: ChatMessage): boolean {
   if (a === b) return true;
   if (a.id !== b.id || a.text !== b.text || (a.imageUrl ?? null) !== (b.imageUrl ?? null)) return false;
@@ -76,17 +147,17 @@ export function sameRow(a: ChatMessage, b: ChatMessage): boolean {
 
 
 // -----------------------------------------------------------
-// normalizeForViewer
+// reactionsForViewer
 // -----------------------------------------------------------
 //
-// Adapters do not know who is looking: isOwn and every
-// reaction's bySelf are derived here from the viewer's id, on
-// every ingest (pages, echoes, reaction events). A row without
-// a status gets the sensible one — own rows start 'sent',
-// everyone else's are simply 'read'.
+// Adapters do not know who is looking: every reaction group's
+// bySelf (and a count the byUserIds list overrides) is derived
+// here from the viewer's id.
 //
 // Used by:
-//   - hooks/useConversation.ts, hooks/useComposer.ts
+//   - normalizeForViewer (below) — every ingest
+//   - hooks/useConversation.ts, hooks/useReactions.ts — on the
+//     transport's authoritative groups
 // -----------------------------------------------------------
 
 export function reactionsForViewer(groups: readonly ReactionGroup[] | readonly ChatReaction[], viewerId: string | null): ChatReaction[] {
@@ -97,6 +168,27 @@ export function reactionsForViewer(groups: readonly ReactionGroup[] | readonly C
     byUserIds: r.byUserIds,
   }));
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// normalizeForViewer
+// -----------------------------------------------------------
+//
+// The viewer-relative ingest: isOwn and every reaction's bySelf
+// derived from the viewer's id, on every ingest (pages, echoes,
+// reaction events). A row without a status gets the sensible
+// one — own rows start 'sent', everyone else's are simply
+// 'read'.
+//
+// Used by:
+//   - hooks/useConversation.ts, hooks/useComposer.ts,
+//     hooks/usePins.ts — every row a transport hands over
+// -----------------------------------------------------------
 
 export function normalizeForViewer(message: ChatMessage, viewerId: string | null): ChatMessage {
   validateIngest(message);
@@ -116,7 +208,7 @@ export function normalizeForViewer(message: ChatMessage, viewerId: string | null
 
 
 // -----------------------------------------------------------
-// findTempFor / adoptTemp
+// findTempFor
 // -----------------------------------------------------------
 //
 // The server row of an own send, whether it arrives as a socket
@@ -126,11 +218,11 @@ export function normalizeForViewer(message: ChatMessage, viewerId: string | null
 // when it is gone); rows without the nonce fall back to content
 // — the same text, image path AND reply target, preferring the
 // temp nearest the newest end so an older failed duplicate can
-// never swallow a fresh send's echo. The adopted row keeps the
-// temp's key and local media so the bubble does not remount.
+// never swallow a fresh send's echo.
 //
 // Used by:
-//   - hooks/useConversation.ts — echo handler, resync merge
+//   - adoptTemp's callers: hooks/useConversation.ts (echo
+//     handler) and mergeResyncPage (below)
 // -----------------------------------------------------------
 
 export function findTempFor(list: readonly ChatMessage[], incoming: ChatMessage): number {
@@ -151,6 +243,24 @@ export function findTempFor(list: readonly ChatMessage[], incoming: ChatMessage)
   return -1;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// adoptTemp
+// -----------------------------------------------------------
+//
+// The swap itself: the adopted server row keeps the temp's key
+// (clientId) and local media so the bubble does not remount.
+//
+// Used by:
+//   - hooks/useConversation.ts — echo handler
+//   - mergeResyncPage (below)
+// -----------------------------------------------------------
+
 export function adoptTemp(incoming: ChatMessage, temp: ChatMessage): ChatMessage {
   return {
     ...incoming,
@@ -158,6 +268,32 @@ export function adoptTemp(incoming: ChatMessage, temp: ChatMessage): ChatMessage
     localImageUri: temp.localImageUri,
     video: incoming.video && temp.video ? { ...incoming.video, localThumbnailUri: temp.video.localThumbnailUri } : incoming.video,
   };
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// dedupePage
+// -----------------------------------------------------------
+//
+// A server page must never seed duplicate list keys — a row id
+// appearing twice keeps only its LAST copy (the server's final
+// word), in that copy's position.
+//
+// Used by:
+//   - mergeFirstPage / mergeResyncPage (below) — every page
+//     passes through it first
+// -----------------------------------------------------------
+
+export function dedupePage(page: readonly ChatMessage[]): readonly ChatMessage[] {
+  const last = new Map<string, ChatMessage>();
+  for (const row of page) last.set(row.id, row);
+  if (last.size === page.length) return page;
+  return page.filter((row) => last.get(row.id) === row);
 }
 
 
@@ -180,17 +316,6 @@ export function adoptTemp(incoming: ChatMessage, temp: ChatMessage): ChatMessage
 // Used by:
 //   - hooks/useConversation.ts — first load
 // -----------------------------------------------------------
-
-// A server page must never seed duplicate list keys — a row id
-// appearing twice keeps only its LAST copy (the server's final
-// word), in that copy's position
-export function dedupePage(page: readonly ChatMessage[]): readonly ChatMessage[] {
-  const last = new Map<string, ChatMessage>();
-  for (const row of page) last.set(row.id, row);
-  if (last.size === page.length) return page;
-  return page.filter((row) => last.get(row.id) === row);
-}
-
 
 export function mergeFirstPage(
   prev: readonly ChatMessage[],
@@ -302,8 +427,11 @@ export function mergeResyncPage(
 
 
 // -----------------------------------------------------------
-// appendOlderPage / olderCursor
+// appendOlderPage
 // -----------------------------------------------------------
+//
+// Backward paging: an older page appends behind the held rows,
+// rows the list already knows are dropped.
 //
 // Used by:
 //   - hooks/useConversation.ts — loadOlder
@@ -314,9 +442,23 @@ export function appendOlderPage(prev: readonly ChatMessage[], page: readonly Cha
   return [...prev, ...page.filter((m) => !known.has(m.id))];
 }
 
-// The oldest REAL row — temps only live at the newest end, but
-// skip them defensively
-// The newest server row — the after-cursor for a forward page
+
+
+
+
+
+
+// -----------------------------------------------------------
+// newerCursor
+// -----------------------------------------------------------
+//
+// The newest server row — the after-cursor a forward page
+// request anchors on (temps have no server id to anchor to).
+//
+// Used by:
+//   - hooks/useConversation.ts — the forward pager after a jump
+// -----------------------------------------------------------
+
 export function newerCursor(list: readonly ChatMessage[]): ChatMessage | undefined {
   for (let i = 0; i < list.length; i++) {
     if (!isTempId(list[i].id)) return list[i];
@@ -324,8 +466,23 @@ export function newerCursor(list: readonly ChatMessage[]): ChatMessage | undefin
   return undefined;
 }
 
-// A forward page (newest first) lands in front of the held rows;
-// temps stay in front of everything
+
+
+
+
+
+
+// -----------------------------------------------------------
+// prependNewerPage
+// -----------------------------------------------------------
+//
+// Forward paging: the page (newest first) lands in front of
+// the held rows; temps stay in front of everything.
+//
+// Used by:
+//   - hooks/useConversation.ts — the forward pager after a jump
+// -----------------------------------------------------------
+
 export function prependNewerPage(prev: readonly ChatMessage[], page: readonly ChatMessage[]): ChatMessage[] {
   const known = new Set(prev.map((m) => m.id));
   const fresh = page.filter((m) => !known.has(m.id));
@@ -334,6 +491,23 @@ export function prependNewerPage(prev: readonly ChatMessage[], page: readonly Ch
   const rows = prev.filter((m) => !isTempId(m.id));
   return [...temps, ...fresh, ...rows];
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// olderCursor
+// -----------------------------------------------------------
+//
+// The oldest REAL row a backward page request anchors on —
+// temps only live at the newest end, but skip them defensively.
+//
+// Used by:
+//   - hooks/useConversation.ts — loadOlder
+// -----------------------------------------------------------
 
 export function olderCursor(list: readonly ChatMessage[]): ChatMessage | undefined {
   for (let i = list.length - 1; i >= 0; i--) {
@@ -349,17 +523,15 @@ export function olderCursor(list: readonly ChatMessage[]): ChatMessage | undefin
 
 
 // -----------------------------------------------------------
-// markDeleted / markEdited / restoreDeleted
+// markDeleted
 // -----------------------------------------------------------
 //
-// An unsend blanks the row and flips every quote of it; an edit
-// rewrites the text and stamps the row, and follows into quotes.
-// restoreDeleted is the optimistic unsend's revert: only what
-// the optimistic pass touched comes back — receipts and
-// reactions that landed meanwhile stay.
+// An unsend blanks the row and flips every quote of it.
 //
 // Used by:
-//   - hooks/useConversation.ts, hooks/useComposer.ts
+//   - hooks/useConversation.ts — the 'deleted' event and the
+//     optimistic unsend
+//   - applyChanges (below) — deletions in a change feed
 // -----------------------------------------------------------
 
 export function markDeleted(m: ChatMessage, messageId: string): ChatMessage {
@@ -373,6 +545,24 @@ export function markDeleted(m: ChatMessage, messageId: string): ChatMessage {
   return next;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// markEdited
+// -----------------------------------------------------------
+//
+// An edit rewrites the text and stamps the row, and follows
+// into quotes.
+//
+// Used by:
+//   - hooks/useConversation.ts — the 'edited' event, task replay
+//   - hooks/useComposer.ts — the optimistic edit and its commit
+// -----------------------------------------------------------
+
 export function markEdited(m: ChatMessage, messageId: string, text: string, editedAt: string): ChatMessage {
   let next = m;
   if (m.id === messageId && !m.deleted) {
@@ -383,6 +573,24 @@ export function markEdited(m: ChatMessage, messageId: string, text: string, edit
   }
   return next;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// restoreDeleted
+// -----------------------------------------------------------
+//
+// The optimistic unsend's revert: only what the optimistic
+// pass touched comes back — receipts and reactions that landed
+// meanwhile stay.
+//
+// Used by:
+//   - hooks/useConversation.ts — a refused unsend
+// -----------------------------------------------------------
 
 export function restoreDeleted(list: readonly ChatMessage[], snapshot: readonly ChatMessage[], messageId: string): ChatMessage[] {
   const original = snapshot.find((m) => m.id === messageId);

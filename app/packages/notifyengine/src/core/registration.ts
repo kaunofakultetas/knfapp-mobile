@@ -52,15 +52,25 @@ import type {
 } from './types';
 
 
+// The persisted last-registration tuple (token, platform,
+// language, registeredAt) — the dedupe below and the engine's
+// TTL check both read it
 const TUPLE_KEY = 'notify.lastRegistration';
 // The legacy key older app code reads on unregister — kept in
 // sync so the fallback chain works across versions
 const LEGACY_TOKEN_KEY = 'push_last_token';
 
+// Within this window (7 days) an identical tuple answers from
+// cache instead of re-POSTing; past it the token re-registers
 const TUPLE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+// register() must settle even when the device never answers —
+// at this deadline the watchdog stamps a typed 'network' failure
 const REGISTER_WATCHDOG_MS = 10_000;
+// Logout waits at most this long (ms) for the unregister POST —
+// it must never hang on the network
 const DETACH_TIMEBOX_MS = 5_000;
 
+// The machine's starting snapshot: no token, nothing in flight
 const IDLE: RegistrationSnapshot = { phase: 'idle', token: null, lastError: null, registeredAt: null };
 
 // The Expo push-token grammar — anything else never reaches
@@ -81,11 +91,42 @@ interface StoredTuple {
 const FORCE_REASONS: ReadonlySet<RegisterReason> = new Set(['login', 'toggle']);
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// RegistrationMachine
+// -----------------------------------------------------------
+//
+// The machine's surface — the snapshot store, register() and
+// the logout-side detach().
+//
+// Used by:
+//   - createRegistrationMachine (below) — the return shape
+//   - engine.ts — holds one and exposes its store
+// -----------------------------------------------------------
+
 export interface RegistrationMachine {
   store: MutableStore<RegistrationSnapshot>;
   register(reason: RegisterReason, deliveredToken?: string): Promise<RegisterResult>;
   detach(opts?: { authToken?: string }): Promise<void>;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// createRegistrationMachine
+// -----------------------------------------------------------
+//
+// Used by:
+//   - engine.ts — register/detach/rotation/TTL reconcile
+// -----------------------------------------------------------
 
 export function createRegistrationMachine(deps: {
   device: DeviceAdapter;
@@ -158,26 +199,23 @@ export function createRegistrationMachine(deps: {
   };
 
   const attempt = async (gen: number, reason: RegisterReason, deliveredToken?: string): Promise<RegisterResult> => {
-    // STEP 0: never overtake a logout's DELETE
-    // ========================================
+    // Never overtake a logout's DELETE
     if (detachInFlight) await detachInFlight.catch(() => undefined);
     if (gen !== generation) return { ok: false, reason: 'superseded' };
 
-    // STEP 1: the gates — typed failures, never throws, and
+    // The gates — typed failures, never throws, and
     // NEVER store writes: nothing has started yet. The session
     // gate sits BEFORE the master switch: a guest's master-ON
     // records intent for the login that will claim the token
-    // =====================================================
     if (!device.supportsRemotePush()) return reject('unsupported');
     if (!(await sessionAllows())) return reject('unauthenticated');
     if (!(await isMasterEnabled())) return reject('disabled');
     if (!canDeliver()) return reject('permission');
     if (gen !== generation) return reject('superseded');
 
-    // STEP 2: the token — a rotation DELIVERS its value, and
+    // The token — a rotation DELIVERS its value, and
     // using it (instead of re-acquiring) is what breaks the
     // fetch→event→fetch echo loop real devices produce
-    // ======================================================
     store.set({ ...store.get(), phase: 'acquiring', lastError: null });
     let token: string;
     if (deliveredToken !== undefined) {
@@ -198,9 +236,8 @@ export function createRegistrationMachine(deps: {
     // API could do nothing with it anyway.
     if (!TOKEN_RE.test(token)) return fail(gen, 'network');
 
-    // STEP 3: dedupe against the persisted tuple — unless the
+    // Dedupe against the persisted tuple — unless the
     // reason demands a fresh claim
-    // =======================================================
     const lang = language();
     if (!FORCE_REASONS.has(reason)) {
       const stored = await readTuple();
@@ -218,14 +255,12 @@ export function createRegistrationMachine(deps: {
       }
     }
 
-    // STEP 4: the master switch, re-read at the last moment —
+    // The master switch, re-read at the last moment —
     // an in-flight attempt must not outlive a toggle-off
-    // ======================================================
     if (!(await isMasterEnabled())) return fail(gen, 'disabled');
     if (gen !== generation) return { ok: false, reason: 'superseded' };
 
-    // STEP 5: sync to the backend
-    // ===========================
+    // Sync to the backend
     store.set({ ...store.get(), phase: 'syncing' });
     let tokenId: string;
     try {
@@ -236,12 +271,11 @@ export function createRegistrationMachine(deps: {
     }
     if (gen !== generation) return { ok: false, reason: 'superseded' };
 
-    // STEP 6: the commit — guarded across EVERY await. A bump
+    // The commit — guarded across EVERY await. A bump
     // landing during the storage writes means a newer attempt
     // (or a detach) owns the truth now; this one neither
     // persists a stale tuple nor stamps the store nor claims
     // success to its caller
-    // ======================================================
     if (gen !== generation) return reject('superseded');
     const registeredAt = now();
     const tuple: StoredTuple = { token, platform: device.platform, language: lang, registeredAt };

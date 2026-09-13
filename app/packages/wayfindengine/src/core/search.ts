@@ -44,12 +44,48 @@ import { edgeLengthM, type GraphIndex } from './graph';
 import type { Level, Room, RoomCategory } from './types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// RoomMatch
+// -----------------------------------------------------------
+//
+// One search hit — the room, its level resolved, the score
+// the ordering used.
+//
+// Used by:
+//   - searchRooms (below) — the result row
+//   - hooks/useRoomSearch.ts — the hook's matches
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export interface RoomMatch {
   room: Room;
   level: Level;
   // Higher is better; 0 for the browse list
   score: number;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// SearchRoomsOptions
+// -----------------------------------------------------------
+//
+// The caller's knobs — the host's translation of a room's
+// name, and a cap on how many matches come back.
+//
+// Used by:
+//   - searchRooms (below), hooks/useRoomSearch.ts
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
 
 export interface SearchRoomsOptions {
   // The host's translation of a room's name (via nameKey) —
@@ -62,7 +98,11 @@ export interface SearchRoomsOptions {
 
 // The three ways a token can hit, best first
 const SCORE_EXACT_ID = 3;
+
+// A token matching the start of a word scores below an id hit…
 const SCORE_PREFIX = 2;
+
+// …and a mid-word hit scores least, but still counts
 const SCORE_INFIX = 1;
 
 
@@ -165,12 +205,26 @@ export function searchRooms(index: GraphIndex, query: string, options: SearchRoo
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// scoreToken
+// -----------------------------------------------------------
+//
 // The best way one token hits a room: its id exactly, the
 // start of a field or of a word inside one, anywhere inside,
 // or not at all (0 — the room is out). Every occurrence in a
 // field is looked at, not the first alone: 'ka' sits inside
 // 'dekanato' before it starts 'kabinetas', and the word start
-// is the hit that counts
+// is the hit that counts.
+//
+// Used by:
+//   - searchRooms (above) — per token, per room
+// -----------------------------------------------------------
+
 const scoreToken = (token: string, id: string, fields: string[]): number => {
   if (token === id) return SCORE_EXACT_ID;
   let best = 0;
@@ -183,9 +237,25 @@ const scoreToken = (token: string, id: string, fields: string[]): number => {
   return best;
 };
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// compare
+// -----------------------------------------------------------
+//
 // A plain code-point order on already-folded text — locale
 // collation would differ between engines, and folded ASCII
-// needs none
+// needs none.
+//
+// Used by:
+//   - searchRooms / nearestRoomByCategory (above and below) —
+//     the tie-breaking orders
+// -----------------------------------------------------------
+
 const compare = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 
@@ -278,6 +348,23 @@ interface FrontierEntry {
   nodeId: string;
   distanceM: number;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// createFrontier
+// -----------------------------------------------------------
+//
+// The heap behind that contract — push/pop only, no
+// decrease-key.
+//
+// Used by:
+//   - nearestRoomByCategory (above) — one heap per scan
+// -----------------------------------------------------------
 
 const createFrontier = () => {
   const heap: FrontierEntry[] = [];

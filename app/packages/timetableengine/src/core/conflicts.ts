@@ -31,6 +31,27 @@
 
 import type { PlacedEntry, TimetableEntry } from './types';
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ConflictOptions
+// -----------------------------------------------------------
+//
+// Which question is being asked — and, for the group scope,
+// whether ONE group is actually in view (a mixed many-group
+// table legitimately shares slots).
+//
+// Used by:
+//   - conflictIds (below) — the scope switch
+//   - components/schedule/TimetableView.tsx — the scope prop
+//   - app/(main)/tabs/schedule.tsx — builds the scope per
+//     perspective
+// -----------------------------------------------------------
+
 export interface ConflictOptions {
   scope: 'group' | 'person';
   // 'group' scope only: false = a mixed many-group view, where
@@ -38,14 +59,82 @@ export interface ConflictOptions {
   groupFilterActive?: boolean;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// overlap
+// -----------------------------------------------------------
+//
+// Same day and the half-open time ranges cross — touching
+// ends (10:30/10:30) never overlap.
+//
+// Used by:
+//   - conflictIds (below)
+// -----------------------------------------------------------
+
 const overlap = (a: TimetableEntry, b: TimetableEntry) =>
   a.day === b.day && a.startMin < b.endMin && b.startMin < a.endMin;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// identity
+// -----------------------------------------------------------
+//
+// Two rows that agree on all of this are ONE lesson listed
+// twice (a shared slot), never a conflict pair.
+//
+// Used by:
+//   - conflictIds (below)
+// -----------------------------------------------------------
 
 const identity = (entry: TimetableEntry) =>
   [entry.title, entry.day, entry.startMin, entry.endMin, (entry.people ?? []).join('|'), (entry.location ?? []).join('|')].join('~');
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// shareGroupScope
+// -----------------------------------------------------------
+//
+// Group scope compares within one group AND one term — and
+// only when both rows carry a groupKey at all.
+//
+// Used by:
+//   - conflictIds (below)
+// -----------------------------------------------------------
+
 const shareGroupScope = (a: TimetableEntry, b: TimetableEntry) =>
   !!a.groupKey && a.groupKey === b.groupKey && (a.termKey ?? '') === (b.termKey ?? '');
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// sharePerson
+// -----------------------------------------------------------
+//
+// Person scope: any teacher in common puts two rows in the
+// same diary.
+//
+// Used by:
+//   - conflictIds (below)
+// -----------------------------------------------------------
 
 const sharePerson = (a: TimetableEntry, b: TimetableEntry) => {
   // Conflicts never cross terms — a slot shared by two
@@ -56,7 +145,22 @@ const sharePerson = (a: TimetableEntry, b: TimetableEntry) => {
 };
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// conflictIds
+// -----------------------------------------------------------
+//
 // The ids of every entry standing in at least one conflict
+//
+// Used by:
+//   - app/(main)/tabs/schedule.tsx — flagging the list's cards
+//   - components/schedule/TimetableView.tsx — the annotate stage
+// -----------------------------------------------------------
+
 export function conflictIds(entries: readonly TimetableEntry[], options: ConflictOptions): Set<string> {
   const ids = new Set<string>();
   if (options.scope === 'group' && !options.groupFilterActive) return ids;
@@ -78,10 +182,24 @@ export function conflictIds(entries: readonly TimetableEntry[], options: Conflic
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// annotateConflicts
+// -----------------------------------------------------------
+//
 // The annotate stage of normalize → place → annotate: the
 // verdict of conflictIds stamped onto placed layouts. Fresh
 // objects for the flipped entries only — everything unchanged
 // keeps its identity, so memoized cells stay put
+//
+// Used by:
+//   - components/schedule/TimetableView.tsx — after placeDay
+// -----------------------------------------------------------
+
 export function annotateConflicts<T = object>(placed: readonly PlacedEntry<T>[], ids: ReadonlySet<string>): PlacedEntry<T>[] {
   return placed.map((p) => {
     const flagged = ids.has(p.entry.id) && !p.entry.isBlock;

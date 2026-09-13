@@ -23,12 +23,27 @@
 import type { PresentationPolicy, PresentationRule } from './types';
 
 
+// The host's rule query must answer within this (ms) — past it
+// the fail-open default below shows the notification anyway
 const INTERNAL_DEADLINE_MS = 1_500;
 
 // When everything else has gone wrong, showing is the behavior
 // nobody files a bug about
 const SHOW_EVERYTHING: PresentationRule = { banner: true, list: true, sound: true, badge: true };
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// createForegroundHandler
+// -----------------------------------------------------------
+//
+// Used by:
+//   - engine.ts — installed as the device's foreground handler
+// -----------------------------------------------------------
 
 export function createForegroundHandler(policy: PresentationPolicy) {
   return (payload: { type: string; data: Record<string, string> }): Promise<PresentationRule> => {

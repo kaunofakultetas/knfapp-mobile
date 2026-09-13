@@ -83,8 +83,25 @@ const AWAY_THRESHOLD = 80;
 // getting the way back)
 const NEAR_THRESHOLD = 4;
 
-// The list memoizes its rows on this function's identity, so
-// it is one module constant — never a closure over props
+
+
+
+
+
+
+// -----------------------------------------------------------
+// renderMessage
+// -----------------------------------------------------------
+//
+// The list's row: one AssistantMessage, reading the scope the
+// list mounts it in. The list memoizes its rows on this
+// function's identity, so it is one module constant — never a
+// closure over props.
+//
+// Used by:
+//   - MessageList (below) — the FlatList's row renderer
+// -----------------------------------------------------------
+
 const renderMessage = () => <AssistantMessage />;
 
 

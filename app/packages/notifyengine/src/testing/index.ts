@@ -37,6 +37,132 @@ import type {
 import { TransportFailure } from '../core/types';
 
 
+// The server's token grammar — the fake enforces it so the
+// conformance suite means the same thing against both
+const SERVER_TOKEN_RE = /^ExponentPushToken\[[A-Za-z0-9_-]{10,64}\]$/;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// fixtureGranted
+// -----------------------------------------------------------
+//
+// A permission fixture: granted, still askable.
+//
+// Used by:
+//   - engine and host tests — scripted device permissions
+// -----------------------------------------------------------
+
+export const fixtureGranted: DevicePermission = { status: 'granted', canAskAgain: true };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// fixtureGrantedPermission
+// -----------------------------------------------------------
+//
+// The long name some suites prefer — same object.
+//
+// Used by:
+//   - host test suites addressing the fixture by full name
+// -----------------------------------------------------------
+
+export const fixtureGrantedPermission: DevicePermission = fixtureGranted;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// fixtureDeniedForever
+// -----------------------------------------------------------
+//
+// A permission fixture: denied and the OS will not re-prompt.
+//
+// Used by:
+//   - engine and host tests — the settings-deep-link path
+// -----------------------------------------------------------
+
+export const fixtureDeniedForever: DevicePermission = { status: 'denied', canAskAgain: false };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// fixtureChatMessage
+// -----------------------------------------------------------
+//
+// A tapped chat push, ready-made. Built through
+// fixtureResponse (below) — a hoisted function declaration,
+// so the call is safe up here.
+//
+// Used by:
+//   - core/__tests__/routing.test.ts
+// -----------------------------------------------------------
+
+export const fixtureChatMessage = fixtureResponse('chat_message', { conversationId: 'c1' }, 'resp-chat-1');
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// fixtureNewsPush
+// -----------------------------------------------------------
+//
+// A tapped news push, ready-made — fixtureResponse (below)
+// again.
+//
+// Used by:
+//   - core/__tests__/routing.test.ts
+// -----------------------------------------------------------
+
+export const fixtureNewsPush = fixtureResponse('news', { postId: 'n1' }, 'resp-news-1');
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// FakeStorage
+// -----------------------------------------------------------
+//
+// The memory storage's public face — the Map itself plus the
+// failure switch a test flips.
+//
+// Used by:
+//   - createMemoryStorage (below) — the return shape
+//   - engine tests inspecting persisted keys
+// -----------------------------------------------------------
+
+export interface FakeStorage extends KeyValueStorage {
+  map: Map<string, string>;
+  failing: boolean;
+}
+
+
+
+
+
+
+
 // -----------------------------------------------------------
 // createMemoryStorage
 // -----------------------------------------------------------
@@ -46,11 +172,6 @@ import { TransportFailure } from '../core/types';
 // Used by:
 //   - engine tests as the storage seam
 // -----------------------------------------------------------
-
-export interface FakeStorage extends KeyValueStorage {
-  map: Map<string, string>;
-  failing: boolean;
-}
 
 export function createMemoryStorage(seed: Record<string, string> = {}): FakeStorage {
   const map = new Map(Object.entries(seed));
@@ -74,18 +195,21 @@ export function createMemoryStorage(seed: Record<string, string> = {}): FakeStor
 }
 
 
+
+
+
+
+
 // -----------------------------------------------------------
-// createFakeDevice
+// FakeDevice
 // -----------------------------------------------------------
 //
-// The whole device in memory. Tests script permissions and
-// tokens, emit rotations/responses/app-active edges, and fire
-// the captured foreground handler to see what it resolves.
-// Per-method overrides inject hangs and failures without
-// rebuilding the fake.
+// The fake's scripting surface on top of DeviceAdapter — the
+// fields a test sets and the emit/fire drivers it pulls.
 //
 // Used by:
-//   - every engine test
+//   - createFakeDevice (below) — the return shape
+//   - every engine test scripting the device
 // -----------------------------------------------------------
 
 export interface FakeDevice extends DeviceAdapter {
@@ -111,6 +235,26 @@ export interface FakeDevice extends DeviceAdapter {
   emitHandleError(error: unknown): void;
   handlerInstallCount: number;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// createFakeDevice
+// -----------------------------------------------------------
+//
+// The whole device in memory. Tests script permissions and
+// tokens, emit rotations/responses/app-active edges, and fire
+// the captured foreground handler to see what it resolves.
+// Per-method overrides inject hangs and failures without
+// rebuilding the fake.
+//
+// Used by:
+//   - every engine test
+// -----------------------------------------------------------
 
 export function createFakeDevice(overrides: Partial<FakeDevice> = {}): FakeDevice {
   const tokenListeners = new Set<(token: string) => void>();
@@ -212,6 +356,38 @@ export function createFakeDevice(overrides: Partial<FakeDevice> = {}): FakeDevic
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// FakeTransport
+// -----------------------------------------------------------
+//
+// The fake backend's scripting surface on top of
+// NotifyTransport — its state tables, the call log, and the
+// per-method failure overrides.
+//
+// Used by:
+//   - createFakeTransport (below) — the return shape
+//   - engine tests asserting exact call payloads
+// -----------------------------------------------------------
+
+export interface FakeTransport extends NotifyTransport {
+  tokens: Map<string, { tokenId: string; platform: string; language: Language }>;
+  channels: Record<ChannelKey, boolean>;
+  chatPreview: boolean;
+  calls: { method: string; payload: unknown }[];
+  overrides: Partial<Record<'register' | 'unregister' | 'getChannels' | 'putChannels' | 'getChatPreview' | 'putChatPreview', () => Promise<never>>>;
+}
+
+
+
+
+
+
+
 // -----------------------------------------------------------
 // createFakeTransport
 // -----------------------------------------------------------
@@ -224,18 +400,6 @@ export function createFakeDevice(overrides: Partial<FakeDevice> = {}): FakeDevic
 // Used by:
 //   - engine tests, and the conformance suite below
 // -----------------------------------------------------------
-
-export interface FakeTransport extends NotifyTransport {
-  tokens: Map<string, { tokenId: string; platform: string; language: Language }>;
-  channels: Record<ChannelKey, boolean>;
-  chatPreview: boolean;
-  calls: { method: string; payload: unknown }[];
-  overrides: Partial<Record<'register' | 'unregister' | 'getChannels' | 'putChannels' | 'getChatPreview' | 'putChatPreview', () => Promise<never>>>;
-}
-
-// The server's token grammar — the fake enforces it so the
-// conformance suite means the same thing against both
-const SERVER_TOKEN_RE = /^ExponentPushToken\[[A-Za-z0-9_-]{10,64}\]$/;
 
 export function createFakeTransport(): FakeTransport {
   let nextId = 1;
@@ -304,6 +468,11 @@ export function createFakeTransport(): FakeTransport {
 }
 
 
+
+
+
+
+
 // -----------------------------------------------------------
 // describeTransportContract
 // -----------------------------------------------------------
@@ -362,18 +531,23 @@ export function describeTransportContract(name: string, makeTransport: () => Pro
 }
 
 
+
+
+
+
+
 // -----------------------------------------------------------
-// Fixtures
+// fixtureResponse
 // -----------------------------------------------------------
 //
+// A tapped-notification response with a payload of the given
+// type — the identifier defaults to one derived from it.
+//
 // Used by:
-//   - engine and host tests — named, realistic payloads
+//   - core/__tests__/routing.test.ts,
+//     core/__tests__/engineLifecycle.test.ts
+//   - the named fixtures at the top of this file
 // -----------------------------------------------------------
-
-export const fixtureGranted: DevicePermission = { status: 'granted', canAskAgain: true };
-// The long name some suites prefer — same object
-export const fixtureGrantedPermission: DevicePermission = fixtureGranted;
-export const fixtureDeniedForever: DevicePermission = { status: 'denied', canAskAgain: false };
 
 export function fixtureResponse(
   type: string,
@@ -382,9 +556,6 @@ export function fixtureResponse(
 ): DeviceNotificationResponse {
   return { identifier, actionIdentifier: null, data: { type, ...data } };
 }
-
-export const fixtureChatMessage = fixtureResponse('chat_message', { conversationId: 'c1' }, 'resp-chat-1');
-export const fixtureNewsPush = fixtureResponse('news', { postId: 'n1' }, 'resp-news-1');
 
 
 

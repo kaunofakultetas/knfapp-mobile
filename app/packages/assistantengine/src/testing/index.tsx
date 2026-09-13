@@ -62,12 +62,220 @@ import {
 export { useLocalRuntime } from '@assistant-ui/react-native';
 
 
+// How long until() keeps polling before a suite fails — well
+// under jest's own 5 s default so the probe's message names
+// the missing outcome, not a bare timeout
+const UNTIL_TIMEOUT_MS = 5_000;
+
+// The version every contract rig sends — asserted back out of
+// the client header, so it never collides with a real release
+const CONTRACT_CLIENT_VERSION = '0.0.0-contract';
+// The bearer the with-session cases send and assert
+const CONTRACT_TOKEN = 'contract-session-token';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// fixtureLessons
+// -----------------------------------------------------------
+//
+// Named, realistic lessons in the lookupSchedule output shape
+// — also the payload of the reference container's contract
+// tool answer.
+//
+// Used by:
+//   - CONTRACT_REPLIES (below) — the tool answer's output
+//   - engine and host tests
+// -----------------------------------------------------------
+
+export const fixtureLessons: AssistantLesson[] = [
+  {
+    title: 'Duomenų bazės',
+    start: '2026-09-08T09:00:00+03:00',
+    end: '2026-09-08T10:30:00+03:00',
+    room: '201',
+    teacher: 'J. Jonaitis',
+    group: 'IS-3',
+    kind: 'paskaita',
+  },
+  {
+    title: 'Programų sistemų inžinerija',
+    start: '2026-09-08T10:45:00+03:00',
+    end: '2026-09-08T12:15:00+03:00',
+    room: '305',
+    teacher: 'A. Petraitienė',
+    group: 'IS-3',
+    kind: 'pratybos',
+  },
+];
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// fixtureNewsPosts
+// -----------------------------------------------------------
+//
+// Named, realistic posts in the searchNews output shape — one
+// with every optional field, one with the bare minimum.
+//
+// Used by:
+//   - engine and host tests
+// -----------------------------------------------------------
+
+export const fixtureNewsPosts: AssistantNewsPost[] = [
+  {
+    id: 'n-2026-0901',
+    title: 'Rugsėjo 1-osios šventė fakultete',
+    summary: 'Mokslo metų atidarymas Muitinės g. 8 kieme.',
+    date: '2026-09-01T09:00:00+03:00',
+    source: 'knf.vu.lt',
+    url: 'https://knf.vu.lt/naujienos/rugsejo-1-oji',
+  },
+  {
+    id: 'n-2026-0903',
+    title: 'Stipendijų konkursas paskelbtas',
+    date: '2026-09-03T12:00:00+03:00',
+    source: 'knf.vu.lt',
+  },
+];
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// fixtureHandbookEntries
+// -----------------------------------------------------------
+//
+// Named, realistic hits in the searchHandbook output shape —
+// one per language.
+//
+// Used by:
+//   - engine and host tests
+// -----------------------------------------------------------
+
+export const fixtureHandbookEntries: AssistantHandbookEntry[] = [
+  {
+    id: 'h-egzaminai',
+    title: 'Egzaminų perlaikymas',
+    excerpt: 'Egzaminą perlaikyti galima du kartus; trečias bandymas — komisijoje.',
+    section: 'Studijų tvarka',
+    language: 'lt',
+  },
+  {
+    id: 'h-library',
+    title: 'Library hours',
+    excerpt: 'The faculty library is open 8:00–20:00 on weekdays.',
+    section: 'Campus',
+    language: 'en',
+  },
+];
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// CONTRACT_PROMPTS
+// -----------------------------------------------------------
+//
+// The prompts the reference container answers by convention —
+// the live service reproduces them in its contract mode.
+//
+// Used by:
+//   - referenceReply and describeTransportContract (below)
+//   - engine and host tests driving the reference fake
+// -----------------------------------------------------------
+
+export const CONTRACT_PROMPTS = {
+  text: 'contract:text',
+  tool: 'contract:tool',
+  slow: 'contract:slow',
+  auth: 'contract:auth',
+  quota: 'contract:quota',
+} as const;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// CONTRACT_REPLIES
+// -----------------------------------------------------------
+//
+// The exact answers the reference container gives to the
+// CONTRACT_PROMPTS — what the conformance suite asserts.
+//
+// Used by:
+//   - referenceReply and describeTransportContract (below)
+//   - engine and host tests asserting the reference answers
+// -----------------------------------------------------------
+
+export const CONTRACT_REPLIES = {
+  text: { chunks: ['Labas! ', 'Sutartis ', 'veikia.'], full: 'Labas! Sutartis veikia.' },
+  tool: {
+    name: 'lookupSchedule',
+    input: { group: 'IS-3', range: 'day' },
+    output: { lessons: fixtureLessons, source: 'live' },
+  },
+  toolText: { chunks: ['Rytoj IS-3 grupei ', 'dvi paskaitos.'], full: 'Rytoj IS-3 grupei dvi paskaitos.' },
+  slow: { chunks: ['Lėtas ', 'atsakymas ', 'dalimis ', 'per ', 'laiką.'], delayMs: 40 },
+  auth: { status: 401, body: { error: 'contract: bearer refused' } },
+  quota: { status: 429, body: { error: 'contract: quota spent' }, retryAfterSeconds: 30 },
+} as const;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// abortError
+// -----------------------------------------------------------
+//
 // The shape a real fetch rejects with on a cancel — the same
-// one the transport's own abort race produces
+// one the transport's own abort race produces.
+//
+// Used by:
+//   - hangForever (below) — the cancel rejection
+//   - cutOnAbort (below) — errors the streamed body
+// -----------------------------------------------------------
+
 const abortError = (): Error => Object.assign(new Error('Request aborted'), { name: 'AbortError' });
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// sleep
+// -----------------------------------------------------------
+//
 // Real timers on purpose: a delayed reply is there to let a
-// test cancel mid-stream, and a cancel resolves it early
+// test cancel mid-stream, and a cancel resolves it early.
+//
+// Used by:
+//   - streamReply (below) — the per-chunk delay
+//   - play (below) — the scripted adapter's wait step
+// -----------------------------------------------------------
+
 const sleep = (ms: number, signal?: AbortSignal | null): Promise<void> =>
   new Promise((resolve) => {
     if (signal?.aborted) return resolve();
@@ -79,23 +287,26 @@ const sleep = (ms: number, signal?: AbortSignal | null): Promise<void> =>
   });
 
 
+
+
+
+
+
 // -----------------------------------------------------------
-// createRecordingFetch
+// RecordedCall
 // -----------------------------------------------------------
 //
-// Any fetch, with every request written down first: the URL,
-// the method, the headers as one lowercase record, the body
-// parsed back from JSON when it was JSON, and an `aborted`
-// flag that flips when the request's own signal fires — the
-// proof a cancel reached the wire. The fake server writes the
-// same record, so a host asserts on one shape whether the
-// wire was fake or real.
+// One request written down: the URL, the method, the headers
+// as one lowercase record, the body parsed back from JSON when
+// it was JSON, and an `aborted` flag that flips when the
+// request's own signal fires — the proof a cancel reached the
+// wire. The fake server writes the same record, so a host
+// asserts on one shape whether the wire was fake or real.
 //
 // Used by:
-//   - describeTransportContract (below) — around whatever
-//     fetch the job hands in
-//   - hosts recording a real fetch
-//   - toRecordedCall — shared with createFakeAssistantServer
+//   - createRecordingFetch / createFakeAssistantServer (below)
+//     — their call logs
+//   - FakeReply (below) — a streamed reply reads the request
 // -----------------------------------------------------------
 
 export interface RecordedCall {
@@ -106,10 +317,46 @@ export interface RecordedCall {
   aborted: boolean;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// RecordingFetch
+// -----------------------------------------------------------
+//
+// What createRecordingFetch answers: the wrapped fetch and the
+// growing call log behind it.
+//
+// Used by:
+//   - createRecordingFetch (below) — the return shape
+//   - describeTransportContract (below) — reads `calls`
+// -----------------------------------------------------------
+
 export interface RecordingFetch {
   fetch: typeof fetch;
   calls: RecordedCall[];
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// createRecordingFetch
+// -----------------------------------------------------------
+//
+// Any fetch, with every request written down first.
+//
+// Used by:
+//   - describeTransportContract (below) — around whatever
+//     fetch the job hands in
+//   - hosts recording a real fetch
+// -----------------------------------------------------------
 
 export function createRecordingFetch(inner: typeof fetch): RecordingFetch {
   const calls: RecordedCall[] = [];
@@ -121,6 +368,24 @@ export function createRecordingFetch(inner: typeof fetch): RecordingFetch {
     },
   };
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// toRecordedCall
+// -----------------------------------------------------------
+//
+// One request → one RecordedCall, with the abort listener that
+// flips `aborted` installed on the way.
+//
+// Used by:
+//   - createRecordingFetch (above)
+//   - createFakeAssistantServer (below)
+// -----------------------------------------------------------
 
 function toRecordedCall(input: RequestInfo | URL, init: RequestInit | undefined): RecordedCall {
   const headers: Record<string, string> = {};
@@ -140,6 +405,23 @@ function toRecordedCall(input: RequestInfo | URL, init: RequestInit | undefined)
   return call;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// parseBody
+// -----------------------------------------------------------
+//
+// A string body parsed back from JSON when it was JSON — so
+// assertions read objects, not serialized text.
+//
+// Used by:
+//   - toRecordedCall (above)
+// -----------------------------------------------------------
+
 function parseBody(body: BodyInit | null | undefined): unknown {
   if (typeof body !== 'string') return body ?? null;
   try {
@@ -150,8 +432,13 @@ function parseBody(body: BodyInit | null | undefined): unknown {
 }
 
 
+
+
+
+
+
 // -----------------------------------------------------------
-// The replies
+// FakeReply
 // -----------------------------------------------------------
 //
 // A FakeReply answers ONE request. The streamed kinds build
@@ -165,24 +452,8 @@ function parseBody(body: BodyInit | null | undefined): unknown {
 // message's id on its start frame — a different id there makes
 // the client push a second assistant message. The plain kinds
 // are ordinary Responses: only status, headers and text are
-// ever read from them.
-//
-//   textReply(chunks, { delayMs? })
-//     start → start-step → text-start/delta*/text-end →
-//     finish-step → finish
-//   toolReply({ name, input, output, text? })
-//     the tool step (tool-input-start → tool-input-available →
-//     tool-output-available → finish-step) and then finish —
-//     so the runtime resends the thread and the fake must be
-//     scripted for that SECOND request; with `text` the answer
-//     rides in a second step of the same response instead,
-//     and nothing is resent
-//   streamReply(chunks, { delayMs? })   — any chunk list
-//   errorReply(status, body?, headers?) — JSON when the body
-//     is an object, text when a string, empty otherwise
-//   jsonReply(body, { status?, headers? }) — the tools endpoint
-//   networkFailure(message?)            — rejects with a TypeError
-//   hangForever()                       — no headers, ever
+// ever read from them. Each kind's builder carries its own
+// banner below.
 //
 // Used by:
 //   - createFakeAssistantServer (below) — its queue and its
@@ -199,10 +470,43 @@ export interface FakeReply {
   respond(signal: AbortSignal | null, call?: RecordedCall): Promise<Response>;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// StreamReplyOptions
+// -----------------------------------------------------------
+//
+// The one knob a streamed reply takes.
+//
+// Used by:
+//   - streamReply / textReply (below) — the options argument
+// -----------------------------------------------------------
+
 export interface StreamReplyOptions {
   // A pause before EVERY chunk, on real timers
   delayMs?: number;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ToolReplyOptions
+// -----------------------------------------------------------
+//
+// One scripted tool round: the call the model "made" and the
+// output the container "answered".
+//
+// Used by:
+//   - toolReply (below) — the options argument
+// -----------------------------------------------------------
 
 export interface ToolReplyOptions {
   name: string;
@@ -211,6 +515,25 @@ export interface ToolReplyOptions {
   text?: string;
   toolCallId?: string;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// streamReply
+// -----------------------------------------------------------
+//
+//   streamReply(chunks, { delayMs? }) — any chunk list, framed
+//   by the upstream writer
+//
+// Used by:
+//   - textReply, toolReply (below) — their framing
+//   - the runtime hook and fake-server suites, hosts
+//     hand-building a stream
+// -----------------------------------------------------------
 
 export function streamReply(chunks: UIMessageChunk[], options: StreamReplyOptions = {}): FakeReply {
   const delayMs = options.delayMs ?? 0;
@@ -238,9 +561,51 @@ export function streamReply(chunks: UIMessageChunk[], options: StreamReplyOption
   };
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// textReply
+// -----------------------------------------------------------
+//
+//   textReply(chunks, { delayMs? })
+//     start → start-step → text-start/delta*/text-end →
+//     finish-step → finish
+//
+// Used by:
+//   - referenceReply (below) — the contract text answers
+//   - the transport, runtime-hook and fake-server suites
+// -----------------------------------------------------------
+
 export function textReply(chunks: string[], options: StreamReplyOptions = {}): FakeReply {
   return streamReply([{ type: 'start' }, { type: 'start-step' }, ...textChunks('t1', chunks), { type: 'finish-step' }, { type: 'finish', finishReason: 'stop' }], options);
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// toolReply
+// -----------------------------------------------------------
+//
+//   toolReply({ name, input, output, text? })
+//     the tool step (tool-input-start → tool-input-available →
+//     tool-output-available → finish-step) and then finish —
+//     so the runtime resends the thread and the fake must be
+//     scripted for that SECOND request; with `text` the answer
+//     rides in a second step of the same response instead,
+//     and nothing is resent
+//
+// Used by:
+//   - referenceReply (below) — the contract tool answer
+//   - the runtime-hook and fake-server suites
+// -----------------------------------------------------------
 
 export function toolReply(options: ToolReplyOptions): FakeReply {
   const toolCallId = options.toolCallId ?? 'call_1';
@@ -259,17 +624,87 @@ export function toolReply(options: ToolReplyOptions): FakeReply {
   return streamReply([...toolStep, ...answer]);
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// errorReply
+// -----------------------------------------------------------
+//
+//   errorReply(status, body?, headers?) — JSON when the body
+//   is an object, text when a string, empty otherwise
+//
+// Used by:
+//   - referenceReply (below) — the contract auth/quota answers
+//   - the transport, runtime-hook, tools and fake-server suites
+// -----------------------------------------------------------
+
 export function errorReply(status: number, body?: unknown, headers?: Record<string, string>): FakeReply {
   return plainReply(status, body, headers);
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// jsonReply
+// -----------------------------------------------------------
+//
+//   jsonReply(body, { status?, headers? }) — a plain JSON
+//   answer; what the tools endpoint speaks
+//
+// Used by:
+//   - referenceReply (below) — the tools-path answer
+//   - the tools and fake-server suites
+// -----------------------------------------------------------
 
 export function jsonReply(body: unknown, options: { status?: number; headers?: Record<string, string> } = {}): FakeReply {
   return plainReply(options.status ?? 200, body, options.headers);
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// networkFailure
+// -----------------------------------------------------------
+//
+//   networkFailure(message?) — rejects with a TypeError, the
+//   way a real fetch fails off-line
+//
+// Used by:
+//   - the transport, runtime-hook, tools and fake-server suites
+// -----------------------------------------------------------
+
 export function networkFailure(message = 'Network request failed'): FakeReply {
   return { respond: () => Promise.reject(new TypeError(message)) };
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// hangForever
+// -----------------------------------------------------------
+//
+//   hangForever() — no headers, ever; what the first-byte
+//   timeout tests point the transport at
+//
+// Used by:
+//   - the transport and fake-server suites
+// -----------------------------------------------------------
 
 export function hangForever(): FakeReply {
   return {
@@ -283,21 +718,70 @@ export function hangForever(): FakeReply {
   };
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// textChunks
+// -----------------------------------------------------------
+//
+// One text part as its chunk triple — start, one delta per
+// string, end — under one part id.
+//
+// Used by:
+//   - textReply, toolReply (above)
+// -----------------------------------------------------------
+
 function textChunks(id: string, chunks: string[]): UIMessageChunk[] {
   return [{ type: 'text-start', id }, ...chunks.map((delta): UIMessageChunk => ({ type: 'text-delta', id, delta })), { type: 'text-end', id }];
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// continuedMessages
+// -----------------------------------------------------------
+//
 // The request's messages, when the reply continues them: a
 // thread ending in an assistant message with an id is the
 // automatic continuation, and the writer must reuse that id.
 // Anything else — a first turn, a hand-made body, no request
 // at all — answers a fresh message with a fresh id.
+//
+// Used by:
+//   - streamReply (above) — the writer's originalMessages
+// -----------------------------------------------------------
+
 function continuedMessages(call: RecordedCall | undefined): UIMessage[] | undefined {
   const messages = (call?.body as { messages?: unknown } | null | undefined)?.messages;
   if (!Array.isArray(messages)) return undefined;
   const last = messages[messages.length - 1] as { role?: unknown; id?: unknown } | undefined;
   return last?.role === 'assistant' && typeof last.id === 'string' ? (messages as UIMessage[]) : undefined;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// plainReply
+// -----------------------------------------------------------
+//
+// An ordinary Response: JSON content-type stamped only for a
+// non-string body, so a text body stays text.
+//
+// Used by:
+//   - errorReply, jsonReply (above)
+// -----------------------------------------------------------
 
 function plainReply(status: number, body: unknown, headers: Record<string, string> | undefined): FakeReply {
   return {
@@ -310,9 +794,24 @@ function plainReply(status: number, body: unknown, headers: Record<string, strin
   };
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// streamResponse
+// -----------------------------------------------------------
+//
 // The Response-like a streamed reply resolves: the upstream's
 // own headers, a test-realm body, and the few fields the
-// transport reads on the way through
+// transport reads on the way through.
+//
+// Used by:
+//   - streamReply (above)
+// -----------------------------------------------------------
+
 function streamResponse(body: ReadableStream<Uint8Array>): Response {
   const shaped = {
     ok: true,
@@ -325,6 +824,24 @@ function streamResponse(body: ReadableStream<Uint8Array>): Response {
   };
   return shaped as unknown as Response;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// cutOnAbort
+// -----------------------------------------------------------
+//
+// The streamed body's abort semantics: the moment the signal
+// fires the stream errors with an AbortError and the source is
+// cancelled — exactly what a real fetch body does on cancel.
+//
+// Used by:
+//   - streamReply (above)
+// -----------------------------------------------------------
 
 function cutOnAbort(source: ReadableStream<Uint8Array>, signal: AbortSignal | null): ReadableStream<Uint8Array> {
   if (!signal) return source;
@@ -350,6 +867,54 @@ function cutOnAbort(source: ReadableStream<Uint8Array>, signal: AbortSignal | nu
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// FakeScript
+// -----------------------------------------------------------
+//
+// One queued answer: a FakeReply outright, or a function of
+// the recorded call that builds one.
+//
+// Used by:
+//   - FakeAssistantServer (below) — what script() takes
+// -----------------------------------------------------------
+
+export type FakeScript = FakeReply | ((call: RecordedCall) => FakeReply);
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// FakeAssistantServer
+// -----------------------------------------------------------
+//
+// The fake's surface: the fetch to hand a transport, the call
+// log, and the script queue.
+//
+// Used by:
+//   - createFakeAssistantServer (below) — the return shape
+//   - engine tests and hosts scripting a screen's wire
+// -----------------------------------------------------------
+
+export interface FakeAssistantServer {
+  fetch: typeof fetch;
+  calls: RecordedCall[];
+  script(reply: FakeScript): void;
+}
+
+
+
+
+
+
+
 // -----------------------------------------------------------
 // createFakeAssistantServer
 // -----------------------------------------------------------
@@ -371,14 +936,6 @@ function cutOnAbort(source: ReadableStream<Uint8Array>, signal: AbortSignal | nu
 //   - hosts, as the wire under a screen
 // -----------------------------------------------------------
 
-export type FakeScript = FakeReply | ((call: RecordedCall) => FakeReply);
-
-export interface FakeAssistantServer {
-  fetch: typeof fetch;
-  calls: RecordedCall[];
-  script(reply: FakeScript): void;
-}
-
 export function createFakeAssistantServer(): FakeAssistantServer {
   const queue: FakeScript[] = [];
   const calls: RecordedCall[] = [];
@@ -396,6 +953,26 @@ export function createFakeAssistantServer(): FakeAssistantServer {
     },
   };
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// referenceReply
+// -----------------------------------------------------------
+//
+// The reference container's routing: the tools path serves the
+// mirrors, the chat path answers the CONTRACT_PROMPTS (and the
+// continuation owed after a tool round trip), anything else
+// rejects loudly.
+//
+// Used by:
+//   - createFakeAssistantServer (above) — when the queue is
+//     empty
+// -----------------------------------------------------------
 
 function referenceReply(call: RecordedCall): FakeReply {
   const path = pathOf(call.url);
@@ -425,15 +1002,65 @@ function referenceReply(call: RecordedCall): FakeReply {
   }
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// referenceTools
+// -----------------------------------------------------------
+//
 // What the reference container serves on the tools path — the
-// mirrors, verbatim, one descriptor per frozen name
+// mirrors, verbatim, one descriptor per frozen name.
+//
+// Used by:
+//   - referenceReply (above) — the tools-path answer
+//   - the tools contract and fake-server suites
+// -----------------------------------------------------------
+
 export function referenceTools(): AssistantToolDescriptor[] {
   return ASSISTANT_TOOL_NAMES.map((name) => ({ name, ...ASSISTANT_TOOL_SCHEMAS[name] }));
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// unscripted
+// -----------------------------------------------------------
+//
+// The loud rejection — an unknown route or prompt fails the
+// suite by name rather than answering something plausible.
+//
+// Used by:
+//   - referenceReply (above)
+// -----------------------------------------------------------
+
 function unscripted(reason: string): FakeReply {
   return { respond: () => Promise.reject(new Error(`fake assistant server: ${reason}`)) };
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// pathOf
+// -----------------------------------------------------------
+//
+// The URL's pathname; a relative or malformed URL routes on
+// the raw string instead.
+//
+// Used by:
+//   - referenceReply (above)
+// -----------------------------------------------------------
 
 function pathOf(url: string): string {
   try {
@@ -443,12 +1070,31 @@ function pathOf(url: string): string {
   }
 }
 
+
 // The upstream's wire message shape, read defensively — a
 // host's hand-made body must not crash the fake
 interface WireMessage {
   role: string;
   parts: { type: string; text?: string; state?: string }[];
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// messagesOf
+// -----------------------------------------------------------
+//
+// The request body's messages, filtered down to entries that
+// carry a role and parts — everything else is dropped, never
+// thrown on.
+//
+// Used by:
+//   - referenceReply (above)
+// -----------------------------------------------------------
 
 function messagesOf(body: unknown): WireMessage[] {
   const messages = (body as { messages?: unknown })?.messages;
@@ -459,6 +1105,23 @@ function messagesOf(body: unknown): WireMessage[] {
   });
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// lastUserText
+// -----------------------------------------------------------
+//
+// The newest user message's text parts, joined — the prompt
+// the reference routing switches on.
+//
+// Used by:
+//   - referenceReply (above)
+// -----------------------------------------------------------
+
 function lastUserText(messages: WireMessage[]): string {
   const user = [...messages].reverse().find((message) => message.role === 'user');
   return (user?.parts ?? [])
@@ -467,9 +1130,120 @@ function lastUserText(messages: WireMessage[]): string {
     .join('');
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// isToolOutputPart
+// -----------------------------------------------------------
+//
+// A finished tool part on the wire — what marks a thread as
+// owing the continuation answer.
+//
+// Used by:
+//   - referenceReply (above)
+// -----------------------------------------------------------
+
 function isToolOutputPart(part: { type: string; state?: string }): boolean {
   return part.type.startsWith('tool-') && (part.state === 'output-available' || part.state === 'output-error');
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ScriptedJson
+// -----------------------------------------------------------
+//
+// Plain JSON, typed readonly — what a scripted tool input is
+// made of, so a script cannot smuggle in functions or Dates.
+//
+// Used by:
+//   - ScriptedStep (below) — the tool step's input
+// -----------------------------------------------------------
+
+export type ScriptedJson = null | string | number | boolean | readonly ScriptedJson[] | { readonly [key: string]: ScriptedJson };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ScriptedStep
+// -----------------------------------------------------------
+//
+// One beat of a scripted run: a text delta, a tool call (a
+// later step with the same toolCallId fills the output in), a
+// wait on real timers, or an error that ends the run.
+//
+// Used by:
+//   - createScriptedModelAdapter / play (below)
+//   - screen and doubles tests writing scripts
+// -----------------------------------------------------------
+
+export type ScriptedStep =
+  | { kind: 'text'; delta: string }
+  | { kind: 'tool'; name: string; input: { readonly [key: string]: ScriptedJson }; output?: unknown; errorText?: string; toolCallId?: string }
+  | { kind: 'wait'; ms: number }
+  | { kind: 'error'; message: string };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ScriptedRun
+// -----------------------------------------------------------
+//
+// One recorded run: the messages the model was handed, and an
+// `aborted` flag that flips on cancel.
+//
+// Used by:
+//   - ScriptedModelAdapter (below) — the `runs` log
+// -----------------------------------------------------------
+
+export interface ScriptedRun {
+  messages: readonly ThreadMessage[];
+  aborted: boolean;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ScriptedModelAdapter
+// -----------------------------------------------------------
+//
+// The upstream adapter plus the fake's controls: the run log,
+// and script() to queue steps for the NEXT run.
+//
+// Used by:
+//   - createScriptedModelAdapter (below) — the return shape
+//   - the scripted-adapter tests
+// -----------------------------------------------------------
+
+export interface ScriptedModelAdapter extends ChatModelAdapter {
+  runs: ScriptedRun[];
+  script(steps: ScriptedStep[]): void;
+}
+
+
+
+
+
 
 
 // -----------------------------------------------------------
@@ -492,24 +1266,6 @@ function isToolOutputPart(part: { type: string; state?: string }): boolean {
 //     wire is wanted
 //   - this package's doubles tests
 // -----------------------------------------------------------
-
-export type ScriptedJson = null | string | number | boolean | readonly ScriptedJson[] | { readonly [key: string]: ScriptedJson };
-
-export type ScriptedStep =
-  | { kind: 'text'; delta: string }
-  | { kind: 'tool'; name: string; input: { readonly [key: string]: ScriptedJson }; output?: unknown; errorText?: string; toolCallId?: string }
-  | { kind: 'wait'; ms: number }
-  | { kind: 'error'; message: string };
-
-export interface ScriptedRun {
-  messages: readonly ThreadMessage[];
-  aborted: boolean;
-}
-
-export interface ScriptedModelAdapter extends ChatModelAdapter {
-  runs: ScriptedRun[];
-  script(steps: ScriptedStep[]): void;
-}
 
 export function createScriptedModelAdapter(defaultSteps: ScriptedStep[] = []): ScriptedModelAdapter {
   const queue: ScriptedStep[][] = [];
@@ -536,6 +1292,24 @@ export function createScriptedModelAdapter(defaultSteps: ScriptedStep[] = []): S
   };
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// play
+// -----------------------------------------------------------
+//
+// One run's generator: plays the step list, yielding the
+// cumulative content after every step and a complete/stop
+// status at the end; a cancel mid-list just stops yielding.
+//
+// Used by:
+//   - createScriptedModelAdapter (above) — every run
+// -----------------------------------------------------------
+
 async function* play(steps: ScriptedStep[], options: ChatModelRunOptions, nextCallId: () => string): AsyncGenerator<ChatModelRunResult, void> {
   let content: ThreadAssistantMessagePart[] = [];
   for (const step of steps) {
@@ -554,11 +1328,46 @@ async function* play(steps: ScriptedStep[], options: ChatModelRunOptions, nextCa
   yield { content, status: { type: 'complete', reason: 'stop' } };
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// withTextDelta
+// -----------------------------------------------------------
+//
+// A delta grows the trailing text part, or opens one — the
+// way a real stream accumulates.
+//
+// Used by:
+//   - play (above)
+// -----------------------------------------------------------
+
 function withTextDelta(content: ThreadAssistantMessagePart[], delta: string): ThreadAssistantMessagePart[] {
   const tail = content[content.length - 1];
   if (tail?.type === 'text') return [...content.slice(0, -1), { type: 'text', text: tail.text + delta }];
   return [...content, { type: 'text', text: delta }];
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// withToolCall
+// -----------------------------------------------------------
+//
+// A tool step appends a tool-call part — or, given the same
+// toolCallId again, replaces the earlier part to fill its
+// output in.
+//
+// Used by:
+//   - play (above)
+// -----------------------------------------------------------
 
 function withToolCall(content: ThreadAssistantMessagePart[], step: Extract<ScriptedStep, { kind: 'tool' }>, nextCallId: () => string): ThreadAssistantMessagePart[] {
   const existing = step.toolCallId === undefined ? -1 : content.findIndex((part) => part.type === 'tool-call' && part.toolCallId === step.toolCallId);
@@ -575,12 +1384,17 @@ function withToolCall(content: ThreadAssistantMessagePart[], step: Extract<Scrip
 }
 
 
+
+
+
+
+
 // -----------------------------------------------------------
-// Readers
+// textOf
 // -----------------------------------------------------------
 //
-// The two things every thread assertion wants from a message:
-// its text, and its tool calls.
+// A message's text, joined across its text parts — one of the
+// two things every thread assertion wants.
 //
 // Used by:
 //   - describeTransportContract (below), the probe's callers
@@ -593,13 +1407,35 @@ export function textOf(message: ThreadMessage | undefined): string {
     .join('');
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// toolCallsOf
+// -----------------------------------------------------------
+//
+// A message's tool-call parts — the other thing every thread
+// assertion wants.
+//
+// Used by:
+//   - describeTransportContract (below), the probe's callers
+// -----------------------------------------------------------
+
 export function toolCallsOf(message: ThreadMessage | undefined): ToolCallMessagePart[] {
   return (message?.content ?? []).filter((part): part is ToolCallMessagePart => part.type === 'tool-call');
 }
 
 
+
+
+
+
+
 // -----------------------------------------------------------
-// mountRuntimeProbe / mountAssistantProbe
+// AssistantProbe
 // -----------------------------------------------------------
 //
 // A runtime hook under the REAL provider, rendered under the
@@ -644,6 +1480,9 @@ export interface AssistantProbe {
   unmount(): Promise<void>;
 }
 
+
+// What the reader publishes after every commit — the probe's
+// accessors all read the latest one
 interface ProbeSnapshot {
   runtime: AssistantRuntime;
   messages: readonly MessageState[];
@@ -653,12 +1492,46 @@ interface ProbeSnapshot {
   error: Error | undefined;
 }
 
-const UNTIL_TIMEOUT_MS = 5_000;
+
+
+
+
+
+
+// -----------------------------------------------------------
+// mountAssistantProbe
+// -----------------------------------------------------------
+//
+// The probe over OUR runtime hook and a transport — every
+// probe-based suite of this package runs through it.
+//
+// Used by:
+//   - describeTransportContract (below)
+//   - the runtime hook and failure hook tests
+// -----------------------------------------------------------
 
 export function mountAssistantProbe(options: KnfAssistantRuntimeOptions): Promise<AssistantProbe> {
   const useRuntime = () => useKnfAssistantRuntime(options);
   return mountRuntimeProbe(useRuntime);
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// mountRuntimeProbe
+// -----------------------------------------------------------
+//
+// The probe over ANY hook that answers a runtime — the local
+// runtime over a scripted model, say.
+//
+// Used by:
+//   - mountAssistantProbe (above)
+//   - the scripted-adapter tests
+// -----------------------------------------------------------
 
 export async function mountRuntimeProbe(useRuntime: () => AssistantRuntime): Promise<AssistantProbe> {
   let latest: ProbeSnapshot | null = null;
@@ -706,6 +1579,23 @@ export async function mountRuntimeProbe(useRuntime: () => AssistantRuntime): Pro
   };
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ProbeHost
+// -----------------------------------------------------------
+//
+// The mounted tree: the hook under test, the REAL provider,
+// and the reader beneath it.
+//
+// Used by:
+//   - mountRuntimeProbe (above) — the rendered element
+// -----------------------------------------------------------
+
 function ProbeHost({ useRuntime, publish }: { useRuntime: () => AssistantRuntime; publish: (snapshot: ProbeSnapshot) => void }) {
   const runtime = useRuntime();
   return (
@@ -714,6 +1604,24 @@ function ProbeHost({ useRuntime, publish }: { useRuntime: () => AssistantRuntime
     </AssistantRuntimeProvider>
   );
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ProbeReader
+// -----------------------------------------------------------
+//
+// Reads the thread through the upstream hooks — the way a
+// screen reads it — and publishes a snapshot after every
+// commit.
+//
+// Used by:
+//   - ProbeHost (above)
+// -----------------------------------------------------------
 
 function ProbeReader({ runtime, publish }: { runtime: AssistantRuntime; publish: (snapshot: ProbeSnapshot) => void }) {
   const messages = useAuiState((state) => state.thread.messages);
@@ -728,6 +1636,35 @@ function ProbeReader({ runtime, publish }: { runtime: AssistantRuntime; publish:
   });
   return null;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// TransportContractOptions
+// -----------------------------------------------------------
+//
+// What an integration job may override about the conformance
+// rig — everything else is fixed by the contract.
+//
+// Used by:
+//   - describeTransportContract (below) — its options argument
+// -----------------------------------------------------------
+
+export interface TransportContractOptions {
+  // The origin the transport aims at — the fake ignores it, an
+  // integration job names the live container
+  baseUrl?: string;
+  firstByteTimeoutMs?: number;
+}
+
+
+
+
+
 
 
 // -----------------------------------------------------------
@@ -746,16 +1683,6 @@ function ProbeReader({ runtime, publish }: { runtime: AssistantRuntime; publish:
 //   - this package's conformance test
 //   - the container's integration job
 // -----------------------------------------------------------
-
-export interface TransportContractOptions {
-  // The origin the transport aims at — the fake ignores it, an
-  // integration job names the live container
-  baseUrl?: string;
-  firstByteTimeoutMs?: number;
-}
-
-const CONTRACT_CLIENT_VERSION = '0.0.0-contract';
-const CONTRACT_TOKEN = 'contract-session-token';
 
 export function describeTransportContract(
   name: string,
@@ -950,94 +1877,3 @@ export function describeTransportContract(
       }));
   });
 }
-
-
-// -----------------------------------------------------------
-// Fixtures
-// -----------------------------------------------------------
-//
-// Named, realistic payloads in the tool output shapes — and the
-// contract vocabulary: the prompts the reference container
-// answers by convention, and the exact answers it gives, which
-// the live service reproduces in its contract mode.
-//
-// Used by:
-//   - engine and host tests
-//   - the reference routing and the conformance suite above
-// -----------------------------------------------------------
-
-export const fixtureLessons: AssistantLesson[] = [
-  {
-    title: 'Duomenų bazės',
-    start: '2026-09-08T09:00:00+03:00',
-    end: '2026-09-08T10:30:00+03:00',
-    room: '201',
-    teacher: 'J. Jonaitis',
-    group: 'IS-3',
-    kind: 'paskaita',
-  },
-  {
-    title: 'Programų sistemų inžinerija',
-    start: '2026-09-08T10:45:00+03:00',
-    end: '2026-09-08T12:15:00+03:00',
-    room: '305',
-    teacher: 'A. Petraitienė',
-    group: 'IS-3',
-    kind: 'pratybos',
-  },
-];
-
-export const fixtureNewsPosts: AssistantNewsPost[] = [
-  {
-    id: 'n-2026-0901',
-    title: 'Rugsėjo 1-osios šventė fakultete',
-    summary: 'Mokslo metų atidarymas Muitinės g. 8 kieme.',
-    date: '2026-09-01T09:00:00+03:00',
-    source: 'knf.vu.lt',
-    url: 'https://knf.vu.lt/naujienos/rugsejo-1-oji',
-  },
-  {
-    id: 'n-2026-0903',
-    title: 'Stipendijų konkursas paskelbtas',
-    date: '2026-09-03T12:00:00+03:00',
-    source: 'knf.vu.lt',
-  },
-];
-
-export const fixtureHandbookEntries: AssistantHandbookEntry[] = [
-  {
-    id: 'h-egzaminai',
-    title: 'Egzaminų perlaikymas',
-    excerpt: 'Egzaminą perlaikyti galima du kartus; trečias bandymas — komisijoje.',
-    section: 'Studijų tvarka',
-    language: 'lt',
-  },
-  {
-    id: 'h-library',
-    title: 'Library hours',
-    excerpt: 'The faculty library is open 8:00–20:00 on weekdays.',
-    section: 'Campus',
-    language: 'en',
-  },
-];
-
-export const CONTRACT_PROMPTS = {
-  text: 'contract:text',
-  tool: 'contract:tool',
-  slow: 'contract:slow',
-  auth: 'contract:auth',
-  quota: 'contract:quota',
-} as const;
-
-export const CONTRACT_REPLIES = {
-  text: { chunks: ['Labas! ', 'Sutartis ', 'veikia.'], full: 'Labas! Sutartis veikia.' },
-  tool: {
-    name: 'lookupSchedule',
-    input: { group: 'IS-3', range: 'day' },
-    output: { lessons: fixtureLessons, source: 'live' },
-  },
-  toolText: { chunks: ['Rytoj IS-3 grupei ', 'dvi paskaitos.'], full: 'Rytoj IS-3 grupei dvi paskaitos.' },
-  slow: { chunks: ['Lėtas ', 'atsakymas ', 'dalimis ', 'per ', 'laiką.'], delayMs: 40 },
-  auth: { status: 401, body: { error: 'contract: bearer refused' } },
-  quota: { status: 429, body: { error: 'contract: quota spent' }, retryAfterSeconds: 30 },
-} as const;

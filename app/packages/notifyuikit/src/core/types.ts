@@ -12,7 +12,42 @@
 //    - hosts typing their props
 // -----------------------------------------------------------
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// NotifyChannelKey
+// -----------------------------------------------------------
+//
+// The four notification channels, mirroring the engine's
+// ChannelKey.
+//
+// Used by:
+//   - PrefsLike / NotifyEngineLike (below)
+//   - NotifySettingsPanel.tsx — row order, labels, hints, icons
+// -----------------------------------------------------------
+
 export type NotifyChannelKey = 'news' | 'chat' | 'schedule' | 'admin';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// StoreLike
+// -----------------------------------------------------------
+//
+// The read-and-subscribe surface of one engine store.
+//
+// Used by:
+//   - NotifyEngineLike (below) — permission and prefs stores
+//   - hooks/useStoreValue.ts — subscribes one as React state
+// -----------------------------------------------------------
 
 export interface StoreLike<T> {
   get(): T;
@@ -22,11 +57,45 @@ export interface StoreLike<T> {
   subscribe(listener: (value: T) => void): () => void;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// PermissionLike
+// -----------------------------------------------------------
+//
+// The OS permission snapshot the components read.
+//
+// Used by:
+//   - NotifyEngineLike (below) — the permission store's value
+//   - PermissionGate.tsx — via engine.permission
+// -----------------------------------------------------------
+
 export interface PermissionLike {
   status: 'unknown' | 'undetermined' | 'granted' | 'provisional' | 'denied' | 'unsupported';
   canAskAgain: boolean;
   canDeliver: boolean;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// PrefsLike
+// -----------------------------------------------------------
+//
+// The preference snapshot the settings panel renders.
+//
+// Used by:
+//   - NotifyEngineLike (below) — the prefs store's value
+//   - NotifySettingsPanel.tsx — via engine.prefs
+// -----------------------------------------------------------
 
 export interface PrefsLike {
   masterEnabled: boolean;
@@ -34,6 +103,24 @@ export interface PrefsLike {
   chatPreview: boolean;
   syncState: 'fresh' | 'stale' | 'flushing' | 'error';
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// RegisterResultLike
+// -----------------------------------------------------------
+//
+// What setMasterEnabled resolves to when it reports back.
+//
+// Used by:
+//   - NotifyEngineLike (below) — setMasterEnabled's result
+//   - NotifySettingsPanel.tsx — snaps the switch back and
+//     calls onBlocked on 'permission' / 'unsupported'
+// -----------------------------------------------------------
 
 export interface RegisterResultLike {
   ok: boolean;
@@ -43,7 +130,24 @@ export interface RegisterResultLike {
   reason?: 'unsupported' | 'permission' | 'network' | 'disabled' | 'superseded' | 'unauthenticated';
 }
 
-// The slice of the engine the components actually touch
+
+
+
+
+
+
+// -----------------------------------------------------------
+// NotifyEngineLike
+// -----------------------------------------------------------
+//
+// The slice of the engine the components actually touch.
+//
+// Used by:
+//   - PermissionGate.tsx / NotifySettingsPanel.tsx — the
+//     `engine` prop
+//   - hosts stubbing an engine in tests
+// -----------------------------------------------------------
+
 export interface NotifyEngineLike {
   permission: StoreLike<PermissionLike>;
   prefs: StoreLike<PrefsLike>;
@@ -54,7 +158,24 @@ export interface NotifyEngineLike {
 }
 
 
-// Neutral by default; a host maps its own tokens on
+
+
+
+
+
+// -----------------------------------------------------------
+// NotifyColors
+// -----------------------------------------------------------
+//
+// The color tokens both components paint with — neutral by
+// default; a host maps its own tokens on.
+//
+// Used by:
+//   - defaultColors (below) — the fallback palette
+//   - PermissionGate.tsx / NotifySettingsPanel.tsx — the
+//     `colors` prop
+// -----------------------------------------------------------
+
 export interface NotifyColors {
   ink: string;
   inkSoft: string;
@@ -62,6 +183,24 @@ export interface NotifyColors {
   brand: string;
   surface: string;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// defaultColors
+// -----------------------------------------------------------
+//
+// The neutral palette both components fall back on when the
+// host passes no `colors`.
+//
+// Used by:
+//   - PermissionGate.tsx / NotifySettingsPanel.tsx — the
+//     default prop value
+// -----------------------------------------------------------
 
 export const defaultColors: NotifyColors = {
   ink: '#111827',

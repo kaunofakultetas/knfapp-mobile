@@ -52,16 +52,37 @@ import type { KitMentionCandidate, KitMessage, KitReply } from '../core/types';
 import { replySnippet } from '../message/ReplyQuote';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// DEFAULT_MAX_LENGTH
+// -----------------------------------------------------------
+//
 // The backend's limit; the counter appears near it. Exported so
 // the host's composer hook clamps pasted/emoji input to the same
-// number instead of keeping its own copy
+// number instead of keeping its own copy.
+//
+// Used by:
+//   - Composer (below) — the field's maxLength and counter
+//   - components/chat/ChatEngineHost.tsx — the same clamp on
+//     the engine side
+// -----------------------------------------------------------
+
 export const DEFAULT_MAX_LENGTH = 5000;
 
 // Field growth bounds (one to five lines)
 const FIELD_MIN = 38;
+// The five-line ceiling — past it the field scrolls inside
 const FIELD_MAX = 118;
+// The send-button morph — snappy and critically damped, so the
+// icon swap never bounces
 const MORPH_SPRING = { damping: 18, stiffness: 320, mass: 0.7, overshootClamping: true };
 
+// One platform read for the whole file — web skips haptics and
+// the native-only focus quirks
 const isWeb = Platform.OS === 'web';
 
 
@@ -189,19 +210,16 @@ function AttachButton({
 
 
 // -----------------------------------------------------------
-// SendSlot
+// foldName
 // -----------------------------------------------------------
 //
-// The morphing button: thumb (quick like) ⇄ brand arrow circle
-// (send). Both live in the slot; the spring cross-fades and
-// scales them so the change never pops.
+// Case- and diacritic-insensitive match key for the mention
+// strip's filtering (mirrors core/linkify's fold).
 //
 // Used by:
-//   - Composer (below)
+//   - Composer (below) — filters the mention candidates
 // -----------------------------------------------------------
 
-// Case- and diacritic-insensitive match key for the mention
-// strip's filtering (mirrors core/linkify's fold)
 const foldName = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
 
@@ -316,6 +334,18 @@ function RecordingRow({ elapsedSeconds, labels, onCancel, onStop }: { elapsedSec
 
 
 
+
+// -----------------------------------------------------------
+// SendSlot
+// -----------------------------------------------------------
+//
+// The morphing button: thumb (quick like) ⇄ brand arrow circle
+// (send). Both live in the slot; the spring cross-fades and
+// scales them so the change never pops.
+//
+// Used by:
+//   - Composer (below)
+// -----------------------------------------------------------
 
 function SendSlot({
   hasText,

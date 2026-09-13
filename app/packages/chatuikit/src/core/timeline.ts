@@ -34,18 +34,81 @@
 import { messageKind, type GroupPosition, type KitMessage, type TimelineItem } from './types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// GROUP_GAP_MS
+// -----------------------------------------------------------
+//
 // Consecutive messages from one sender closer than this form a
-// visual run (Messenger uses about a minute, iMessage longer)
+// visual run (Messenger uses about a minute, iMessage longer).
+//
+// Used by:
+//   - buildTimeline (below) — sameRun's gap test
+//   - the kit's barrel — no host reads it directly today
+// -----------------------------------------------------------
+
 export const GROUP_GAP_MS = 3 * 60_000;
 
-// A silence longer than this earns a centered time stamp
+
+
+
+
+
+
+// -----------------------------------------------------------
+// SEPARATOR_GAP_MS
+// -----------------------------------------------------------
+//
+// A silence longer than this earns a centered time stamp.
+//
+// Used by:
+//   - buildTimeline (below) — the separator rule
+//   - the kit's barrel — no host reads it directly today
+// -----------------------------------------------------------
+
 export const SEPARATOR_GAP_MS = 60 * 60_000;
 
-// Zoneless backend stamps are UTC — same rule as services/format.
-// SQLite space-form stamps ("2026-08-27 10:05:00") are normalized
-// to the T form first so they get the same UTC treatment, and a
-// microsecond fraction is truncated to milliseconds — Hermes does
-// not parse six fractional digits
+
+// Short module-local alias — the hot paths below call it a lot
+// (parseStamp is a hoisted function declaration, so reading it
+// here, above its definition, is safe)
+const parse = parseStamp;
+
+// Parsed epoch ms per message OBJECT — a WeakMap so unloaded
+// messages never pin memory
+const STAMP_CACHE = new WeakMap<KitMessage, number>();
+// The local calendar-day key, cached the same way
+const DAY_KEY_CACHE = new WeakMap<KitMessage, string>();
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// parseStamp
+// -----------------------------------------------------------
+//
+// Zone-safe Date from a backend stamp, or null. Zoneless
+// stamps are UTC — same rule as services/format. SQLite
+// space-form stamps ("2026-08-27 10:05:00") are normalized to
+// the T form first so they get the same UTC treatment, and a
+// microsecond fraction is truncated to milliseconds — Hermes
+// does not parse six fractional digits.
+//
+// Used by:
+//   - dayKey / messageStamp (below)
+//   - services/format.ts — the app-wide stamp rule
+//   - app/(main)/tabs/messages.tsx — conversation row times
+// -----------------------------------------------------------
+
+// An explicit zone suffix (Z or ±HH:MM) — such stamps are
+// trusted as-is; only zoneless ones get the appended Z
 const HAS_ZONE_RE = /(Z|[+-]\d{2}:?\d{2})$/i;
 export function parseStamp(iso: string): Date | null {
   const t = iso.includes('T') ? iso : iso.replace(' ', 'T');
@@ -53,14 +116,27 @@ export function parseStamp(iso: string): Date | null {
   const date = new Date(zoned.replace(/(\.\d{3})\d+/, '$1'));
   return Number.isNaN(date.getTime()) ? null : date;
 }
-const parse = parseStamp;
 
-// buildTimeline touches every stamp ~16 times per rebuild, and it
-// rebuilds on every socket event — the parsed time and local day
-// key are cached per message OBJECT (a replaced object re-parses,
-// which is exactly when it should)
-const STAMP_CACHE = new WeakMap<KitMessage, number>();
-const DAY_KEY_CACHE = new WeakMap<KitMessage, string>();
+
+
+
+
+
+
+// -----------------------------------------------------------
+// messageStamp
+// -----------------------------------------------------------
+//
+// A message's parsed epoch time. buildTimeline touches every
+// stamp ~16 times per rebuild, and it rebuilds on every socket
+// event — the parsed time and local day key (messageDayKey,
+// its private twin below) are cached per message OBJECT (a
+// replaced object re-parses, which is exactly when it should).
+//
+// Used by:
+//   - buildTimeline (below)
+//   - list/MessageList.tsx — the entering-animation baseline
+// -----------------------------------------------------------
 
 export function messageStamp(message: KitMessage): number {
   let value = STAMP_CACHE.get(message);
@@ -71,6 +147,23 @@ export function messageStamp(message: KitMessage): number {
   return value;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// messageDayKey
+// -----------------------------------------------------------
+//
+// messageStamp's private twin: the message's local calendar
+// day, cached per message object the same way.
+//
+// Used by:
+//   - buildTimeline (below) — the separator's day-change test
+// -----------------------------------------------------------
+
 function messageDayKey(message: KitMessage): string {
   let value = DAY_KEY_CACHE.get(message);
   if (value === undefined) {
@@ -80,8 +173,43 @@ function messageDayKey(message: KitMessage): string {
   return value;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// localDayKey
+// -----------------------------------------------------------
+//
+// Day identity in the DEVICE zone — never the ISO date slice,
+// which would bucket by UTC and split evenings into two days.
+//
+// Used by:
+//   - dayKey / dayLabel (below)
+// -----------------------------------------------------------
+
 const localDayKey = (date: Date) => `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// TimelineLabels
+// -----------------------------------------------------------
+//
+// The two special day names and the locale the timeline
+// formats with — the slice of the host's labels the pure
+// helpers need.
+//
+// Used by:
+//   - dayLabel / buildTimeline / floatingDayFor (below)
+//   - hooks/useTimeline.ts — threads the host's object through
+// -----------------------------------------------------------
 
 export interface TimelineLabels {
   today: string;
@@ -183,6 +311,31 @@ function timeLabel(iso: string, locale: string): string {
 
 
 // -----------------------------------------------------------
+// TimelineOptions
+// -----------------------------------------------------------
+//
+// buildTimeline's optional knobs — where the "new messages"
+// line goes and the count it shows.
+//
+// Used by:
+//   - buildTimeline (below)
+//   - hooks/useTimeline.ts — built from its fixed unread marker
+// -----------------------------------------------------------
+
+export interface TimelineOptions {
+  // The first unread message (oldest of the unread stretch) —
+  // the "new messages" line is placed right above it
+  unreadFromId?: string | null;
+  unreadCount?: number;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // buildTimeline
 // -----------------------------------------------------------
 //
@@ -196,14 +349,8 @@ function timeLabel(iso: string, locale: string): string {
 //
 // Used by:
 //   - app/(main)/chat-room/index.tsx — feeds MessageList
+//   - hooks/useTimeline.ts — the live wrapper
 // -----------------------------------------------------------
-
-export interface TimelineOptions {
-  // The first unread message (oldest of the unread stretch) —
-  // the "new messages" line is placed right above it
-  unreadFromId?: string | null;
-  unreadCount?: number;
-}
 
 export function buildTimeline(
   messages: KitMessage[],
@@ -278,6 +425,11 @@ export function buildTimeline(
 
   return items;
 }
+
+
+
+
+
 
 
 // -----------------------------------------------------------

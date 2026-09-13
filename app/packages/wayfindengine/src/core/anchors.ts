@@ -36,6 +36,22 @@ import type { GraphIndex } from './graph';
 import type { GraphNode, NodeKind } from './types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// Anchor
+// -----------------------------------------------------------
+//
+// What a printed code names: a corridor node, or a room.
+//
+// Used by:
+//   - parseAnchor / formatAnchor / resolveAnchor (below)
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export type Anchor = { kind: 'node'; nodeId: string } | { kind: 'room'; roomId: string };
 
 

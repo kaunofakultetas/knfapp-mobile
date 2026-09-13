@@ -67,14 +67,14 @@ export function normaliseDocument<G extends GraphLike>(doc: G): G {
 
 
 // -----------------------------------------------------------
-// getEntity / buildingFields / entityId
+// entityId
 // -----------------------------------------------------------
 //
-// Lookups by kind and id (an edge by its stamped id), and the
-// building's editable fields as one object.
+// The id an entity is addressed by (an edge by its stamped
+// id); '' when it has none yet.
 //
 // Used by:
-//   - core/edits.ts, hooks/useEditor.ts
+//   - getEntity, applyChanges (below)
 // -----------------------------------------------------------
 
 export function entityId(entity: Entity): string {
@@ -82,11 +82,44 @@ export function entityId(entity: Entity): string {
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// getEntity
+// -----------------------------------------------------------
+//
+// Lookup by kind and id (an edge by its stamped id); null when
+// nothing holds that id.
+//
+// Used by:
+//   - core/edits.ts — every verb's existence checks
+//   - hooks/useEditor.ts — the shown-level fallback on replace
+// -----------------------------------------------------------
+
 export function getEntity<G extends GraphLike, K extends EntityKind>(doc: G, kind: K, id: string): EntityOf<K> | null {
   const list = doc[COLLECTION[kind]] as Entity[];
   return (list.find((entity) => entityId(entity) === id) as EntityOf<K> | undefined) ?? null;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// buildingFields
+// -----------------------------------------------------------
+//
+// The building's editable fields as one object.
+//
+// Used by:
+//   - core/edits.ts — deleteNode's entrance cascade, setBuilding
+//   - hooks/useEditor.ts — re-exported on the public surface
+// -----------------------------------------------------------
 
 export function buildingFields(doc: GraphLike): BuildingFields {
   return { entranceNodeId: doc.entranceNodeId ?? null, northDeg: doc.northDeg ?? null };

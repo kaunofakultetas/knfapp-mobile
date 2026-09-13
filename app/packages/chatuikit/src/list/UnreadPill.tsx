@@ -20,6 +20,20 @@ import { useReducedMotionSafe } from '../hooks/a11y';
 import { useKitLabels, useKitTheme } from '../provider';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// UnreadPill (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - list/MessageList.tsx — the default slot; hosts may
+//     replace it through the provider's `components`
+// -----------------------------------------------------------
+
 export default function UnreadPill({
   label,
   onPress,

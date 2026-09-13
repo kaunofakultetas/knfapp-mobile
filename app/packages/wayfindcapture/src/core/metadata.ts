@@ -43,7 +43,42 @@
 // -----------------------------------------------------------
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// PanoMetadataKind
+// -----------------------------------------------------------
+//
+// What the file turned out to be: a full sphere, a declared
+// partial pano, a bare wide sweep, or a plain photo.
+//
+// Used by:
+//   - PanoMetadata (below) — the kind field
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export type PanoMetadataKind = 'sphere' | 'partial' | 'sweep' | 'photo';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// PanoMetadataGeometry
+// -----------------------------------------------------------
+//
+// The viewer-ready coverage read off the GPano crop — the
+// same field meanings as the engine's PanoGeometry.
+//
+// Used by:
+//   - PanoMetadata (below), readCrop (below)
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
 
 export interface PanoMetadataGeometry {
   hfovDeg: number;
@@ -51,6 +86,25 @@ export interface PanoMetadataGeometry {
   centreYawDeg: number;
   vOffsetDeg: number;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// PanoMetadata
+// -----------------------------------------------------------
+//
+// parsePanoMetadata's whole answer — dimensions, projection,
+// heading, geometry and the derived kind.
+//
+// Used by:
+//   - parsePanoMetadata (below) — the return shape
+//   - src/index.ts — the public surface; the map-editor's
+//     import flow reads it
+// -----------------------------------------------------------
 
 export interface PanoMetadata {
   width: number;
@@ -73,6 +127,8 @@ const XMP_HEADER = 'http://ns.adobe.com/xap/1.0/\u0000';
 // sweep, and within this fraction of the exact 2:1 equirect
 // aspect as a full sphere
 const SWEEP_MIN_ASPECT = 2.5;
+
+// …and this close to exactly 2:1 counts as the full sphere
 const SPHERE_ASPECT_TOLERANCE = 0.02;
 
 // A full sphere's geometry is always the whole ball — the
@@ -83,10 +139,20 @@ const SPHERE_GEOMETRY: PanoMetadataGeometry = { hfovDeg: 360, vfovDeg: 180, cent
 // The GPano rectangle: full canvas, crop size, crop offset —
 // every field a number, all six read before any geometry
 const FIELD_FULL_W = 'FullPanoWidthPixels';
+
+// The full canvas's height, in the same rectangle
 const FIELD_FULL_H = 'FullPanoHeightPixels';
+
+// The crop's own pixel width…
 const FIELD_CROP_W = 'CroppedAreaImageWidthPixels';
+
+// …and height
 const FIELD_CROP_H = 'CroppedAreaImageHeightPixels';
+
+// Where the crop sits on the full canvas: from the left…
 const FIELD_CROP_LEFT = 'CroppedAreaLeftPixels';
+
+// …and from the top
 const FIELD_CROP_TOP = 'CroppedAreaTopPixels';
 
 
@@ -246,7 +312,7 @@ function scanJpeg(bytes: Uint8Array): { width: number; height: number; xmp: stri
 
 
 // -----------------------------------------------------------
-// readCrop — the GPano rectangle as viewer geometry
+// readCrop
 // -----------------------------------------------------------
 //
 // Answers geometry ONLY for a genuine crop: all six rectangle
@@ -295,7 +361,7 @@ function readCrop(xmp: string): PanoMetadataGeometry | null {
 
 
 // -----------------------------------------------------------
-// panoPrefix — the prefix the packet binds to the vocabulary
+// panoPrefix
 // -----------------------------------------------------------
 //
 // An XML namespace prefix is the writer's free choice: the
@@ -326,23 +392,23 @@ function panoPrefix(xmp: string): string {
 
 
 // -----------------------------------------------------------
-// gpanoText / gpanoNumber — one field, either XMP shape
+// gpanoText
 // -----------------------------------------------------------
 //
-// The prefix comes from panoPrefix; 'GPano' below stands for
-// whatever the packet bound. The attribute shape
-// (GPano:Name="value" on rdf:Description) is tried first — it
-// is what most stitchers write — then the element shape
-// (<GPano:Name>value</GPano:Name>, attributes on the opening
-// tag tolerated, the close tag required to repeat the same
-// prefix). Values are trimmed; a number must parse finite or
-// the field counts as absent, so one mangled digit cannot
-// poison the geometry. The field names fed in are this
-// module's own constants and the prefix is escaped — nothing
-// user-supplied reaches the RegExp constructor unescaped.
+// One field, either XMP shape. The prefix comes from
+// panoPrefix; 'GPano' below stands for whatever the packet
+// bound. The attribute shape (GPano:Name="value" on
+// rdf:Description) is tried first — it is what most stitchers
+// write — then the element shape (<GPano:Name>value</GPano:Name>,
+// attributes on the opening tag tolerated, the close tag
+// required to repeat the same prefix). Values are trimmed. The
+// field names fed in are this module's own constants and the
+// prefix is escaped — nothing user-supplied reaches the RegExp
+// constructor unescaped.
 //
 // Used by:
-//   - parsePanoMetadata, readCrop (above)
+//   - parsePanoMetadata (above)
+//   - gpanoNumber (below)
 // -----------------------------------------------------------
 
 function gpanoText(xmp: string, field: string): string | null {
@@ -358,6 +424,23 @@ function gpanoText(xmp: string, field: string): string | null {
   return null;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// gpanoNumber
+// -----------------------------------------------------------
+//
+// gpanoText, parsed: the value must parse finite or the field
+// counts as absent, so one mangled digit cannot poison the
+// geometry.
+//
+// Used by:
+//   - parsePanoMetadata, readCrop (above)
+// -----------------------------------------------------------
 
 function gpanoNumber(xmp: string, field: string): number | null {
 
@@ -375,7 +458,7 @@ function gpanoNumber(xmp: string, field: string): number | null {
 
 
 // -----------------------------------------------------------
-// sniffForeignDimensions — PNG and WebP, best-effort
+// sniffForeignDimensions
 // -----------------------------------------------------------
 //
 // Neither container carries the pano vocabulary the import
@@ -431,7 +514,7 @@ function sniffForeignDimensions(bytes: Uint8Array): { width: number; height: num
 
 
 // -----------------------------------------------------------
-// byte helpers
+// latin1
 // -----------------------------------------------------------
 //
 // The chunked fromCharCode keeps the latin1 decode inside the
@@ -441,7 +524,7 @@ function sniffForeignDimensions(bytes: Uint8Array): { width: number; height: num
 // ASCII exactly and any UTF-8 multibyte noise stays inert.
 //
 // Used by:
-//   - scanJpeg, sniffForeignDimensions (above)
+//   - scanJpeg (above) — decoding the XMP packet
 // -----------------------------------------------------------
 
 function latin1(bytes: Uint8Array, start: number, end: number): string {
@@ -454,6 +537,22 @@ function latin1(bytes: Uint8Array, start: number, end: number): string {
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// matchesAscii
+// -----------------------------------------------------------
+//
+// Byte-for-byte ASCII comparison bounded by `end` — never
+// reads past the segment or the buffer.
+//
+// Used by:
+//   - scanJpeg, sniffForeignDimensions (above)
+// -----------------------------------------------------------
+
 function matchesAscii(bytes: Uint8Array, at: number, end: number, text: string): boolean {
 
   if (at + text.length > end || at + text.length > bytes.length) return false;
@@ -464,20 +563,80 @@ function matchesAscii(bytes: Uint8Array, at: number, end: number, text: string):
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// u32be
+// -----------------------------------------------------------
+//
+// Big-endian u32 — PNG's IHDR dimensions.
+//
+// Used by:
+//   - sniffForeignDimensions (above)
+// -----------------------------------------------------------
+
 function u32be(bytes: Uint8Array, at: number): number {
   return ((bytes[at] << 24) | (bytes[at + 1] << 16) | (bytes[at + 2] << 8) | bytes[at + 3]) >>> 0;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// u32le
+// -----------------------------------------------------------
+//
+// Little-endian u32 — the VP8L size bits.
+//
+// Used by:
+//   - sniffForeignDimensions (above)
+// -----------------------------------------------------------
 
 function u32le(bytes: Uint8Array, at: number): number {
   return ((bytes[at + 3] << 24) | (bytes[at + 2] << 16) | (bytes[at + 1] << 8) | bytes[at]) >>> 0;
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// u24le
+// -----------------------------------------------------------
+//
+// Little-endian u24 — the VP8X canvas sizes.
+//
+// Used by:
+//   - sniffForeignDimensions (above)
+// -----------------------------------------------------------
+
 function u24le(bytes: Uint8Array, at: number): number {
   return (bytes[at + 2] << 16) | (bytes[at + 1] << 8) | bytes[at];
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// u16le
+// -----------------------------------------------------------
+//
+// Little-endian u16 — the VP8 lossy frame sizes.
+//
+// Used by:
+//   - sniffForeignDimensions (above)
+// -----------------------------------------------------------
 
 function u16le(bytes: Uint8Array, at: number): number {
   return (bytes[at + 1] << 8) | bytes[at];

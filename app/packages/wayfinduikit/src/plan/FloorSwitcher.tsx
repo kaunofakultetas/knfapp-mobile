@@ -27,6 +27,20 @@ import type { KitLevel } from '../core/types';
 import { useKitLabels, useKitTheme } from '../provider';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// FloorSwitcher (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - app/(main)/tabs/map.tsx — beside the plan
+//   - app/(main)/map-editor — the editor's floor rail
+// -----------------------------------------------------------
+
 export default function FloorSwitcher({
   levels,
   current,

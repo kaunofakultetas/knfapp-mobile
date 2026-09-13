@@ -23,6 +23,19 @@ const PILL_HEIGHT = Math.round(22 * Math.min(1.6, Math.max(1, PixelRatio.getFont
 import type { KitReaction } from '../core/types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// ReactionPills (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - message/MessageBubble.tsx — under the bubble
+// -----------------------------------------------------------
+
 export default function ReactionPills({
   reactions,
   own,

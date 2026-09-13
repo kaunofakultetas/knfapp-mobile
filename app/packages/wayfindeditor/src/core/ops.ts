@@ -21,6 +21,25 @@
 import type { Change, EntityKind } from './types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// ServerOp
+// -----------------------------------------------------------
+//
+// One wire operation the server applies — id from the caller
+// so a replayed batch applies once; field comments carry the
+// fresh contract.
+//
+// Used by:
+//   - changesToOps (below) — the output row
+//   - hooks/useEditor.ts — onCommit hands these to the host
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export interface ServerOp {
   id: string;
   type: 'upsert' | 'delete' | 'building';
@@ -33,8 +52,45 @@ export interface ServerOp {
   fresh?: boolean;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// revisionKey
+// -----------------------------------------------------------
+//
+// The key an entity's known revision is stored under in the
+// revisions map — "kind:id".
+//
+// Used by:
+//   - changesToOps (below)
+//   - hooks/useEditor.ts — acknowledge files revisions under it
+// -----------------------------------------------------------
+
 export const revisionKey = (kind: EntityKind, id: string): string => `${kind}:${id}`;
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// changesToOps
+// -----------------------------------------------------------
+//
+// One op per change, in order: upsert with the entity's data
+// (id stripped), delete, or a building patch — each stamped
+// with the baseRevision found under revisionKey, and marked
+// fresh when created here with no revision known.
+//
+// Used by:
+//   - hooks/useEditor.ts — building each commit's ops
+//   - app/(main)/map-editor — seeding ops for a new building
+// -----------------------------------------------------------
 
 export function changesToOps(changes: readonly Change[], revisions: Readonly<Record<string, number>>, nextId: () => string): ServerOp[] {
 

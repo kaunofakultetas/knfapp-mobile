@@ -77,6 +77,8 @@ const AWAY_OFFSET = 240;
 // Deep targets climb the measured frontier a page at a time
 const MAX_INDEX_RETRIES = 12;
 
+// One platform read for the whole file — the web list keeps
+// its own bottom-pinning and outline mechanics
 const isWeb = Platform.OS === 'web';
 
 // Hoisted so the windowed cells never re-render over a fresh
@@ -86,15 +88,63 @@ const CONTENT_STYLE_NATIVE: ViewStyle = { paddingHorizontal: LIST_INSET, padding
 // way the inverted native list does by itself
 const CONTENT_STYLE_WEB: ViewStyle = { ...CONTENT_STYLE_NATIVE, flexGrow: 1, justifyContent: 'flex-end' };
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// keyExtractor
+// -----------------------------------------------------------
+//
 // An own row keeps the key it was born with across the
-// temp → server swap, so the bubble never remounts. Exported
-// for __tests__/chatuikitComponents.test.tsx.
+// temp → server swap, so the bubble never remounts.
+//
+// Used by:
+//   - MessageList (below) — the windowed list's keys
+//   - __tests__/components.test.tsx — the key-stability spec
+//     (the reason it is exported)
+// -----------------------------------------------------------
+
 export const keyExtractor = (row: TimelineItem) => (row.type === 'message' ? row.message.clientId ?? row.key : row.key);
 
-// Row identity, not server id — same rule as keyExtractor
+
+
+
+
+
+
+// -----------------------------------------------------------
+// rowId
+// -----------------------------------------------------------
+//
+// Row identity, not server id — same rule as keyExtractor.
+//
+// Used by:
+//   - MessageList (below) — anchoring and highlight tracking
+// -----------------------------------------------------------
+
 const rowId = (message: KitMessage) => message.clientId ?? message.id;
 
-// The provider-less empty state: one centred caption on the canvas
+
+
+
+
+
+
+// -----------------------------------------------------------
+// DefaultEmptyState
+// -----------------------------------------------------------
+//
+// The provider-less empty state: one centred caption on the
+// canvas.
+//
+// Used by:
+//   - MessageList (below) — when the host brings no EmptyState
+//     slot
+// -----------------------------------------------------------
+
 function DefaultEmptyState({ label }: { label: string }) {
   const { colors, text } = useKitTheme();
   return (
@@ -105,11 +155,46 @@ function DefaultEmptyState({ label }: { label: string }) {
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// TypingInfo
+// -----------------------------------------------------------
+//
+// What the typing bubble shows: the a11y label, and the
+// typer's name/portrait for group rooms.
+//
+// Used by:
+//   - MessageList (below) — the `typing` prop
+// -----------------------------------------------------------
+
 export interface TypingInfo {
   label: string;
   name?: string;
   avatarUrl?: string;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// MessageListHandle
+// -----------------------------------------------------------
+//
+// The imperative surface a host reaches through the list's
+// ref.
+//
+// Used by:
+//   - MessageList (below) — useImperativeHandle
+//   - hooks/useJumpToMessage.ts — scrollToMessage
+//   - app/(main)/chat-room/index.tsx — the host's ref
+// -----------------------------------------------------------
 
 export interface MessageListHandle {
   // Scrolls the row with this id into the middle; false when
@@ -222,6 +307,8 @@ function NewerMessagesRow({ loading, labels, onPress }: { loading: boolean; labe
 //   - app/(main)/chat-room/index.tsx — the chat room screen
 // -----------------------------------------------------------
 
+// memo over the forwardRef: the host re-renders per keystroke,
+// the windowed list only when its own props change
 const MessageList = memo(forwardRef<
   MessageListHandle,
   {

@@ -18,7 +18,21 @@
 import type { TimetableEntry } from './types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// listTeachers
+// -----------------------------------------------------------
+//
 // Sorted unique teacher names across every entry
+//
+// Used by:
+//   - app/(main)/tabs/schedule.tsx — the teacher picker's list
+// -----------------------------------------------------------
+
 export function listTeachers(entries: readonly TimetableEntry[]): string[] {
   const names = new Set<string>();
   for (const entry of entries) for (const name of entry.people ?? []) names.add(name);
@@ -26,22 +40,64 @@ export function listTeachers(entries: readonly TimetableEntry[]): string[] {
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// forGroup
+// -----------------------------------------------------------
+//
 // The student view: one group's entries
+//
+// Used by:
+//   - app/(main)/tabs/schedule.tsx — the group perspective
+// -----------------------------------------------------------
+
 export function forGroup<T = object>(entries: readonly TimetableEntry<T>[], groupKey: string): TimetableEntry<T>[] {
   return entries.filter((entry) => entry.groupKey === groupKey);
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// naturalKey
+// -----------------------------------------------------------
+//
 // Natural identity minus the group — what collapses across
 // parallel groups in the teacher view. The term stays IN the
 // key: the same weekly slot in two semesters is two lessons,
-// never one card claiming both terms' groups at once
+// never one card claiming both terms' groups at once.
+//
+// Used by:
+//   - forTeacher (below) — the merge key
+// -----------------------------------------------------------
+
 const naturalKey = (entry: TimetableEntry) =>
   [entry.termKey ?? '', entry.title, entry.day, entry.startMin, entry.endMin, (entry.people ?? []).join('|'), (entry.location ?? []).join('|')].join('~');
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// forTeacher
+// -----------------------------------------------------------
+//
 // The teacher view: their lessons, deduped across groups, each
 // merged card listing every group it serves
+//
+// Used by:
+//   - app/(main)/tabs/schedule.tsx — the teacher perspective
+// -----------------------------------------------------------
+
 export function forTeacher<T = object>(entries: readonly TimetableEntry<T>[], name: string): TimetableEntry<T>[] {
   const mine = entries.filter((entry) => (entry.people ?? []).includes(name));
   const byKey = new Map<string, TimetableEntry<T>>();

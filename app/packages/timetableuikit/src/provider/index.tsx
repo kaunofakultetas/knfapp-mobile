@@ -23,6 +23,40 @@ import { defaultLabels, type TimetableLabels } from './labels';
 import { defaultTheme, resolveTheme, type TimetableResolvedTheme, type TimetableTheme } from './theme';
 
 
+// What the hooks answer with NO provider mounted — neutral
+// theme, English labels, plain H:mm times. Reads
+// fallbackFormatTime below at module init, which is a hoisted
+// function declaration for exactly that reason
+const defaultEnv: TimetableEnv = {
+  theme: resolveTheme(defaultTheme),
+  labels: defaultLabels.en,
+  locale: 'en',
+  formatTime: fallbackFormatTime,
+};
+
+// Defaulted, never null — provider-less reads are supported
+// by design (tests, demos)
+const TimetableContext = createContext<TimetableEnv>(defaultEnv);
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// TimetableEnv
+// -----------------------------------------------------------
+//
+// What the context carries — everything a kit component needs
+// from its host.
+//
+// Used by:
+//   - TimetableProvider and the hooks (below)
+//   - WeekGrid / DayTimeline / HourAxis / LessonCell / NowLine
+//     — through useTimetableEnv
+// -----------------------------------------------------------
+
 export interface TimetableEnv {
   theme: TimetableResolvedTheme;
   labels: TimetableLabels;
@@ -33,20 +67,28 @@ export interface TimetableEnv {
 }
 
 
-// 545 → "9:05" — the provider-less fallback
-const fallbackFormatTime = (minutes: number): string => {
+
+
+
+
+
+// -----------------------------------------------------------
+// fallbackFormatTime
+// -----------------------------------------------------------
+//
+// 545 → "9:05" — the provider-less fallback. A hoisted
+// `function` declaration ON PURPOSE: defaultEnv at the top of
+// the file reads it at module evaluation, and a const arrow
+// there would throw before the module finished loading.
+//
+// Used by:
+//   - defaultEnv (above)
+// -----------------------------------------------------------
+
+function fallbackFormatTime(minutes: number): string {
   const clamped = Math.max(0, Math.min(24 * 60, Math.floor(minutes)));
   return `${Math.floor(clamped / 60)}:${String(clamped % 60).padStart(2, '0')}`;
-};
-
-const defaultEnv: TimetableEnv = {
-  theme: resolveTheme(defaultTheme),
-  labels: defaultLabels.en,
-  locale: 'en',
-  formatTime: fallbackFormatTime,
-};
-
-const TimetableContext = createContext<TimetableEnv>(defaultEnv);
+}
 
 
 
@@ -109,20 +151,50 @@ export function TimetableProvider({
 
 
 // -----------------------------------------------------------
-// useTimetableTheme / useTimetableLabels / useTimetableEnv
+// useTimetableTheme
 // -----------------------------------------------------------
 //
 // Used by:
-//   - every kit component
+//   - every kit component that paints — cells, chrome, grids
 // -----------------------------------------------------------
 
 export function useTimetableTheme(): TimetableResolvedTheme {
   return useContext(TimetableContext).theme;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// useTimetableLabels
+// -----------------------------------------------------------
+//
+// Used by:
+//   - every kit component that speaks — chrome copy and
+//     accessibility labels
+// -----------------------------------------------------------
+
 export function useTimetableLabels(): TimetableLabels {
   return useContext(TimetableContext).labels;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// useTimetableEnv
+// -----------------------------------------------------------
+//
+// Used by:
+//   - components needing the locale or formatTime alongside
+//     the theme — HourAxis, LessonCell, NowLine, the grids
+// -----------------------------------------------------------
 
 export function useTimetableEnv(): TimetableEnv {
   return useContext(TimetableContext);

@@ -38,6 +38,25 @@ interface CacheEntry<T> {
   cachedAt: number;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// CacheHandle
+// -----------------------------------------------------------
+//
+// The surface one cache instance exposes — reads that never
+// throw, the logout wipe, and the epoch fence around it.
+//
+// Used by:
+//   - createCache (below) — the return shape
+//   - provider/index.tsx — the env's `cache` field
+//   - hooks/useFeed.ts — via the env's `cache`
+// -----------------------------------------------------------
+
 export interface CacheHandle {
   // Write one value; failures are swallowed (the cache is optional)
   set<T>(key: string, data: T): Promise<void>;

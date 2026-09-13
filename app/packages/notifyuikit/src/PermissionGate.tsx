@@ -21,6 +21,22 @@ import { useStoreValue } from './hooks/useStoreValue';
 import { defaultColors, type NotifyColors, type NotifyEngineLike } from './core/types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// PermissionGateLabels
+// -----------------------------------------------------------
+//
+// Every string the gate's three cards can render — the host
+// owns the language.
+//
+// Used by:
+//   - PermissionGate (below) — the `labels` prop
+// -----------------------------------------------------------
+
 export interface PermissionGateLabels {
   promptTitle: string;
   promptBody: string;
@@ -30,6 +46,20 @@ export interface PermissionGateLabels {
   blockedButton: string;
   unsupportedBody: string;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// PermissionGate (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - the host's settings screen (app/(main)/tabs/settings.tsx)
+// -----------------------------------------------------------
 
 export default function PermissionGate({
   engine,

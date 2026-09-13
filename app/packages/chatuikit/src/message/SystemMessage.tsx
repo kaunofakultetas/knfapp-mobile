@@ -18,6 +18,20 @@ import { useKitTheme } from '../provider';
 import type { KitMessage } from '../core/types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// SystemMessage (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - list/MessageList.tsx — the default slot; hosts may
+//     replace it through the provider's `components`
+// -----------------------------------------------------------
+
 export default function SystemMessage({ message }: { message: KitMessage }) {
 
   const { colors, text } = useKitTheme();

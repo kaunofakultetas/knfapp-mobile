@@ -18,6 +18,20 @@ import { compareEntries } from './layout';
 import type { NowState, TimetableEntry } from './types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// nowState
+// -----------------------------------------------------------
+//
+// Used by:
+//   - nothing calls this at the moment — re-exported through
+//     the public surface
+// -----------------------------------------------------------
+
 export function nowState<T = object>(dayEntries: readonly TimetableEntry<T>[], nowMin: number): NowState<T> {
   const lessons = dayEntries.filter((entry) => !entry.isBlock).slice().sort(compareEntries);
 

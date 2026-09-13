@@ -18,12 +18,46 @@
 
 import type { NormalizeResult, TimetableEntry } from './types';
 
+// The one accepted time shape: zero-padded ASCII "HH:MM"
 const TIME_RE = /^([01][0-9]|2[0-3]):([0-5][0-9])$/;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// DAY_MINUTES
+// -----------------------------------------------------------
+//
+// The end-of-day ceiling an entry's endMin may not pass.
+//
+// Used by:
+//   - normalizeEntries (below); re-exported through the
+//     public surface
+// -----------------------------------------------------------
+
 export const DAY_MINUTES = 24 * 60;
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// parseTimeToMinutes
+// -----------------------------------------------------------
+//
 // "HH:MM" → minutes since midnight, or null when the shape is
 // anything but the zero-padded 24h clock
+//
+// Used by:
+//   - nothing calls this at the moment — re-exported for hosts
+//     parsing raw times themselves
+// -----------------------------------------------------------
+
 export function parseTimeToMinutes(value: string | null | undefined): number | null {
   if (typeof value !== 'string') return null;
   const match = TIME_RE.exec(value.trim());
@@ -32,8 +66,23 @@ export function parseTimeToMinutes(value: string | null | undefined): number | n
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// normalizeEntries
+// -----------------------------------------------------------
+//
 // Keeps every entry that holds together; drops the rest and
 // counts them. Never throws, never mutates the input rows
+//
+// Used by:
+//   - adapters/knf — normalizeKnf feeds mapped rows through
+//     this gate
+// -----------------------------------------------------------
+
 export function normalizeEntries<T = object>(rows: readonly (TimetableEntry<T> | null | undefined)[]): NormalizeResult<T> {
   const entries: TimetableEntry<T>[] = [];
   let skipped = 0;

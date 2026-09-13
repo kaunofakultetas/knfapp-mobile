@@ -17,16 +17,64 @@
 // -----------------------------------------------------------
 
 
-// text | image | video | file | system. Absent on the wire means
-// "text, or image when imageUrl is set"
-// 'custom' carries a host-defined payload (`custom`) that the UI
+
+
+
+
+
+// -----------------------------------------------------------
+// ChatMessageKind
+// -----------------------------------------------------------
+//
+// text | image | video | file | system. Absent on the wire
+// means "text, or image when imageUrl is set". 'custom'
+// carries a host-defined payload (`custom`) that the UI
 // renders through its own slot; any other kind a newer backend
-// invents reaches the UI unchanged and renders as unsupported
+// invents reaches the UI unchanged and renders as unsupported.
+//
+// Used by:
+//   - ChatMessage / ChatReplyRef (below) — the `kind` field
+//   - adapters/knf/wire.ts — ApiMessageKind mirrors it
+// -----------------------------------------------------------
+
 export type ChatMessageKind = 'text' | 'image' | 'video' | 'file' | 'audio' | 'system' | 'custom';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ChatMessageStatus
+// -----------------------------------------------------------
+//
+// One own message's delivery ladder, as the bubble shows it.
+//
+// Used by:
+//   - ChatMessage (below) — the `status` field
+//   - index.ts — on the package surface for hosts typing UI
+// -----------------------------------------------------------
 
 export type ChatMessageStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
 
-// A document attachment (kind 'file')
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ChatFile
+// -----------------------------------------------------------
+//
+// A document attachment (kind 'file').
+//
+// Used by:
+//   - ChatMessage (below) — the `file` field
+//   - index.ts — on the package surface for hosts typing UI
+// -----------------------------------------------------------
+
 export interface ChatFile {
   name: string;
   uri: string;
@@ -34,9 +82,25 @@ export interface ChatFile {
   mimeType?: string;
 }
 
-// A video attachment (kind 'video'): the stored clip, its poster
-// (an uploaded frame), the local poster while an own send is
-// still uploading, and the duration in seconds
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ChatVideo
+// -----------------------------------------------------------
+//
+// A video attachment (kind 'video'): the stored clip, its
+// poster (an uploaded frame), the local poster while an own
+// send is still uploading, and the duration in seconds.
+//
+// Used by:
+//   - ChatMessage (below) — the `video` field
+//   - index.ts — on the package surface for hosts typing UI
+// -----------------------------------------------------------
+
 export interface ChatVideo {
   uri: string;
   thumbnailUri?: string;
@@ -47,8 +111,24 @@ export interface ChatVideo {
   name?: string;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ChatAudio
+// -----------------------------------------------------------
+//
 // A voice note (kind 'audio'): the stored clip and its length.
-// The uri is local on an optimistic row still uploading
+// The uri is local on an optimistic row still uploading.
+//
+// Used by:
+//   - ChatMessage (below) — the `audio` field; unlike its
+//     siblings it is not re-exported by index.ts at the moment
+// -----------------------------------------------------------
+
 export interface ChatAudio {
   uri: string;
   duration?: number;
@@ -59,10 +139,26 @@ export interface ChatAudio {
   waveform?: number[] | null;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ChatLinkPreview
+// -----------------------------------------------------------
+//
 // The card of the first URL in a message's text, unfurled by
-// the backend after the send (never by the client — a link must
-// not beacon every reader to a stranger's host). imageUrl is a
-// stored reference like any photo
+// the backend after the send (never by the client — a link
+// must not beacon every reader to a stranger's host). imageUrl
+// is a stored reference like any photo.
+//
+// Used by:
+//   - ChatMessage (below) — the `linkPreview` field
+//   - index.ts — on the package surface for hosts typing UI
+// -----------------------------------------------------------
+
 export interface ChatLinkPreview {
   url: string;
   title: string;
@@ -71,6 +167,23 @@ export interface ChatLinkPreview {
   imageUrl?: string | null;
   imagePreview?: string | null;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ChatReaction
+// -----------------------------------------------------------
+//
+// One emoji group on a row, viewer-relative.
+//
+// Used by:
+//   - ChatMessage (below) — the `reactions` list
+//   - core/reducers.ts — recomputes bySelf on every ingest
+// -----------------------------------------------------------
 
 export interface ChatReaction {
   emoji: string;
@@ -81,9 +194,26 @@ export interface ChatReaction {
   byUserIds: string[];
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ChatReplyRef
+// -----------------------------------------------------------
+//
 // The quoted message inside a reply — a snapshot the backend
 // joins in, not a live reference. `deleted` is true when the
-// quoted message was since unsent; text/image are blank then
+// quoted message was since unsent; text/image are blank then.
+//
+// Used by:
+//   - ChatMessage (below) — the `replyTo` field
+//   - core/reducers.ts / adapters/knf/wire.ts — mapping both
+//     ways
+// -----------------------------------------------------------
+
 export interface ChatReplyRef {
   id: string;
   senderId: string;
@@ -94,6 +224,25 @@ export interface ChatReplyRef {
   kind?: ChatMessageKind;
   fileName?: string;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ChatMessage
+// -----------------------------------------------------------
+//
+// One row of a conversation — THE shape of the engine: every
+// hook reads and writes it, every adapter produces it, and a
+// structurally compatible UI renders it unchanged.
+//
+// Used by:
+//   - core/reducers.ts / outbox.ts / transport.ts — everywhere
+//   - every hook, both testing doubles, the knf adapter
+// -----------------------------------------------------------
 
 export interface ChatMessage {
   id: string;
@@ -154,7 +303,23 @@ export interface ChatMessage {
   uploadProgress?: number;
 }
 
-// One photo of a multi-photo message
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ChatGalleryItem
+// -----------------------------------------------------------
+//
+// One photo of a multi-photo message.
+//
+// Used by:
+//   - ChatMessage (above) — the `gallery` list
+//   - core/transport.ts — OutgoingMessage's gallery
+// -----------------------------------------------------------
+
 export interface ChatGalleryItem {
   url: string;
   width?: number | null;
@@ -163,23 +328,73 @@ export interface ChatGalleryItem {
   preview?: string | null;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ChatUser
+// -----------------------------------------------------------
+//
 // The signed-in user as the engine needs them: for optimistic
-// rows, echo dedupe and bySelf flags
+// rows, echo dedupe and bySelf flags.
+//
+// Used by:
+//   - provider/index.tsx — the env's `user`
+//   - core/outbox.ts — rehydrating temp rows' sender
+// -----------------------------------------------------------
+
 export interface ChatUser {
   id: string;
   displayName: string;
   avatarUrl?: string | null;
 }
 
-// A conversation member as the history page lists them
+
+
+
+
+
+
+// -----------------------------------------------------------
+// Participant
+// -----------------------------------------------------------
+//
+// A conversation member as the history page lists them.
+//
+// Used by:
+//   - core/transport.ts — MessagesPage's participants
+//   - hooks/useConversation.ts / adapters/knf/wire.ts /
+//     testing/fakeTransport.ts
+// -----------------------------------------------------------
+
 export interface Participant {
   id: string;
   displayName: string;
   avatarUrl?: string;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ConversationMeta
+// -----------------------------------------------------------
+//
 // The conversation row — type/title for a room opened without
-// its own metadata (a push notification)
+// its own metadata (a push notification).
+//
+// Used by:
+//   - core/transport.ts — MessagesPage's conversation
+//   - hooks/useConversation.ts / adapters/knf/wire.ts /
+//     testing/fakeTransport.ts
+// -----------------------------------------------------------
+
 export interface ConversationMeta {
   id: string;
   type: 'direct' | 'group';
@@ -189,8 +404,25 @@ export interface ConversationMeta {
   messageTtlSeconds?: number | null;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ReactionGroup
+// -----------------------------------------------------------
+//
 // A reaction group as backends broadcast it (no viewer-relative
-// bySelf — the engine derives that)
+// bySelf — the engine derives that).
+//
+// Used by:
+//   - core/transport.ts — the 'reaction' ChatEvent
+//   - core/reducers.ts / hooks/useReactions.ts — derive bySelf
+//   - adapters/knf/rest.ts / wire.ts / testing/fakeTransport.ts
+// -----------------------------------------------------------
+
 export interface ReactionGroup {
   emoji: string;
   count: number;
@@ -198,9 +430,44 @@ export interface ReactionGroup {
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// TEMP_ID_PREFIX
+// -----------------------------------------------------------
+//
 // Optimistic rows only exist client-side; their ids carry this
 // prefix so the echo dedupe and the resync merge can tell them
-// from server rows
+// from server rows.
+//
+// Used by:
+//   - hooks/useComposer.ts — mints temp ids for own sends
+//   - the host's chat room and message hooks — hide row
+//     actions on a message that has no server id yet
+// -----------------------------------------------------------
+
 export const TEMP_ID_PREFIX = 'temp-';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// isTempId
+// -----------------------------------------------------------
+//
+// The prefix as a predicate — the form every filter uses.
+//
+// Used by:
+//   - core/reducers.ts, core/outbox.ts — merge / rehydrate
+//   - hooks/useComposer.ts, hooks/useConversation.ts — swap
+//     and prune temp rows
+//   - the host's chat room (context-menu isTemp guard)
+// -----------------------------------------------------------
 
 export const isTempId = (id: string): boolean => id.startsWith(TEMP_ID_PREFIX);

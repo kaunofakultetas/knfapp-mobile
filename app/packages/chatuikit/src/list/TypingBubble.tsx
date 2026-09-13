@@ -42,7 +42,22 @@ let typingAnnouncedAt = 0;
 let typingResetTimer: ReturnType<typeof setTimeout> | null = null;
 
 
-// One dot: rises and brightens, then settles, offset per index
+
+
+
+
+
+// -----------------------------------------------------------
+// Dot
+// -----------------------------------------------------------
+//
+// One dot: rises and brightens, then settles, offset per
+// index.
+//
+// Used by:
+//   - TypingBubble (below) — three of them
+// -----------------------------------------------------------
+
 function Dot({ index }: { index: number }) {
 
   const { colors } = useKitTheme();
@@ -82,6 +97,15 @@ function Dot({ index }: { index: number }) {
 
 
 
+
+// -----------------------------------------------------------
+// TypingBubble (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - list/MessageList.tsx — the default slot; hosts may
+//     replace it through the provider's `components`
+// -----------------------------------------------------------
 
 export default function TypingBubble({
   label,

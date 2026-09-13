@@ -47,6 +47,23 @@ import { isAuthError, isRetryableError } from '../core/transport';
 import { useSocialEngine } from '../provider';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// UseLikeToggleResult
+// -----------------------------------------------------------
+//
+// What the hook hands the like button — the merged view, the
+// guest gate and the action.
+//
+// Used by:
+//   - useLikeToggle (below) — the return shape
+//   - src/index.ts — the public surface hosts import from
+// -----------------------------------------------------------
+
 export interface UseLikeToggleResult {
   liked: boolean;
   likeCount: number;

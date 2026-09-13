@@ -86,17 +86,62 @@ import DirectionMarker, { MARKER_SIZE } from './DirectionMarker';
 import { clampToEdge, flatMarkerX, flatViewYaw, resolvePanoGeometry, shortestArcDeg } from './projection';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// PanoSource
+// -----------------------------------------------------------
+//
 // A stored reference (resolved through env.resolveImageUrl),
-// a bundled asset, or a ready-made uri
+// a bundled asset, or a ready-made uri.
+//
+// Used by:
+//   - panoSourceKey / FlatPanorama (below)
+//   - pano/PanoramaStage.tsx — the same source prop
+// -----------------------------------------------------------
+
 export type PanoSource = string | number | { uri: string };
 
-// What tells one photo from the next: the reference, the asset
-// number, or the uri inside the object — by value, so a host
-// writing source={{ uri }} inline is not showing a new photo
-// on every render
+
+
+
+
+
+
+// -----------------------------------------------------------
+// PanoSourceKey
+// -----------------------------------------------------------
+//
+// panoSourceKey's answer — the value identity of one photo.
+//
+// Used by:
+//   - panoSourceKey (below) — the return type
+//   - pano/PanoramaStage.tsx — measured/failed state keys
+// -----------------------------------------------------------
+
 export type PanoSourceKey = string | number;
 
-export const panoSourceKey = (source: PanoSource): PanoSourceKey => (typeof source === 'object' ? source.uri : source);
+
+
+
+
+
+
+// -----------------------------------------------------------
+// FlatPanoramaProps
+// -----------------------------------------------------------
+//
+// The whole flat view input; PanoramaStage extends it, so the
+// two faces stay prop-compatible and the stage can hand the
+// bundle straight down on fallback.
+//
+// Used by:
+//   - FlatPanorama (below) — the component's props
+//   - pano/PanoramaStage.tsx — PanoramaStageProps extends it
+// -----------------------------------------------------------
 
 export interface FlatPanoramaProps {
   source: PanoSource;
@@ -124,7 +169,44 @@ export interface FlatPanoramaProps {
 // The looping strip: the on-screen tile plus two of buffer
 // either side; a partial photo is one tile
 const TILE_COPIES = 5;
+
+// Which of those copies is the on-screen one — the middle,
+// so the buffer is even on both sides
 const MIDDLE_TILE = 2;
+
+// The photo's aspect until it is measured — equirectangular
+// panoramas are twice as wide as tall
+const FALLBACK_ASPECT = 2;
+
+// The host hears the yaw only once it moved this much
+const YAW_REPORT_STEP_DEG = 3;
+
+// Breathing room between a clamped marker and the stage edge
+const MARKER_EDGE_INSET = 8;
+
+// A hotspot disc's diameter — a comfortable tap target that
+// still leaves the photo visible around it
+const HOTSPOT_SIZE = 36;
+
+// A drag ending slower than this hands nothing to momentum, so
+// the recentre must happen now
+const STILL_VELOCITY = 0.05;
+
+// How long the swipe hint stays fully shown before it starts
+// to fade
+const HINT_HOLD_MS = 2600;
+
+// …and how long that fade-out takes
+const HINT_FADE_MS = 600;
+
+
+// The icon each hotspot kind shows on its disc
+const HOTSPOT_GLYPH: Record<KitHotspot['kind'], ComponentProps<typeof Ionicons>['name']> = {
+  route: 'navigate',
+  link: 'arrow-forward-circle',
+  info: 'information-circle',
+};
+
 
 // How the strip is laid for a coverage: the copies, which one is
 // on screen, and the padding that centres a tile narrower than
@@ -135,21 +217,6 @@ interface StripShape {
   middle: number;
   pad: number;
 }
-
-const stripShape = (hfovDeg: number, tileWidth: number, stageWidth: number): StripShape => {
-  const loops = hfovDeg >= 360;
-  return { loops, copies: loops ? TILE_COPIES : 1, middle: loops ? MIDDLE_TILE : 0, pad: loops ? 0 : Math.max(0, (stageWidth - tileWidth) / 2) };
-};
-
-// The offset that puts `yaw` at the view centre, inside the
-// on-screen tile: the tile's own middle column is the centre
-// yaw, half a tile in from its left edge. A looping strip reads
-// the yaw as a fraction of the turn; a partial one as the short
-// arc from its centre
-const offsetForYaw = (yaw: number, tileWidth: number, windowWidth: number, hfovDeg: number, centreYawDeg: number, shape: StripShape): number => {
-  const turn = shape.loops ? ((yaw % 360) + 360) % 360 : shortestArcDeg(centreYawDeg, yaw);
-  return shape.pad + tileWidth * shape.middle + tileWidth / 2 - windowWidth / 2 + (turn / hfovDeg) * tileWidth;
-};
 
 // What the strip was last laid out for, and where: an offset
 // only means a yaw under the tile and width it was measured
@@ -164,30 +231,49 @@ interface StripLayout {
   offset: number;
 }
 
-// The photo's aspect until it is measured — equirectangular
-// panoramas are twice as wide as tall
-const FALLBACK_ASPECT = 2;
-
-// The host hears the yaw only once it moved this much
-const YAW_REPORT_STEP_DEG = 3;
-
-// Breathing room between a clamped marker and the stage edge
-const MARKER_EDGE_INSET = 8;
-
-const HOTSPOT_SIZE = 36;
-
-// A drag ending slower than this hands nothing to momentum, so
-// the recentre must happen now
-const STILL_VELOCITY = 0.05;
-
-const HINT_HOLD_MS = 2600;
-const HINT_FADE_MS = 600;
 
 
-const HOTSPOT_GLYPH: Record<KitHotspot['kind'], ComponentProps<typeof Ionicons>['name']> = {
-  route: 'navigate',
-  link: 'arrow-forward-circle',
-  info: 'information-circle',
+
+
+
+
+// -----------------------------------------------------------
+// panoSourceKey
+// -----------------------------------------------------------
+//
+// What tells one photo from the next: the reference, the asset
+// number, or the uri inside the object — by value, so a host
+// writing source={{ uri }} inline is not showing a new photo
+// on every render.
+//
+// Used by:
+//   - FlatPanorama (below)
+//   - pano/PanoramaStage.tsx — keys the sphere's photo the
+//     same way
+// -----------------------------------------------------------
+
+export const panoSourceKey = (source: PanoSource): PanoSourceKey => (typeof source === 'object' ? source.uri : source);
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// stripShape
+// -----------------------------------------------------------
+//
+// A full turn loops five copies; anything narrower is one
+// tile, centred by padding when it is narrower than the stage.
+//
+// Used by:
+//   - FlatPanorama (below) — the strip layout
+// -----------------------------------------------------------
+
+const stripShape = (hfovDeg: number, tileWidth: number, stageWidth: number): StripShape => {
+  const loops = hfovDeg >= 360;
+  return { loops, copies: loops ? TILE_COPIES : 1, middle: loops ? MIDDLE_TILE : 0, pad: loops ? 0 : Math.max(0, (stageWidth - tileWidth) / 2) };
 };
 
 
@@ -197,19 +283,37 @@ const HOTSPOT_GLYPH: Record<KitHotspot['kind'], ComponentProps<typeof Ionicons>[
 
 
 // -----------------------------------------------------------
-// PanoramaTiles
+// offsetForYaw
 // -----------------------------------------------------------
 //
-// The same photo five times side by side. All copies share one
-// decoded bitmap (the image cache keys on the source), so the
-// extra copies cost views, not memory. Memoised so the stage's
-// per-scroll renders never touch the bitmaps; onLoad rides the
-// first copy only — one report of the real size is enough.
+// The offset that puts `yaw` at the view centre, inside the
+// on-screen tile: the tile's own middle column is the centre
+// yaw, half a tile in from its left edge. A looping strip reads
+// the yaw as a fraction of the turn; a partial one as the short
+// arc from its centre.
 //
 // Used by:
-//   - FlatPanorama (below)
+//   - FlatPanorama (below) — the initial layout and every
+//     re-centre
 // -----------------------------------------------------------
 
+const offsetForYaw = (yaw: number, tileWidth: number, windowWidth: number, hfovDeg: number, centreYawDeg: number, shape: StripShape): number => {
+  const turn = shape.loops ? ((yaw % 360) + 360) % 360 : shortestArcDeg(centreYawDeg, yaw);
+  return shape.pad + tileWidth * shape.middle + tileWidth / 2 - windowWidth / 2 + (turn / hfovDeg) * tileWidth;
+};
+
+
+
+
+
+
+
+// The strip FlatPanorama (below) scrolls: the same photo five
+// times side by side. All copies share one decoded bitmap (the
+// image cache keys on the source), so the extra copies cost
+// views, not memory. Memoised so the stage's per-scroll renders
+// never touch the bitmaps; onLoad rides the first copy only —
+// one report of the real size is enough.
 const PanoramaTiles = memo(function PanoramaTiles({
   source,
   tileWidth,

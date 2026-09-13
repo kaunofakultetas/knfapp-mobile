@@ -49,7 +49,41 @@ import type {
 } from './wire';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// SocketEventName
+// -----------------------------------------------------------
+//
+// Every server event the client can hear, by wire name.
+//
+// Used by:
+//   - SocketEventPayloads / KnfSocketClient (below) — the
+//     typed on() surface
+//   - FORWARDED_EVENTS (below) — the re-emit list
+// -----------------------------------------------------------
+
 export type SocketEventName = 'new_message' | 'reaction_update' | 'user_typing' | 'user_stop_typing' | 'messages_read' | 'message_deleted' | 'message_edited' | 'message_updated' | 'conversation_updated';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// SocketEventPayloads
+// -----------------------------------------------------------
+//
+// Event name → wire payload, so on() types its listener.
+//
+// Used by:
+//   - KnfSocketClient (below) — on()'s payload type
+//   - adapters/knf/index.ts — the event → ChatEvent mapping
+// -----------------------------------------------------------
 
 export interface SocketEventPayloads {
   new_message: ApiMessage;
@@ -63,8 +97,27 @@ export interface SocketEventPayloads {
   conversation_updated: ApiConversationUpdatedEvent;
 }
 
+// Every server event the adapter re-emits to its subscribers —
+// a socket.io event missing here is silently dropped
 const FORWARDED_EVENTS: SocketEventName[] = ['new_message', 'reaction_update', 'user_typing', 'user_stop_typing', 'messages_read', 'message_deleted', 'message_edited', 'message_updated', 'conversation_updated'];
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// KnfSocketOptions
+// -----------------------------------------------------------
+//
+// What the factory needs from the host — the URL, the fresh
+// token read, and the lifecycle switches.
+//
+// Used by:
+//   - createKnfSocket (below) — the one argument
+//   - adapters/knf/index.ts — passed through from the adapter
+// -----------------------------------------------------------
 
 export interface KnfSocketOptions {
   // The host root — socket.io lives above the /api prefix
@@ -76,6 +129,24 @@ export interface KnfSocketOptions {
   // Tear down on background / reconnect on foreground (default on)
   followAppState?: boolean;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// KnfSocketClient
+// -----------------------------------------------------------
+//
+// The client's surface — lifecycle, status, the typed event
+// registry, and the room / volatile emits.
+//
+// Used by:
+//   - createKnfSocket (below) — the return shape
+//   - adapters/knf/index.ts — the realtime half drives it
+// -----------------------------------------------------------
 
 export interface KnfSocketClient {
   connect(): Promise<Socket | null>;
@@ -89,10 +160,24 @@ export interface KnfSocketClient {
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// isServerRejection
+// -----------------------------------------------------------
+//
 // A handshake the SERVER refused arrives as a CONNECT_ERROR
-// packet, and socket.io-client copies the packet's payload onto
-// the Error's `data` own property — even when empty. Engine-
-// level failures never carry one
+// packet, and socket.io-client copies the packet's payload
+// onto the Error's `data` own property — even when empty.
+// Engine-level failures never carry one.
+//
+// Used by:
+//   - createKnfSocket (below) — the connect_error triage
+// -----------------------------------------------------------
+
 const isServerRejection = (err: Error) => 'data' in err;
 
 

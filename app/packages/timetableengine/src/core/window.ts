@@ -14,6 +14,24 @@
 
 import type { TimeWindow, TimetableEntry } from './types';
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// WindowOptions
+// -----------------------------------------------------------
+//
+// Tuning for the derived hour span — bounds and padding, all
+// wall-clock minutes.
+//
+// Used by:
+//   - deriveWindow (below) — its options bag; no in-tree
+//     caller passes one today (the defaults serve)
+// -----------------------------------------------------------
+
 export interface WindowOptions {
   // The DEFAULT span: the window never shrinks inside these
   // bounds, but an earlier or later lesson widens past them
@@ -23,10 +41,27 @@ export interface WindowOptions {
   padMin?: number;
 }
 
+// 08:00 in minutes — the default window never starts later
 const DEFAULT_FLOOR = 8 * 60;
+// 21:00 in minutes — nor ends earlier
 const DEFAULT_CEIL = 21 * 60;
+// Default air around the outermost lessons, in minutes
 const DEFAULT_PAD = 60;
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// deriveWindow
+// -----------------------------------------------------------
+//
+// Used by:
+//   - components/schedule/TimetableView.tsx — one window for
+//     both views
+// -----------------------------------------------------------
 
 export function deriveWindow(entries: readonly TimetableEntry[], options: WindowOptions = {}): TimeWindow {
   const floorMin = options.floorMin ?? DEFAULT_FLOOR;

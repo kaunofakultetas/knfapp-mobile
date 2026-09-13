@@ -18,13 +18,44 @@ import type { ReactNode } from 'react';
 import { useTimetableLabels, useTimetableTheme } from '../provider';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// TimetableViewMode
+// -----------------------------------------------------------
+//
+// The three ways a timetable screen shows its data.
+//
+// Used by:
+//   - GLYPHS / MODES and ViewModeSwitch (below)
+//   - re-exported through the package surface; no host
+//     imports it directly today
+// -----------------------------------------------------------
+
 export type TimetableViewMode = 'list' | 'day' | 'week';
 
 // The dependency-free stand-ins when the host renders no icons
 const GLYPHS: Record<TimetableViewMode, string> = { list: '≡', day: '◷', week: '⊞' };
 
+// Segment order, fixed — matches the glyphs and the catalog
 const MODES: readonly TimetableViewMode[] = ['list', 'day', 'week'];
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ViewModeSwitch (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - app/(main)/tabs/schedule.tsx — beside the filter row
+// -----------------------------------------------------------
 
 export default function ViewModeSwitch({
   mode,

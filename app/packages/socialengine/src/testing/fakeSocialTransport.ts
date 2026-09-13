@@ -28,6 +28,35 @@ import type { LikeResult, LikeTarget, NotificationsPage, RelationshipAction, Soc
 import type { Poll, RelationshipState, SocialNotification } from '../core/types';
 
 
+// Every action's one legal starting state, and where it lands.
+// This fake is request-style: connect answers 'outgoing' (an
+// instant-connect backend would answer 'connected' — the
+// conformance suite accepts both)
+const TRANSITIONS: Record<RelationshipAction, { from: RelationshipState; to: RelationshipState }> = {
+  connect: { from: 'none', to: 'outgoing' },
+  cancel: { from: 'outgoing', to: 'none' },
+  accept: { from: 'incoming', to: 'connected' },
+  decline: { from: 'incoming', to: 'none' },
+  disconnect: { from: 'connected', to: 'none' },
+};
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// FakeSocialTransportOptions
+// -----------------------------------------------------------
+//
+// Seeds for the in-memory stores; everything optional.
+//
+// Used by:
+//   - fakeSocialTransport (below)
+//   - src/index.ts — the public surface, for a host's tests
+// -----------------------------------------------------------
+
 export interface FakeSocialTransportOptions {
   // Seeded polls, stored by their own ids
   polls?: Poll[];
@@ -52,6 +81,26 @@ type Method =
   | 'fetchNotifications'
   | 'markNotificationsRead'
   | 'fetchUnreadCount';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// FakeSocialTransport
+// -----------------------------------------------------------
+//
+// The transport plus the test levers — open stores, the calls
+// log, fail / stall, and the optional half of the contract
+// made required (the fake is the full-featured backend).
+//
+// Used by:
+//   - fakeSocialTransport (below) — the return type
+//   - example/ExampleSocialScreen.tsx — the demo's backend
+//   - src/index.ts — the public surface, for a host's tests
+// -----------------------------------------------------------
 
 export interface FakeSocialTransport extends SocialTransport {
   // Every request, in order
@@ -87,33 +136,115 @@ export interface FakeSocialTransport extends SocialTransport {
 }
 
 
+// The counter behind nextId — module-wide, so ids stay unique
+// across every fake minted in one test file
 let sequence = 0;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// nextId
+// -----------------------------------------------------------
+//
+// Deterministic ids ('c-1', 'n-2', ...) so tests can name what
+// the fake minted.
+//
+// Used by:
+//   - fakeSocialTransport (below) — seedNotification's
+//     fallback id
+// -----------------------------------------------------------
+
 const nextId = (prefix: string) => `${prefix}-${++sequence}`;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// likeKey
+// -----------------------------------------------------------
+//
+// One map key per like target — type and id together, since
+// a post and a comment may share an id.
+//
+// Used by:
+//   - fakeSocialTransport (below) — setLiked's store lookup
+// -----------------------------------------------------------
 
 const likeKey = (target: LikeTarget) => `${target.type}:${target.id}`;
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// clonePoll
+// -----------------------------------------------------------
+//
 // Answers leave the store by copy — voting is pessimistic and
 // the caller replaces local state wholesale, so a shared
-// reference would let one side mutate the other
+// reference would let one side mutate the other.
+//
+// Used by:
+//   - fakeSocialTransport (below) — seeding, fetchPoll and vote
+// -----------------------------------------------------------
+
 const clonePoll = (poll: Poll): Poll => ({ ...poll, options: poll.options.map((o) => ({ ...o })) });
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// refuse
+// -----------------------------------------------------------
+//
 // Reject the way an HTTP adapter surfaces a refusal: a bare
-// object with the status the engine's error judgements read
+// object with the status the engine's error judgements read.
+//
+// Used by:
+//   - fakeSocialTransport (below) — vote and setRelationship
+// -----------------------------------------------------------
+
 const refuse = (status: number, code?: string): never => {
   throw code ? { status, code } : { status };
 };
 
-// Every action's one legal starting state, and where it lands.
-// This fake is request-style: connect answers 'outgoing' (an
-// instant-connect backend would answer 'connected' — the
-// conformance suite accepts both)
-const TRANSITIONS: Record<RelationshipAction, { from: RelationshipState; to: RelationshipState }> = {
-  connect: { from: 'none', to: 'outgoing' },
-  cancel: { from: 'outgoing', to: 'none' },
-  accept: { from: 'incoming', to: 'connected' },
-  decline: { from: 'incoming', to: 'none' },
-  disconnect: { from: 'connected', to: 'none' },
-};
+
+
+
+
+
+
+// -----------------------------------------------------------
+// fakeSocialTransport
+// -----------------------------------------------------------
+//
+//   const t = fakeSocialTransport({ polls: [fixture] })
+//   t.fail('vote', { status: 500 })   — next call rejects
+//   const release = t.stall('setLiked')
+//
+// The full-featured in-memory backend: every optional
+// transport method present, stores open for reading and
+// reseeding, and the fail / stall levers for error and race
+// tests.
+//
+// Used by:
+//   - src/__tests__/contract.test.ts — proven against the
+//     conformance suite
+//   - testing/__tests__/fake.test.ts — the levers themselves
+//   - src/index.ts — the public surface, for a host's tests
+// -----------------------------------------------------------
 
 export function fakeSocialTransport(options: FakeSocialTransportOptions = {}): FakeSocialTransport {
   const pageSize = options.pageSize ?? 50;

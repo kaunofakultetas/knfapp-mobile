@@ -1,3 +1,21 @@
+// -----------------------------------------------------------
+//  [*] @knf/chatuikit — public surface
+//
+//  The chat UI kit: a themable message timeline (list, bubbles,
+//  attachments, reactions, separators), the composer with its
+//  meme/emoji pickers, avatars, the long-press context menu and
+//  the pure timeline/linkify/media helpers behind them — all
+//  configured through ChatUiKitProvider (theme, labels, slotted
+//  components, environment seams). Host apps compose screens
+//  from these parts; the kit owns no transport or store.
+//
+//  Used by:
+//    - app/(main)/chat-room — the chat screen composition
+//    - components/chat/ChatUiKitHost — provider wiring + theme
+//    - components/social/SocialUiKitHost, ConversationRow
+//    - services/format and the messages tab (parseStamp)
+// -----------------------------------------------------------
+
 export { default as Composer, DEFAULT_MAX_LENGTH } from './composer/Composer';
 export { default as ConversationIntro, type IntroInfo } from './list/ConversationIntro';
 export { default as KitAvatar } from './avatar/KitAvatar';

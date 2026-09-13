@@ -29,6 +29,27 @@ import { defaultLabels, type KitLabels } from './labels';
 import { darkTheme, defaultTheme, resolveTheme, type KitTheme, type KitThemeOverride } from './theme';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// KitComponents
+// -----------------------------------------------------------
+//
+// The replaceable pieces: a host mounts its own portrait, poll
+// body or empty state once, and every kit component picks the
+// override up through useKitComponents. Absent slots fall back
+// to the kit's built-in faces.
+//
+// Used by:
+//   - SocialUiKitProvider (below) — the `components` prop
+//   - post/PostCard.tsx — Avatar and PostPoll
+//   - comments/CommentRow.tsx, notifications/NotificationRow.tsx,
+//     social/ProfileHeader.tsx — Avatar
+// -----------------------------------------------------------
+
 export interface KitComponents {
   // The portrait everywhere one is drawn (default: an initials
   // disc); size is the diameter in dp
@@ -41,6 +62,28 @@ export interface KitComponents {
   EmptyState?: ComponentType<{ label: string }>;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// KitEnv
+// -----------------------------------------------------------
+//
+// The host functions the kit cannot supply itself, plus the
+// locale the provider resolved. The defaults are inert on
+// purpose (identity URL resolver, no-op link opener, the real
+// clock) so tests and demos run with no wiring at all.
+//
+// Used by:
+//   - SocialUiKitProvider (below) — the `env` prop, merged
+//     field by field over the defaults
+//   - the post, comment, notification, profile, poll, media
+//     and link parts, via useKitEnv
+//   - time/RelativeTime.tsx — the clock and the locale
+// -----------------------------------------------------------
 
 export interface KitEnv {
   // Stored image reference (an upload path, an absolute URL) →
@@ -75,6 +118,8 @@ const defaultEnv: KitEnv = {
   now: () => new Date(),
 };
 
+// What a component reads with NO provider above — the full
+// default kit, so previews and tests render without wiring
 const defaultValue: KitContextValue = {
   theme: defaultTheme,
   labels: defaultLabels.lt,
@@ -82,6 +127,8 @@ const defaultValue: KitContextValue = {
   env: defaultEnv,
 };
 
+// Defaulted, never null — reading outside a provider works
+// by design here, unlike the engine's context
 const KitContext = createContext<KitContextValue>(defaultValue);
 
 
@@ -173,26 +220,70 @@ export function SocialUiKitProvider({
 
 
 // -----------------------------------------------------------
-// useKitTheme / useKitLabels / useKitComponents / useKitEnv
+// useKitTheme
 // -----------------------------------------------------------
 //
 // Used by:
-//   - every kit component (theme, labels), PostCard and the
-//     lists (components), media and link parts and RelativeTime
-//     (env)
+//   - every kit component
 // -----------------------------------------------------------
 
 export function useKitTheme(): KitTheme {
   return useContext(KitContext).theme;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// useKitLabels
+// -----------------------------------------------------------
+//
+// Used by:
+//   - every kit component that shows text
+// -----------------------------------------------------------
+
 export function useKitLabels(): KitLabels {
   return useContext(KitContext).labels;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// useKitComponents
+// -----------------------------------------------------------
+//
+// Used by:
+//   - post/PostCard.tsx — the injected Avatar and PostPoll
+//   - comments/CommentRow.tsx, notifications/NotificationRow.tsx,
+//     social/ProfileHeader.tsx — the injected Avatar
+// -----------------------------------------------------------
+
 export function useKitComponents(): KitComponents {
   return useContext(KitContext).components;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// useKitEnv
+// -----------------------------------------------------------
+//
+// Used by:
+//   - the post, comment, notification, profile, poll, media
+//     and link parts — env's URL resolver and link opener
+//   - time/RelativeTime.tsx — env's clock
+// -----------------------------------------------------------
 
 export function useKitEnv(): KitEnv {
   return useContext(KitContext).env;

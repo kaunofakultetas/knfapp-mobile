@@ -19,6 +19,20 @@ import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { useKitLabels, useKitTheme } from '../provider';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// GapRow (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - feed/FeedList.tsx — rendered after the row named by
+//     gapAfterKey
+// -----------------------------------------------------------
+
 export default function GapRow({ filling, onPress }: { filling?: boolean; onPress?: () => void }) {
 
   const { colors, fonts, radii } = useKitTheme();

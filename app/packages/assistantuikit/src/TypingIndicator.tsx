@@ -25,8 +25,12 @@ import { AccessibilityInfo, Animated, Platform, View } from 'react-native';
 import { defaultColors, type AssistantColors } from './core/types';
 
 
+// The classic three-dot wave: each dot rises and falls over
+// 2 x DOT_RISE_MS, starting DOT_STAGGER_MS after its neighbour
 const DOT_COUNT = 3;
+// Delay between one dot's loop and the next dot's
 const DOT_STAGGER_MS = 150;
+// One direction of a dot's rise-and-fall, in ms
 const DOT_RISE_MS = 300;
 
 

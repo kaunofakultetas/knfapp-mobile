@@ -23,8 +23,28 @@
 import { TransportFailure, type ChannelKey, type Language, type NotifyTransport } from '../../core/types';
 
 
+// The server's closed channel list — a prefs body is filtered
+// against it, unknown keys never reach the snapshot
+const CHANNEL_KEYS: readonly ChannelKey[] = ['news', 'chat', 'schedule', 'admin'];
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// NotifyHttpClient
+// -----------------------------------------------------------
+//
 // The minimal HTTP surface the adapter needs — the host wraps
-// its own client (auth header injection stays host-side)
+// its own client (auth header injection stays host-side).
+//
+// Used by:
+//   - createKnfNotifyTransport (below) — its `http` dep
+//   - services/notifyTransport.ts — the host's wrapper
+// -----------------------------------------------------------
+
 export interface NotifyHttpClient {
   get(path: string): Promise<unknown>;
   post(path: string, body: unknown): Promise<unknown>;
@@ -32,11 +52,23 @@ export interface NotifyHttpClient {
   delete(path: string, options?: { body?: unknown; authToken?: string }): Promise<unknown>;
 }
 
-const CHANNEL_KEYS: readonly ChannelKey[] = ['news', 'chat', 'schedule', 'admin'];
 
 
+
+
+
+
+// -----------------------------------------------------------
+// toFailure
+// -----------------------------------------------------------
+//
 // The host client's errors carry {status?, code?} when they
-// came off the wire; anything else is a server-side mystery
+// came off the wire; anything else is a server-side mystery.
+//
+// Used by:
+//   - createKnfNotifyTransport (below) — every catch
+// -----------------------------------------------------------
+
 function toFailure(error: unknown): TransportFailure {
   const shaped = error as { status?: unknown; code?: unknown };
   if (shaped && (shaped.code === 'network' || shaped.code === 'timeout')) {
@@ -48,11 +80,46 @@ function toFailure(error: unknown): TransportFailure {
   return new TransportFailure('server');
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// statusOf
+// -----------------------------------------------------------
+//
+// The numeric HTTP status when the error carries one — the
+// 404-is-success check in unregister reads it.
+//
+// Used by:
+//   - createKnfNotifyTransport (below) — the unregister path
+// -----------------------------------------------------------
+
 function statusOf(error: unknown): number | null {
   const status = (error as { status?: unknown })?.status;
   return typeof status === 'number' ? status : null;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// createKnfNotifyTransport
+// -----------------------------------------------------------
+//
+//   createKnfNotifyTransport({ http })   — over the host's own
+//     HTTP client, so auth headers stay host-side
+//
+// Used by:
+//   - the app's services/notifyTransport.ts — the engine's
+//     wire half
+//   - adapters/knf/__tests__/transport.test.ts
+// -----------------------------------------------------------
 
 export function createKnfNotifyTransport(deps: { http: NotifyHttpClient }): NotifyTransport {
   const { http } = deps;

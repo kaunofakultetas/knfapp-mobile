@@ -152,8 +152,11 @@ function CardAvatar({ user, size }: { user: KitUser; size: number }) {
 
 
 // -----------------------------------------------------------
-// PostCard (default export, memo-wrapped)
+// PostCard (default export)
 // -----------------------------------------------------------
+//
+// Exported memo-wrapped — the comparator at the bottom of the
+// file is the seam that lets untouched feed rows skip.
 //
 // The root Pressable is accessible={false} so assistive tech
 // reaches the inner targets one by one — the author row, the

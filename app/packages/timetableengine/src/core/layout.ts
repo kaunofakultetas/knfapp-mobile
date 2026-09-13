@@ -28,18 +28,53 @@
 
 import type { PlacedEntry, TimeWindow, TimetableEntry } from './types';
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// PlaceOptions
+// -----------------------------------------------------------
+//
+// The packer's only tuning knob today — the short-lesson
+// threshold the UI's compact tier keys on.
+//
+// Used by:
+//   - placeDay (below) — its options bag; no in-tree caller
+//     passes one today (the default threshold serves)
+// -----------------------------------------------------------
+
 export interface PlaceOptions {
   // A lesson shorter than this many minutes is "short" — the
   // UI drops to its compact tier
   shortMin?: number;
 }
 
+// Minutes at or under which a lesson counts as "short" when
+// the host sets no threshold of its own
 const DEFAULT_SHORT_MIN = 30;
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// compareEntries
+// -----------------------------------------------------------
+//
 // Total order: start asc, longer first (containment nests
 // stably), then title, then id — the same input set in any
 // order yields the same geometry
+//
+// Used by:
+//   - placeDay (below), week.ts — buildWeek, now.ts — nowState
+//   - app/(main)/tabs/schedule.tsx — the list rows' order
+// -----------------------------------------------------------
+
 export function compareEntries(a: TimetableEntry, b: TimetableEntry): number {
   if (a.startMin !== b.startMin) return a.startMin - b.startMin;
   const durA = a.endMin - a.startMin;
@@ -51,12 +86,40 @@ export function compareEntries(a: TimetableEntry, b: TimetableEntry): number {
 }
 
 
-// Exclusive endpoints: touching is NOT colliding
+
+
+
+
+
+// -----------------------------------------------------------
+// collides
+// -----------------------------------------------------------
+//
+// Exclusive endpoints: touching is NOT colliding.
+//
+// Used by:
+//   - placeDay (below) — column fitting and span expansion
+// -----------------------------------------------------------
+
 const collides = (a: TimetableEntry, b: TimetableEntry) => a.endMin > b.startMin && a.startMin < b.endMin;
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// placeDay
+// -----------------------------------------------------------
+//
 // One day's entries → placed geometry. Blocks place first,
 // full width; lessons cluster and pack
+//
+// Used by:
+//   - components/schedule/TimetableView.tsx — day and week modes
+// -----------------------------------------------------------
+
 export function placeDay<T = object>(
   dayEntries: readonly TimetableEntry<T>[],
   window: TimeWindow,
@@ -82,11 +145,10 @@ export function placeDay<T = object>(
   const placed: PlacedEntry<T>[] = [];
 
 
-  // STEP 1: background blocks — full width, no column claims.
+  // Background blocks first — full width, no column claims.
   // Total-sorted like the lessons: paint order (which of two
   // overlapping blocks shows its title) must not depend on
   // input order
-  // =========================================================
   for (const entry of dayEntries.filter((candidate) => candidate.isBlock).slice().sort(compareEntries)) {
     placed.push({
       entry,
@@ -99,9 +161,8 @@ export function placeDay<T = object>(
   }
 
 
-  // STEP 2: real lessons — total sort, sweep into clusters,
+  // Then the real lessons — total sort, sweep into clusters,
   // greedy first-fit columns, equal widths, rightward span
-  // ======================================================
   const lessons = dayEntries.filter((entry) => !entry.isBlock).slice().sort(compareEntries);
 
   let clusterId = 0;

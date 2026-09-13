@@ -24,7 +24,22 @@ import { Pressable, Text, View } from 'react-native';
 import { messageKind, type KitMessage } from '../core/types';
 
 
-// What the one-line snippet says for a content kind without text
+
+
+
+
+
+// -----------------------------------------------------------
+// pinSnippet
+// -----------------------------------------------------------
+//
+// What the one-line snippet says for a content kind without
+// text.
+//
+// Used by:
+//   - PinnedBanner (below) — the snippet and its a11y label
+// -----------------------------------------------------------
+
 function pinSnippet(message: KitMessage, labels: KitLabels): string {
   if (message.text) return message.text;
   const kind = messageKind(message);
@@ -35,6 +50,19 @@ function pinSnippet(message: KitMessage, labels: KitLabels): string {
   return labels.photo;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// PinnedBanner (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - app/(main)/chat-room/index.tsx — under the room header
+// -----------------------------------------------------------
 
 export default function PinnedBanner({ pins, onPress }: { pins: KitMessage[]; onPress: (message: KitMessage) => void }) {
 

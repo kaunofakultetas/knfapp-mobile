@@ -36,6 +36,23 @@ import {
 } from './metrics';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// MediaBox
+// -----------------------------------------------------------
+//
+// The bounds a media bubble may fill — what mediaBoxFor builds
+// for a viewport and fitMedia fits a natural size into.
+//
+// Used by:
+//   - mediaBoxFor / fitMedia (below)
+//   - exported through the kit's barrel for hosts' previews
+// -----------------------------------------------------------
+
 export interface MediaBox {
   maxWidth: number;
   maxHeight: number;
@@ -43,26 +60,149 @@ export interface MediaBox {
   minHeight: number;
 }
 
-// The widest a landscape photo is allowed to be (w/h) and the
-// tallest a portrait one (w/h) — beyond these the bubble crops
-// (contentFit cover) instead of thinning into a strip
+
+
+
+
+
+
+// -----------------------------------------------------------
+// MAX_ASPECT
+// -----------------------------------------------------------
+//
+// The widest a landscape photo is allowed to be (w/h) — beyond
+// this the bubble crops (contentFit cover) instead of thinning
+// into a strip.
+//
+// Used by:
+//   - fitMedia (below) — the ratio clamp
+//   - the kit's barrel — no host reads it directly today
+// -----------------------------------------------------------
+
 export const MAX_ASPECT = 2.2;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// MIN_ASPECT
+// -----------------------------------------------------------
+//
+// The tallest a portrait photo is allowed to be (w/h) — beyond
+// this the bubble crops (contentFit cover) instead of thinning
+// into a strip.
+//
+// Used by:
+//   - fitMedia (below) — the ratio clamp
+//   - the kit's barrel — no host reads it directly today
+// -----------------------------------------------------------
+
 export const MIN_ASPECT = 0.5;
 
-// The ratio a bubble is laid out with before the bytes tell
+
+
+
+
+
+
+// -----------------------------------------------------------
+// DEFAULT_ASPECT
+// -----------------------------------------------------------
+//
+// The ratio a bubble is laid out with before the bytes tell.
+//
+// Used by:
+//   - fitMedia (below) — the unknown-size fallback
+//   - the kit's barrel — no host reads it directly today
+// -----------------------------------------------------------
+
 export const DEFAULT_ASPECT = 4 / 3;
 
-// Beyond these a photo is a strip, not a picture (a long
-// screenshot, a panorama): the bubble shows it as a compact row
-// with a thumbnail instead of cropping it
+
+
+
+
+
+
+// -----------------------------------------------------------
+// EXTREME_MAX_ASPECT
+// -----------------------------------------------------------
+//
+// Wider than this (w/h) a photo is a strip, not a picture (a
+// long screenshot, a panorama): the bubble shows it as a
+// compact row with a thumbnail instead of cropping it.
+//
+// Used by:
+//   - isExtremeAspect (below)
+//   - the kit's barrel — no host reads it directly today
+// -----------------------------------------------------------
+
 export const EXTREME_MAX_ASPECT = 10;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// EXTREME_MIN_ASPECT
+// -----------------------------------------------------------
+//
+// Taller than this (w/h below the threshold) a photo is a
+// strip, not a picture (a long screenshot): the bubble shows
+// it as a compact row with a thumbnail instead of cropping it.
+//
+// Used by:
+//   - isExtremeAspect (below)
+//   - the kit's barrel — no host reads it directly today
+// -----------------------------------------------------------
+
 export const EXTREME_MIN_ASPECT = 0.1;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// isExtremeAspect
+// -----------------------------------------------------------
+//
+// Whether a ratio or natural size falls beyond the strip
+// thresholds above; an unknown or unparseable size is never
+// extreme, so the bubble keeps the normal fit.
+//
+// Used by:
+//   - message/attachments/ImageAttachment.tsx — switches to
+//     the compact thumbnail row
+// -----------------------------------------------------------
 
 export function isExtremeAspect(source: number | { width: number; height: number } | undefined | null): boolean {
   const ratio = typeof source === 'number' ? source : source && source.width > 0 && source.height > 0 ? source.width / source.height : NaN;
   if (!Number.isFinite(ratio) || ratio <= 0) return false;
   return ratio > EXTREME_MAX_ASPECT || ratio < EXTREME_MIN_ASPECT;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// clamp
+// -----------------------------------------------------------
+//
+// One-liner shared by fitMedia's ratio and size clamping.
+//
+// Used by:
+//   - fitMedia (below)
+// -----------------------------------------------------------
 
 const clamp = (value: number, low: number, high: number) => Math.min(high, Math.max(low, value));
 
@@ -141,11 +281,15 @@ export function fitMedia(
 
 
 // -----------------------------------------------------------
-// formatDuration / formatBytes
+// formatDuration
 // -----------------------------------------------------------
 //
+// 83 → "1:23"; hours appear only when needed, an unknown or
+// negative duration renders as nothing rather than "0:00".
+//
 // Used by:
-//   - VideoAttachment (duration badge), FileCard (size line)
+//   - VideoAttachment (duration badge), AudioAttachment
+//   - composer/Composer.tsx — the voice-recording timer
 // -----------------------------------------------------------
 
 export function formatDuration(seconds?: number | null): string {
@@ -157,6 +301,23 @@ export function formatDuration(seconds?: number | null): string {
   const mm = hours > 0 ? String(minutes).padStart(2, '0') : String(minutes);
   return `${hours > 0 ? `${hours}:` : ''}${mm}:${String(rest).padStart(2, '0')}`;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// formatBytes
+// -----------------------------------------------------------
+//
+// 1536 → "1.5 KB"; whole bytes stay unrounded, everything
+// above shows one decimal.
+//
+// Used by:
+//   - FileCard (size line)
+// -----------------------------------------------------------
 
 export function formatBytes(size?: number | null): string {
   if (!size || size <= 0) return '';

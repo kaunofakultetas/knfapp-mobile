@@ -46,9 +46,31 @@ import type {
 } from './types';
 
 
+// A registration older than this (7 days) re-registers at init
+// with reason 'ttl' — tokens rot silently server-side
 const TUPLE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+// registration.ts owns this key; the engine only reads the
+// stored registeredAt to decide the TTL re-register
 const TUPLE_KEY = 'notify.lastRegistration';
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// NotifyEngineConfig
+// -----------------------------------------------------------
+//
+// Everything the host hands createNotifyEngine — the three
+// seams, the channel registry, the presentation policy, and
+// the optional gates.
+//
+// Used by:
+//   - createNotifyEngine (below) — the one argument
+//   - services/notifyEngine.ts — the host builds one
+// -----------------------------------------------------------
 
 export interface NotifyEngineConfig {
   transport: NotifyTransport;
@@ -65,6 +87,24 @@ export interface NotifyEngineConfig {
   now?: () => number;
   onError?: (scope: string, error: unknown) => void;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// NotifyEngine
+// -----------------------------------------------------------
+//
+// The whole public machine — lifecycle, the three snapshot
+// stores with their verbs, channels, and routing.
+//
+// Used by:
+//   - createNotifyEngine (below) — the return shape
+//   - services/notifyEngine.ts — the host's singleton
+// -----------------------------------------------------------
 
 export interface NotifyEngine {
   init(): Promise<void>;
@@ -94,6 +134,19 @@ export interface NotifyEngine {
   };
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// createNotifyEngine
+// -----------------------------------------------------------
+//
+// Used by:
+//   - the host, once near the root (services/notifyEngine.ts)
+// -----------------------------------------------------------
 
 export function createNotifyEngine(config: NotifyEngineConfig): NotifyEngine {
   validateChannelSpecs(config.channels);

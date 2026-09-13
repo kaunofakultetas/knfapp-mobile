@@ -24,9 +24,62 @@ import { subjectTint } from '../core/palette';
 import type { LessonFrame, PlacedLesson, TimetableLesson } from '../core/types';
 import { useTimetableEnv } from '../provider';
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// FULL_MIN_HEIGHT
+// -----------------------------------------------------------
+//
+// Cell height, in px, at which the full tier begins — title
+// ×2, time range and the meta line all fit.
+//
+// Used by:
+//   - LessonCell (below) — the tier pick
+//   - re-exported through the public surface for hosts sizing
+//     a custom renderLesson
+// -----------------------------------------------------------
+
 export const FULL_MIN_HEIGHT = 56;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// MEDIUM_MIN_HEIGHT
+// -----------------------------------------------------------
+//
+// Cell height, in px, at which the medium tier begins — title
+// ×1 plus the time range; below it only the title survives.
+//
+// Used by:
+//   - LessonCell (below) — the tier pick
+//   - re-exported through the public surface for hosts sizing
+//     a custom renderLesson
+// -----------------------------------------------------------
+
 export const MEDIUM_MIN_HEIGHT = 34;
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// LessonCell (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - grid/DayColumn.tsx — unless the host's renderLesson
+//     swaps it
+// -----------------------------------------------------------
 
 export default function LessonCell({
   placed,
@@ -58,8 +111,7 @@ export default function LessonCell({
   ].join(', ');
 
 
-  // STEP 1: the frame's look — pastel, conflict wash, or block
-  // ==========================================================
+  // The frame's look — pastel, conflict wash, or block
   const tint = subjectTint(entry.title, theme.colors.surface, theme.subjectColors);
   const ground = entry.isBlock
     ? { backgroundColor: theme.colors.surfaceSoft }
@@ -89,8 +141,7 @@ export default function LessonCell({
   );
 
 
-  // STEP 2: pressable lessons, inert blocks
-  // =======================================
+  // Pressable lessons, inert blocks
   const frameStyle = {
     position: 'absolute' as const,
     top: frame.top,

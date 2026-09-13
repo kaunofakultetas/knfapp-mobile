@@ -27,12 +27,48 @@ import { isAssistantTransportError } from '../core/errors';
 import type { AssistantFailure } from '../core/types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// useAssistantFailure
+// -----------------------------------------------------------
+//
+//   const failure = useAssistantFailure()   — typed failure of
+//                                             the current thread,
+//                                             null while healthy
+//
+// Used by:
+//   - testing/index.tsx — the probe's reader publishes this
+//     value after every commit
+//   - hooks/__tests__/useAssistantFailure.test.ts
+// -----------------------------------------------------------
+
 export function useAssistantFailure(): AssistantFailure | null {
   const error = useAISDKError();
   // Memoized on the error's identity — a fresh object per
   // render would re-fire every effect keyed on the failure
   return useMemo(() => (error === undefined ? null : failureOf(error)), [error]);
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// failureOf
+// -----------------------------------------------------------
+//
+// One thrown Error → our typed failure: a transport error's
+// failure verbatim, anything else read as 'server'.
+//
+// Used by:
+//   - useAssistantFailure (above)
+// -----------------------------------------------------------
 
 function failureOf(error: Error): AssistantFailure {
   if (isAssistantTransportError(error)) return error.failure;

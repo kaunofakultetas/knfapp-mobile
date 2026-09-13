@@ -52,18 +52,59 @@ import {
 } from './types';
 
 
+// Milliseconds to wait for response HEADERS before aborting —
+// the streaming body itself is never time-boxed (a slow model
+// is not a dead network)
 const DEFAULT_FIRST_BYTE_TIMEOUT_MS = 30_000;
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// KnfAssistantTransport
+// -----------------------------------------------------------
+//
 // The transport the app types against — the upstream class over
 // the upstream message shape, named once here so the app never
-// imports either
+// imports either.
+//
+// Used by:
+//   - createKnfAssistantTransport (below) — the return type
+//   - hooks/useKnfAssistantRuntime.ts — the options' transport
+//     field
+// -----------------------------------------------------------
+
 export type KnfAssistantTransport = AssistantChatTransport<UIMessage>;
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// AssistantHeadersConfig
+// -----------------------------------------------------------
+//
 // The slice of the config every request's headers need — the
 // tools endpoint builds the same headers without a timeout or
-// a failure listener
+// a failure listener.
+//
+// Used by:
+//   - buildAssistantHeaders (below) — its config parameter
+//   - exported through the barrel for hosts; nothing else
+//     in-tree imports it yet
+// -----------------------------------------------------------
+
 export type AssistantHeadersConfig = Pick<AssistantTransportConfig, 'getAuthToken' | 'language' | 'clientVersion'>;
+
+
+
+
+
 
 
 // -----------------------------------------------------------
@@ -82,6 +123,11 @@ export type AssistantHeadersConfig = Pick<AssistantTransportConfig, 'getAuthToke
 export function resolveFetch(seam: typeof fetch | undefined): typeof fetch {
   return seam ?? ((input, init) => globalThis.fetch(input, init));
 }
+
+
+
+
+
 
 
 // -----------------------------------------------------------
@@ -106,6 +152,11 @@ export function resolveFetch(seam: typeof fetch | undefined): typeof fetch {
 export function joinUrl(base: string, path: string): string {
   return `${base.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`;
 }
+
+
+
+
+
 
 
 // -----------------------------------------------------------
@@ -139,6 +190,23 @@ export async function buildAssistantHeaders(config: AssistantHeadersConfig, base
   return record;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// readToken
+// -----------------------------------------------------------
+//
+// A rejecting or empty getAuthToken is a guest, never an
+// error.
+//
+// Used by:
+//   - buildAssistantHeaders (above)
+// -----------------------------------------------------------
+
 async function readToken(getAuthToken: AssistantTransportConfig['getAuthToken']): Promise<string | null> {
   try {
     const token = await getAuthToken();
@@ -150,9 +218,23 @@ async function readToken(getAuthToken: AssistantTransportConfig['getAuthToken'])
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// rejectOnAbort
+// -----------------------------------------------------------
+//
 // A promise that only ever rejects — when the signal fires (or
 // at once, if it already has), with the error shape a real
-// fetch throws on abort
+// fetch throws on abort.
+//
+// Used by:
+//   - createAssistantFetch (below) — raced against the seam
+// -----------------------------------------------------------
+
 function rejectOnAbort(signal: AbortSignal): Promise<never> {
   return new Promise<never>((_, reject) => {
     const abort = () => reject(Object.assign(new Error('Request aborted'), { name: 'AbortError' }));
@@ -160,6 +242,11 @@ function rejectOnAbort(signal: AbortSignal): Promise<never> {
     else signal.addEventListener('abort', abort, { once: true });
   });
 }
+
+
+
+
+
 
 
 // -----------------------------------------------------------
@@ -235,6 +322,11 @@ export function createAssistantFetch(config: AssistantTransportConfig): typeof f
     return fail(toAssistantFailure(response, await readFailureBody(response)));
   };
 }
+
+
+
+
+
 
 
 // -----------------------------------------------------------

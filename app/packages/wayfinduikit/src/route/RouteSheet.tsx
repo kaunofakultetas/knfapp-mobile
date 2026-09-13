@@ -33,11 +33,26 @@ import { useKitLabels, useKitTheme } from '../provider';
 import InstructionLine from './InstructionLine';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// roundMetres
+// -----------------------------------------------------------
+//
 // labels.remaining and labels.reassurance take WHOLE metres,
 // and core/format.ts keeps its rounder private — the same two
 // rungs are repeated here (exact under 10 m, the nearest 5 m
 // from there) so the sheet's 'left' never disagrees with the
-// preview's total by a metre
+// preview's total by a metre.
+//
+// Used by:
+//   - RouteSheet (below) — the remaining line and the
+//     reassurance line
+// -----------------------------------------------------------
+
 const roundMetres = (metres: number): number => {
   const safe = Number.isFinite(metres) && metres > 0 ? metres : 0;
   if (safe < 10) return Math.round(safe);

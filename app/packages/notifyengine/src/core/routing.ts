@@ -34,7 +34,11 @@
 import type { DeviceNotificationResponse, KeyValueStorage, RouteIntent, RouteResolver, Unsubscribe } from './types';
 
 
+// Where the consumed-response guard persists its ring — a cold
+// start replaying the same sticky tap must not route twice
 const CONSUMED_KEY = 'notify.lastConsumedResponse';
+// Intents that land before a resolver subscribes wait in the
+// buffer — capped so a resolver-less app never grows it forever
 const BUFFER_CAP = 20;
 // How many consumed identifiers the persisted guard remembers —
 // one warm tap must not evict a sticky cold response's marker
@@ -45,9 +49,24 @@ const CONSUMED_CAP = 10;
 const DEFAULT_ACTION = 'expo.modules.notifications.actions.DEFAULT';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// normalizeData
+// -----------------------------------------------------------
+//
 // Whatever the wire carried, the resolver receives a plain
 // string→string map: objects stringified, null dropped, JSON
-// text parsed one level when it looks like an envelope
+// text parsed one level when it looks like an envelope.
+//
+// Used by:
+//   - createRoutingHub (below) — every ingested response
+//   - adapters/expo/index.ts — the foreground handler's payload
+// -----------------------------------------------------------
+
 export function normalizeData(raw: unknown): { type: string; data: Record<string, string> } {
   let source: Record<string, unknown> = {};
   try {
@@ -79,6 +98,23 @@ export function normalizeData(raw: unknown): { type: string; data: Record<string
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// RoutingHub
+// -----------------------------------------------------------
+//
+// The hub's surface — resolver wiring, the intent listeners,
+// and the two entry paths (warm ingest, cold-start consume).
+//
+// Used by:
+//   - createRoutingHub (below) — the return shape
+//   - engine.ts — holds one, feeds device responses in
+// -----------------------------------------------------------
+
 export interface RoutingHub {
   setResolver(resolver: RouteResolver): void;
   onIntent(listener: (intent: RouteIntent) => void): Unsubscribe;
@@ -86,6 +122,20 @@ export interface RoutingHub {
   ingest(response: DeviceNotificationResponse, coldStart: boolean): Promise<void>;
   consumeInitial(): Promise<RouteIntent | null>;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// createRoutingHub
+// -----------------------------------------------------------
+//
+// Used by:
+//   - engine.ts — wires the device listeners in
+// -----------------------------------------------------------
 
 export function createRoutingHub(deps: {
   storage: KeyValueStorage;

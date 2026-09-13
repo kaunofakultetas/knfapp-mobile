@@ -44,11 +44,52 @@
 //    - hooks/useRelationship.ts — one queue per user
 // -----------------------------------------------------------
 
+// One registry per scope object — a dropped scope frees its
+// queues with it
+const registries = new WeakMap<object, Map<string, unknown>>();
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ToggleContext
+// -----------------------------------------------------------
+//
+// What perform receives beside the desired value.
+//
+// Used by:
+//   - ToggleQueue (below) — the perform callback's second
+//     argument; the hooks' settle logic reads willContinue()
+// -----------------------------------------------------------
+
 export interface ToggleContext {
   // A newer task is queued behind the running one — its intent
   // supersedes whatever this task settles to
   willContinue(): boolean;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ToggleQueue
+// -----------------------------------------------------------
+//
+// One key's serializer — run() coalesces taps under the rules
+// in the file banner, busy() answers whether anything is in
+// flight or waiting.
+//
+// Used by:
+//   - createToggleQueue, getToggleQueue (below)
+//   - hooks/useRelationship.ts — types its per-user queue
+//   - src/index.ts — the public surface hosts import from
+// -----------------------------------------------------------
 
 export interface ToggleQueue<T> {
   run(desired: T, perform: (desired: T, ctx: ToggleContext) => Promise<T>): Promise<T>;
@@ -57,8 +98,22 @@ export interface ToggleQueue<T> {
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// abortError
+// -----------------------------------------------------------
+//
 // The supersedure signal. Instanceof checks are avoided across
-// the codebase — callers test err?.name === 'AbortError'
+// the codebase — callers test err?.name === 'AbortError'.
+//
+// Used by:
+//   - createToggleQueue (below) — rejects a replaced queued task
+// -----------------------------------------------------------
+
 const abortError = (): Error => {
   const err = new Error('superseded by a newer toggle');
   err.name = 'AbortError';
@@ -167,8 +222,6 @@ export function createToggleQueue<T>(): ToggleQueue<T> {
 //   - hooks/useLikeToggle.ts — getToggleQueue(transport, `like:${id}`)
 //   - hooks/useRelationship.ts — getToggleQueue(transport, `rel:${id}`)
 // -----------------------------------------------------------
-
-const registries = new WeakMap<object, Map<string, unknown>>();
 
 export function getToggleQueue<T>(scope: object, key: string): ToggleQueue<T> {
   let map = registries.get(scope);

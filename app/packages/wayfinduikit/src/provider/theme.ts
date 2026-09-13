@@ -32,6 +32,23 @@
 
 
 
+
+
+
+
+// -----------------------------------------------------------
+// KitColors
+// -----------------------------------------------------------
+//
+// Every colour token, flat — one level deep so a spread is a
+// genuine deep merge (see resolveTheme). Per-token meaning
+// rides on the inline comments.
+//
+// Used by:
+//   - KitTheme / KitThemeOverride (below) — the colors branch
+//   - every component in the package, via useKitTheme
+// -----------------------------------------------------------
+
 export interface KitColors {
   bg: string;          // the screen canvas behind cards and sheets
   surface: string;     // cards, the route sheet, the search field
@@ -55,17 +72,69 @@ export interface KitColors {
   shadow: string;      // shadowColor for floating chrome
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// KitFonts
+// -----------------------------------------------------------
+//
+// Three family slots; the kit ships no font files — a host
+// maps its loaded families onto them.
+//
+// Used by:
+//   - KitTheme / KitThemeOverride (below) — the fonts branch
+// -----------------------------------------------------------
+
 export interface KitFonts {
   regular: string;
   medium: string;
   bold: string;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// KitRadii
+// -----------------------------------------------------------
+//
+// Corner radii for the three kinds of kit chrome.
+//
+// Used by:
+//   - KitTheme / KitThemeOverride (below) — the radii branch
+// -----------------------------------------------------------
+
 export interface KitRadii {
   card: number;   // sheets, preview cards, the plan frame
   chip: number;   // floor chips, mode toggles
   pill: number;   // buttons, the you-are-here bar (effectively a capsule)
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// KitTheme
+// -----------------------------------------------------------
+//
+// The resolved bundle components draw with — always complete,
+// never partial.
+//
+// Used by:
+//   - provider/index.tsx — useKitTheme's return shape
+//   - src/index.ts — re-exported to hosts
+//   - components/map/WayfindHost.tsx — the app's theme bridge
+// -----------------------------------------------------------
 
 export interface KitTheme {
   scheme: 'light' | 'dark';
@@ -74,7 +143,23 @@ export interface KitTheme {
   radii: KitRadii;
 }
 
-// What a host hands the provider: any subset, any depth
+
+
+
+
+
+
+// -----------------------------------------------------------
+// KitThemeOverride
+// -----------------------------------------------------------
+//
+// What a host hands the provider: any subset, any depth.
+//
+// Used by:
+//   - resolveTheme (below) — the override argument
+//   - provider/index.tsx — WayfindUiKitProvider's theme prop
+// -----------------------------------------------------------
+
 export interface KitThemeOverride {
   scheme?: 'light' | 'dark';
   colors?: Partial<KitColors>;
@@ -89,7 +174,7 @@ export interface KitThemeOverride {
 
 
 // -----------------------------------------------------------
-// defaultTheme / darkTheme
+// defaultTheme
 // -----------------------------------------------------------
 //
 // System fonts everywhere: the kit never ships font files, a
@@ -141,10 +226,24 @@ export const defaultTheme: KitTheme = {
 };
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// darkTheme
+// -----------------------------------------------------------
+//
 // The burgundy is lightened so it holds its contrast on the
 // dark ground, and the route follows it; washes flip from
 // tint-of-white to tint-of-black. The plan paper stays a step
-// ABOVE the card so the drawing still reads as a sheet
+// ABOVE the card so the drawing still reads as a sheet.
+//
+// Used by:
+//   - provider/index.tsx — the base when scheme is 'dark'
+// -----------------------------------------------------------
+
 export const darkTheme: KitTheme = {
   ...defaultTheme,
   scheme: 'dark',
@@ -180,6 +279,26 @@ export const darkTheme: KitTheme = {
 
 
 // -----------------------------------------------------------
+// defined
+// -----------------------------------------------------------
+//
+// A branch's entries with the explicit undefineds dropped —
+// a spread would copy them as-is and erase base tokens.
+//
+// Used by:
+//   - resolveTheme (below) — every branch's merge
+// -----------------------------------------------------------
+
+const defined = <T extends object>(branch?: Partial<T>): Partial<T> =>
+  Object.fromEntries(Object.entries(branch ?? {}).filter(([, value]) => value !== undefined)) as Partial<T>;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // resolveTheme
 // -----------------------------------------------------------
 //
@@ -197,9 +316,6 @@ export const darkTheme: KitTheme = {
 // Used by:
 //   - provider/index.tsx — once per (scheme, override) pair
 // -----------------------------------------------------------
-
-const defined = <T extends object>(branch?: Partial<T>): Partial<T> =>
-  Object.fromEntries(Object.entries(branch ?? {}).filter(([, value]) => value !== undefined)) as Partial<T>;
 
 export function resolveTheme(base: KitTheme, override?: KitThemeOverride): KitTheme {
   if (!override) return base;

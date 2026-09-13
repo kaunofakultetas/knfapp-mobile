@@ -19,6 +19,24 @@ import type { TextStyle } from 'react-native';
 
 import { DEFAULT_SUBJECT_COLORS } from '../core/palette';
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// TimetableColors
+// -----------------------------------------------------------
+//
+// The semantic color slots — a host maps its own tokens onto
+// these keys; the field notes name where each slot lands.
+//
+// Used by:
+//   - TimetableTheme / TimetableResolvedTheme (below)
+//   - every kit component that paints, via theme.colors
+// -----------------------------------------------------------
+
 export interface TimetableColors {
   brand: string;        // today's day chip, selection accents
   brandSoft: string;    // LessonCard's room chip ground
@@ -37,6 +55,23 @@ export interface TimetableColors {
   shadow: string;       // shadowColor
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// TimetableFonts
+// -----------------------------------------------------------
+//
+// The four family names the kit ever asks for — resolveTheme
+// derives every text style from them.
+//
+// Used by:
+//   - TimetableTheme (below); resolveTheme — the derived styles
+// -----------------------------------------------------------
+
 export interface TimetableFonts {
   regular: string;
   medium: string;
@@ -44,12 +79,50 @@ export interface TimetableFonts {
   bold: string;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// TimetableTextStyles
+// -----------------------------------------------------------
+//
+// The kit's four text roles — every string a component draws
+// wears one of these.
+//
+// Used by:
+//   - TimetableTheme (below) — optional overrides;
+//     resolveTheme — the derived defaults
+// -----------------------------------------------------------
+
 export interface TimetableTextStyles {
   title: TextStyle;   // the lesson title inside a cell
   meta: TextStyle;    // time range, rooms, groups
   axis: TextStyle;    // the hour labels
   day: TextStyle;     // the day names across the header
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// TimetableTheme
+// -----------------------------------------------------------
+//
+// The contract the host hands to TimetableProvider — colors
+// and fonts required, the rest derived or defaulted.
+//
+// Used by:
+//   - resolveTheme / defaultTheme (below)
+//   - provider/index.tsx — the theme prop
+//   - components/schedule/TimetableHost.tsx — the app's token
+//     mapping
+// -----------------------------------------------------------
 
 export interface TimetableTheme {
   colors: TimetableColors;
@@ -60,7 +133,23 @@ export interface TimetableTheme {
   subjectColors?: string[];
 }
 
-// The theme components read: every text style present
+
+
+
+
+
+
+// -----------------------------------------------------------
+// TimetableResolvedTheme
+// -----------------------------------------------------------
+//
+// The theme components read: every text style present.
+//
+// Used by:
+//   - resolveTheme (below) — its answer
+//   - provider/index.tsx — what useTimetableTheme serves
+// -----------------------------------------------------------
+
 export interface TimetableResolvedTheme {
   colors: TimetableColors;
   fonts: TimetableFonts;
@@ -69,30 +158,22 @@ export interface TimetableResolvedTheme {
 }
 
 
-export function resolveTheme(theme: TimetableTheme): TimetableResolvedTheme {
-  const { fonts } = theme;
-  const defaults: TimetableTextStyles = {
-    title: { fontFamily: fonts.semiBold, fontSize: 12, lineHeight: 15 },
-    meta: { fontFamily: fonts.regular, fontSize: 10, lineHeight: 13 },
-    axis: { fontFamily: fonts.medium, fontSize: 11, lineHeight: 14 },
-    day: { fontFamily: fonts.semiBold, fontSize: 12, lineHeight: 15 },
-  };
-  return {
-    colors: theme.colors,
-    fonts,
-    text: {
-      title: { ...defaults.title, ...theme.text?.title },
-      meta: { ...defaults.meta, ...theme.text?.meta },
-      axis: { ...defaults.axis, ...theme.text?.axis },
-      day: { ...defaults.day, ...theme.text?.day },
-    },
-    subjectColors: theme.subjectColors && theme.subjectColors.length > 0 ? theme.subjectColors : DEFAULT_SUBJECT_COLORS,
-  };
-}
 
 
+
+
+
+// -----------------------------------------------------------
+// defaultTheme
+// -----------------------------------------------------------
+//
 // System fonts and a neutral light palette — what a host gets
 // before it maps its own tokens
+//
+// Used by:
+//   - provider/index.tsx — the provider-less default env
+// -----------------------------------------------------------
+
 export const defaultTheme: TimetableTheme = {
   colors: {
     brand: '#2F6FED',
@@ -117,3 +198,43 @@ export const defaultTheme: TimetableTheme = {
     bold: 'System',
   },
 };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// resolveTheme
+// -----------------------------------------------------------
+//
+// The contract into what components read: text styles derived
+// from the fonts, the host's overrides merged over them, and
+// the subject palette defaulted.
+//
+// Used by:
+//   - provider/index.tsx — TimetableProvider and the
+//     provider-less default env
+// -----------------------------------------------------------
+
+export function resolveTheme(theme: TimetableTheme): TimetableResolvedTheme {
+  const { fonts } = theme;
+  const defaults: TimetableTextStyles = {
+    title: { fontFamily: fonts.semiBold, fontSize: 12, lineHeight: 15 },
+    meta: { fontFamily: fonts.regular, fontSize: 10, lineHeight: 13 },
+    axis: { fontFamily: fonts.medium, fontSize: 11, lineHeight: 14 },
+    day: { fontFamily: fonts.semiBold, fontSize: 12, lineHeight: 15 },
+  };
+  return {
+    colors: theme.colors,
+    fonts,
+    text: {
+      title: { ...defaults.title, ...theme.text?.title },
+      meta: { ...defaults.meta, ...theme.text?.meta },
+      axis: { ...defaults.axis, ...theme.text?.axis },
+      day: { ...defaults.day, ...theme.text?.day },
+    },
+    subjectColors: theme.subjectColors && theme.subjectColors.length > 0 ? theme.subjectColors : DEFAULT_SUBJECT_COLORS,
+  };
+}

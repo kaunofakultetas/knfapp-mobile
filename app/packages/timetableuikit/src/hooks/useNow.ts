@@ -18,11 +18,46 @@
 
 import { useEffect, useState } from 'react';
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// NowPoint
+// -----------------------------------------------------------
+//
+// One clock sample in the kit's own coordinates — the shape
+// the grids consume as plain data.
+//
+// Used by:
+//   - read / useNow (below)
+//   - WeekGrid.tsx / DayTimeline.tsx — the now prop
+// -----------------------------------------------------------
+
 export interface NowPoint {
   // 0 = Monday .. 6 = Sunday
   day: number;
   minutes: number;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// read
+// -----------------------------------------------------------
+//
+// One clock sample, in the kit's own coordinates (Monday-
+// first day, wall-clock minutes).
+//
+// Used by:
+//   - useNow (below) — the initial state and every tick
+// -----------------------------------------------------------
 
 const read = (): NowPoint => {
   const date = new Date();
@@ -30,11 +65,46 @@ const read = (): NowPoint => {
 };
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// UseNowOptions
+// -----------------------------------------------------------
+//
+// Used by:
+//   - useNow (below)
+//   - WeekGrid.tsx / DayTimeline.tsx — pass { enabled } when
+//     the host brought its own clock
+// -----------------------------------------------------------
+
 export interface UseNowOptions {
   intervalMs?: number;
   // false = the host brought its own clock; no interval runs
   enabled?: boolean;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// useNow
+// -----------------------------------------------------------
+//
+//   useNow()                          — tick every 30 s
+//   useNow({ intervalMs })            — a custom cadence
+//   useNow({ enabled: false })        — no interval at all;
+//                                       answers the mount-time
+//                                       sample
+//
+// Used by:
+//   - WeekGrid.tsx / DayTimeline.tsx — the default clock
+// -----------------------------------------------------------
 
 export function useNow(options: UseNowOptions = {}): NowPoint {
   const { intervalMs = 30_000, enabled = true } = options;

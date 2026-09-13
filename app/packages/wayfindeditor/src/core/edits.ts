@@ -21,18 +21,85 @@ import { buildingFields, getEntity } from './document';
 import type { BuildingFields, Change, EdgeLike, GraphLike, LevelLike, NodeLike, Patch, RoomLike } from './types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// Edit
+// -----------------------------------------------------------
+//
+// What every verb answers: the changes that would do the job,
+// or a refusal naming why and no changes.
+//
+// Used by:
+//   - every builder below — the return shape
+//   - hooks/useEditor.ts — every action's answer
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export interface Edit {
   changes: Change[];
   // Why nothing happened, when nothing did
   blocked?: { reason: 'level_has_nodes' | 'node_has_rooms' | 'missing' | 'duplicate_id' | 'same_node'; ids: string[] } | null;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ok
+// -----------------------------------------------------------
+//
+// The succeeding Edit shape every builder below answers with.
+//
+// Used by:
+//   - every builder in this file
+// -----------------------------------------------------------
+
 const ok = (changes: Change[]): Edit => ({ changes });
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// blocked
+// -----------------------------------------------------------
+//
+// A refusal carries no changes — only the reason and the ids
+// standing in the way.
+//
+// Used by:
+//   - the delete / add builders below — every cascade guard
+// -----------------------------------------------------------
+
 const blocked = (reason: NonNullable<Edit['blocked']>['reason'], ids: string[] = []): Edit => ({ changes: [], blocked: { reason, ids } });
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// sansId
+// -----------------------------------------------------------
+//
 // A patch can never re-address an entity: the Patch type
 // refuses an id, but a JS host (or an `as` cast) can smuggle
-// one past it — dropped here before any update spreads it
+// one past it — dropped here before any update spreads it.
+//
+// Used by:
+//   - the update builders below — every patch on the way in
+// -----------------------------------------------------------
+
 const sansId = <E,>(patch: Patch<E>): Patch<E> => {
   if (!('id' in (patch as Record<string, unknown>))) return patch;
   const { id: _dropped, ...fields } = patch as Record<string, unknown>;
@@ -47,11 +114,12 @@ const sansId = <E,>(patch: Patch<E>): Patch<E> => {
 
 
 // -----------------------------------------------------------
-// Levels
+// addLevel
 // -----------------------------------------------------------
 //
 // Used by:
-//   - hooks/useEditor.ts
+//   - hooks/useEditor.ts — actions.addLevel; the map-editor's
+//     add-floor button goes through it
 // -----------------------------------------------------------
 
 export function addLevel(doc: GraphLike, level: LevelLike): Edit {
@@ -60,12 +128,42 @@ export function addLevel(doc: GraphLike, level: LevelLike): Edit {
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// updateLevel
+// -----------------------------------------------------------
+//
+// Used by:
+//   - hooks/useEditor.ts — actions.updateLevel; the map-editor's
+//     level sheet fields and plan upload go through it
+// -----------------------------------------------------------
+
 export function updateLevel(doc: GraphLike, id: string, patch: Patch<LevelLike>): Edit {
   const before = getEntity(doc, 'level', id);
   if (!before) return blocked('missing', [id]);
   return ok([{ kind: 'level', id, before, after: { ...before, ...sansId(patch) } }]);
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// deleteLevel
+// -----------------------------------------------------------
+//
+// Refused while nodes stand on the level — the blocked answer
+// names them.
+//
+// Used by:
+//   - hooks/useEditor.ts — actions.deleteLevel
+// -----------------------------------------------------------
 
 export function deleteLevel(doc: GraphLike, id: string): Edit {
   const before = getEntity(doc, 'level', id);
@@ -82,15 +180,12 @@ export function deleteLevel(doc: GraphLike, id: string): Edit {
 
 
 // -----------------------------------------------------------
-// Nodes
+// addNode
 // -----------------------------------------------------------
 //
-// moveNode is what a drag records many times per second; it
-// stays one Change so the checkpoint coalesces it into first
-// position → last position.
-//
 // Used by:
-//   - hooks/useEditor.ts
+//   - hooks/useEditor.ts — actions.addNode; the map-editor's
+//     draw, stairs and room tools go through it
 // -----------------------------------------------------------
 
 export function addNode(doc: GraphLike, node: NodeLike): Edit {
@@ -98,6 +193,24 @@ export function addNode(doc: GraphLike, node: NodeLike): Edit {
   return ok([{ kind: 'node', id: node.id, before: null, after: node }]);
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// moveNode
+// -----------------------------------------------------------
+//
+// What a drag records many times per second; it stays one
+// Change so the checkpoint coalesces it into first position →
+// last position.
+//
+// Used by:
+//   - hooks/useEditor.ts — actions.moveNode; the map-editor's
+//     node drags go through it
+// -----------------------------------------------------------
 
 export function moveNode(doc: GraphLike, id: string, x: number, y: number): Edit {
   const before = getEntity(doc, 'node', id);
@@ -107,12 +220,45 @@ export function moveNode(doc: GraphLike, id: string, x: number, y: number): Edit
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// updateNode
+// -----------------------------------------------------------
+//
+// Used by:
+//   - hooks/useEditor.ts — actions.updateNode; the map-editor's
+//     node sheet (kind, landmark, pano yaw, QR, room link)
+// -----------------------------------------------------------
+
 export function updateNode(doc: GraphLike, id: string, patch: Patch<NodeLike>): Edit {
   const before = getEntity(doc, 'node', id);
   if (!before) return blocked('missing', [id]);
   return ok([{ kind: 'node', id, before, after: { ...before, ...sansId(patch) } }]);
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// deleteNode
+// -----------------------------------------------------------
+//
+// The node takes every edge on it; a node a room points at is
+// refused unless the caller says force — the room is then
+// unlinked, not deleted. The building's entrance forgets a
+// deleted node too.
+//
+// Used by:
+//   - hooks/useEditor.ts — actions.deleteNode; the map-editor's
+//     delete button retries with force on node_has_rooms
+// -----------------------------------------------------------
 
 export function deleteNode(doc: GraphLike, id: string, options: { force?: boolean } = {}): Edit {
   const before = getEntity(doc, 'node', id);
@@ -141,14 +287,15 @@ export function deleteNode(doc: GraphLike, id: string, options: { force?: boolea
 
 
 // -----------------------------------------------------------
-// Edges
+// addEdge
 // -----------------------------------------------------------
 //
 // An edge id is "<a>--<b>" unless taken; linking a node to
 // itself or two nodes already joined is refused.
 //
 // Used by:
-//   - hooks/useEditor.ts
+//   - hooks/useEditor.ts — actions.addEdge; the map-editor's
+//     link and stairs tools go through it
 // -----------------------------------------------------------
 
 export function addEdge(doc: GraphLike, a: string, b: string, extra: Omit<EdgeLike, 'id' | 'a' | 'b'>): Edit {
@@ -164,12 +311,39 @@ export function addEdge(doc: GraphLike, a: string, b: string, extra: Omit<EdgeLi
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// updateEdge
+// -----------------------------------------------------------
+//
+// Used by:
+//   - hooks/useEditor.ts — actions.updateEdge
+// -----------------------------------------------------------
+
 export function updateEdge(doc: GraphLike, id: string, patch: Patch<EdgeLike>): Edit {
   const before = getEntity(doc, 'edge', id);
   if (!before) return blocked('missing', [id]);
   return ok([{ kind: 'edge', id, before, after: { ...before, ...sansId(patch) } }]);
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// deleteEdge
+// -----------------------------------------------------------
+//
+// Used by:
+//   - hooks/useEditor.ts — actions.deleteEdge; the map-editor's
+//     delete-link button in the node sheet
+// -----------------------------------------------------------
 
 export function deleteEdge(doc: GraphLike, id: string): Edit {
   const before = getEntity(doc, 'edge', id);
@@ -184,11 +358,12 @@ export function deleteEdge(doc: GraphLike, id: string): Edit {
 
 
 // -----------------------------------------------------------
-// Rooms
+// addRoom
 // -----------------------------------------------------------
 //
 // Used by:
-//   - hooks/useEditor.ts
+//   - hooks/useEditor.ts — actions.addRoom; the map-editor's
+//     room tool and node sheet go through it
 // -----------------------------------------------------------
 
 export function addRoom(doc: GraphLike, room: RoomLike): Edit {
@@ -197,12 +372,43 @@ export function addRoom(doc: GraphLike, room: RoomLike): Edit {
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// updateRoom
+// -----------------------------------------------------------
+//
+// Used by:
+//   - hooks/useEditor.ts — actions.updateRoom; the map-editor's
+//     room-name field goes through it
+// -----------------------------------------------------------
+
 export function updateRoom(doc: GraphLike, id: string, patch: Patch<RoomLike>): Edit {
   const before = getEntity(doc, 'room', id);
   if (!before) return blocked('missing', [id]);
   return ok([{ kind: 'room', id, before, after: { ...before, ...sansId(patch) } }]);
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// deleteRoom
+// -----------------------------------------------------------
+//
+// Any node that named this room as its own forgets it in the
+// same edit.
+//
+// Used by:
+//   - hooks/useEditor.ts — actions.deleteRoom; the map-editor's
+//     delete button when the node carries a room
+// -----------------------------------------------------------
 
 export function deleteRoom(doc: GraphLike, id: string): Edit {
   const before = getEntity(doc, 'room', id);

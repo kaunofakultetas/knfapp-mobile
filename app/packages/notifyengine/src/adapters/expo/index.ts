@@ -39,6 +39,26 @@ import type {
 // user never explicitly granted; still deliverable
 const IOS_PROVISIONAL = 3;
 
+// Module-scope so setForegroundHandler (installed once) and
+// onHandleError subscribers meet in one place
+const handleErrorListeners = new Set<(error: unknown) => void>();
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// normalizePermission
+// -----------------------------------------------------------
+//
+// Flattens the primitive's permission record — the iOS
+// provisional tier surfaces as its own status.
+//
+// Used by:
+//   - createExpoDevice (below) — get/requestPermissions
+// -----------------------------------------------------------
 
 function normalizePermission(raw: ExpoNotifications.NotificationPermissionsStatus): DevicePermission {
   if (raw.ios?.status === IOS_PROVISIONAL) {
@@ -49,6 +69,23 @@ function normalizePermission(raw: ExpoNotifications.NotificationPermissionsStatu
   return { status, canAskAgain: raw.canAskAgain };
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// toResponse
+// -----------------------------------------------------------
+//
+// Reduces the primitive's response object to the flat
+// {identifier, actionIdentifier, data} the engine routes on.
+//
+// Used by:
+//   - createExpoDevice (below) — onResponse / getLastResponse
+// -----------------------------------------------------------
+
 function toResponse(response: ExpoNotifications.NotificationResponse): DeviceNotificationResponse {
   return {
     identifier: response.notification.request.identifier,
@@ -57,6 +94,24 @@ function toResponse(response: ExpoNotifications.NotificationResponse): DeviceNot
   };
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// createExpoDevice
+// -----------------------------------------------------------
+//
+//   createExpoDevice()                — bare (dev builds)
+//   createExpoDevice({ projectId })   — EAS builds pass their
+//                                       project id for tokens
+//
+// Used by:
+//   - the app's services/notifyEngine.ts — the real device
+//     half of the engine
+// -----------------------------------------------------------
 
 export function createExpoDevice(options: { projectId?: string } = {}): DeviceAdapter {
   const platform =
@@ -182,7 +237,3 @@ export function createExpoDevice(options: { projectId?: string } = {}): DeviceAd
     },
   };
 }
-
-// Module-scope so setForegroundHandler (installed once) and
-// onHandleError subscribers meet in one place
-const handleErrorListeners = new Set<(error: unknown) => void>();

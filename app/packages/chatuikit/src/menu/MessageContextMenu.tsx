@@ -43,10 +43,16 @@ import type { ContextTarget, KitIconName, KitMessage, KitMessageAction } from '.
 
 // Geometry of the stack around the bubble
 const BAR_HEIGHT = 50;
+// Air between the reaction bar and the bubble copy under it
 const BAR_GAP = 8;
+// Air between the bubble copy and the action menu below it
 const MENU_GAP = 8;
+// Fixed menu width — rows never reflow as options differ
 const MENU_WIDTH = 236;
+// One action row; the menu's height and scroll budget count
+// in these
 const ROW_HEIGHT = 46;
+// The clamped stack keeps this inset from every screen edge
 const EDGE = 12;
 // The floating copy never shrinks below this, so the clamp
 // budget for bar + menu is everything else
@@ -54,6 +60,8 @@ const COPY_MIN = 80;
 
 // Soft, critically damped — the stack settles, never bounces
 const OPEN_SPRING = { damping: 24, stiffness: 300, mass: 0.9, overshootClamping: true };
+// Closing is a short timed fade, not the spring — quick and
+// predictable, and onClosed fires exactly when it lands
 const CLOSE_MS = 160;
 
 // What the layer holds while open and while fading out
@@ -64,9 +72,52 @@ interface Snapshot {
   canDelete: boolean;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// tick
+// -----------------------------------------------------------
+//
+// The tiny selection haptic on a reaction tap — a no-op on
+// web, failures swallowed (simulators have no engine).
+//
+// Used by:
+//   - MessageContextMenu (below) — the reaction bar's taps
+// -----------------------------------------------------------
+
 const tick = () => {
   if (Platform.OS !== 'web') void Haptics.selectionAsync().catch(() => {});
 };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// MenuRowSpec
+// -----------------------------------------------------------
+//
+// One row of the long-press menu, as data — what buildMenuRows
+// emits and the menu renders.
+//
+// Used by:
+//   - buildMenuRows / MessageContextMenu (below)
+//   - exported through the kit's barrel for hosts' tests
+// -----------------------------------------------------------
+
+export interface MenuRowSpec {
+  key: string;
+  icon: KitIconName;
+  label: string;
+  danger?: boolean;
+  onPress: () => void;
+}
 
 
 
@@ -87,14 +138,6 @@ const tick = () => {
 // Used by:
 //   - MessageContextMenu (below)
 // -----------------------------------------------------------
-
-export interface MenuRowSpec {
-  key: string;
-  icon: KitIconName;
-  label: string;
-  danger?: boolean;
-  onPress: () => void;
-}
 
 export function buildMenuRows(
   message: KitMessage,

@@ -28,6 +28,23 @@ import { isAuthError, isRetryableError, type SocialNotice, type SocialTransport 
 import type { SocialUser } from '../core/types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// SocialEngineEnv
+// -----------------------------------------------------------
+//
+// The context value — everything a hook reaches for, plus the
+// offline task queue and its drain.
+//
+// Used by:
+//   - useSocialEngine (below) — every hook reads this shape
+//   - src/index.ts — the public surface hosts import from
+// -----------------------------------------------------------
+
 export interface SocialEngineEnv {
   transport: SocialTransport;
   // null = guest
@@ -53,6 +70,8 @@ export interface SocialEngineEnv {
   replayTasks: () => Promise<void>;
 }
 
+// null marks "no provider above" — useSocialEngine turns it
+// into a loud error rather than a half-working env
 const SocialEngineContext = createContext<SocialEngineEnv | null>(null);
 
 

@@ -14,16 +14,83 @@
 //    - hosts typing their config and subscriptions
 // -----------------------------------------------------------
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// Language
+// -----------------------------------------------------------
+//
+// The two languages the backend localizes pushes into.
+//
+// Used by:
+//   - core/registration.ts / core/engine.ts — rides into
+//     register()
+//   - adapters/knf/index.ts — the register payload
+//   - services/notifyEngine.ts — the host's current language
+// -----------------------------------------------------------
+
 export type Language = 'lt' | 'en';
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ChannelKey
+// -----------------------------------------------------------
+//
 // The closed set of per-feature channels the backend validates
 // — mirrors the server's list; unknown keys are rejected at
-// the API boundary before any write
+// the API boundary before any write.
+//
+// Used by:
+//   - core/prefs.ts / core/engine.ts — the channel toggles
+//   - adapters/knf/index.ts — the channels endpoints
+// -----------------------------------------------------------
+
 export type ChannelKey = 'news' | 'chat' | 'schedule' | 'admin';
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// RegisterReason
+// -----------------------------------------------------------
+//
 // Why a registration is happening — rides into telemetry and
-// decides nothing by itself
+// decides nothing by itself.
+//
+// Used by:
+//   - core/registration.ts / core/engine.ts — register(reason)
+// -----------------------------------------------------------
+
 export type RegisterReason = 'login' | 'restore' | 'toggle' | 'language' | 'rotation' | 'ttl';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// RegisterFailure
+// -----------------------------------------------------------
+//
+// The typed no of a registration attempt.
+//
+// Used by:
+//   - RegisterResult (below) — the failure arm
+//   - core/registration.ts — lastError in the snapshot
+// -----------------------------------------------------------
 
 export type RegisterFailure = {
   ok: false;
@@ -34,14 +101,48 @@ export type RegisterFailure = {
   // 'superseded'      — a newer register() call took over
   reason: 'unsupported' | 'unauthenticated' | 'permission' | 'network' | 'disabled' | 'superseded';
 };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// RegisterResult
+// -----------------------------------------------------------
+//
 // tokenId is the backend's identifier for the row — an opaque
 // STRING (the server mints UUIDs); 'cached' marks a dedupe hit
-// that never went to the wire
+// that never went to the wire.
+//
+// Used by:
+//   - core/registration.ts / core/engine.ts — register()'s
+//     resolution
+//   - testing/index.ts — asserted in the contract tests
+// -----------------------------------------------------------
+
 export type RegisterResult = { ok: true; tokenId: string } | RegisterFailure;
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// PermissionSnapshot
+// -----------------------------------------------------------
+//
 // One normalized cross-platform permission record — complete
-// on every platform, so consumers never null-check per OS
+// on every platform, so consumers never null-check per OS.
+//
+// Used by:
+//   - core/permission.ts — the machine's store value
+//   - core/engine.ts — engine.permission
+//   - testing/index.ts — fixtures
+// -----------------------------------------------------------
+
 export interface PermissionSnapshot {
   status: 'unknown' | 'undetermined' | 'granted' | 'provisional' | 'denied' | 'unsupported';
   // false ⇒ the OS will not prompt again; UI must deep-link to
@@ -51,12 +152,47 @@ export interface PermissionSnapshot {
   canDeliver: boolean;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// RegistrationSnapshot
+// -----------------------------------------------------------
+//
+// Where the token lifecycle stands right now.
+//
+// Used by:
+//   - core/registration.ts — the machine's store value
+//   - core/engine.ts — engine.registration
+// -----------------------------------------------------------
+
 export interface RegistrationSnapshot {
   phase: 'idle' | 'acquiring' | 'syncing' | 'registered' | 'detached' | 'failed';
   token: string | null;
   lastError: RegisterFailure | null;
   registeredAt: number | null;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// PrefsSnapshot
+// -----------------------------------------------------------
+//
+// The preference state one read returns — the client master
+// switch plus the server-truth toggles.
+//
+// Used by:
+//   - core/prefs.ts — the machine's store value
+//   - core/engine.ts — engine.prefs
+// -----------------------------------------------------------
 
 export interface PrefsSnapshot {
   // Client-only master switch — lives in storage, default ON
@@ -68,9 +204,25 @@ export interface PrefsSnapshot {
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// RouteIntent
+// -----------------------------------------------------------
+//
 // A tapped notification, normalized: everything routes on
 // `type`; `data` is a sanitized string→string map whatever the
-// wire carried; the engine never navigates — a resolver does
+// wire carried; the engine never navigates — a resolver does.
+//
+// Used by:
+//   - core/routing.ts — built from device responses
+//   - services/notifyRouting.ts / app/index.tsx — the host's
+//     resolver navigates on it
+// -----------------------------------------------------------
+
 export interface RouteIntent {
   type: string;
   data: Record<string, string>;
@@ -79,31 +231,110 @@ export interface RouteIntent {
   // the resolver may treat differently
   actionId: string | null;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// RouteResolver
+// -----------------------------------------------------------
+//
+// The host's navigation hand — the only thing that ever acts
+// on a RouteIntent.
+//
+// Used by:
+//   - core/routing.ts — setResolver / the pending replay
+//   - core/engine.ts — re-exposed as engine.setResolver
+// -----------------------------------------------------------
+
 export type RouteResolver = (intent: RouteIntent) => void;
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// Unsubscribe
+// -----------------------------------------------------------
+//
+// Every subscription here returns its own undo.
+//
+// Used by:
+//   - StateStore (below), core/routing.ts, core/engine.ts,
+//     adapters/expo/index.ts — all listener registrations
+// -----------------------------------------------------------
+
 export type Unsubscribe = () => void;
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// StateStore
+// -----------------------------------------------------------
+//
 // The one read/subscribe surface every machine exposes:
 // subscribe fires immediately with the current value and is
-// edge-deduped — equal snapshots never re-notify
+// edge-deduped — equal snapshots never re-notify.
+//
+// Used by:
+//   - core/store.ts — MutableStore implements it
+//   - core/engine.ts — permission/registration/prefs surfaces
+// -----------------------------------------------------------
+
 export interface StateStore<T> {
   get(): T;
   subscribe(listener: (value: T) => void): Unsubscribe;
 }
 
 
+
+
+
+
+
 // -----------------------------------------------------------
-// Channel registry
+// ChannelImportance
+// -----------------------------------------------------------
+//
+// The native importance scale, mirrored so hosts never hunt
+// for magic numbers (3 is MIN there — a silent channel).
+//
+// Used by:
+//   - the host's channel specs (services/notifyEngine.ts)
 // -----------------------------------------------------------
 
-// Android freezes a channel's importance/sound/vibration at
-// creation — changing settings means bumping the id version
-// ('default.v1' → 'default.v2'), so ids are versioned and the
-// charset stays URL/store-safe: [a-z0-9.] only
-// The native importance scale, mirrored so hosts never hunt
-// for magic numbers (3 is MIN there — a silent channel)
 export const ChannelImportance = { MIN: 3, LOW: 4, DEFAULT: 5, HIGH: 6, MAX: 7 } as const;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ChannelSpec
+// -----------------------------------------------------------
+//
+// One Android channel as the host declares it. Android
+// freezes a channel's importance/sound/vibration at creation
+// — changing settings means bumping the id version
+// ('default.v1' → 'default.v2'), so ids are versioned and the
+// charset stays URL/store-safe: [a-z0-9.] only.
+//
+// Used by:
+//   - core/channels.ts — the applier diffs specs vs device
+//   - adapters/expo/index.ts — setChannel's input
+//   - services/notifyEngine.ts — the host's channel list
+// -----------------------------------------------------------
 
 export interface ChannelSpec {
   id: string;
@@ -119,8 +350,21 @@ export interface ChannelSpec {
 }
 
 
+
+
+
+
+
 // -----------------------------------------------------------
-// Foreground presentation policy
+// PresentationRule
+// -----------------------------------------------------------
+//
+// How one foreground notification is allowed to show itself.
+//
+// Used by:
+//   - PresentationPolicy (below) — the per-type rules
+//   - core/presentation.ts — resolved per notification
+//   - adapters/expo/index.ts — mapped onto the native handler
 // -----------------------------------------------------------
 
 export interface PresentationRule {
@@ -129,6 +373,25 @@ export interface PresentationRule {
   sound: boolean;
   badge: boolean;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// PresentationPolicy
+// -----------------------------------------------------------
+//
+// The host's whole foreground policy — per-type rules, the
+// fallback, and the on-screen suppressor.
+//
+// Used by:
+//   - core/presentation.ts — resolvePresentation walks it
+//   - core/engine.ts — part of the engine config
+//   - services/notifyEngine.ts — the host's policy
+// -----------------------------------------------------------
 
 export interface PresentationPolicy {
   // Keyed by data.type; anything unknown falls to `default`
@@ -141,13 +404,26 @@ export interface PresentationPolicy {
 }
 
 
-// -----------------------------------------------------------
-// Seams
-// -----------------------------------------------------------
 
+
+
+
+
+// -----------------------------------------------------------
+// NotifyTransport
+// -----------------------------------------------------------
+//
 // The backend contract — one adapter per backend, plus the
 // in-memory fake. Errors surface as typed codes through
 // TransportFailure, never raw exceptions.
+//
+// Used by:
+//   - core/registration.ts / core/prefs.ts — the wire calls
+//   - adapters/knf/index.ts — the real implementation
+//   - testing/index.ts — FakeTransport
+//   - services/notifyTransport.ts — the host's wiring
+// -----------------------------------------------------------
+
 export interface NotifyTransport {
   register(p: {
     token: string;
@@ -162,7 +438,44 @@ export interface NotifyTransport {
   putChatPreview(on: boolean): Promise<boolean>;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// TransportErrorCode
+// -----------------------------------------------------------
+//
+// The three ways a transport call fails — what machines triage
+// on.
+//
+// Used by:
+//   - TransportFailure (below) — its `code`
+//   - index.ts — re-exported for hosts typing error handling
+// -----------------------------------------------------------
+
 export type TransportErrorCode = 'network' | 'auth' | 'server';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// TransportFailure
+// -----------------------------------------------------------
+//
+// The typed failure every transport rejects with — machines
+// triage on `code` ('network' retries, 'auth' waits for a
+// session, 'server' surfaces), never on message strings.
+//
+// Used by:
+//   - adapters/knf/index.ts — maps HTTP failures into it
+//   - testing/index.ts — the fake's scripted failures
+// -----------------------------------------------------------
 
 export class TransportFailure extends Error {
   code: TransportErrorCode;
@@ -174,12 +487,46 @@ export class TransportFailure extends Error {
 }
 
 
-// What the device below the engine looks like — a flat
-// injectable mirror of the native primitive, entirely fakeable
+
+
+
+
+
+// -----------------------------------------------------------
+// DevicePermission
+// -----------------------------------------------------------
+//
+// The raw permission pair the device below the engine reports
+// — a flat injectable mirror of the native primitive, entirely
+// fakeable.
+//
+// Used by:
+//   - DeviceAdapter (below) — get/requestPermissions
+//   - adapters/expo/index.ts — normalized from expo's record
+//   - testing/index.ts — FakeDevice's scripted permissions
+// -----------------------------------------------------------
+
 export interface DevicePermission {
   status: 'undetermined' | 'granted' | 'provisional' | 'denied';
   canAskAgain: boolean;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// DeviceChannel
+// -----------------------------------------------------------
+//
+// One Android channel as the device reports it back.
+//
+// Used by:
+//   - DeviceAdapter (below) — getChannels
+//   - testing/index.ts — FakeDevice's channel table
+// -----------------------------------------------------------
 
 export interface DeviceChannel {
   id: string;
@@ -187,11 +534,51 @@ export interface DeviceChannel {
   importance: number;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// DeviceNotificationResponse
+// -----------------------------------------------------------
+//
+// A raw tap as the device delivers it, before routing
+// normalizes it into a RouteIntent.
+//
+// Used by:
+//   - DeviceAdapter (below) — onResponse / getLastResponse
+//   - core/routing.ts — the intake side
+//   - testing/index.ts — FakeDevice.tap()
+// -----------------------------------------------------------
+
 export interface DeviceNotificationResponse {
   identifier: string;
   actionIdentifier: string | null;
   data: unknown;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// DeviceAdapter
+// -----------------------------------------------------------
+//
+// What the device below the engine looks like — a flat
+// injectable mirror of the native primitive, entirely
+// fakeable.
+//
+// Used by:
+//   - core/permission.ts / core/registration.ts /
+//     core/channels.ts / core/engine.ts — everything native
+//   - adapters/expo/index.ts — the real implementation
+//   - testing/index.ts — FakeDevice
+// -----------------------------------------------------------
 
 export interface DeviceAdapter {
   // Environment
@@ -229,6 +616,23 @@ export interface DeviceAdapter {
   onAppActive(listener: () => void): Unsubscribe;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// KeyValueStorage
+// -----------------------------------------------------------
+//
+// The three-verb persistence seam the machines write through.
+//
+// Used by:
+//   - core/registration.ts / core/prefs.ts / core/routing.ts /
+//     core/channels.ts / core/engine.ts — persisted state
+//   - testing/index.ts — FakeStorage
+// -----------------------------------------------------------
 
 export interface KeyValueStorage {
   get(key: string): Promise<string | null>;

@@ -35,6 +35,20 @@ import { useCallback, useRef, useState } from 'react';
 import type { ContextTarget, KitMessage } from '../core/types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// useContextMenu
+// -----------------------------------------------------------
+//
+// Used by:
+//   - app/(main)/chat-room/index.tsx — between MessageList
+//     and MessageContextMenu
+// -----------------------------------------------------------
+
 export function useContextMenu(
   messages: KitMessage[],
   // The host's reaction picker; these two members must be

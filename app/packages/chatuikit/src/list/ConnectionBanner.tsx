@@ -19,6 +19,19 @@ import { ActivityIndicator, Text } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// ConnectionBanner (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - app/(main)/chat-room/index.tsx — over the message list
+// -----------------------------------------------------------
+
 export default function ConnectionBanner({ state }: { state: 'connecting' | 'offline' | null }) {
 
   const labels = useKitLabels();

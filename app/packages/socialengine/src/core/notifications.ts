@@ -33,6 +33,24 @@
 import type { NotificationGroup, NotificationKind, SocialNotification, SocialUser } from './types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// GroupNotificationsOptions
+// -----------------------------------------------------------
+//
+// The grouping knobs — every field has a default (48 h window,
+// like/connect_accept groupable, 5 actors listed).
+//
+// Used by:
+//   - groupNotifications (below)
+//   - hooks/useNotifications.ts — the `grouping` option
+//   - src/index.ts — the public surface hosts import from
+// -----------------------------------------------------------
+
 export interface GroupNotificationsOptions {
   // Kinds allowed to merge; every other kind stands alone
   groupableKinds?: NotificationKind[];
@@ -46,12 +64,31 @@ export interface GroupNotificationsOptions {
 // its own row than as a tail on a fresh one
 const DEFAULT_WINDOW_MS = 48 * 60 * 60 * 1000;
 
+// Only pile-on kinds collapse by default — a comment or a
+// request wants reading, not counting
 const DEFAULT_GROUPABLE_KINDS: NotificationKind[] = ['like', 'connect_accept'];
 
+// Enough names for "X, Y ir dar 3" copy without hauling every
+// actor into the row
 const DEFAULT_MAX_ACTORS = 5;
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// parseTime
+// -----------------------------------------------------------
+//
 // A malformed stamp sorts last instead of poisoning the
-// comparator with NaN
+// comparator with NaN.
+//
+// Used by:
+//   - groupNotifications (below) — the sort and the window test
+// -----------------------------------------------------------
+
 const parseTime = (iso: string): number => {
   const t = Date.parse(iso);
   return Number.isNaN(t) ? 0 : t;

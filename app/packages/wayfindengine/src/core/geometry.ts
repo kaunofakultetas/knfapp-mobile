@@ -25,6 +25,23 @@
 import type { TurnDirection } from './types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// PlanPoint
+// -----------------------------------------------------------
+//
+// A bare x/y in plan pixels — the only shape these helpers
+// need of a node.
+//
+// Used by:
+//   - every helper in this file
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export interface PlanPoint {
   x: number;
   y: number;
@@ -34,7 +51,11 @@ export interface PlanPoint {
 // the first it is no turn at all, under the second a fork, up
 // to and including the third a corner, beyond it a reversal
 const STRAIGHT_BELOW_DEG = 25;
+
+// From STRAIGHT_BELOW_DEG up to here the turn is a slight fork
 const SLIGHT_BELOW_DEG = 70;
+
+// Up to and including here a corner; beyond it a reversal
 const TURN_UP_TO_DEG = 135;
 
 

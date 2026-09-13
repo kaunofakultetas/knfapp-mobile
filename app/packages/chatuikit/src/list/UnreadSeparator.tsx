@@ -17,6 +17,21 @@ import { LIST_INSET } from '../core/metrics';
 import { useKitLabels, useKitTheme } from '../provider';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// UnreadSeparator (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - list/MessageList.tsx — the default slot; hosts may
+//     replace it through the provider's `components`
+//   - list/UnreadPill.tsx — shares its wording
+// -----------------------------------------------------------
+
 export default function UnreadSeparator({ count }: { count: number }) {
 
   const { colors, text } = useKitTheme();

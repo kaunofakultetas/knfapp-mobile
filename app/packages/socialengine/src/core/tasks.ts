@@ -26,15 +26,71 @@ import type { LikeTarget, RelationshipAction } from './transport';
 import type { SocialStorage } from './storage';
 
 
+// The one SocialStorage slot the whole queue persists under
+const STORAGE_KEY = 'social:tasks';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// PendingSocialTask
+// -----------------------------------------------------------
+//
+// One queued intent — the viewer's FINAL word on a target,
+// stamped with when it was made.
+//
+// Used by:
+//   - socialTaskKey, createSocialTaskQueue (below)
+//   - provider/index.tsx — replayTasks walks these rows
+//   - src/index.ts — the public surface hosts import from
+// -----------------------------------------------------------
+
 export type PendingSocialTask =
   | { type: 'like'; target: LikeTarget; desired: boolean; at: string }
   | { type: 'relationship'; userId: string; action: RelationshipAction; at: string };
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// socialTaskKey
+// -----------------------------------------------------------
+//
+// The one-per-target identity — a later intent on the same
+// key replaces the earlier one in the queue.
+//
+// Used by:
+//   - createSocialTaskQueue (below) — add, remove and the
+//     rehydrate all key by it
+// -----------------------------------------------------------
+
 export const socialTaskKey = (task: PendingSocialTask): string =>
   task.type === 'like' ? `like:${task.target.type}:${task.target.id}` : `rel:${task.userId}`;
 
-const STORAGE_KEY = 'social:tasks';
 
+
+
+
+
+
+// -----------------------------------------------------------
+// SocialTaskQueue
+// -----------------------------------------------------------
+//
+// The queue's surface — load once, mutate, subscribe.
+//
+// Used by:
+//   - createSocialTaskQueue (below) — the implementation
+//   - provider/index.tsx — the env's `taskQueue`, which the
+//     like and relationship hooks reach through the env
+//   - src/index.ts — the public surface hosts import from
+// -----------------------------------------------------------
 
 export interface SocialTaskQueue {
   // Rehydrate once; later calls answer the same promise

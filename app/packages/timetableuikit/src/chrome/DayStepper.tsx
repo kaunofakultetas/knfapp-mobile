@@ -22,6 +22,20 @@ import type { ReactNode } from 'react';
 import { useTimetableLabels, useTimetableTheme } from '../provider';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// DayStepper (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - app/(main)/tabs/schedule.tsx — the screen header's
+//     trailing slot
+// -----------------------------------------------------------
+
 export default function DayStepper({
   day,
   onPrev,

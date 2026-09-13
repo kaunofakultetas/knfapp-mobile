@@ -17,9 +17,38 @@ import { Pressable, ScrollView, Text } from 'react-native';
 import { useKitTheme } from '../provider';
 
 
-// The stock set — reactions carry their own set elsewhere
+
+
+
+
+
+// -----------------------------------------------------------
+// DEFAULT_QUICK_EMOJI
+// -----------------------------------------------------------
+//
+// The stock dozen — reactions carry their own set elsewhere.
+//
+// Used by:
+//   - EmojiQuickRow (below) — the default `emojis` prop;
+//     exported through the kit's barrel, but no host overrides
+//     the set at the moment
+// -----------------------------------------------------------
+
 export const DEFAULT_QUICK_EMOJI = ['😀', '😂', '😍', '😮', '😢', '😡', '👍', '🙏', '🎉', '🔥', '❤️', '👏'];
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// EmojiQuickRow (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - app/(main)/chat-room/index.tsx — the reaction picker row
+// -----------------------------------------------------------
 
 export default function EmojiQuickRow({
   onPick,

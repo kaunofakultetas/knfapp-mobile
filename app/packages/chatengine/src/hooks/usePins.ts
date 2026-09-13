@@ -22,6 +22,21 @@ import type { ChatMessage } from '../core/types';
 import { useChatEngine } from '../provider';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// UsePinsResult
+// -----------------------------------------------------------
+//
+// The pinned list and its verbs.
+//
+// Used by:
+//   - usePins (below) — the return shape
+// -----------------------------------------------------------
+
 export interface UsePinsResult {
   // Newest pin first, at most what the backend caps (20 here)
   pins: ChatMessage[];
@@ -31,6 +46,24 @@ export interface UsePinsResult {
   supported: boolean;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// usePins
+// -----------------------------------------------------------
+//
+//   const { pins, pin, unpin, supported } = usePins(roomId)
+//     — pin/unpin rethrow on failure for the host's toast;
+//       supported is false when the transport has no pin trio
+//
+// Used by:
+//   - app/(main)/chat-room/index.tsx — the pinned banner and
+//     the message menu's pin / unpin actions
+// -----------------------------------------------------------
 
 export function usePins(conversationId: string): UsePinsResult {
 

@@ -24,6 +24,23 @@ import type { ChatEvent, ChatTransport } from '../core/transport';
 import type { ChatMessage } from '../core/types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// TransportHarness
+// -----------------------------------------------------------
+//
+// What an adapter's test file hands the suite — a fresh
+// transport plus the levers to observe the other side.
+//
+// Used by:
+//   - describeTransportContract (below) — every case
+//   - adapters' contract test files — they build one
+// -----------------------------------------------------------
+
 export interface TransportHarness {
   transport: ChatTransport;
   // The id of the user the transport acts as
@@ -38,8 +55,58 @@ export interface TransportHarness {
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// later
+// -----------------------------------------------------------
+//
+// Let queued microtasks / a short timer run before asserting.
+//
+// Used by:
+//   - describeTransportContract (below) — the realtime cases
+// -----------------------------------------------------------
+
 const later = (ms = 0) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// iso
+// -----------------------------------------------------------
+//
+// Deterministic stamps: fixed date, only the minute varies, so
+// seeded rows order predictably.
+//
+// Used by:
+//   - baseRow / describeTransportContract (below)
+// -----------------------------------------------------------
+
 const iso = (minute: number) => new Date(Date.UTC(2026, 7, 30, 12, minute, 0)).toISOString();
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// baseRow
+// -----------------------------------------------------------
+//
+// The one seed row every case starts from — overrides per
+// test.
+//
+// Used by:
+//   - describeTransportContract (below) — every seed
+// -----------------------------------------------------------
 
 const baseRow = (conversationId: string, over: Partial<ChatMessage> = {}): Omit<ChatMessage, 'id'> => ({
   conversationId,
@@ -54,6 +121,25 @@ const baseRow = (conversationId: string, over: Partial<ChatMessage> = {}): Omit<
   ...over,
 });
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// describeTransportContract
+// -----------------------------------------------------------
+//
+//   describeTransportContract('my adapter', makeHarness)
+//     — inside a jest file; registers one describe block of
+//       conformance cases against the harness's transport
+//
+// Used by:
+//   - adapters/knf/__tests__/contract.test.ts — the KNF adapter
+//   - example/__tests__/exampleAdapter.contract.test.ts
+//   - any adapter's own test file via the package surface
+// -----------------------------------------------------------
 
 export function describeTransportContract(name: string, makeHarness: () => Promise<TransportHarness> | TransportHarness): void {
   describe(`ChatTransport contract — ${name}`, () => {

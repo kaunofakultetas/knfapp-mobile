@@ -28,6 +28,25 @@ import { defaultLabels, type KitLabels } from './labels';
 import { darkTheme, defaultTheme, resolveTheme, type KitTheme, type KitThemeOverride } from './theme';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// KitEnv
+// -----------------------------------------------------------
+//
+// The RESOLVED environment components read: the two host
+// functions plus the locale the provider settled on. Not on
+// the root barrel — in-kit readers get it through useKitEnv.
+//
+// Used by:
+//   - useKitEnv (below) — the return shape
+//   - pano/FlatPanorama.tsx, pano/PanoramaStage.tsx — read
+//     env.resolveImageUrl through useKitEnv
+// -----------------------------------------------------------
+
 export interface KitEnv {
   // Stored image reference (an asset path, an absolute URL) →
   // something an image component can load; identity by default
@@ -41,8 +60,25 @@ export interface KitEnv {
   now: () => Date;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// KitEnvOverride
+// -----------------------------------------------------------
+//
 // What a host hands the provider: the functions only — the
-// locale is the provider's own prop, never overridden here
+// locale is the provider's own prop, never overridden here.
+//
+// Used by:
+//   - WayfindUiKitProvider (below) — the `env` prop's type
+//   - app/(main)/map-editor/align.tsx — hands the provider a
+//     structural match (an object with resolveImageUrl)
+// -----------------------------------------------------------
+
 export interface KitEnvOverride {
   resolveImageUrl?: (url: string) => string;
   now?: () => Date;
@@ -63,12 +99,16 @@ const defaultEnv: KitEnv = {
   now: () => new Date(),
 };
 
+// The whole provider-less answer bundle: light theme,
+// Lithuanian labels, the neutral env above
 const defaultValue: KitContextValue = {
   theme: defaultTheme,
   labels: defaultLabels.lt,
   env: defaultEnv,
 };
 
+// Seeded with defaultValue so the three hooks below work with
+// no provider mounted — tests and demos skip the ceremony
 const KitContext = createContext<KitContextValue>(defaultValue);
 
 
@@ -152,27 +192,54 @@ export function WayfindUiKitProvider({
 
 
 // -----------------------------------------------------------
-// useKitTheme / useKitLabels / useKitEnv
+// useKitTheme
 // -----------------------------------------------------------
 //
 // Used by:
-//   - every kit component — useKitTheme and useKitLabels
-//   - pano/FlatPanorama.tsx, pano/PanoramaStage.tsx — useKitEnv,
-//     for env.resolveImageUrl; the plan takes the host's ready
-//     drawing and the preview card an image slot, so neither
-//     reads env
-//   - src/index.ts — the public surface; env.locale and
-//     env.now have no reader inside the kit yet, a host reads
-//     them through the exported hook
+//   - every kit component
 // -----------------------------------------------------------
 
 export function useKitTheme(): KitTheme {
   return useContext(KitContext).theme;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// useKitLabels
+// -----------------------------------------------------------
+//
+// Used by:
+//   - every kit component that shows text
+// -----------------------------------------------------------
+
 export function useKitLabels(): KitLabels {
   return useContext(KitContext).labels;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// useKitEnv
+// -----------------------------------------------------------
+//
+// Used by:
+//   - pano/FlatPanorama.tsx, pano/PanoramaStage.tsx — for
+//     env.resolveImageUrl; the plan takes the host's ready
+//     drawing and the preview card an image slot, so neither
+//     reads env
+//   - src/index.ts — the public surface; env.locale and
+//     env.now have no reader inside the kit yet, a host reads
+//     them through the exported hook
+// -----------------------------------------------------------
 
 export function useKitEnv(): KitEnv {
   return useContext(KitContext).env;

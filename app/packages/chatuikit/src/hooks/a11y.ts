@@ -22,6 +22,25 @@ import { AccessibilityInfo } from 'react-native';
 import * as Reanimated from 'react-native-reanimated';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// useScreenReaderEnabledRef
+// -----------------------------------------------------------
+//
+// Whether a screen reader is running, kept in a REF so event
+// handlers and effects can consult it without re-rendering —
+// announceForAccessibility is not free (it interrupts whatever
+// the reader is saying), so the kit only speaks when somebody
+// is listening.
+//
+// Used by:
+//   - list/MessageList.tsx — new-message announcements
+// -----------------------------------------------------------
+
 export function useScreenReaderEnabledRef(): MutableRefObject<boolean> {
 
   const enabledRef = useRef(false);
@@ -46,10 +65,24 @@ export function useScreenReaderEnabledRef(): MutableRefObject<boolean> {
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// useScreenReaderEnabled
+// -----------------------------------------------------------
+//
 // The STATE twin of the ref hook, for the one place a change
 // must re-render: MessageList flips to the upright orientation
 // while a screen reader runs (an inverted list's scaleY
-// transform breaks TalkBack's swipe order)
+// transform breaks TalkBack's swipe order).
+//
+// Used by:
+//   - list/MessageList.tsx — the inverted/upright switch
+// -----------------------------------------------------------
+
 export function useScreenReaderEnabled(): boolean {
 
   const [enabled, setEnabled] = useState(false);
@@ -72,12 +105,37 @@ export function useScreenReaderEnabled(): boolean {
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// useReducedMotionSafe
+// -----------------------------------------------------------
+//
+// The OS "reduce motion" preference through Reanimated's hook
+// when the installed version has it (3.4+), false otherwise —
+// a host's older Reanimated or a test mock without the export
+// must not crash every bubble.
+//
+// Used by:
+//   - message/MessageBubble.tsx, list/TypingBubble.tsx,
+//     list/UnreadPill.tsx, menu/MessageContextMenu.tsx —
+//     entering/exiting animations
+// -----------------------------------------------------------
+
 export function useReducedMotionSafe(): boolean {
   const hook = (Reanimated as { useReducedMotion?: () => boolean }).useReducedMotion;
   // Constant per environment, so the hook count never changes
   // between renders
   return hook ? hook() : false;
 }
+
+
+
+
+
 
 
 // -----------------------------------------------------------

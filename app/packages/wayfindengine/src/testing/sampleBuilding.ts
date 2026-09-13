@@ -53,10 +53,26 @@
 import type { BuildingGraph, EdgeKind, GraphEdge, GraphNode, NodeKind, Room } from '../core/types';
 
 
+// The sample plan's scale: 20 px to the metre on every level
 const METERS_PER_PIXEL = 0.05;
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// node
+// -----------------------------------------------------------
+//
 // Coordinates first, the rest optional — the plan above reads
-// off these calls line by line
+// off these calls line by line.
+//
+// Used by:
+//   - sampleBuilding (below) — every node row
+// -----------------------------------------------------------
+
 const node = (id: string, level: string, x: number, y: number, kind: NodeKind = 'corridor', over: Partial<GraphNode> = {}): GraphNode => ({
   id,
   level,
@@ -66,7 +82,41 @@ const node = (id: string, level: string, x: number, y: number, kind: NodeKind = 
   ...over,
 });
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// edge
+// -----------------------------------------------------------
+//
+// Hallway unless said otherwise — most of the sample is
+// corridor.
+//
+// Used by:
+//   - sampleBuilding (below) — every edge row
+// -----------------------------------------------------------
+
 const edge = (a: string, b: string, kind: EdgeKind = 'hallway', over: Partial<GraphEdge> = {}): GraphEdge => ({ a, b, kind, ...over });
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// room
+// -----------------------------------------------------------
+//
+// A room pinned to its door node; extras (nameKey, aliases)
+// ride in through `over`.
+//
+// Used by:
+//   - sampleBuilding (below) — every room row
+// -----------------------------------------------------------
 
 const room = (id: string, level: string, nodeId: string, name: string, category: Room['category'], over: Partial<Room> = {}): Room => ({
   id,

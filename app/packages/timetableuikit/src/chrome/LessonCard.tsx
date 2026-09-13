@@ -24,6 +24,23 @@ import type { ReactNode } from 'react';
 import { useTimetableLabels, useTimetableTheme } from '../provider';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// LessonCardProps
+// -----------------------------------------------------------
+//
+// Plain strings on purpose — no wire type from any backend;
+// times render exactly as handed.
+//
+// Used by:
+//   - LessonCard (below)
+//   - app/(main)/tabs/schedule.tsx — the list view's rows
+// -----------------------------------------------------------
+
 export interface LessonCardProps {
   title: string;
   // The teacher line under the title (or a group line — the
@@ -40,6 +57,20 @@ export interface LessonCardProps {
   timeIcon?: ReactNode;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// LessonCard (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - app/(main)/tabs/schedule.tsx — the list view's
+//     renderItem
+// -----------------------------------------------------------
 
 export default function LessonCard({
   title,

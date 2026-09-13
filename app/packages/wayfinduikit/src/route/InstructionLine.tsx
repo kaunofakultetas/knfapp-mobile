@@ -33,6 +33,22 @@ import type { KitInstruction } from '../core/types';
 import { useKitLabels, useKitTheme } from '../provider';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// StepGlyph
+// -----------------------------------------------------------
+//
+// A valid MaterialCommunityIcons name — the icon set's own
+// union, so a typo in stepGlyph fails to compile.
+//
+// Used by:
+//   - stepGlyph (below) — the return type
+// -----------------------------------------------------------
+
 export type StepGlyph = ComponentProps<typeof MaterialCommunityIcons>['name'];
 
 

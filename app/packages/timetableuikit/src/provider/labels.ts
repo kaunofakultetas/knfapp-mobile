@@ -13,6 +13,25 @@
 //    - WeekGrid / DayTimeline / LessonCell — the strings
 // -----------------------------------------------------------
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// TimetableLabels
+// -----------------------------------------------------------
+//
+// The full catalog contract — a host overrides any subset,
+// the provider merges it over the locale's own set.
+//
+// Used by:
+//   - defaultLabels (below) — the two shipped sets
+//   - provider/index.tsx — resolution and useTimetableLabels
+//   - the grids and chrome — every string they show
+// -----------------------------------------------------------
+
 export interface TimetableLabels {
   // Monday-first, 7 entries each
   dayShort: string[];
@@ -42,15 +61,21 @@ export interface TimetableLabels {
 }
 
 
-// 1 įrašas / 2–9 įrašai / 10–20, 30… įrašų
-const ltPlural = (count: number, one: string, few: string, other: string): string => {
-  const mod10 = count % 10;
-  const mod100 = count % 100;
-  if (mod10 === 1 && mod100 !== 11) return one;
-  if (mod10 >= 2 && (mod100 < 11 || mod100 > 19)) return few;
-  return other;
-};
 
+
+
+
+
+// -----------------------------------------------------------
+// defaultLabels
+// -----------------------------------------------------------
+//
+// The two shipped catalogs, Lithuanian and English.
+//
+// Used by:
+//   - provider/index.tsx — the locale pick and the
+//     provider-less fallback
+// -----------------------------------------------------------
 
 export const defaultLabels: { lt: TimetableLabels; en: TimetableLabels } = {
   lt: {
@@ -100,4 +125,30 @@ export const defaultLabels: { lt: TimetableLabels; en: TimetableLabels } = {
     conflictsOverlap: (count) =>
       count === 1 ? '1 lecture overlaps in time' : `${count} lectures overlap in time`,
   },
+};
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ltPlural
+// -----------------------------------------------------------
+//
+// 1 įrašas / 2–9 įrašai / 10–20, 30… įrašų. Only ever called
+// once a catalog closure runs, so it may live below the
+// catalogs.
+//
+// Used by:
+//   - defaultLabels (above) — the Lithuanian counters
+// -----------------------------------------------------------
+
+const ltPlural = (count: number, one: string, few: string, other: string): string => {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  if (mod10 === 1 && mod100 !== 11) return one;
+  if (mod10 >= 2 && (mod100 < 11 || mod100 > 19)) return few;
+  return other;
 };

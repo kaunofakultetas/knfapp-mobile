@@ -46,17 +46,69 @@ import type { Poll, RelationshipState } from '../../core/types';
 import { toPoll, toSocialNotification, type ApiActivityResponse, type ApiFriendRequestResponse, type ApiFriendRequestRow, type ApiLikeResponse, type ApiPoll, type HttpClient } from './wire';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// KnfSocialOptions
+// -----------------------------------------------------------
+//
+// The adapter's whole dependency surface — the host's HTTP
+// client and nothing else.
+//
+// Used by:
+//   - createKnfSocialTransport (below)
+//   - src/index.ts — the public surface hosts import from
+// -----------------------------------------------------------
+
 export interface KnfSocialOptions {
   http: HttpClient;
 }
 
 
+// Every path parameter is user-shaped data — encoded at each
+// interpolation, aliased short to keep the URLs readable
 const enc = encodeURIComponent;
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// unsupported
+// -----------------------------------------------------------
+//
 // 400, not 501: a 5xx would read as retryable-shaped to
-// isRetryableError, and there is nothing here a retry can heal
+// isRetryableError, and there is nothing here a retry can heal.
+//
+// Used by:
+//   - createKnfSocialTransport (below) — comment likes and
+//     comment reports
+// -----------------------------------------------------------
+
 const unsupported = (what: string): Error =>
   Object.assign(new Error(`${what} is not supported by this backend`), { status: 400, code: 'unsupported' });
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// statusOf
+// -----------------------------------------------------------
+//
+// The HTTP status a thrown error carries, when it carries one.
+//
+// Used by:
+//   - createKnfSocialTransport (below) — the 404/409
+//     absorptions
+// -----------------------------------------------------------
 
 const statusOf = (err: unknown): number | null => {
   if (!err || typeof err !== 'object') return null;

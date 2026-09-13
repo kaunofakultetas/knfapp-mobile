@@ -25,6 +25,19 @@ import { BUBBLE_PADDING_H } from '../../core/metrics';
 import type { KitLinkPreview } from '../../core/types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// LinkPreviewCard (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - message/MessageBubble.tsx — under a linkified body
+// -----------------------------------------------------------
+
 export default function LinkPreviewCard({
   preview,
   own,

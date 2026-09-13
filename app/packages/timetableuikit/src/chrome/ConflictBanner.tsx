@@ -18,6 +18,20 @@ import type { ReactNode } from 'react';
 import { useTimetableLabels, useTimetableTheme } from '../provider';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// ConflictBanner (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - app/(main)/tabs/schedule.tsx — above the lesson list
+//     while conflicts exist
+// -----------------------------------------------------------
+
 export default function ConflictBanner({ count, icon }: { count: number; icon?: ReactNode }) {
 
   const { colors, fonts } = useTimetableTheme();

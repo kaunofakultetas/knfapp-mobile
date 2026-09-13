@@ -18,6 +18,20 @@ import Animated, { useAnimatedStyle, type SharedValue } from 'react-native-reani
 import { useKitTheme } from '../provider';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// FloatingDay (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - list/MessageList.tsx — the default slot; hosts may
+//     replace it through the provider's `components`
+// -----------------------------------------------------------
+
 export default function FloatingDay({ label, opacity }: { label: string; opacity: SharedValue<number> }) {
 
   const { colors, text } = useKitTheme();

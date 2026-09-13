@@ -57,6 +57,8 @@ import { ToolCard } from './ToolCardShell';
 import TypingIndicator from './TypingIndicator';
 
 
+// Both bubble kinds cap at this share of the row, so a long
+// answer never touches the opposite edge
 const BUBBLE_MAX_WIDTH = '86%';
 
 // Static objects on purpose: a style FUNCTION on a Pressable is
@@ -66,6 +68,15 @@ const ACTION_STYLE = { paddingHorizontal: 8, paddingVertical: 4, marginRight: 4 
 // A disabled action is dimmed to this — the primitives disable
 // the press themselves, the dim only makes it visible
 const DISABLED_OPACITY = 0.4;
+
+// The tables the upstream part renderer memoizes on — one
+// identity for the life of the module, so rows never remount
+// when the thread re-renders. The parts are hoisted function
+// declarations (below), so the tables may sit above them
+const USER_PARTS = { Text: UserTextPart };
+// The assistant side of the same memoized table — tool parts
+// fall back to the generic card
+const ASSISTANT_PARTS = { Text: TextPart, Reasoning: ReasoningPart, Empty: EmptyPart, tools: { Fallback: ToolCard } };
 
 
 
@@ -187,13 +198,6 @@ function EmptyPart({ status }: EmptyMessagePartProps) {
   if (status.type !== 'running') return null;
   return <TypingIndicator colors={colors} />;
 }
-
-
-// The tables the upstream part renderer memoizes on — one
-// identity for the life of the module, so rows never remount
-// when the thread re-renders
-const USER_PARTS = { Text: UserTextPart };
-const ASSISTANT_PARTS = { Text: TextPart, Reasoning: ReasoningPart, Empty: EmptyPart, tools: { Fallback: ToolCard } };
 
 
 

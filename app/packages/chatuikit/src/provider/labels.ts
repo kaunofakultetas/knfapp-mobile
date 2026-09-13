@@ -17,6 +17,29 @@
 //      — the KitLabels type
 // -----------------------------------------------------------
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// KitLabels
+// -----------------------------------------------------------
+//
+// Every string the kit shows — including the count-aware ones,
+// which are functions so a host can plural-form its own
+// language. The field comments below name the surface each
+// string appears on.
+//
+// Used by:
+//   - provider/index.tsx — the provider's `labels` prop and
+//     what useKitLabels answers
+//   - list/MessageList.tsx / composer/Composer.tsx /
+//     menu/MessageContextMenu.tsx / avatar/RoomHeaderTitle.tsx
+//     — the prop type the roots thread down
+// -----------------------------------------------------------
+
 export interface KitLabels {
   today: string;
   yesterday: string;
@@ -111,15 +134,23 @@ export interface KitLabels {
 }
 
 
-// Lithuanian plural: 1 / 2–9 (and not x1) / the rest
-const ltPlural = (count: number, one: string, few: string, other: string): string => {
-  const mod10 = count % 10;
-  const mod100 = count % 100;
-  if (mod10 === 1 && mod100 !== 11) return one;
-  if (mod10 >= 2 && mod10 <= 9 && !(mod100 >= 11 && mod100 <= 19)) return few;
-  return other;
-};
 
+
+
+
+
+// -----------------------------------------------------------
+// defaultLabels
+// -----------------------------------------------------------
+//
+// Complete English and Lithuanian sets, so the kit is usable
+// with no catalog at all; the provider picks .lt or .en by its
+// `locale` prop when the host supplies no labels object.
+//
+// Used by:
+//   - provider/index.tsx — the locale fallback
+//   - example/ExampleConversation.tsx, ExampleRoom.tsx
+// -----------------------------------------------------------
 
 export const defaultLabels: { en: KitLabels; lt: KitLabels } = {
   en: {
@@ -270,5 +301,30 @@ export const defaultLabels: { en: KitLabels; lt: KitLabels } = {
     addMeme: 'Pridėti memą',
     emptyMemes: 'Memų dar nėra — pridėk pirmą!',
   },
+};
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ltPlural
+// -----------------------------------------------------------
+//
+// Lithuanian plural: 1 / 2–9 (and not x1) / the rest.
+//
+// Used by:
+//   - defaultLabels (above) — the lt set's counted labels
+//     (newMessages, gallery)
+// -----------------------------------------------------------
+
+const ltPlural = (count: number, one: string, few: string, other: string): string => {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  if (mod10 === 1 && mod100 !== 11) return one;
+  if (mod10 >= 2 && mod10 <= 9 && !(mod100 >= 11 && mod100 <= 19)) return few;
+  return other;
 };
 

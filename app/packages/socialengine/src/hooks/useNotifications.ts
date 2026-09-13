@@ -27,6 +27,22 @@ import type { NotificationGroup, SocialNotification } from '../core/types';
 import { useSocialEngine } from '../provider';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// UseNotificationsResult
+// -----------------------------------------------------------
+//
+// What the hook hands the activity screen.
+//
+// Used by:
+//   - useNotifications (below) — the return shape
+//   - src/index.ts — the public surface hosts import from
+// -----------------------------------------------------------
+
 export interface UseNotificationsResult {
   // False when the transport has no fetchNotifications — every
   // field stays at rest and every call resolves as a no-op
@@ -44,8 +60,23 @@ export interface UseNotificationsResult {
   markAllRead: () => Promise<void>;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// dedupeById
+// -----------------------------------------------------------
+//
 // First occurrence of an id wins — with pages sorted newest
-// first, that is the freshest copy of the row
+// first, that is the freshest copy of the row.
+//
+// Used by:
+//   - useNotifications (below) — refresh and loadMore
+// -----------------------------------------------------------
+
 const dedupeById = (list: SocialNotification[]): SocialNotification[] => {
   const seen = new Set<string>();
   const out: SocialNotification[] = [];

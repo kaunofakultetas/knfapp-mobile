@@ -16,6 +16,19 @@ import type { TimeWindow } from '../core/types';
 import { useTimetableEnv } from '../provider';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// NowLine (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - grid/DayColumn.tsx — today's column only
+// -----------------------------------------------------------
+
 export default function NowLine({
   window,
   nowMin,

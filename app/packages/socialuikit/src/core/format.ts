@@ -5,7 +5,8 @@
 //  the action row never blows its column, and cutting a long
 //  text at a word so the fold never splits one. No locale in
 //  either — 'k'/'M' and the ellipsis read the same in both
-//  catalogs, so these stay out of labels.
+//  catalogs, so these stay out of labels. No imports on
+//  purpose — plain string and number work only.
 //
 //  Used by:
 //    - post/ActionRow.tsx — like and comment tallies
@@ -13,6 +14,21 @@
 //    - notifications/NotificationRow.tsx — the subject snippet
 //    - social/ProfileHeader.tsx — post and connection counts
 // -----------------------------------------------------------
+
+// The zero-width joiner: multi-person emoji are code points
+// stitched through it, so a cut beside one severs a family
+const JOINER = 0x200d;
+
+// One regional-indicator half — flags are PAIRS of these
+const REGIONAL = /[\uD83C][\uDDE6-\uDDFF]/g;
+
+// An explicit zone designator — Z or ±hh(:)mm — at the stamp's
+// end; only stamps without one need the UTC pin
+const ZONE_DESIGNATOR = /(?:Z|[+-]\d{2}:?\d{2})$/i;
+
+
+
+
 
 
 
@@ -87,6 +103,33 @@ export function clampSnippet(text: string, max = 150): string {
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// isHigh
+// -----------------------------------------------------------
+//
+// A high surrogate — the dangling half a cut may strand.
+//
+// Used by:
+//   - retreatToGrapheme (below) — both peel checks
+// -----------------------------------------------------------
+
+const isHigh = (code: number) => code >= 0xd800 && code <= 0xdbff;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// retreatToGrapheme
+// -----------------------------------------------------------
+//
 // The cut position is a UTF-16 index, and UTF-16 indices are
 // not characters: an emoji run has no whitespace to retreat to,
 // so the head can end mid-surrogate, mid-flag or mid-family and
@@ -96,11 +139,11 @@ export function clampSnippet(text: string, max = 150): string {
 // half a 👩‍💻 must drop WHOLLY, a bare 👩 would silently change
 // the author's meaning; an odd run of regional indicators (a
 // flag is a PAIR). Ordinary text is untouched — the loop exits
-// on the first sound boundary
-const JOINER = 0x200d;
-const REGIONAL = /[\uD83C][\uDDE6-\uDDFF]/g;
-
-const isHigh = (code: number) => code >= 0xd800 && code <= 0xdbff;
+// on the first sound boundary.
+//
+// Used by:
+//   - clampSnippet (above) — the final cut before the ellipsis
+// -----------------------------------------------------------
 
 function retreatToGrapheme(text: string, end: number): number {
   for (; end > 0; ) {
@@ -140,6 +183,7 @@ function retreatToGrapheme(text: string, end: number): number {
 
 
 
+
 // -----------------------------------------------------------
 // parseServerStamp
 // -----------------------------------------------------------
@@ -157,8 +201,6 @@ function retreatToGrapheme(text: string, end: number): number {
 //   - time/RelativeTime.tsx — every band computation
 //   - hosts mapping wire rows outside the kit
 // -----------------------------------------------------------
-
-const ZONE_DESIGNATOR = /(?:Z|[+-]\d{2}:?\d{2})$/i;
 
 export function parseServerStamp(iso: string): number {
   if (typeof iso !== 'string' || iso.trim() === '') return NaN;

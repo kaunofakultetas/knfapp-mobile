@@ -20,6 +20,20 @@ import { useKitTheme } from '../provider';
 const PAD = 14;
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// TimeSeparator (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - list/MessageList.tsx — the default slot; hosts may
+//     replace it through the provider's `components`
+// -----------------------------------------------------------
+
 export default function TimeSeparator({ day, time }: { day: string; time: string }) {
 
   const { colors, fonts, text } = useKitTheme();

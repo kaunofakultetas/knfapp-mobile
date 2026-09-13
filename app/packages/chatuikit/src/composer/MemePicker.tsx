@@ -25,10 +25,28 @@ import { ActivityIndicator, FlatList, Pressable, Text, TextInput, View } from 'r
 import type { KitMemeItem } from '../core/types';
 
 
+// The grid: three square tiles per row
 const COLUMNS = 3;
+// Fixed panel height — the composer above never jumps as the
+// result set changes
 const PANEL_HEIGHT = 264;
+// Hairline between tiles
 const TILE_GAP = 4;
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// MemePicker (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - composer/Composer.tsx — the meme panel under the field
+//   - app/(main)/chat-room/index.tsx
+// -----------------------------------------------------------
 
 export default function MemePicker({
   items,

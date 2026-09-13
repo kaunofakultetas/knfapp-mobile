@@ -20,6 +20,23 @@ import { useEffect, useMemo, useRef } from 'react';
 
 import type { GestureResponderEvent } from 'react-native';
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// PagePanOptions
+// -----------------------------------------------------------
+//
+// Distances in pixels; enabled is re-read mid-gesture, so
+// flipping it false cancels a commit in flight.
+//
+// Used by:
+//   - usePagePan (below) — its options bag
+// -----------------------------------------------------------
+
 export interface PagePanOptions {
   // Horizontal distance before the container claims the touch
   claimDx?: number;
@@ -27,6 +44,24 @@ export interface PagePanOptions {
   commitDx?: number;
   enabled?: boolean;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// PagePanHandlers
+// -----------------------------------------------------------
+//
+// Exactly the responder props the grids spread onto their
+// root View.
+//
+// Used by:
+//   - usePagePan (below) — its return shape
+//   - WeekGrid.tsx / DayTimeline.tsx — spread onto the root
+// -----------------------------------------------------------
 
 export interface PagePanHandlers {
   onStartShouldSetResponderCapture: (event: GestureResponderEvent) => boolean;
@@ -38,7 +73,23 @@ export interface PagePanHandlers {
 }
 
 
-// +1 = forward (swipe left), -1 = back (swipe right)
+
+
+
+
+
+// -----------------------------------------------------------
+// usePagePan
+// -----------------------------------------------------------
+//
+//   const pan = usePagePan(onPage)   — spread onto the root;
+//   onPage gets +1 = forward (swipe left), -1 = back (swipe
+//   right)
+//
+// Used by:
+//   - WeekGrid.tsx / DayTimeline.tsx — spread onto the root
+// -----------------------------------------------------------
+
 export function usePagePan(onPage: (direction: 1 | -1) => void, options: PagePanOptions = {}): PagePanHandlers {
   const { claimDx = 12, commitDx = 50, enabled = true } = options;
 

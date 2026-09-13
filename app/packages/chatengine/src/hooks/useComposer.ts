@@ -52,20 +52,94 @@ import { TEMP_ID_PREFIX, isTempId, type ChatMessage } from '../core/types';
 import { useChatEngine } from '../provider';
 
 
+// While typing continues, the "typing" signal re-emits at most
+// this often (ms) — a keystroke inside the window sends nothing
 const TYPING_REEMIT_MS = 2000;
 // Self-retries after a retryable park, then the tap / restore
 // sweep take over
 const AUTO_RETRY_DELAYS = [5_000, 20_000];
+// No keystroke for this long (ms) ends the typing signal
 const TYPING_IDLE_MS = 3000;
+// Keystroke-to-storage settle (ms) for the persisted draft —
+// write once per pause, not once per key
 const DRAFT_DEBOUNCE_MS = 400;
 
 
-// What the composer needs from a message handed to it — any UI
-// message type carrying these fields fits (chatuikit's KitMessage
-// does), so a screen never converts
+
+
+
+
+
+// -----------------------------------------------------------
+// RetryTarget
+// -----------------------------------------------------------
+//
+// What retryMessage needs from a message handed to it — any UI
+// message type carrying these fields fits (chatuikit's
+// KitMessage does), so a screen never converts.
+//
+// Used by:
+//   - UseComposerResult / useComposer (below) — retryMessage
+// -----------------------------------------------------------
+
 export type RetryTarget = Pick<ChatMessage, 'id' | 'status'>;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// EditTarget
+// -----------------------------------------------------------
+//
+// What edit mode needs from the message being edited — the
+// same structural fit as RetryTarget.
+//
+// Used by:
+//   - UseComposerResult / useComposer (below) — startEdit /
+//     editing
+// -----------------------------------------------------------
+
 export type EditTarget = Pick<ChatMessage, 'id' | 'text' | 'isOwn' | 'deleted' | 'editedAt'>;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ReplyTarget
+// -----------------------------------------------------------
+//
+// What the reply strip needs from the quoted message — the
+// same structural fit as RetryTarget.
+//
+// Used by:
+//   - UseComposerResult / useComposer (below) — replyTo /
+//     setReplyTo
+// -----------------------------------------------------------
+
 export type ReplyTarget = Pick<ChatMessage, 'id' | 'senderId' | 'senderName' | 'text' | 'imageUrl' | 'deleted' | 'kind' | 'file'>;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// UseComposerResult
+// -----------------------------------------------------------
+//
+// Everything the input row renders and calls.
+//
+// Used by:
+//   - useComposer (below) — the return shape
+//   - useChatRoom.ts — the `composer` part
+// -----------------------------------------------------------
 
 export interface UseComposerResult {
   text: string;

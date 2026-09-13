@@ -29,6 +29,24 @@ import { lastAssistantMessageIsCompleteWithToolCalls, type UIMessage } from 'ai'
 import type { KnfAssistantTransport } from '../core/transport';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// KnfAssistantRuntimeOptions
+// -----------------------------------------------------------
+//
+// What the hook needs: the transport, and optionally a
+// persisted thread to resume.
+//
+// Used by:
+//   - useKnfAssistantRuntime (below) — the options argument
+//   - testing/index.tsx — mountAssistantProbe takes the same
+//     shape
+// -----------------------------------------------------------
+
 export interface KnfAssistantRuntimeOptions {
   transport: KnfAssistantTransport;
   // A thread to resume — the upstream's own message shape,
@@ -37,6 +55,27 @@ export interface KnfAssistantRuntimeOptions {
   initialMessages?: unknown[];
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// useKnfAssistantRuntime
+// -----------------------------------------------------------
+//
+//   const runtime = useKnfAssistantRuntime({ transport })
+//                                        — chat runtime that
+//                                          auto-resends after a
+//                                          completed tool round
+//   { transport, initialMessages }       — resume a persisted
+//                                          thread
+//
+// Used by:
+//   - testing/index.tsx — mountAssistantProbe mounts this hook
+//   - hooks/__tests__/useKnfAssistantRuntime.test.ts
+// -----------------------------------------------------------
 
 export function useKnfAssistantRuntime(options: KnfAssistantRuntimeOptions): AssistantRuntime {
   const { transport, initialMessages } = options;

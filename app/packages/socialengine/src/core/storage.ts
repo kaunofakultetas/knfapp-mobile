@@ -14,6 +14,25 @@
 //    - provider/index.tsx — the env's `storage` (default memory)
 // -----------------------------------------------------------
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// SocialStorage
+// -----------------------------------------------------------
+//
+// The AsyncStorage-shaped surface — three async methods, every
+// one of them allowed to reject.
+//
+// Used by:
+//   - core/tasks.ts — createSocialTaskQueue's persistence
+//   - provider/index.tsx — the `storage` prop and env field
+//   - memorySocialStorage (below) — the default implementation
+// -----------------------------------------------------------
+
 export interface SocialStorage {
   getItem(key: string): Promise<string | null>;
   setItem(key: string, value: string): Promise<void>;

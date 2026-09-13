@@ -41,9 +41,63 @@ import { angularDistanceDeg, type CaptureTarget } from './plan';
 import type { Pose, Vec3 } from './quat';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// CapturePhase
+// -----------------------------------------------------------
+//
+// Where a session stands: not begun, shooting, or every
+// target taken.
+//
+// Used by:
+//   - CaptureSnapshot / CaptureSession (below)
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export type CapturePhase = 'idle' | 'capturing' | 'done';
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// CaptureEvent
+// -----------------------------------------------------------
+//
+// What a subscriber may be woken with beside plain snapshot
+// changes — a shot to take now, one accepted, the session
+// done.
+//
+// Used by:
+//   - CaptureSession (below) — subscribe's listener
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export type CaptureEvent = { type: 'shoot'; targetId: string } | { type: 'accepted'; targetId: string } | { type: 'done' };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// CaptureAim
+// -----------------------------------------------------------
+//
+// Where the current target sits relative to the pose, and
+// whether the phone is aligned and still enough to shoot.
+//
+// Used by:
+//   - CaptureSnapshot / CaptureSession (below)
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
 
 export interface CaptureAim {
   dYawDeg: number;
@@ -53,17 +107,73 @@ export interface CaptureAim {
   stable: boolean;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ShotRecord
+// -----------------------------------------------------------
+//
+// One accepted shot — the target it was for, the pose at the
+// shutter, and when.
+//
+// Used by:
+//   - CaptureManifest / CaptureSnapshot / CaptureSession
+//     (below)
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export interface ShotRecord {
   targetId: string;
   pose: Pose;
   at: number;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// CaptureManifest
+// -----------------------------------------------------------
+//
+// What finish() hands the uploader: the plan, the shots, and
+// the yaw of the first frame for later alignment.
+//
+// Used by:
+//   - CaptureSession (below) — finish()'s answer
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export interface CaptureManifest {
   targets: CaptureTarget[];
   frames: ShotRecord[];
   firstYawDeg: number;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// CaptureSnapshot
+// -----------------------------------------------------------
+//
+// The React-facing view of one session, identity-stable
+// between changes so useSyncExternalStore never loops.
+//
+// Used by:
+//   - CaptureSession (below) — snapshot()'s answer
+//   - hooks/useCaptureSession.ts — the hook's result type
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
 
 export interface CaptureSnapshot {
   phase: CapturePhase;
@@ -75,6 +185,24 @@ export interface CaptureSnapshot {
   shotsTotal: number;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// CaptureSessionOptions
+// -----------------------------------------------------------
+//
+// The plan's targets plus the alignment, roll, stillness and
+// settle tolerances — every threshold overridable for tests.
+//
+// Used by:
+//   - createCaptureSession (below) — the options argument
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export interface CaptureSessionOptions {
   targets: CaptureTarget[];
   alignToleranceDeg?: number;
@@ -85,6 +213,26 @@ export interface CaptureSessionOptions {
   // are measured on it
   now?: () => number;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// CaptureSession
+// -----------------------------------------------------------
+//
+// The session's face — feed poses, answer shoot events,
+// finish into a manifest; the header carries the flow.
+//
+// Used by:
+//   - createCaptureSession (below) — the return shape
+//   - hooks/useCaptureSession.ts — the hook's argument
+//   - app/(main)/map-editor/capture.tsx — the capture screen
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
 
 export interface CaptureSession {
   begin(): void;
@@ -104,16 +252,30 @@ export interface CaptureSession {
 // pipeline and the user's hand both need the beat
 const REARM_MS = 500;
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// shortestArcDeg
+// -----------------------------------------------------------
+//
 // The shortest signed arc from one yaw to another, in
 // (-180, 180] — the aim's dYawDeg, so "turn left 10°" never
-// reads as "turn right 350°"
+// reads as "turn right 350°".
+//
+// Used by:
+//   - createCaptureSession (below) — every feed()'s aim
+// -----------------------------------------------------------
+
 const shortestArcDeg = (fromDeg: number, toDeg: number): number => {
   let delta = (toDeg - fromDeg) % 360;
   if (delta <= -180) delta += 360;
   else if (delta > 180) delta -= 360;
   return delta === 0 ? 0 : delta;
 };
-
 
 
 

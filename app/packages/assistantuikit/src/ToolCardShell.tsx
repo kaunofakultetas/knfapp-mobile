@@ -35,6 +35,9 @@ import { useAssistantKit } from './core/context';
 import { defaultColors, type AssistantColors, type AssistantLabels, type ToolCardPart, type ToolCardStatus } from './core/types';
 
 
+// Neither platform knows the other's family: iOS has no
+// generic 'monospace', Android no Menlo — an unknown family
+// silently falls back to the proportional system font
 const MONO = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' });
 
 

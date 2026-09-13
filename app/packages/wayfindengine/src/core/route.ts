@@ -56,6 +56,23 @@ import { buildInstructions } from './instructions';
 import type { EdgeKind, GraphEdge, GraphNode, Route, RouteFloorSegment, RoutePoint, RoutingOptions } from './types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// RouteResult
+// -----------------------------------------------------------
+//
+// findRoute's answer — a route, or the reason there is none.
+//
+// Used by:
+//   - findRoute (below) — the return shape
+//   - hooks/useRoute.ts — passed through to the hook's result
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export interface RouteResult {
   route: Route | null;
   // Why route is null: an endpoint the graph does not know, or
@@ -63,9 +80,26 @@ export interface RouteResult {
   reason?: 'unknown_node' | 'no_path';
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// DEFAULT_WALKING_SPEEDS
+// -----------------------------------------------------------
+//
 // Metres per second per edge kind — a brisk indoor walk along
 // a hallway, slower through doors and on ramps, slower still
-// on stairs, and an elevator's ride speed on top of its wait
+// on stairs, and an elevator's ride speed on top of its wait.
+//
+// Used by:
+//   - resolveSpeeds, edgeSeconds (below)
+//   - src/index.ts — the public surface, for hosts building
+//     their own overrides
+// -----------------------------------------------------------
+
 export const DEFAULT_WALKING_SPEEDS: Record<EdgeKind, number> = {
   hallway: 1.3,
   door: 1.0,
@@ -74,9 +108,25 @@ export const DEFAULT_WALKING_SPEEDS: Record<EdgeKind, number> = {
   elevator: 0.5,
 };
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ELEVATOR_WAIT_S
+// -----------------------------------------------------------
+//
 // Seconds an elevator edge pays on top of its ride — the call
 // and the wait. Charged per edge, so a ride drawn floor by
-// floor pays it at every floor
+// floor pays it at every floor.
+//
+// Used by:
+//   - edgeSeconds (below)
+//   - tests pinning the elevator-versus-stairs trade-off
+// -----------------------------------------------------------
+
 export const ELEVATOR_WAIT_S = 30;
 
 // Seconds added per level change under minimizeFloorChanges: a
@@ -85,11 +135,25 @@ export const ELEVATOR_WAIT_S = 30;
 const FLOOR_CHANGE_PENALTY_S = 60;
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// resolveSpeeds
+// -----------------------------------------------------------
+//
 // A host override that is not a positive finite number (0 to
 // "switch a kind off", a NaN from a settings field) would turn
 // every cost into Infinity or NaN and the search into nonsense;
 // such an entry keeps the default. Refusing a kind is what
-// `avoid` is for
+// `avoid` is for.
+//
+// Used by:
+//   - findRoute (below) — once per search
+// -----------------------------------------------------------
+
 const resolveSpeeds = (overrides: Partial<Record<EdgeKind, number>> | undefined): Record<EdgeKind, number> => {
   const speeds = { ...DEFAULT_WALKING_SPEEDS };
   if (!overrides) return speeds;
@@ -110,6 +174,23 @@ interface OpenEntry {
   g: number;
   f: number;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// createOpenSet
+// -----------------------------------------------------------
+//
+// The heap behind that contract — push/pop only, no
+// decrease-key.
+//
+// Used by:
+//   - findRoute (below) — one heap per search
+// -----------------------------------------------------------
 
 const createOpenSet = () => {
   const heap: OpenEntry[] = [];
@@ -291,8 +372,22 @@ export function findRoute(index: GraphIndex, fromNodeId: string, toNodeId: strin
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// traceBack
+// -----------------------------------------------------------
+//
 // The hops from the start to the goal, read off the
-// back-pointers the search left behind
+// back-pointers the search left behind.
+//
+// Used by:
+//   - findRoute (above) — on reaching the goal
+// -----------------------------------------------------------
+
 const traceBack = (index: GraphIndex, cameFrom: Map<string, BackPointer>, fromNodeId: string, toNodeId: string): Hop[] => {
   const hops: Hop[] = [];
   for (let cursor = toNodeId; cursor !== fromNodeId; ) {

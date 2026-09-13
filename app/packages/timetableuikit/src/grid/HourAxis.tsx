@@ -15,8 +15,40 @@ import { Text, View } from 'react-native';
 import type { TimeWindow } from '../core/types';
 import { useTimetableEnv } from '../provider';
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// AXIS_WIDTH
+// -----------------------------------------------------------
+//
+// The gutter's default pixel width — one number the whole
+// grid agrees on.
+//
+// Used by:
+//   - HourAxis (below) — the default width
+//   - WeekGrid.tsx / DayTimeline.tsx — header padding and the
+//     column-width math
+// -----------------------------------------------------------
+
 export const AXIS_WIDTH = 44;
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// HourAxis (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - WeekGrid.tsx / DayTimeline.tsx — the left gutter
+// -----------------------------------------------------------
 
 export default function HourAxis({
   window,

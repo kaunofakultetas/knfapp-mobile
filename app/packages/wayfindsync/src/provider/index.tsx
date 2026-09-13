@@ -23,6 +23,23 @@ import { createUploadQueue, type UploadItem, type UploadQueue } from '../core/up
 import type { PublishAnswer, ServerOp, SyncStorage, SyncTransport } from '../core/types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// SyncStatus
+// -----------------------------------------------------------
+//
+// What the screen renders of the sync state — counts, the
+// rejected ops, the uploads and the last drain's answer.
+//
+// Used by:
+//   - SyncEnv (below) — the status field
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export interface SyncStatus {
   loaded: boolean;
   pendingOps: number;
@@ -33,6 +50,24 @@ export interface SyncStatus {
   lastDrain: DrainReport | null;
   draining: boolean;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// SyncEnv
+// -----------------------------------------------------------
+//
+// Everything the hook serves: the live status and the actions
+// the editing screen wires to its buttons.
+//
+// Used by:
+//   - useSync (below) — the return shape
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
 
 export interface SyncEnv {
   buildingId: string;
@@ -48,6 +83,8 @@ export interface SyncEnv {
   clearAll: () => void;
 }
 
+// Null until a provider mounts, so the hooks can name the
+// missing provider instead of failing on a missing field
 const SyncContext = createContext<SyncEnv | null>(null);
 
 

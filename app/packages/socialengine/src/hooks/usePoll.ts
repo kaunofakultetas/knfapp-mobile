@@ -30,6 +30,23 @@ import type { Poll } from '../core/types';
 import { useSocialEngine } from '../provider';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// UsePollResult
+// -----------------------------------------------------------
+//
+// What the hook hands the poll block — the fetch facets, the
+// pessimistic vote and the local one-way reveal.
+//
+// Used by:
+//   - usePoll (below) — the return shape
+//   - src/index.ts — the public surface hosts import from
+// -----------------------------------------------------------
+
 export interface UsePollResult {
   poll: Poll | null;
   loading: boolean;
@@ -54,6 +71,8 @@ interface PollFetchState {
   missing: boolean;
 }
 
+// The state a nullish pollId renders as — one frozen shape so
+// idle renders never churn identity
 const IDLE: PollFetchState = { poll: null, loading: false, error: false, missing: false };
 
 

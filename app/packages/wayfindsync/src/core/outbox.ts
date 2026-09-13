@@ -42,6 +42,24 @@
 import type { OpResult, ServerOp, SyncStorage, SyncTransport } from './types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// OutboxEntry
+// -----------------------------------------------------------
+//
+// One queued op and where it stands; a rejected one keeps the
+// server's reason and current row for the conflict screen.
+//
+// Used by:
+//   - DrainReport / Outbox / createOutbox (below)
+//   - provider/index.tsx — SyncStatus.rejectedOps
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export interface OutboxEntry {
   op: ServerOp;
   status: 'queued' | 'sending' | 'rejected';
@@ -49,6 +67,25 @@ export interface OutboxEntry {
   current?: OpResult['current'];
   queuedAt: number;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// DrainReport
+// -----------------------------------------------------------
+//
+// One drain's whole answer; field comments carry the revision
+// contracts.
+//
+// Used by:
+//   - Outbox / createOutbox (below)
+//   - provider/index.tsx — the editor re-stamps from applied
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
 
 export interface DrainReport {
   // revision is the answering batch's — not the drain's last —
@@ -60,6 +97,25 @@ export interface DrainReport {
   // The drain could not reach the server; nothing changed
   offline: boolean;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// Outbox
+// -----------------------------------------------------------
+//
+// The queue's face — load, enqueue, drain, resolve; the
+// header carries the coalescing and persistence contracts.
+//
+// Used by:
+//   - createOutbox (below) — the return shape
+//   - provider/index.tsx — one outbox per building
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
 
 export interface Outbox {
   load(): Promise<void>;
@@ -73,10 +129,49 @@ export interface Outbox {
   subscribe(listener: () => void): () => void;
 }
 
+// Ops per request on a drain
 const BATCH = 500;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// entityKey
+// -----------------------------------------------------------
+//
+// The coalescing key — 'building', 'kind:id', or null for an
+// op that addresses nothing coalescable.
+//
+// Used by:
+//   - createOutbox (below) — enqueue's coalescing
+// -----------------------------------------------------------
 
 const entityKey = (op: ServerOp): string | null => (op.type === 'building' ? 'building' : op.kind && op.entityId ? `${op.kind}:${op.entityId}` : null);
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// createOutbox
+// -----------------------------------------------------------
+//
+//   const outbox = createOutbox(storage, 'wayfind:ops:b1')
+//   await outbox.load()               — merge the stored queue
+//   outbox.enqueue(ops)               — coalesced per entity
+//   const report = await outbox.drain(transport, buildingId)
+//
+// The behaviour is the file header's story; `now` is
+// injectable so tests can pin queuedAt.
+//
+// Used by:
+//   - provider/index.tsx — one outbox per building
+// -----------------------------------------------------------
 
 export function createOutbox(storage: SyncStorage, key: string, now: () => number = () => Date.now()): Outbox {
 

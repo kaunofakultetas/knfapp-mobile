@@ -37,11 +37,43 @@ import type { KitMessage } from '../core/types';
 // How often the day rolls over for the "Today" stamps
 const DAY_TICK_MS = 60_000;
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// UnreadMarker
+// -----------------------------------------------------------
+//
+// The fixed unread stretch: the oldest unread row's id and the
+// count — what MessageList's `unread` prop wants.
+//
+// Used by:
+//   - useTimeline (below) — the `unreadMarker` it returns
+//   - exported through the kit's barrel for hosts
+// -----------------------------------------------------------
+
 export interface UnreadMarker {
   firstUnreadId: string;
   count: number;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// useTimeline
+// -----------------------------------------------------------
+//
+// Used by:
+//   - app/(main)/chat-room/index.tsx — feeds MessageList
+//     `items` + `unread`
+// -----------------------------------------------------------
 
 export function useTimeline(
   messages: KitMessage[],

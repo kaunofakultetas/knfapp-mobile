@@ -21,6 +21,26 @@
 //    - everything in the package
 // -----------------------------------------------------------
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// Level
+// -----------------------------------------------------------
+//
+// One floor: its drawing's coordinate space, the metre scale,
+// the ordinal and the calibrated north — field comments carry
+// each contract.
+//
+// Used by:
+//   - core/graph.ts, core/search.ts, hooks/useRoomSearch.ts,
+//     tools/svgToGraph.ts, testing/sampleBuilding.ts
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export interface Level {
   id: string;
   // Display label the host localises ("1 aukštas")
@@ -40,7 +60,46 @@ export interface Level {
   northDeg?: number | null;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// NodeKind
+// -----------------------------------------------------------
+//
+// What a node IS — never priced by the router, but read by
+// anchors, narration and the authoring checks.
+//
+// Used by:
+//   - GraphNode (below), core/anchors.ts, core/graph.ts,
+//     tools/svgToGraph.ts, testing/sampleBuilding.ts
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export type NodeKind = 'corridor' | 'door' | 'stairs' | 'elevator' | 'ramp' | 'entrance' | 'room';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// GraphNode
+// -----------------------------------------------------------
+//
+// One walkable point on a level's plan, with its optional
+// panorama facts and QR anchor — field comments carry the
+// coordinate and yaw conventions.
+//
+// Used by:
+//   - core/graph.ts, core/route.ts, core/anchors.ts,
+//     tools/svgToGraph.ts, testing/sampleBuilding.ts
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
 
 export interface GraphNode {
   id: string;
@@ -72,10 +131,27 @@ export interface GraphNode {
   landmark?: string | null;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// PanoGeometry
+// -----------------------------------------------------------
+//
 // The part of the sphere a panorama covers, in degrees. A full
 // equirectangular photo is 360 × 180 centred on the horizon; a
 // phone sweep is 360 × (360 · height / width); a single frame
-// is the camera's own field of view
+// is the camera's own field of view.
+//
+// Used by:
+//   - GraphNode (above) — the panoGeometry field
+//   - src/index.ts — the public surface; the UI kit mirrors
+//     it structurally as KitPanoGeometry
+// -----------------------------------------------------------
+
 export interface PanoGeometry {
   hfovDeg: number;
   vfovDeg: number;
@@ -86,7 +162,43 @@ export interface PanoGeometry {
   vOffsetDeg?: number | null;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// PanoHeadingSource
+// -----------------------------------------------------------
+//
+// Where a node's panoYaw came from, ranked by trust: an
+// admin's manual/aligned value over a compass or path guess.
+//
+// Used by:
+//   - PanoHeading (below) — the source field
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export type PanoHeadingSource = 'manual' | 'aligned' | 'compass' | 'path' | 'auto';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// PanoHeading
+// -----------------------------------------------------------
+//
+// The provenance kept beside a derived panoYaw, so a compass
+// guess is never mistaken for an admin's alignment.
+//
+// Used by:
+//   - GraphNode (above) — the panoHeading field
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
 
 export interface PanoHeading {
   source: PanoHeadingSource;
@@ -97,8 +209,24 @@ export interface PanoHeading {
   confidence?: number | null;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// PanoLink
+// -----------------------------------------------------------
+//
 // An authored hotspot: where the target sits in THIS panorama
-// and, optionally, which way the walker faces on arrival
+// and, optionally, which way the walker faces on arrival.
+//
+// Used by:
+//   - GraphNode (above) — the panoLinks field
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export interface PanoLink {
   targetNodeId: string;
   yaw: number;
@@ -106,7 +234,46 @@ export interface PanoLink {
   arrivalYaw?: number | null;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// EdgeKind
+// -----------------------------------------------------------
+//
+// What a walk over an edge IS — indexes the router's speed
+// table, so the vocabulary is closed.
+//
+// Used by:
+//   - GraphEdge / RoutingOptions (below), core/graph.ts,
+//     core/route.ts, core/instructions.ts,
+//     provider/index.tsx, tools/svgToGraph.ts
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export type EdgeKind = 'hallway' | 'door' | 'stairs' | 'elevator' | 'ramp';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// GraphEdge
+// -----------------------------------------------------------
+//
+// One walkable connection; field comments carry the length,
+// one-way and closure contracts the router prices by.
+//
+// Used by:
+//   - core/graph.ts, core/route.ts, core/instructions.ts,
+//     tools/svgToGraph.ts, testing/invariants.ts
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
 
 export interface GraphEdge {
   // Optional — an editor and the server address an edge by it;
@@ -131,7 +298,45 @@ export interface GraphEdge {
   closedUntil?: number | null;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// RoomCategory
+// -----------------------------------------------------------
+//
+// The known categories plus any host string — (string & {})
+// keeps autocomplete on the knowns without closing the union.
+//
+// Used by:
+//   - Room (below), core/search.ts — nearestRoomByCategory
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export type RoomCategory = 'wc' | 'exit' | 'lecture' | 'office' | 'service' | 'food' | 'other' | (string & {});
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// Room
+// -----------------------------------------------------------
+//
+// One destination as search and arrival know it — the node a
+// route ends at, the names searched, and the display facts
+// the host renders; field comments carry each contract.
+//
+// Used by:
+//   - core/graph.ts, core/search.ts, core/instructions.ts,
+//     tools/svgToGraph.ts, testing files
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
 
 export interface Room {
   id: string;
@@ -160,6 +365,25 @@ export interface Room {
   details?: Record<string, string | number | boolean> | null;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// BuildingGraph
+// -----------------------------------------------------------
+//
+// The whole building as one plain-JSON document — what a host
+// hands the provider and the server publishes.
+//
+// Used by:
+//   - core/graph.ts — validated and indexed
+//   - provider/index.tsx, tools/svgToGraph.ts, testing files
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export interface BuildingGraph {
   version: 1;
   building: string;
@@ -177,15 +401,47 @@ export interface BuildingGraph {
   publishedAt?: string | null;
 }
 
-// -----------------------------------------------------------
-// Routing
-// -----------------------------------------------------------
 
+
+
+
+
+
+// -----------------------------------------------------------
+// AccessibilityMode
+// -----------------------------------------------------------
+//
 // 'shortest' walks anything; 'accessible' never uses stairs
 // (ramps and elevators only); 'noInaccessibleFloorChanges'
 // allows stairs on one level (a few steps) but changes level
-// only by elevator or ramp
+// only by elevator or ramp.
+//
+// Used by:
+//   - RoutingOptions (below), testing/invariants.ts
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export type AccessibilityMode = 'shortest' | 'accessible' | 'noInaccessibleFloorChanges';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// RoutingOptions
+// -----------------------------------------------------------
+//
+// Every knob a route search takes; field comments carry each
+// contract. The provider canonicalises these into a key (see
+// provider/index.tsx routingKey).
+//
+// Used by:
+//   - core/route.ts — findRoute's options
+//   - provider/index.tsx, hooks/useRoute.ts
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
 
 export interface RoutingOptions {
   accessibility?: AccessibilityMode;
@@ -202,6 +458,25 @@ export interface RoutingOptions {
   at?: number;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// RoutePoint
+// -----------------------------------------------------------
+//
+// One node of the walked route with the metres accumulated to
+// reach it — the navigation cursor advances on atM.
+//
+// Used by:
+//   - Route (below), core/route.ts, core/instructions.ts,
+//     core/geometry.ts, testing/invariants.ts
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export interface RoutePoint {
   nodeId: string;
   level: string;
@@ -211,14 +486,50 @@ export interface RoutePoint {
   atM: number;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// RouteFloorSegment
+// -----------------------------------------------------------
+//
 // The polyline of one level's stretch of the route, in plan
-// pixels — a plan renderer draws exactly these
+// pixels — a plan renderer draws exactly these.
+//
+// Used by:
+//   - Route (below), core/route.ts — assembleRoute
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export interface RouteFloorSegment {
   level: string;
   points: [number, number][];
   // How the walker ARRIVES on this level ('start' for the first)
   enteredBy: 'start' | EdgeKind;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// Route
+// -----------------------------------------------------------
+//
+// What the router answers: the points, the per-floor
+// polylines, the totals and the derived instructions.
+//
+// Used by:
+//   - core/route.ts, core/navigation.ts, core/instructions.ts
+//   - hooks/useRoute.ts, hooks/useNavigation.ts,
+//     provider/index.tsx, testing/invariants.ts
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
 
 export interface Route {
   fromNodeId: string;
@@ -232,11 +543,44 @@ export interface Route {
   steps: Instruction[];
 }
 
+
+
+
+
+
+
 // -----------------------------------------------------------
-// Instructions
+// TurnDirection
+// -----------------------------------------------------------
+//
+// The turn vocabulary the geometry helpers speak — 'straight'
+// exists so a corner-free bend still has a name.
+//
+// Used by:
+//   - Instruction (below), core/geometry.ts,
+//     core/instructions.ts
+//   - src/index.ts — the public surface
 // -----------------------------------------------------------
 
 export type TurnDirection = 'straight' | 'slight-left' | 'slight-right' | 'left' | 'right' | 'u-turn';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// Instruction
+// -----------------------------------------------------------
+//
+// One derived step of the route, in ids — the UI kit's
+// KitInstruction is this with names instead.
+//
+// Used by:
+//   - core/instructions.ts — buildInstructions' output
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
 
 export type Instruction =
   | { type: 'depart'; atNodeId: string; distanceM: number; towardsRoomId?: string | null }
@@ -246,8 +590,23 @@ export type Instruction =
   | { type: 'connector'; atNodeId: string; via: 'stairs' | 'elevator' | 'ramp'; fromLevel: string; toLevel: string; direction: 'up' | 'down'; distanceM: number }
   | { type: 'arrive'; atNodeId: string; roomId?: string | null; side?: 'left' | 'right' | 'ahead' | null };
 
+
+
+
+
+
+
 // -----------------------------------------------------------
-// Navigation
+// NavigationState
+// -----------------------------------------------------------
+//
+// What a screen renders while walking — the cursor's whole
+// answer; field comments carry each value's contract.
+//
+// Used by:
+//   - core/navigation.ts — the state() answer
+//   - hooks/useNavigation.ts — the hook's state
+//   - src/index.ts — the public surface
 // -----------------------------------------------------------
 
 export interface NavigationState {

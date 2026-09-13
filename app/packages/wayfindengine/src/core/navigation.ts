@@ -60,6 +60,24 @@ import type { GraphIndex } from './graph';
 import type { NavigationState, Route } from './types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// Navigation
+// -----------------------------------------------------------
+//
+// The walking cursor's face: read the state, move it, or
+// subscribe — the header carries each action's contract.
+//
+// Used by:
+//   - createNavigation (below) — the return shape
+//   - hooks/useNavigation.ts — one instance per route
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export interface Navigation {
   state(): NavigationState;
   next(): void;

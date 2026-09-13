@@ -27,6 +27,23 @@ import type { Level } from '../core/types';
 import { useWayfind } from '../provider';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// UseRoomSearchResult
+// -----------------------------------------------------------
+//
+// The hook's answer: the flat matches, the same matches
+// grouped by level, and the total.
+//
+// Used by:
+//   - useRoomSearch (below) — the return shape
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export interface UseRoomSearchResult {
   matches: RoomMatch[];
   grouped: { level: Level; matches: RoomMatch[] }[];

@@ -32,6 +32,25 @@
 import type { BuildingGraph, EdgeKind, GraphEdge, GraphNode, Level, NodeKind, Room } from './types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// GraphIssue
+// -----------------------------------------------------------
+//
+// One authoring problem, with a severity the caller can gate
+// on: errors break routing arithmetic, warnings do not.
+//
+// Used by:
+//   - validateGraph (below) — the report's row
+//   - tools/svgToGraph.ts, provider/index.tsx,
+//     testing/invariants.ts — read the reports
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export interface GraphIssue {
   severity: 'error' | 'warning';
   code:
@@ -60,6 +79,9 @@ export interface GraphIssue {
 // value. An edge kind indexes the router's speed table, a node
 // kind never reaches any arithmetic
 const EDGE_KINDS = new Set<string>(['hallway', 'door', 'stairs', 'elevator', 'ramp'] satisfies EdgeKind[]);
+
+// Same guard for node kinds — `satisfies` keeps both sets in
+// step with the type unions they mirror
 const NODE_KINDS = new Set<string>(['corridor', 'door', 'stairs', 'elevator', 'ramp', 'entrance', 'room'] satisfies NodeKind[]);
 
 // An explicit same-level length may sit this far under its
@@ -67,13 +89,48 @@ const NODE_KINDS = new Set<string>(['corridor', 'door', 'stairs', 'elevator', 'r
 // tapes and rounded plan scales disagree by less
 const CHORD_TOLERANCE = 0.005;
 
+// One index per graph object — a dropped graph frees its index
+const indexes = new WeakMap<BuildingGraph, GraphIndex>();
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// chordM
+// -----------------------------------------------------------
+//
 // The plan chord between two same-level nodes in metres, at 1 m
 // per pixel on a level the map does not know — exactly as
 // edgeLengthM measures. A cross-level pair has no chord at all:
-// its ends share no plan space
+// its ends share no plan space.
+//
+// Used by:
+//   - validateGraph (below) — the length_under_chord check
+//   - indexGraph (below) — heuristicScale
+// -----------------------------------------------------------
+
 const chordM = (levels: Map<string, Level>, a: GraphNode, b: GraphNode): number =>
   Math.hypot(b.x - a.x, b.y - a.y) * (levels.get(a.level)?.metersPerPixel ?? 1);
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// isGoodLength
+// -----------------------------------------------------------
+//
+// What an explicit lengthM must be to enter the router's
+// arithmetic — finite and non-negative, nothing more.
+//
+// Used by:
+//   - validateGraph / indexGraph (below)
+// -----------------------------------------------------------
 
 const isGoodLength = (lengthM: number): boolean => Number.isFinite(lengthM) && lengthM >= 0;
 
@@ -242,20 +299,41 @@ export function validateGraph(graph: BuildingGraph): GraphIssue[] {
 
 
 // -----------------------------------------------------------
-// GraphIndex / indexGraph
+// Neighbour
 // -----------------------------------------------------------
 //
+// One outgoing step of the adjacency — where to, over which
+// edge.
+//
 // Used by:
-//   - core/route.ts — adjacency for the search, heuristicScale
-//     for its straight-line estimate
-//   - core/navigation.ts, core/anchors.ts, core/search.ts
-//   - provider/index.tsx — memoised on the graph object
+//   - GraphIndex (below) — the adjacency lists' rows
+//   - core/route.ts — the search's expansion
 // -----------------------------------------------------------
 
 export interface Neighbour {
   nodeId: string;
   edge: GraphEdge;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// GraphIndex
+// -----------------------------------------------------------
+//
+// What one build of the index answers — built by indexGraph
+// below; field comments carry each lookup's contract.
+//
+// Used by:
+//   - core/route.ts, core/navigation.ts, core/anchors.ts,
+//     core/search.ts, core/instructions.ts — every reader
+//   - provider/index.tsx — WayfindEnv.index
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
 
 export interface GraphIndex {
   graph: BuildingGraph;
@@ -275,7 +353,25 @@ export interface GraphIndex {
   heuristicScale: number;
 }
 
-const indexes = new WeakMap<BuildingGraph, GraphIndex>();
+
+
+
+
+
+
+// -----------------------------------------------------------
+// indexGraph
+// -----------------------------------------------------------
+//
+// Cached per graph object in a WeakMap, so every consumer of
+// the same graph shares one index.
+//
+// Used by:
+//   - core/route.ts — adjacency for the search, heuristicScale
+//     for its straight-line estimate
+//   - core/navigation.ts, core/anchors.ts, core/search.ts
+//   - provider/index.tsx — memoised on the graph object
+// -----------------------------------------------------------
 
 export function indexGraph(graph: BuildingGraph): GraphIndex {
   const cached = indexes.get(graph);

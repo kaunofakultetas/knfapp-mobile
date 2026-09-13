@@ -34,17 +34,67 @@ import { Text, View } from 'react-native';
 import { useKitLabels, useKitTheme } from '../provider';
 
 
-// The halo's footprint — the stage anchors on half of this
+
+
+
+
+
+// -----------------------------------------------------------
+// MARKER_SIZE
+// -----------------------------------------------------------
+//
+// The halo's footprint — the stage anchors on half of this.
+//
+// Used by:
+//   - pano/FlatPanorama.tsx, pano/PanoramaStage.tsx — the
+//     anchor and edge-clamp maths
+//   - DirectionMarker (below)
+// -----------------------------------------------------------
+
 export const MARKER_SIZE = 64;
 
-// Within this many degrees of the target the marker turns green
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ALIGNED_TOLERANCE_DEG
+// -----------------------------------------------------------
+//
+// Within this many degrees of the target the marker turns
+// green.
+//
+// Used by:
+//   - DirectionMarker (below)
+//   - tests pinning the alignment threshold
+// -----------------------------------------------------------
+
 export const ALIGNED_TOLERANCE_DEG = 12;
+
 
 // The chevron leans no further than this, either way
 const TILT_LIMIT_DEG = 60;
 
+// The marker disc's diameter — big enough to read at a
+// glance over a busy panorama
 const DISC_SIZE = 44;
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// DirectionMarker (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - pano/FlatPanorama.tsx — over the scrolling strip
+//   - pano/PanoramaStage.tsx — over the sphere
+// -----------------------------------------------------------
 
 export default function DirectionMarker({
   deltaDeg,

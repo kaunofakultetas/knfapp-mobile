@@ -33,6 +33,24 @@ import { Modal, Platform, Pressable, StatusBar, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// loadExpoVideo
+// -----------------------------------------------------------
+//
+// The lazy require: expo-video is an OPTIONAL peer, pulled in
+// at render time, not import time — jest never loads a native
+// module, and a host without it gets the explaining modal.
+//
+// Used by:
+//   - VideoPlayerModal (below) — every render, the module
+//     handed down to Stage
+// -----------------------------------------------------------
+
 type ExpoVideoModule = typeof import('expo-video');
 
 function loadExpoVideo(): ExpoVideoModule | null {

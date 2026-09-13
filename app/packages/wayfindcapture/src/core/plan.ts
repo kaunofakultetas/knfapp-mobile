@@ -26,7 +26,44 @@
 //      planTargets
 // -----------------------------------------------------------
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// PlanMode
+// -----------------------------------------------------------
+//
+// 'full' shoots the pole caps too; 'walls' is the three wall
+// rows alone.
+//
+// Used by:
+//   - planTargets (below) — picks the rows
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export type PlanMode = 'full' | 'walls';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// CaptureTarget
+// -----------------------------------------------------------
+//
+// One shot the plan wants — its id and where it sits in the
+// sphere.
+//
+// Used by:
+//   - planTargets (below), core/session.ts
+//   - app/(main)/map-editor/capture.tsx — via the session
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
 
 export interface CaptureTarget {
   id: string;
@@ -34,6 +71,7 @@ export interface CaptureTarget {
   pitchDeg: number;
 }
 
+// Degrees → radians for the angular-distance trigonometry
 const DEG_TO_RAD = Math.PI / 180;
 
 // The three wall rows every mode has, then the two pole caps
@@ -43,11 +81,11 @@ const WALL_ROWS = [
   { pitchDeg: 40, count: 12, stepDeg: 30 },
   { pitchDeg: -40, count: 12, stepDeg: 30 },
 ];
+// The two pole caps 'full' appends after the wall rows
 const CAP_ROWS = [
   { pitchDeg: 70, count: 4, stepDeg: 45 },
   { pitchDeg: -70, count: 4, stepDeg: 45 },
 ];
-
 
 
 
@@ -79,7 +117,6 @@ export function planTargets({ mode }: { mode: PlanMode }): CaptureTarget[] {
     })),
   );
 }
-
 
 
 

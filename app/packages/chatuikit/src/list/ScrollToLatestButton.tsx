@@ -16,6 +16,20 @@ import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { useKitTheme } from '../provider';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// ScrollToLatestButton (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - list/MessageList.tsx — the default slot; hosts may
+//     replace it through the provider's `components`
+// -----------------------------------------------------------
+
 export default function ScrollToLatestButton({
   label,
   count,

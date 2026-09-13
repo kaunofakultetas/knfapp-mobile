@@ -53,9 +53,43 @@ import { findRoute } from '../core/route';
 import type { AccessibilityMode, BuildingGraph, EdgeKind, GraphEdge, Room, Route, RoutePoint } from '../core/types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// RouteInvariantOptions
+// -----------------------------------------------------------
+//
+// What the route was searched under — the accessibility mode
+// decides which edge kinds the invariants may see walked.
+//
+// Used by:
+//   - assertRouteInvariants (below) — the options argument
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export interface RouteInvariantOptions {
   accessibility?: AccessibilityMode;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// GraphContractOptions
+// -----------------------------------------------------------
+//
+// The contract suite's knobs; field comments carry each one.
+//
+// Used by:
+//   - describeGraphContract (below) — the options argument
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
 
 export interface GraphContractOptions {
   // Rooms with no accessible route on purpose (up a few steps
@@ -74,6 +108,24 @@ const EPSILON_M = 1e-6;
 // building has thousands, and a spread of sixty finds the same
 // slips
 const MAX_PAIRS = 60;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// isConnector
+// -----------------------------------------------------------
+//
+// The edge kinds that change floor — the ones the level
+// invariants reason about.
+//
+// Used by:
+//   - joiningEdge / assertRouteInvariants /
+//     describeGraphContract (below)
+// -----------------------------------------------------------
 
 const isConnector = (kind: EdgeKind): boolean => kind === 'stairs' || kind === 'elevator' || kind === 'ramp';
 
@@ -117,8 +169,22 @@ function joiningEdge(index: GraphIndex, from: RoutePoint, to: RoutePoint): Graph
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// walkedEdges
+// -----------------------------------------------------------
+//
 // Every edge a valid route walked, in order — for a route that
-// has passed the invariants, so a missing join cannot happen
+// has passed the invariants, so a missing join cannot happen.
+//
+// Used by:
+//   - assertRouteInvariants (below) — the accessibility checks
+// -----------------------------------------------------------
+
 const walkedEdges = (index: GraphIndex, route: Route): GraphEdge[] => {
   const edges: GraphEdge[] = [];
   for (let i = 1; i < route.points.length; i++) {
@@ -390,9 +456,23 @@ export function describeGraphContract(name: string, makeGraph: () => BuildingGra
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// samplePairs
+// -----------------------------------------------------------
+//
 // Every unordered pair when there are few rooms, an even spread
-// of MAX_PAIRS over them when there are many — deterministic, so
-// a failure reproduces
+// of MAX_PAIRS over them when there are many — deterministic,
+// so a failure reproduces.
+//
+// Used by:
+//   - describeGraphContract (above) — the pairwise route sweep
+// -----------------------------------------------------------
+
 const samplePairs = (rooms: Room[]): [Room, Room][] => {
   const all: [Room, Room][] = [];
   for (let i = 0; i < rooms.length; i++) {

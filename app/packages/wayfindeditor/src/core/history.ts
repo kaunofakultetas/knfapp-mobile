@@ -26,10 +26,45 @@ import { invert } from './document';
 import type { Change } from './types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// Checkpoint
+// -----------------------------------------------------------
+//
+// One undoable gesture — its label and every change it made.
+//
+// Used by:
+//   - History (below) — the stacks' rows
+//   - hooks/useEditor.ts — committed on close
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export interface Checkpoint {
   label: string;
   changes: Change[];
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// History
+// -----------------------------------------------------------
+//
+// The two stacks and the gesture in progress — plain data,
+// every function below answers a new one.
+//
+// Used by:
+//   - every function below, hooks/useEditor.ts
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
 
 export interface History {
   past: Checkpoint[];
@@ -38,7 +73,40 @@ export interface History {
   open: Checkpoint | null;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// HISTORY_CAP
+// -----------------------------------------------------------
+//
+// How many closed checkpoints the past holds — older ones fall
+// off, so a long session never grows without bound.
+//
+// Used by:
+//   - endClosing, redo (below)
+//   - hooks/useEditor.ts — caps the reported edit count
+// -----------------------------------------------------------
+
 export const HISTORY_CAP = 200;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// emptyHistory
+// -----------------------------------------------------------
+//
+// Used by:
+//   - hooks/useEditor.ts — the initial history, and the reset
+//     on replace
+// -----------------------------------------------------------
 
 export const emptyHistory = (): History => ({ past: [], future: [], open: null });
 
@@ -49,22 +117,22 @@ export const emptyHistory = (): History => ({ past: [], future: [], open: null }
 
 
 // -----------------------------------------------------------
-// beginClosing / recordClosing / endClosing
+// beginClosing
 // -----------------------------------------------------------
 //
-// The explicit-answer variants: each names the checkpoint it
-// closed (or null), so a caller committing closed checkpoints
-// never has to infer closure from the shape of the history —
-// at the cap the past's length stops growing, which is exactly
-// when inference silently fails. recordClosing without an open
-// checkpoint opens and closes one around the changes and
-// answers it; beginClosing while one is open closes the
-// earlier one first (a missed end never swallows the next
-// gesture) and answers what it closed; endClosing answers the
-// checkpoint it pushed into the past. Empty checkpoints never
-// reach the past and are never answered as closed.
+// The explicit-answer variants (beginClosing, recordClosing,
+// endClosing): each names the checkpoint it closed (or null),
+// so a caller committing closed checkpoints never has to infer
+// closure from the shape of the history — at the cap the
+// past's length stops growing, which is exactly when inference
+// silently fails.
+//
+// beginClosing while a checkpoint is open closes the earlier
+// one first (a missed end never swallows the next gesture) and
+// answers what it closed.
 //
 // Used by:
+//   - recordClosing (below), begin (below)
 //   - hooks/useEditor.ts — commits every non-null answer
 // -----------------------------------------------------------
 
@@ -74,12 +142,49 @@ export function beginClosing(history: History, label: string): { history: Histor
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// recordClosing
+// -----------------------------------------------------------
+//
+// Records changes into the open checkpoint (coalesced, so a
+// drag stays one undo step). Without an open checkpoint it
+// opens and closes one around the changes and answers it.
+//
+// Used by:
+//   - record (below)
+//   - hooks/useEditor.ts — every edit action
+// -----------------------------------------------------------
+
 export function recordClosing(history: History, changes: readonly Change[], label = 'edit'): { history: History; closed: Checkpoint | null } {
   if (changes.length === 0) return { history, closed: null };
   if (!history.open) return endClosing(recordClosing(beginClosing(history, label).history, changes, label).history);
   return { history: { ...history, open: { label: history.open.label, changes: coalesce(history.open.changes, changes) } }, closed: null };
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// endClosing
+// -----------------------------------------------------------
+//
+// Answers the checkpoint it pushed into the past. Empty
+// checkpoints never reach the past and are never answered as
+// closed.
+//
+// Used by:
+//   - beginClosing, recordClosing (above); end (below)
+//   - hooks/useEditor.ts — closing a gesture, and before undo,
+//     redo and commit
+// -----------------------------------------------------------
 
 export function endClosing(history: History): { history: History; closed: Checkpoint | null } {
   const open = history.open;
@@ -96,16 +201,16 @@ export function endClosing(history: History): { history: History; closed: Checkp
 
 
 // -----------------------------------------------------------
-// begin / record / end
+// begin
 // -----------------------------------------------------------
 //
-// The history-only wrappers, for callers that do not commit
-// (nothing here differs from the closing variants beyond the
-// dropped answer).
+// The history-only wrappers (begin, record, end), for callers
+// that do not commit — nothing here differs from the closing
+// variants beyond the dropped answer.
 //
 // Used by:
-//   - undo / redo (below)
-//   - hosts driving a history without the hook
+//   - hosts driving a history without the hook; nothing in the
+//     repo calls this at the moment
 // -----------------------------------------------------------
 
 export function begin(history: History, label: string): History {
@@ -113,10 +218,37 @@ export function begin(history: History, label: string): History {
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// record
+// -----------------------------------------------------------
+//
+// Used by:
+//   - hosts driving a history without the hook; nothing in the
+//     repo calls this at the moment
+// -----------------------------------------------------------
+
 export function record(history: History, changes: readonly Change[], label = 'edit'): History {
   return recordClosing(history, changes, label).history;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// end
+// -----------------------------------------------------------
+//
+// Used by:
+//   - undo / redo (below)
+// -----------------------------------------------------------
 
 export function end(history: History): History {
   return endClosing(history).history;
@@ -129,7 +261,7 @@ export function end(history: History): History {
 
 
 // -----------------------------------------------------------
-// undo / redo
+// undo
 // -----------------------------------------------------------
 //
 // Answers the changes to apply beside the new history; nothing
@@ -138,7 +270,7 @@ export function end(history: History): History {
 // undoes the gesture so far.
 //
 // Used by:
-//   - hooks/useEditor.ts
+//   - hooks/useEditor.ts — actions.undo
 // -----------------------------------------------------------
 
 export function undo(history: History): { history: History; changes: Change[] } {
@@ -148,6 +280,22 @@ export function undo(history: History): { history: History; changes: Change[] } 
   return { history: { past: closed.past.slice(0, -1), future: [last, ...closed.future], open: null }, changes: invert(last.changes) };
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// redo
+// -----------------------------------------------------------
+//
+// The mirror of undo: replays the newest checkpoint in the
+// future, closing any open checkpoint first.
+//
+// Used by:
+//   - hooks/useEditor.ts — actions.redo
+// -----------------------------------------------------------
 
 export function redo(history: History): { history: History; changes: Change[] } {
   const closed = end(history);
@@ -173,7 +321,7 @@ export function redo(history: History): { history: History; changes: Change[] } 
 // entity is appended, so cascade order survives.
 //
 // Used by:
-//   - record (above)
+//   - recordClosing (above)
 // -----------------------------------------------------------
 
 export function coalesce(existing: readonly Change[], incoming: readonly Change[]): Change[] {

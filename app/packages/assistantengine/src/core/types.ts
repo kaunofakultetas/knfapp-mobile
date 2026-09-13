@@ -18,16 +18,108 @@
 //    - hosts typing their transport config and failure handling
 // -----------------------------------------------------------
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// AssistantLanguage
+// -----------------------------------------------------------
+//
+// The two UI languages the faculty ships — what language()
+// answers, and what Accept-Language carries.
+//
+// Used by:
+//   - AssistantTransportConfig (below) — language()'s return
+//   - tools/contract.ts — localized tool descriptions
+// -----------------------------------------------------------
+
 export type AssistantLanguage = 'lt' | 'en';
 
-// The two container endpoints, FIXED — appended to the host's
-// baseUrl by joinUrl(); the server mirrors them verbatim
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ASSISTANT_CHAT_PATH
+// -----------------------------------------------------------
+//
+// The container's chat endpoint, FIXED — appended to the
+// host's baseUrl by joinUrl(); the server mirrors it verbatim.
+//
+// Used by:
+//   - core/transport.ts — the chat URL
+//   - testing/index.tsx — the fake server's chat route
+// -----------------------------------------------------------
+
 export const ASSISTANT_CHAT_PATH = '/api/assistant/chat';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ASSISTANT_TOOLS_PATH
+// -----------------------------------------------------------
+//
+// The container's tool-manifest endpoint, FIXED — appended to
+// the host's baseUrl by joinUrl(); the server mirrors it
+// verbatim.
+//
+// Used by:
+//   - tools/contract.ts — fetchAssistantTools' URL
+//   - testing/index.tsx — the fake server's tools route
+// -----------------------------------------------------------
+
 export const ASSISTANT_TOOLS_PATH = '/api/assistant/tools';
 
-// Every request names its client — value 'knfapp-mobile/<clientVersion>'
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ASSISTANT_CLIENT_HEADER
+// -----------------------------------------------------------
+//
+// Every request names its client through this header — value
+// 'knfapp-mobile/<clientVersion>'.
+//
+// Used by:
+//   - core/transport.ts — the client header on chat requests
+//   - tools/contract.ts — the same header on tool fetches
+//   - testing/index.tsx — the fake server asserts it
+// -----------------------------------------------------------
+
 export const ASSISTANT_CLIENT_HEADER = 'x-knf-assistant-client';
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// AssistantTransportConfig
+// -----------------------------------------------------------
+//
+// Everything a host decides about the wire, in one object —
+// the transport and the tools fetch both take it (the tools
+// path reads only the header slice).
+//
+// Used by:
+//   - core/transport.ts — createKnfAssistantTransport,
+//     createAssistantFetch, and the AssistantHeadersConfig
+//     slice
+//   - tools/contract.ts — fetchAssistantTools
+// -----------------------------------------------------------
 
 export interface AssistantTransportConfig {
   // The ORIGIN plus an optional path prefix the two fixed
@@ -65,6 +157,17 @@ export interface AssistantTransportConfig {
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// AssistantFailureCode
+// -----------------------------------------------------------
+//
+// The closed code set a screen switches on:
+//
 // 'network'     — the request never reached a server (DNS,
 //                 offline, a throwing fetch)
 // 'timeout'     — no response headers inside firstByteTimeoutMs
@@ -77,7 +180,35 @@ export interface AssistantTransportConfig {
 // 'unavailable' — 502 / 503 / 504: the container is down or
 //                 restarting, retryAfterMs when present
 // 'aborted'     — the caller's own AbortSignal fired
+//
+// Used by:
+//   - AssistantFailure (below) — the `code` field
+//   - hosts typing their failure handling
+// -----------------------------------------------------------
+
 export type AssistantFailureCode = 'network' | 'timeout' | 'auth' | 'quota' | 'server' | 'unavailable' | 'aborted';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// AssistantFailure
+// -----------------------------------------------------------
+//
+// The one failure VALUE every wire problem collapses into —
+// compared by value, carried by AssistantTransportError,
+// read back by useAssistantFailure().
+//
+// Used by:
+//   - core/errors.ts — built by toAssistantFailure
+//   - core/transport.ts — thrown and reported via onFailure
+//   - tools/contract.ts — the tools endpoint's failure path
+//   - hooks/useAssistantFailure.ts — the hook's return value
+//   - testing/index.tsx — the probe publishes it
+// -----------------------------------------------------------
 
 export interface AssistantFailure {
   code: AssistantFailureCode;
@@ -95,9 +226,24 @@ export interface AssistantFailure {
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// AssistantTransportError
+// -----------------------------------------------------------
+//
 // The one exception the transport throws — the upstream
 // runtime surfaces it as the thread's error, and
 // useAssistantFailure() reads `failure` straight back out
+//
+// Used by:
+//   - core/transport.ts, tools/contract.ts — every throw
+//   - core/errors.ts — the isAssistantTransportError guard
+// -----------------------------------------------------------
+
 export class AssistantTransportError extends Error {
   readonly failure: AssistantFailure;
 

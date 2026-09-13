@@ -32,6 +32,24 @@ import { changesToOps, revisionKey, type ServerOp } from '../core/ops';
 import type { BuildingFields, Change, EdgeLike, EditorIssue, EntityKind, GraphLike, LevelLike, NodeLike, Patch, RoomLike, Selection, Validator } from '../core/types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// EditorOptions
+// -----------------------------------------------------------
+//
+// What the hook is mounted with — the document, its revision
+// bookkeeping, the validator and the commit sink; field
+// comments carry the contracts.
+//
+// Used by:
+//   - useEditor (below) — the options argument
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export interface EditorOptions<G extends GraphLike> {
   document: G;
   // The draft revision the document came from, and per entity
@@ -43,6 +61,24 @@ export interface EditorOptions<G extends GraphLike> {
   onCommit?: (commit: { label: string; changes: Change[]; ops: ServerOp[] }) => void;
   nextOpId?: () => string;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// EditorState
+// -----------------------------------------------------------
+//
+// Everything the editing screen renders from — the document,
+// the selection, the issues and the undo/redo affordances.
+//
+// Used by:
+//   - UseEditorResult / useEditor (below)
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
 
 export interface EditorState<G extends GraphLike> {
   document: G;
@@ -56,6 +92,25 @@ export interface EditorState<G extends GraphLike> {
   // Closed checkpoints not yet undone — the session's edit count
   edits: number;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// EditorActions
+// -----------------------------------------------------------
+//
+// Every verb the screen may call — the checkpoint controls,
+// the selection, and one action per editing verb in
+// core/edits.ts; field comments carry the odd ones' contracts.
+//
+// Used by:
+//   - UseEditorResult / useEditor (below)
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
 
 export interface EditorActions {
   begin: (label: string) => void;
@@ -87,15 +142,70 @@ export interface EditorActions {
   acknowledge: (entries: { kind: EntityKind; id: string; revision: number }[]) => void;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// UseEditorResult
+// -----------------------------------------------------------
+//
+// The hook's answer — the state to render and the actions to
+// wire.
+//
+// Used by:
+//   - useEditor (below) — the return shape
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export interface UseEditorResult<G extends GraphLike> {
   state: EditorState<G>;
   actions: EditorActions;
 }
 
+// How long typing may pause before the graph is re-validated —
+// long enough to never run per keystroke
 const DEFAULT_VALIDATE_DELAY_MS = 300;
 
 let opCounter = 0;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// defaultOpId
+// -----------------------------------------------------------
+//
+// Time plus a monotonic counter, so two ops in the same
+// millisecond still get distinct ids.
+//
+// Used by:
+//   - useEditor (below) — when the host supplies no nextOpId
+// -----------------------------------------------------------
+
 const defaultOpId = (): string => `op-${Date.now().toString(36)}-${(opCounter++).toString(36)}`;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// issueId
+// -----------------------------------------------------------
+//
+// The stable id a validator issue is keyed by — "code:ref" —
+// so an ignored issue stays ignored across revalidations.
+//
+// Used by:
+//   - useEditor (below) — stamps every validator issue
+// -----------------------------------------------------------
 
 export const issueId = (issue: { code: string; ref: string }): string => `${issue.code}:${issue.ref}`;
 

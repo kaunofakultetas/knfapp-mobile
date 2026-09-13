@@ -45,7 +45,42 @@
 import { fromAxisAngle, identity, multiply, normalize, poseFromQuat, rotateVector, type Pose, type Quat, type Vec3 } from './quat';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// TrackerState
+// -----------------------------------------------------------
+//
+// 'settling' while the initial bias calibration runs,
+// 'tracking' after.
+//
+// Used by:
+//   - PoseTracker (below) — state()'s answer
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export type TrackerState = 'settling' | 'tracking';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// TrackerSample
+// -----------------------------------------------------------
+//
+// One sensor tick: the gyro rates, the accelerometer vector
+// and the time since the last push.
+//
+// Used by:
+//   - PoseTracker (below) — push()'s argument
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
 
 export interface TrackerSample {
   gyro: Vec3;
@@ -53,26 +88,62 @@ export interface TrackerSample {
   dtMs: number;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// PoseTracker
+// -----------------------------------------------------------
+//
+// The tracker's face: push a sample, read the state and the
+// bias — the header carries the algorithm.
+//
+// Used by:
+//   - createPoseTracker (below) — the return shape
+//   - src/index.ts — the public surface; the capture screen
+//     owns one per camera session
+// -----------------------------------------------------------
+
 export interface PoseTracker {
   push(sample: TrackerSample): Pose;
   state(): TrackerState;
   biasDps(): Vec3;
 }
 
+// Radians → degrees for the pose the tracker reports
 const RAD_TO_DEG = 180 / Math.PI;
 
 // Stillness is a raw-gyro judgement — the bias is unknown while
 // judging, so the threshold must swallow bias plus hand tremor
 const STILL_RATE_RAD = 0.02;
+
+// The initial calibration wants this long a still stretch
+// before the bias is trusted at all
 const CALIBRATE_MS = 1500;
+
+// After calibration, any stillness past this keeps nudging the
+// bias…
 const REFINE_AFTER_MS = 350;
+
+// …by this share of the gap to the freshly measured mean
 const REFINE_RATE = 0.02;
+
+// How hard gravity pulls the integrated attitude upright per
+// sample — small, so a real turn is never fought
 const GRAVITY_RATE = 0.02;
+
+// The accelerometer low-pass: this share of history per sample,
+// smoothing hand shake out of the gravity estimate
 const ACCEL_LP_ALPHA = 0.8;
 
+// The pose before the first sample — level, facing yaw 0
 const ZERO_POSE: Pose = { yawDeg: 0, pitchDeg: 0, rollDeg: 0 };
-const WORLD_UP: Vec3 = { x: 0, y: 1, z: 0 };
 
+// Up in the device world frame — what gravity is compared to
+const WORLD_UP: Vec3 = { x: 0, y: 1, z: 0 };
 
 
 

@@ -17,9 +17,23 @@
 import type { StateStore, Unsubscribe } from './types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// shallowishEqual
+// -----------------------------------------------------------
+//
 // Shallow equality over one level of plain records — snapshot
 // objects are flat, or flat-plus-one-record (prefs.channels),
-// so one nested level is compared too
+// so one nested level is compared too.
+//
+// Used by:
+//   - createStore (below) — the edge-dedupe in set()
+// -----------------------------------------------------------
+
 function shallowishEqual(a: unknown, b: unknown): boolean {
   if (Object.is(a, b)) return true;
   if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
@@ -45,10 +59,44 @@ function shallowishEqual(a: unknown, b: unknown): boolean {
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// MutableStore
+// -----------------------------------------------------------
+//
+// StateStore plus the write end the owning machine keeps to
+// itself.
+//
+// Used by:
+//   - createStore (below) — the return shape
+//   - permission.ts / registration.ts / prefs.ts — their
+//     private stores
+// -----------------------------------------------------------
+
 export interface MutableStore<T> extends StateStore<T> {
   // Replaces the snapshot; equal values emit nothing
   set(next: T): void;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// createStore
+// -----------------------------------------------------------
+//
+// Used by:
+//   - permission.ts / registration.ts / prefs.ts — their
+//     snapshot stores
+//   - testing/index.ts — the fakes' stores
+// -----------------------------------------------------------
 
 export function createStore<T>(initial: T): MutableStore<T> {
   let value = initial;

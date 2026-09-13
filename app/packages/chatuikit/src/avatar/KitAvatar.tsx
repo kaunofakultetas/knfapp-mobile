@@ -24,6 +24,22 @@ import { avatarColorFor } from '../core/avatarColor';
 import { useKitTheme } from '../provider';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// KitAvatar (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - message/MessageBubble.tsx, list/TypingBubble.tsx,
+//     list/ConversationIntro.tsx — the disc beside a run
+//   - avatar/RoomHeaderTitle.tsx, StackedAvatars.tsx
+//   - composer/Composer.tsx — the mention candidate rows
+// -----------------------------------------------------------
+
 export default function KitAvatar({
   uri,
   name,

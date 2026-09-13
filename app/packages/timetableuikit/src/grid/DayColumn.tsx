@@ -25,6 +25,20 @@ import NowLine from './NowLine';
 const CELL_GAP = 2;
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// DayColumn (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - WeekGrid.tsx — one per visible day
+//   - DayTimeline.tsx — the single column
+// -----------------------------------------------------------
+
 export default function DayColumn({
   day,
   placed,

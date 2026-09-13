@@ -29,6 +29,24 @@ import { isRetryableError, type SocialTransport } from '../core/transport';
 import type { Poll, RelationshipState, SocialNotification } from '../core/types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// SocialTransportHarness
+// -----------------------------------------------------------
+//
+// What makeHarness answers: the transport under test plus the
+// levers that shape the other side.
+//
+// Used by:
+//   - describeSocialContract (below)
+//   - adapters/knf/__tests__/contract.test.ts — the KNF harness
+//   - src/index.ts — the public surface, for adapter authors
+// -----------------------------------------------------------
+
 export interface SocialTransportHarness {
   transport: SocialTransport;
   // Put a poll into the backend's store; answers its id
@@ -44,7 +62,39 @@ export interface SocialTransportHarness {
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// iso
+// -----------------------------------------------------------
+//
+// Fixed-day stamps that differ only by minute — ordering
+// assertions stay readable.
+//
+// Used by:
+//   - baseNotification, describeSocialContract (below)
+// -----------------------------------------------------------
+
 const iso = (minute: number) => new Date(Date.UTC(2026, 7, 30, 12, minute, 0)).toISOString();
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// basePoll
+// -----------------------------------------------------------
+//
+// A valid two-option poll a case overrides field by field.
+//
+// Used by:
+//   - describeSocialContract (below) — the poll fixtures
+// -----------------------------------------------------------
 
 const basePoll = (id: string, over: Partial<Poll> = {}): Poll => ({
   id,
@@ -61,6 +111,23 @@ const basePoll = (id: string, over: Partial<Poll> = {}): Poll => ({
   ...over,
 });
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// baseNotification
+// -----------------------------------------------------------
+//
+// A valid unread like a case overrides — the id is left to
+// the transport under test.
+//
+// Used by:
+//   - describeSocialContract (below) — the activity fixtures
+// -----------------------------------------------------------
+
 const baseNotification = (over: Partial<Omit<SocialNotification, 'id'>> = {}): Omit<SocialNotification, 'id'> => ({
   kind: 'like',
   actor: { id: 'u-actor', displayName: 'Ona' },
@@ -69,6 +136,27 @@ const baseNotification = (over: Partial<Omit<SocialNotification, 'id'>> = {}): O
   ...over,
 });
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// describeSocialContract
+// -----------------------------------------------------------
+//
+//   describeSocialContract('my adapter', () => ({ transport,
+//     seedPoll, seedNotification, setRelationship }))
+//
+// Registers the whole conformance suite as one describe block
+// — call it from a jest file with a fresh harness per test.
+//
+// Used by:
+//   - src/__tests__/contract.test.ts — the fake itself
+//   - adapters/knf/__tests__/contract.test.ts — the KNF adapter
+//   - src/index.ts — the public surface, for a host's adapters
+// -----------------------------------------------------------
 
 export function describeSocialContract(name: string, makeHarness: () => Promise<SocialTransportHarness> | SocialTransportHarness): void {
   describe(`SocialTransport contract — ${name}`, () => {

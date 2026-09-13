@@ -33,9 +33,30 @@ import { useNow, type NowPoint } from './hooks/useNow';
 import { usePagePan } from './hooks/usePagePan';
 import { useTimetableEnv } from './provider';
 
+// Monday–Friday — the column set when the host passes none
 const WEEKDAYS = [0, 1, 2, 3, 4];
+// Pixels per hour — tighter than the day view, five columns
+// must share the width
 const DEFAULT_HOUR_HEIGHT = 56;
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// WeekGridProps
+// -----------------------------------------------------------
+//
+// Seven pre-placed day buckets and one shared window — the
+// grid computes no geometry, it only multiplies fractions by
+// pixels.
+//
+// Used by:
+//   - WeekGrid (below)
+//   - components/schedule/TimetableView.tsx — week mode's props
+// -----------------------------------------------------------
 
 export interface WeekGridProps {
   // Seven pre-placed day buckets, Monday first
@@ -57,6 +78,19 @@ export interface WeekGridProps {
   skippedCount?: number;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// WeekGrid (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - components/schedule/TimetableView.tsx — week mode
+// -----------------------------------------------------------
 
 export default function WeekGrid({
   days,

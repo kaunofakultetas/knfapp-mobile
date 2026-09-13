@@ -22,6 +22,19 @@ import { Text } from 'react-native';
 import { linkify, type TextSegment } from '../core/linkify';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// MessageText (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - message/MessageBubble.tsx — the linkified text body
+// -----------------------------------------------------------
+
 export default function MessageText({
   text,
   color,

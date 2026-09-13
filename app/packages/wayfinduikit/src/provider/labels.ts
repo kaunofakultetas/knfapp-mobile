@@ -33,6 +33,27 @@
 
 
 
+
+
+
+
+// -----------------------------------------------------------
+// KitLabels
+// -----------------------------------------------------------
+//
+// The full catalog shape — every key a host may override.
+// Count-taking keys are functions (Lithuanian declension),
+// name-taking keys never decline their argument (see the
+// header).
+//
+// Used by:
+//   - provider/index.tsx — the merge target and the hooks'
+//     return shape
+//   - core/format.ts — formatDistance, formatEta and
+//     instructionText take the catalog as an argument
+//   - src/index.ts — re-exported to hosts
+// -----------------------------------------------------------
+
 export interface KitLabels {
   // The search face: the screen title, the prompt, the field
   title: string;
@@ -141,45 +162,12 @@ export interface KitLabels {
 
 
 // -----------------------------------------------------------
-// Lithuanian plural
-// -----------------------------------------------------------
-//
-// 1 / 2–9 (and not x1) / the rest — teens take the 'other'
-// form even when their last digit says otherwise (11 minučių,
-// not 11 minutė), and x1 past the teens returns to 'one'
-// (21 minutė).
-//
-// Used by:
-//   - defaultLabels.lt — every count-taking key
-// -----------------------------------------------------------
-
-const ltPlural = (count: number, one: string, few: string, other: string): string => {
-  const mod10 = count % 10;
-  const mod100 = count % 100;
-  if (mod10 === 1 && mod100 !== 11) return one;
-  if (mod10 >= 2 && mod10 <= 9 && !(mod100 >= 11 && mod100 <= 19)) return few;
-  return other;
-};
-
-
-// The direction marker's offset as a screen reader should hear
-// it: whatever rounds to zero is 'ahead', the sign picks the
-// side; a non-finite offset reads as ahead rather than 'NaN°'
-const markerOffset = (degrees: number): { whole: number; side: 'ahead' | 'left' | 'right' } => {
-  const whole = Number.isFinite(degrees) ? Math.round(Math.abs(degrees)) : 0;
-  if (whole === 0) return { whole, side: 'ahead' };
-  return { whole, side: degrees > 0 ? 'right' : 'left' };
-};
-
-
-
-
-
-
-
-// -----------------------------------------------------------
 // defaultLabels
 // -----------------------------------------------------------
+//
+// The catalog's arrows close over ltPlural and markerOffset
+// declared BELOW — safe, nothing calls them while the module
+// initialises; the const sits first so data precedes code.
 //
 // Used by:
 //   - provider/index.tsx — the locale picks the base set; the
@@ -361,4 +349,56 @@ export const defaultLabels: { lt: KitLabels; en: KitLabels } = {
     youAreHereA11y: (place) => (place ? `You are here: ${place}` : 'You are here'),
     previewImageA11y: (room) => `Photo of ${room}`,
   },
+};
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ltPlural
+// -----------------------------------------------------------
+//
+// Lithuanian plural for defaultLabels.lt's count-taking keys:
+// 1 / 2–9 (and not x1) / the rest — teens take the 'other'
+// form even when their last digit says otherwise (11 minučių,
+// not 11 minutė), and x1 past the teens returns to 'one'
+// (21 minutė).
+//
+// Used by:
+//   - defaultLabels.lt (above) — searchResults and minutes
+// -----------------------------------------------------------
+
+const ltPlural = (count: number, one: string, few: string, other: string): string => {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  if (mod10 === 1 && mod100 !== 11) return one;
+  if (mod10 >= 2 && mod10 <= 9 && !(mod100 >= 11 && mod100 <= 19)) return few;
+  return other;
+};
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// markerOffset
+// -----------------------------------------------------------
+//
+// The direction marker's offset as a screen reader should hear
+// it: whatever rounds to zero is 'ahead', the sign picks the
+// side; a non-finite offset reads as ahead rather than 'NaN°'.
+//
+// Used by:
+//   - defaultLabels (above) — both locales' markerA11y
+// -----------------------------------------------------------
+
+const markerOffset = (degrees: number): { whole: number; side: 'ahead' | 'left' | 'right' } => {
+  const whole = Number.isFinite(degrees) ? Math.round(Math.abs(degrees)) : 0;
+  if (whole === 0) return { whole, side: 'ahead' };
+  return { whole, side: degrees > 0 ? 'right' : 'left' };
 };

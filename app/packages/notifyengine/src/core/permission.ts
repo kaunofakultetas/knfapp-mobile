@@ -26,14 +26,48 @@ import { createStore, type MutableStore } from './store';
 import type { DeviceAdapter, PermissionSnapshot } from './types';
 
 
+// The store's seed before the first poll answers — deliberately
+// pessimistic, so nothing registers on an unknown permission
 const UNKNOWN: PermissionSnapshot = { status: 'unknown', canAskAgain: false, canDeliver: false };
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// PermissionMachine
+// -----------------------------------------------------------
+//
+// The machine's surface — the snapshot store plus the two ways
+// it moves: a side-effect-free poll and the OS prompt.
+//
+// Used by:
+//   - createPermissionMachine (below) — the return shape
+//   - engine.ts — holds one and exposes its store
+// -----------------------------------------------------------
 
 export interface PermissionMachine {
   store: MutableStore<PermissionSnapshot>;
   poll(): Promise<PermissionSnapshot>;
   request(): Promise<PermissionSnapshot>;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// createPermissionMachine
+// -----------------------------------------------------------
+//
+// Used by:
+//   - engine.ts — built at createNotifyEngine; polled at init
+//     and on every return to the foreground
+// -----------------------------------------------------------
 
 export function createPermissionMachine(device: DeviceAdapter): PermissionMachine {
   const store = createStore<PermissionSnapshot>(UNKNOWN);

@@ -28,8 +28,23 @@ import type { KitGalleryItem } from '../../core/types';
 
 // Tiles shown before the "+N" wash takes over
 const MAX_TILES = 4;
+// Hairline between tiles — the grid reads as one photo block
 const TILE_GAP = 2;
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// GalleryAttachment (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - message/MessageBubble.tsx — a message carrying two or
+//     more photos
+// -----------------------------------------------------------
 
 export default function GalleryAttachment({
   items,

@@ -35,7 +35,32 @@ import { normalizeEntries } from '../../core/normalize';
 import type { NormalizeResult, TimetableEntry } from '../../core/types';
 
 
-// One lesson row exactly as the backend serves it
+// A single capitalised abbreviation ending in a period —
+// "Doc.", "Dr.", "Prof.", "Lekt.", "Asist." — is an academic
+// TITLE riding after a name in the feed's comma list, not
+// another person. Names keep their identity bare, so the same
+// teacher matches across rows whether or not a row lists
+// every title.
+const TITLE_RE = /^\p{Lu}\p{Ll}{0,9}\.$/u;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// KnfLesson
+// -----------------------------------------------------------
+//
+// One lesson row exactly as the backend serves it.
+//
+// Used by:
+//   - toTimetableEntry / normalizeKnf (below)
+//   - components/schedule/TimetableView.tsx,
+//     app/(main)/tabs/schedule.tsx — typing the fetched rows
+// -----------------------------------------------------------
+
 export interface KnfLesson {
   id: number | string;
   title?: string;
@@ -50,12 +75,42 @@ export interface KnfLesson {
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// padTime
+// -----------------------------------------------------------
+//
 // "9:00" (unpadded) → "09:00"; anything else passes through
-// for the strict parser to judge
+// for the strict parser to judge.
+//
+// Used by:
+//   - toMinutes (below)
+// -----------------------------------------------------------
+
 const padTime = (value?: string) => {
   const raw = (value ?? '').trim();
   return /^\d:\d\d$/.test(raw) ? `0${raw}` : raw;
 };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// splitList
+// -----------------------------------------------------------
+//
+// The feed's comma lists (rooms, names) into trimmed parts.
+//
+// Used by:
+//   - splitPeople, toTimetableEntry (below)
+// -----------------------------------------------------------
 
 const splitList = (value?: string) =>
   (value ?? '')
@@ -63,15 +118,41 @@ const splitList = (value?: string) =>
     .map((part) => part.trim())
     .filter(Boolean);
 
-// A single capitalised abbreviation ending in a period —
-// "Doc.", "Dr.", "Prof.", "Lekt.", "Asist." — is an academic
-// TITLE riding after a name in the feed's comma list, not
-// another person. Names keep their identity bare, so the same
-// teacher matches across rows whether or not a row lists
-// every title.
-const TITLE_RE = /^\p{Lu}\p{Ll}{0,9}\.$/u;
+
+
+
+
+
+
+// -----------------------------------------------------------
+// splitPeople
+// -----------------------------------------------------------
+//
+// The comma list minus the academic titles (TITLE_RE above) —
+// people only.
+//
+// Used by:
+//   - toTimetableEntry (below)
+// -----------------------------------------------------------
 
 const splitPeople = (value?: string) => splitList(value).filter((token) => !TITLE_RE.test(token));
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// toMinutes
+// -----------------------------------------------------------
+//
+// 'HH:MM' wall clock to minutes since midnight — NaN flags a
+// malformed stamp for normalize to skip.
+//
+// Used by:
+//   - toTimetableEntry (below)
+// -----------------------------------------------------------
 
 const toMinutes = (value?: string): number => {
   const match = /^([01][0-9]|2[0-3]):([0-5][0-9])$/.exec(padTime(value));
@@ -80,8 +161,22 @@ const toMinutes = (value?: string): number => {
 };
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// toTimetableEntry
+// -----------------------------------------------------------
+//
 // One backend row → one candidate entry. Extra backend fields
 // ride along on the generic payload untouched.
+//
+// Used by:
+//   - normalizeKnf (below)
+// -----------------------------------------------------------
+
 export function toTimetableEntry(lesson: KnfLesson): TimetableEntry<KnfLesson> {
   return {
     ...lesson,
@@ -98,10 +193,24 @@ export function toTimetableEntry(lesson: KnfLesson): TimetableEntry<KnfLesson> {
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// normalizeKnf
+// -----------------------------------------------------------
+//
 // Every fetched row (all pages concatenated, when the query
 // needed more than one) through mapping + the core gate: rows
 // with unusable times/days come back as a skipped COUNT, and
 // everything usable still renders
+//
+// Used by:
+//   - app/(main)/tabs/schedule.tsx — both fetch paths
+// -----------------------------------------------------------
+
 export function normalizeKnf(lessons: readonly KnfLesson[]): NormalizeResult<KnfLesson> {
   return normalizeEntries(lessons.map(toTimetableEntry));
 }

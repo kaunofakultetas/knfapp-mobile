@@ -19,6 +19,24 @@
 import { Linking } from 'react-native';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// normalizeHref
+// -----------------------------------------------------------
+//
+// Pure: anything already carrying a scheme passes as it is, a
+// bare host or path gets https://, everything else is refused
+// with null — the caller decides what a refusal means.
+//
+// Used by:
+//   - openHref (below); exported through the kit's barrel,
+//     but no host calls it directly at the moment
+// -----------------------------------------------------------
+
 export function normalizeHref(href: string): string | null {
   const trimmed = (href ?? '').trim();
   if (!trimmed) return null;
@@ -29,6 +47,26 @@ export function normalizeHref(href: string): string | null {
   return null;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// openHref
+// -----------------------------------------------------------
+//
+// Normalizes, asks the OS whether it can open the URL, then
+// hands it over. Every way this can go wrong — an unusable
+// href, an OS refusal, a thrown open — lands in `onFail` and
+// the returned boolean, never as an unhandled rejection.
+//
+// Used by:
+//   - app/(main)/chat-room/index.tsx — message links
+//   - components/social/SocialUiKitHost.tsx — the social
+//     kit's env.openHref
+// -----------------------------------------------------------
 
 export async function openHref(href: string, onFail?: (href: string) => void): Promise<boolean> {
   const url = normalizeHref(href);

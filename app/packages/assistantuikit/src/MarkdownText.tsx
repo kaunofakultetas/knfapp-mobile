@@ -29,6 +29,7 @@
 //  Split into (root component last):
 //
 //    MONO         — the platform's monospace family
+//    body         — the shared prose text style
 //    Inline       — spans into nested Text
 //    CodeBlock    — the fenced code box
 //    ListBlock    — bullets / numbers, one nested level
@@ -52,15 +53,24 @@ import { defaultColors, type AssistantColors } from './core/types';
 // back to the proportional system font without a word
 const MONO = Platform.select({ ios: 'Menlo', default: 'monospace' });
 
+// The type scale, in dp — body matches the bubbles around it,
+// code steps down so a snippet fits the narrow bubble
 const BODY_SIZE = 15;
+// Body line height — the same 22 dp every block builds on
 const BODY_LINE = 22;
+// Code font size, inline and fenced alike
 const CODE_SIZE = 13;
+// Fenced-code line height, tighter than prose on purpose
 const CODE_LINE = 18;
 // Space above a block that follows another; headings breathe more
 const BLOCK_GAP = 8;
+// Headings breathe more than ordinary blocks (BLOCK_GAP)
 const HEADING_GAP = 14;
+// Space between list items, and above a nested list
 const ITEM_GAP = 4;
 
+// One size per heading level — the parser clamps deeper
+// headings to level 3, so three rows cover everything
 const HEADING_TYPE: Record<1 | 2 | 3, { fontSize: number; lineHeight: number }> = {
   1: { fontSize: 20, lineHeight: 26 },
   2: { fontSize: 17, lineHeight: 23 },
@@ -73,7 +83,23 @@ interface RenderProps {
   onPressLink?: (url: string) => void;
 }
 
-// The body text style, in the given ink
+
+
+
+
+
+
+// -----------------------------------------------------------
+// body
+// -----------------------------------------------------------
+//
+// The body text style, in the given ink — the prose blocks
+// and the streaming tail all build on it.
+//
+// Used by:
+//   - ListBlock, Block, MarkdownText (below)
+// -----------------------------------------------------------
+
 const body = (colors: AssistantColors) => ({ fontSize: BODY_SIZE, lineHeight: BODY_LINE, color: colors.ink });
 
 

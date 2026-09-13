@@ -87,8 +87,9 @@
 //    fitToWidth       — the drawing's size at scale 1
 //    centreOn         — the translation that centres a plan point
 //    onShownLevel     — a point as far as the shown level is concerned
-//    readFingers      — a touch event as the camera sees it
+//    toContent        — a viewport point as a drawing point
 //    toPlan           — a viewport point as a plan point
+//    readFingers      — a touch event as the camera sees it
 //    Overlay          — the one Svg drawn over the host's plan
 //    FloorPlan        — the viewport (default export)
 // -----------------------------------------------------------
@@ -103,16 +104,48 @@ import type { KitLevel, KitRouteSegment } from '../core/types';
 import { useKitLabels, useKitTheme } from '../provider';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// PlanPoint
+// -----------------------------------------------------------
+//
 // A point in plan units; the level it lies on, when named,
-// decides whether the shown floor draws it at all
+// decides whether the shown floor draws it at all.
+//
+// Used by:
+//   - the camera helpers and FloorPlan (below)
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export interface PlanPoint {
   x: number;
   y: number;
   level?: string | null;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// PlanNode
+// -----------------------------------------------------------
+//
 // A tappable corridor point; the label is what a screen
-// reader hears for it (the id otherwise)
+// reader hears for it (the id otherwise).
+//
+// Used by:
+//   - Overlay / FloorPlan (below) — the nodes prop
+//   - app/(main)/map-editor/index.tsx — the editor's graph
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export interface PlanNode {
   id: string;
   x: number;
@@ -120,14 +153,52 @@ export interface PlanNode {
   label?: string | null;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// PlanRoom
+// -----------------------------------------------------------
+//
+// A room polygon in plan units, tappable when the host wires
+// onPressRoom.
+//
+// Used by:
+//   - Overlay / FloorPlan (below) — the rooms prop
+//   - app/(main)/map-editor/index.tsx — the editor's rooms
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export interface PlanRoom {
   id: string;
   polygon: [number, number][];
   label?: string | null;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// PlanRect
+// -----------------------------------------------------------
+//
 // A drawn box in plan pixels, top-left origin and positive
-// sides whichever way the finger travelled
+// sides whichever way the finger travelled. Exported, but the
+// root barrel does not re-export it — outside this file
+// nothing references the name; hosts meet it structurally
+// through onDrawRect.
+//
+// Used by:
+//   - boxFrom / Overlay / FloorPlan (below) — the rubber band
+//     and the onDrawRect payload
+// -----------------------------------------------------------
+
 export interface PlanRect {
   x: number;
   y: number;
@@ -176,13 +247,19 @@ interface Fingers {
 }
 
 
+// The camera every level starts (and re-focuses) from: the
+// drawing fitted at scale 1, untranslated
 const AT_REST: Camera = { scale: 1, tx: 0, ty: 0 };
 
 // Movement past this many pixels turns a touch that landed on
 // a room into a drag — a tap may jitter this much and stay a tap
 const TAP_SLOP = 6;
 
+// A focus glide zooms to at least this scale — centring a
+// point on a drawing that already fits would move nothing
 const FOCUS_SCALE = 2;
+
+// How long the focus glide takes to reach its point
 const FOCUS_MS = 320;
 
 // A press and release within this, without movement, is a tap
@@ -196,12 +273,28 @@ const DRAW_MIN_PX = 8;
 // converts them to plan units, so a drawing of any resolution
 // shows the same weight of line
 const ROUTE_PX = 3.5;
+
+// The soft under-stroke widening the route line
 const GLOW_PX = 11;
+
+// The walker's (and the start marker's) dot radius
 const DOT_PX = 6;
+
+// The contrasting ring stroke around those dots
 const RING_PX = 3;
+
+// The translucent brand halo behind the walker's dot
 const HALO_PX = 16;
+
+// A corridor node's disc radius (the selected one grows 1.6×)
 const NODE_PX = 4.5;
+
+// A node's invisible hit disc — the grab zone for taps and the
+// selected-node drag, scaled with the zoom in the responder
 const NODE_HIT_PX = 14;
+
+// The destination pin: head radius, and the unit its stem and
+// eye are proportioned from
 const PIN_PX = 8;
 
 
@@ -238,21 +331,15 @@ export function routePath(route: KitRouteSegment | null | undefined, levelId: st
 
 
 // -----------------------------------------------------------
-// clampScale / clampTranslation
+// clampScale
 // -----------------------------------------------------------
 //
-// The drawing scales about its centre, so on one axis its near
-// edge sits at (1 − s)·len/2 + t. The bound is applied to that
-// edge — an axis wider than the viewport keeps the edge past
-// the viewport's, one narrower keeps it inside — and handed
-// back as a translation. A scale that is not a number (a
-// pinch whose start distance vanished) answers the minimum
-// rather than poisoning the camera; an infinite one simply
-// clamps.
+// A scale that is not a number (a pinch whose start distance
+// vanished) answers the minimum rather than poisoning the
+// camera; an infinite one simply clamps.
 //
 // Used by:
-//   - FloorPlan (below) — every camera write goes through them
-//   - centreOn (below)
+//   - FloorPlan (below) — every camera write goes through it
 //   - tests pinning the bounds
 // -----------------------------------------------------------
 
@@ -262,6 +349,25 @@ export function clampScale(scale: number, minScale: number, maxScale: number): n
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// clampAxis
+// -----------------------------------------------------------
+//
+// The drawing scales about its centre, so on one axis its near
+// edge sits at (1 − s)·len/2 + t. The bound is applied to that
+// edge — an axis wider than the viewport keeps the edge past
+// the viewport's, one narrower keeps it inside — and handed
+// back as a translation.
+//
+// Used by:
+//   - clampTranslation (below) — both axes
+// -----------------------------------------------------------
+
 const clampAxis = (t: number, scale: number, frameLen: number, contentLen: number): number => {
   const scaled = contentLen * scale;
   const shift = ((1 - scale) * contentLen) / 2;
@@ -269,6 +375,24 @@ const clampAxis = (t: number, scale: number, frameLen: number, contentLen: numbe
   return Math.min(hi, Math.max(lo, shift + t)) - shift;
 };
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// clampTranslation
+// -----------------------------------------------------------
+//
+// Both axes through clampAxis — the camera never shows past
+// the drawing's edges.
+//
+// Used by:
+//   - FloorPlan (below) — every camera write goes through it
+//   - centreOn (below)
+//   - tests pinning the bounds
+// -----------------------------------------------------------
 
 export function clampTranslation(tx: number, ty: number, scale: number, frame: Size, content: Size): PlanPoint {
   return {
@@ -368,6 +492,98 @@ export function onShownLevel(point: PlanPoint | null | undefined, levelId: strin
 
 
 // -----------------------------------------------------------
+// toContent
+// -----------------------------------------------------------
+//
+// A viewport point → the drawing's own pixels, through the
+// camera: the content layer is translated by (tx, ty) and
+// scaled about its centre, so the content point is the centre
+// plus the offset divided by the scale.
+//
+// Used by:
+//   - toPlan (below) — the first half of its conversion
+//   - FloorPlan (below) — the pinch midpoint under the fingers
+// -----------------------------------------------------------
+
+function toContent(view: PlanPoint, camera: Camera, content: Size): PlanPoint {
+  const cx = content.width / 2;
+  const cy = content.height / 2;
+  return { x: cx + (view.x - cx - camera.tx) / camera.scale, y: cy + (view.y - cy - camera.ty) / camera.scale };
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// toPlan
+// -----------------------------------------------------------
+//
+// The plan point under a viewport point: toContent first, then
+// the content box scaled to the level's viewBox — the units
+// every editing intent reports in.
+//
+// Used by:
+//   - FloorPlan (below) — onPressPlan and the node drag
+// -----------------------------------------------------------
+
+function toPlan(view: PlanPoint, camera: Camera, content: Size, level: KitLevel): PlanPoint {
+  const [minX, minY, vbW, vbH] = level.viewBox;
+  const point = toContent(view, camera, content);
+  return { x: minX + (point.x * vbW) / Math.max(1, content.width), y: minY + (point.y * vbH) / Math.max(1, content.height) };
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// fromPlan
+// -----------------------------------------------------------
+//
+// toPlan's inverse without the camera: a plan point as content
+// pixels, for anchoring the dragged node under the finger.
+//
+// Used by:
+//   - FloorPlan (below) — the node-drag grant
+// -----------------------------------------------------------
+
+function fromPlan(point: PlanPoint, content: Size, level: KitLevel): PlanPoint {
+  const [minX, minY, vbW, vbH] = level.viewBox;
+  return { x: ((point.x - minX) * content.width) / Math.max(1, vbW), y: ((point.y - minY) * content.height) / Math.max(1, vbH) };
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// boxFrom
+// -----------------------------------------------------------
+//
+// The box between two plan corners, normalised so a drag
+// up-left still answers a top-left origin and positive sides.
+//
+// Used by:
+//   - FloorPlan (below) — the rubber band's live box and the
+//     release's onDrawRect payload
+// -----------------------------------------------------------
+
+const boxFrom = (a: PlanPoint, b: PlanPoint): PlanRect => ({ x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), width: Math.abs(b.x - a.x), height: Math.abs(b.y - a.y) });
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // readFingers
 // -----------------------------------------------------------
 //
@@ -383,47 +599,6 @@ export function onShownLevel(point: PlanPoint | null | undefined, levelId: strin
 // Used by:
 //   - FloorPlan (below) — the grant and move handlers
 // -----------------------------------------------------------
-
-// -----------------------------------------------------------
-// toPlan / toContent
-// -----------------------------------------------------------
-//
-// A viewport point → the drawing's own pixels, through the
-// camera: the content layer is translated by (tx, ty) and
-// scaled about its centre, so the content point is the centre
-// plus the offset divided by the scale; the plan point then
-// scales the content box to the viewBox.
-//
-// Used by:
-//   - FloorPlan (below) — onPressPlan and the node drag
-// -----------------------------------------------------------
-
-function toContent(view: PlanPoint, camera: Camera, content: Size): PlanPoint {
-  const cx = content.width / 2;
-  const cy = content.height / 2;
-  return { x: cx + (view.x - cx - camera.tx) / camera.scale, y: cy + (view.y - cy - camera.ty) / camera.scale };
-}
-
-function toPlan(view: PlanPoint, camera: Camera, content: Size, level: KitLevel): PlanPoint {
-  const [minX, minY, vbW, vbH] = level.viewBox;
-  const point = toContent(view, camera, content);
-  return { x: minX + (point.x * vbW) / Math.max(1, content.width), y: minY + (point.y * vbH) / Math.max(1, content.height) };
-}
-
-function fromPlan(point: PlanPoint, content: Size, level: KitLevel): PlanPoint {
-  const [minX, minY, vbW, vbH] = level.viewBox;
-  return { x: ((point.x - minX) * content.width) / Math.max(1, vbW), y: ((point.y - minY) * content.height) / Math.max(1, vbH) };
-}
-
-// The box between two plan corners, normalised so a drag
-// up-left still answers a top-left origin and positive sides
-const boxFrom = (a: PlanPoint, b: PlanPoint): PlanRect => ({ x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), width: Math.abs(b.x - a.x), height: Math.abs(b.y - a.y) });
-
-
-
-
-
-
 
 function readFingers(evt: GestureResponderEvent, g: PanResponderGestureState, origin: PlanPoint): Fingers {
   const touches = evt.nativeEvent?.touches ?? [];

@@ -41,21 +41,80 @@ interface ResponseLike {
   headers: { get(name: string): string | null };
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// isResponseLike
+// -----------------------------------------------------------
+//
+// Routes toAssistantFailure's input: anything shaped like a
+// Response takes the status path, everything else the thrown
+// path.
+//
+// Used by:
+//   - toAssistantFailure (below)
+// -----------------------------------------------------------
+
 function isResponseLike(value: unknown): value is ResponseLike {
   if (!value || typeof value !== 'object') return false;
   const shaped = value as { status?: unknown; headers?: { get?: unknown } };
   return typeof shaped.status === 'number' && typeof shaped.headers?.get === 'function';
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// nameOf
+// -----------------------------------------------------------
+//
+// An unknown's `.name` when it is a string — errors are read
+// by NAME here, never by instanceof.
+//
+// Used by:
+//   - isAssistantTransportError (below)
+//   - fromThrown (below)
+// -----------------------------------------------------------
+
 function nameOf(value: unknown): string | null {
   const name = (value as { name?: unknown })?.name;
   return typeof name === 'string' ? name : null;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// messageOf
+// -----------------------------------------------------------
+//
+// An unknown's non-empty `.message`, else null — the callers'
+// ?? fallbacks rely on empty reading as null.
+//
+// Used by:
+//   - serverMessage (below)
+//   - fromThrown (below)
+// -----------------------------------------------------------
+
 function messageOf(value: unknown): string | null {
   const message = (value as { message?: unknown })?.message;
   return typeof message === 'string' && message.length > 0 ? message : null;
 }
+
+
+
+
+
 
 
 // -----------------------------------------------------------
@@ -81,6 +140,11 @@ export function isAssistantTransportError(error: unknown): error is AssistantTra
 }
 
 
+
+
+
+
+
 // -----------------------------------------------------------
 // parseRetryAfter
 // -----------------------------------------------------------
@@ -103,6 +167,11 @@ export function parseRetryAfter(value: string | null | undefined, now: number = 
   if (!Number.isFinite(at)) return undefined;
   return Math.max(0, at - now);
 }
+
+
+
+
+
 
 
 // -----------------------------------------------------------
@@ -133,6 +202,11 @@ export async function readFailureBody(response: Response): Promise<unknown> {
     return text;
   }
 }
+
+
+
+
+
 
 
 // -----------------------------------------------------------
@@ -171,6 +245,23 @@ export function toAssistantFailure(input: unknown, body?: unknown): AssistantFai
   return fromThrown(input);
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// fromResponse
+// -----------------------------------------------------------
+//
+// The status → code table from the toAssistantFailure banner,
+// as code.
+//
+// Used by:
+//   - toAssistantFailure (above)
+// -----------------------------------------------------------
+
 function fromResponse(response: ResponseLike, body: unknown): AssistantFailure {
   const { status } = response;
   const message = serverMessage(body) ?? response.statusText ?? '';
@@ -181,10 +272,45 @@ function fromResponse(response: ResponseLike, body: unknown): AssistantFailure {
   return base;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// withRetryAfter
+// -----------------------------------------------------------
+//
+// Adds retryAfterMs only when the header parsed — the field
+// stays absent otherwise, so failures compare by value.
+//
+// Used by:
+//   - fromResponse (above) — the 429 and 502-504 rows
+// -----------------------------------------------------------
+
 function withRetryAfter(failure: AssistantFailure, response: ResponseLike): AssistantFailure {
   const retryAfterMs = parseRetryAfter(response.headers.get('retry-after'));
   return retryAfterMs === undefined ? failure : { ...failure, retryAfterMs };
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// serverMessage
+// -----------------------------------------------------------
+//
+// The server's own words out of a JSON body: `error` or
+// `message` as a string, or an `error` object's `message`.
+// Wins over the status text.
+//
+// Used by:
+//   - fromResponse (above)
+// -----------------------------------------------------------
 
 function serverMessage(body: unknown): string | null {
   if (!body || typeof body !== 'object') return null;
@@ -193,6 +319,24 @@ function serverMessage(body: unknown): string | null {
   if (typeof message === 'string' && message.length > 0) return message;
   return messageOf(error);
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// fromThrown
+// -----------------------------------------------------------
+//
+// Thrown errors read by NAME: AbortError / an aborted signal
+// is the user's cancel, TimeoutError a host deadline, the
+// rest is the network.
+//
+// Used by:
+//   - toAssistantFailure (above)
+// -----------------------------------------------------------
 
 function fromThrown(error: unknown): AssistantFailure {
   const name = nameOf(error);

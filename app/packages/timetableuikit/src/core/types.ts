@@ -12,7 +12,25 @@
 //    - every component and the host's props
 // -----------------------------------------------------------
 
-// What a cell renders. Day 0 = Monday .. 6 = Sunday
+
+
+
+
+
+
+// -----------------------------------------------------------
+// TimetableLesson
+// -----------------------------------------------------------
+//
+// What a cell renders. Day 0 = Monday .. 6 = Sunday.
+//
+// Used by:
+//   - PlacedLesson (below) — the entry side
+//   - WeekGrid / DayTimeline / DayColumn / LessonCell — props
+//   - components/schedule/LessonSheet.tsx,
+//     app/(main)/tabs/schedule.tsx — the tapped lesson
+// -----------------------------------------------------------
+
 export interface TimetableLesson {
   id: string;
   title: string;
@@ -30,8 +48,23 @@ export interface TimetableLesson {
   isBlock?: boolean;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// LessonGeometry
+// -----------------------------------------------------------
+//
 // The fraction geometry the engine computed — of the day
-// column horizontally, of the visible window vertically
+// column horizontally, of the visible window vertically.
+//
+// Used by:
+//   - PlacedLesson (below) — the layout side
+// -----------------------------------------------------------
+
 export interface LessonGeometry {
   topFrac: number;
   heightFrac: number;
@@ -41,19 +74,66 @@ export interface LessonGeometry {
   isConflict: boolean;
 }
 
-// The engine's PlacedEntry, structurally
+
+
+
+
+
+
+// -----------------------------------------------------------
+// PlacedLesson
+// -----------------------------------------------------------
+//
+// The engine's PlacedEntry, structurally.
+//
+// Used by:
+//   - WeekGrid / DayTimeline / DayColumn / LessonCell — the
+//     rows every view consumes
+// -----------------------------------------------------------
+
 export interface PlacedLesson {
   entry: TimetableLesson;
   layout: LessonGeometry;
 }
 
-// The visible vertical span, wall-clock minutes
+
+
+
+
+
+
+// -----------------------------------------------------------
+// TimeWindow
+// -----------------------------------------------------------
+//
+// The visible vertical span, wall-clock minutes.
+//
+// Used by:
+//   - WeekGrid / DayTimeline / DayColumn / HourAxis / NowLine
+// -----------------------------------------------------------
+
 export interface TimeWindow {
   startMin: number;
   endMin: number;
 }
 
-// The pixel frame a cell actually occupies
+
+
+
+
+
+
+// -----------------------------------------------------------
+// LessonFrame
+// -----------------------------------------------------------
+//
+// The pixel frame a cell actually occupies.
+//
+// Used by:
+//   - grid/DayColumn.tsx — computes it; LessonCell and the
+//     hosts' renderLesson overrides receive it
+// -----------------------------------------------------------
+
 export interface LessonFrame {
   top: number;
   left: number;

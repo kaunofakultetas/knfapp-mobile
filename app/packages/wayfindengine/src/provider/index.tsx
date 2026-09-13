@@ -36,6 +36,22 @@ import { indexGraph, validateGraph, type GraphIndex, type GraphIssue } from '../
 import type { BuildingGraph, EdgeKind, RoutingOptions } from '../core/types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// WayfindEnv
+// -----------------------------------------------------------
+//
+// What the provider resolves and every hook reads: the graph,
+// its index, the routing defaults and the stride.
+//
+// Used by:
+//   - useWayfind (below) — the return shape every hook shares
+// -----------------------------------------------------------
+
 export interface WayfindEnv {
   graph: BuildingGraph;
   index: GraphIndex;
@@ -44,6 +60,8 @@ export interface WayfindEnv {
   strideM: number;
 }
 
+// Null until a provider mounts — the hooks throw a plain
+// message instead of failing on a missing graph mid-render
 const WayfindContext = createContext<WayfindEnv | null>(null);
 
 

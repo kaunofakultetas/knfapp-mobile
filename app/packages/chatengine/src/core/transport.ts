@@ -24,8 +24,24 @@
 import type { ChatGalleryItem, ChatMessage, ConversationMeta, Participant, ReactionGroup } from './types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// MessagesPage
+// -----------------------------------------------------------
+//
 // One history page, OLDEST message first (the engine flips it
-// for its newest-first list)
+// for its newest-first list).
+//
+// Used by:
+//   - ChatTransport (below) — fetchMessages' answer
+//   - hooks/useConversation.ts / adapters/knf/wire.ts /
+//     testing/fakeTransport.ts
+// -----------------------------------------------------------
+
 export interface MessagesPage {
   messages: ChatMessage[];
   // Older rows exist beyond this page
@@ -42,21 +58,72 @@ export interface MessagesPage {
   cursor?: string;
 }
 
-// What changed since a cursor: rows edited or unsent while this
-// client was away, as full rows (an unsent one carries deleted:
-// true), and the new cursor. Rows the client never loaded are
-// harmless — the engine only applies changes to rows it holds
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ChangesPage
+// -----------------------------------------------------------
+//
+// What changed since a cursor: rows edited or unsent while
+// this client was away, as full rows (an unsent one carries
+// deleted: true), and the new cursor. Rows the client never
+// loaded are harmless — the engine only applies changes to
+// rows it holds.
+//
+// Used by:
+//   - ChatTransport (below) — fetchChanges' answer; consumers
+//     use the shape structurally, nothing imports it by name
+// -----------------------------------------------------------
+
 export interface ChangesPage {
   messages: ChatMessage[];
   cursor: string;
 }
 
-// The cursor for older pages: the oldest loaded row's stamp AND
-// id, so an equal-stamp sibling is never skipped at a boundary
+
+
+
+
+
+
+// -----------------------------------------------------------
+// PageCursor
+// -----------------------------------------------------------
+//
+// The cursor for older pages: the oldest loaded row's stamp
+// AND id, so an equal-stamp sibling is never skipped at a
+// boundary.
+//
+// Used by:
+//   - MessagesWindow (below) — the before/after fields
+// -----------------------------------------------------------
+
 export interface PageCursor {
   createdAt: string;
   id: string;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// MessagesWindow
+// -----------------------------------------------------------
+//
+// Which slice of history fetchMessages answers — see the
+// ChatTransport banner for the window semantics.
+//
+// Used by:
+//   - ChatTransport (below) — fetchMessages' options; consumers
+//     pass the shape structurally, nothing imports it by name
+// -----------------------------------------------------------
 
 export interface MessagesWindow {
   before?: PageCursor;
@@ -65,9 +132,26 @@ export interface MessagesWindow {
   limit?: number;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// OutgoingMessage
+// -----------------------------------------------------------
+//
 // What a send carries. clientId is the optimistic temp's id —
 // adapters pass it as the idempotency key so a retry of a
-// timed-out-but-committed send resolves to the SAME row
+// timed-out-but-committed send resolves to the SAME row.
+//
+// Used by:
+//   - ChatTransport (below) — sendMessage's payload
+//   - hooks/useComposer.ts / core/outbox.ts / core/forward.ts
+//   - adapters/knf/rest.ts / testing/fakeTransport.ts
+// -----------------------------------------------------------
+
 export interface OutgoingMessage {
   text: string;
   imageUrl?: string;
@@ -82,6 +166,24 @@ export interface OutgoingMessage {
   gallery?: ChatGalleryItem[];
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// UploadAsset
+// -----------------------------------------------------------
+//
+// The picked local asset an upload sends up.
+//
+// Used by:
+//   - ChatTransport (below) — upload's input
+//   - core/outbox.ts / adapters/knf/rest.ts /
+//     testing/fakeTransport.ts
+// -----------------------------------------------------------
+
 export interface UploadAsset {
   uri: string;
   name?: string;
@@ -89,6 +191,23 @@ export interface UploadAsset {
   size?: number;
   kind: 'image' | 'file' | 'video' | 'audio';
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// UploadResult
+// -----------------------------------------------------------
+//
+// What a finished upload resolves to.
+//
+// Used by:
+//   - ChatTransport (below) — upload's answer
+//   - adapters/knf/rest.ts / testing/fakeTransport.ts
+// -----------------------------------------------------------
 
 export interface UploadResult {
   // The reference the message stores (the engine never resolves
@@ -104,6 +223,25 @@ export interface UploadResult {
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// ChatEvent
+// -----------------------------------------------------------
+//
+// The realtime union — every live change a backend can
+// broadcast, in domain shape.
+//
+// Used by:
+//   - ChatRealtime (below) — what subscribe delivers
+//   - hooks/useConversation.ts — the ingest switch
+//   - adapters/knf/index.ts / testing/fakeTransport.ts /
+//     testing/transportContract.ts
+// -----------------------------------------------------------
+
 export type ChatEvent =
   | { type: 'message'; message: ChatMessage }
   | { type: 'reactions'; conversationId: string; messageId: string; reactions: ReactionGroup[] }
@@ -116,8 +254,43 @@ export type ChatEvent =
   | { type: 'read'; conversationId: string; readerId: string; messageIds: string[] }
   | { type: 'typing'; conversationId: string; userId: string; displayName: string; active: boolean };
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// RealtimeStatus
+// -----------------------------------------------------------
+//
+// The connection ladder the realtime half reports.
+//
+// Used by:
+//   - ChatRealtime (below) — status() / onStatus
+//   - hooks/useRealtimeStatus.ts — surfaced to the UI
+//   - adapters/knf/socket.ts / testing/fakeTransport.ts
+// -----------------------------------------------------------
+
 export type RealtimeStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'unauthorized';
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ChatRealtime
+// -----------------------------------------------------------
+//
+// The live half of the transport — connection, the event
+// stream, and the volatile signals.
+//
+// Used by:
+//   - ChatTransport (below) — its `realtime` field
+//   - adapters/knf/index.ts — implemented over the socket
+// -----------------------------------------------------------
 
 export interface ChatRealtime {
   // Resolves true when a live connection exists (or is being
@@ -138,15 +311,32 @@ export interface ChatRealtime {
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// ChatTransport
+// -----------------------------------------------------------
+//
+// The whole backend contract. The default fetchMessages window
+// is the newest page. `before` answers the rows strictly older
+// than the cursor, `after` the rows strictly newer (walking
+// forward from an anchored window back to the head), `around`
+// half a page either side of one message, the anchor included
+// — a search hit or a quoted message beyond the loaded history
+// in one round trip. The answer is oldest-first whatever the
+// window. An `around` on a message that is not in the
+// conversation rejects with status 404.
+//
+// Used by:
+//   - provider/index.tsx — the env's `transport`
+//   - adapters/knf/index.ts / rest.ts — the real one
+//   - testing/fakeTransport.ts / transportContract.ts
+// -----------------------------------------------------------
+
 export interface ChatTransport {
-  // The default window is the newest page. `before` answers the
-  // rows strictly older than the cursor, `after` the rows strictly
-  // newer (walking forward from an anchored window back to the
-  // head), `around` half a page either side of one message, the
-  // anchor included — a search hit or a quoted message beyond the
-  // loaded history in one round trip. The answer is oldest-first
-  // whatever the window. An `around` on a message that is not in
-  // the conversation rejects with status 404
   fetchMessages(conversationId: string, options?: MessagesWindow): Promise<MessagesPage>;
   sendMessage(conversationId: string, message: OutgoingMessage): Promise<ChatMessage>;
   editMessage(conversationId: string, messageId: string, text: string): Promise<{ id: string; text: string; editedAt: string }>;
@@ -176,8 +366,24 @@ export interface ChatTransport {
 }
 
 
-// What the engine reports to the host instead of showing toasts
-// itself — the host maps codes to its own strings and surface
+
+
+
+
+
+// -----------------------------------------------------------
+// NoticeCode
+// -----------------------------------------------------------
+//
+// What the engine reports to the host instead of showing
+// toasts itself — the host maps codes to its own strings and
+// surface.
+//
+// Used by:
+//   - EngineNotice (below) — its `code`
+//   - core/errors.ts — failures map onto these codes
+// -----------------------------------------------------------
+
 export type NoticeCode =
   | 'send_failed'
   | 'send_too_long'
@@ -192,6 +398,22 @@ export type NoticeCode =
   | 'reaction_target_gone'
   | 'reaction_add_failed'
   | 'reaction_remove_failed';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// EngineNotice
+// -----------------------------------------------------------
+//
+// One report to the host's notice handler.
+//
+// Used by:
+//   - provider/index.tsx — the env's onNotice callback
+// -----------------------------------------------------------
 
 export interface EngineNotice {
   level: 'error' | 'info';

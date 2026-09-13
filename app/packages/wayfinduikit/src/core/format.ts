@@ -31,11 +31,27 @@ import type { KitLabels } from '../provider/labels';
 import type { KitInstruction, KitTurnDirection } from './types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// roundMetres
+// -----------------------------------------------------------
+//
 // Whole metres the way a sign would print them: exact under
 // 10 m (a walker CAN tell 3 m from 7 m), to the nearest 5 m
 // from there (nobody paces 47 m; 45 reads calmer and is just
 // as true). Non-finite and negative input reads as 0 — a
-// defensive face, never NaN in the UI
+// defensive face, never NaN in the UI.
+//
+// Used by:
+//   - formatDistance (below) — the metre rungs
+//   - instructionText (below) — continue and straight-turn
+//     sentences
+// -----------------------------------------------------------
+
 const roundMetres = (metres: number): number => {
   const safe = Number.isFinite(metres) && metres > 0 ? metres : 0;
   if (safe < 10) return Math.round(safe);

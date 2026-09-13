@@ -42,6 +42,23 @@ import { clampToEdge, projectToScreen } from '../pano/projection';
 import { useKitLabels, useKitTheme } from '../provider';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// CaptureHudTarget
+// -----------------------------------------------------------
+//
+// One shot the session wants: where it sits in the sphere and
+// whether it is already taken. Not on the root barrel — hosts
+// meet the shape structurally through CaptureHud's props.
+//
+// Used by:
+//   - CaptureHudProps / CaptureHud (below) — the targets prop
+// -----------------------------------------------------------
+
 export interface CaptureHudTarget {
   id: string;
   yawDeg: number;
@@ -49,14 +66,50 @@ export interface CaptureHudTarget {
   done: boolean;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// CaptureHudPose
+// -----------------------------------------------------------
+//
 // The tracker's pose: yaw [0, 360) clockwise from above,
 // pitch positive up, roll positive tilted clockwise from
-// upright portrait — the capture frame conventions as they are
+// upright portrait — the capture frame conventions as they
+// are. Not on the root barrel either.
+//
+// Used by:
+//   - CaptureHudProps / CaptureHud (below) — the pose prop
+// -----------------------------------------------------------
+
 export interface CaptureHudPose {
   yawDeg: number;
   pitchDeg: number;
   rollDeg: number;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// CaptureHudProps
+// -----------------------------------------------------------
+//
+// The whole overlay input: the targets, the live pose, the
+// camera's fov and the measured preview size — the HUD holds
+// no state of its own.
+//
+// Used by:
+//   - CaptureHud (below) — the component's props
+//   - app/(main)/map-editor/capture.tsx — feeds it
+//     structurally from the tracker and session
+// -----------------------------------------------------------
 
 export interface CaptureHudProps {
   targets: CaptureHudTarget[];
@@ -74,8 +127,12 @@ export interface CaptureHudProps {
 
 // The ring's footprint and its breathing room from the edges
 const RING_SIZE = 56;
+
+// How far the parked ring stays off the screen edge
 const RING_EDGE_INSET = 8;
 
+// A target dot's diameter — small enough that a wall of
+// pending targets never hides the camera view
 const DOT_SIZE = 10;
 
 // A done target is a memory of coverage, not an instruction
@@ -85,10 +142,26 @@ const DONE_OPACITY = 0.35;
 // appears exactly where the refusal begins
 const ROLL_HINT_DEG = 8;
 
+// The fixed centre reticle a target dot is walked into
 const RETICLE_SIZE = 28;
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// finite
+// -----------------------------------------------------------
+//
 // A pose before the tracker's first sample may carry NaN; the
-// overlay draws the level default rather than vanishing
+// overlay draws the level default rather than vanishing.
+//
+// Used by:
+//   - CaptureHud (below) — the camera pose and the roll
+// -----------------------------------------------------------
+
 const finite = (value: number): number => (Number.isFinite(value) ? value : 0);
 
 

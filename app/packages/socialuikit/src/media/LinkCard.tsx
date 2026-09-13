@@ -37,6 +37,39 @@ import type { KitLinkPreview } from '../core/types';
 
 
 
+// The scheme gate isSafeHref tests against
+const SAFE_SCHEME = /^(?:https?:|\/\/|(?![a-z][a-z0-9+.-]*:))/i;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// isSafeHref
+// -----------------------------------------------------------
+//
+// Only web schemes may leave the card: a hostile preview URL
+// ('javascript:', 'data:text/html', 'file:') must never reach
+// env.openHref as a live tap. Scheme-less values pass — hosts
+// store bare or protocol-relative URLs for their own domains.
+//
+// Used by:
+//   - LinkCard (below) — gates the tap
+//   - tests pinning the scheme policy
+// -----------------------------------------------------------
+
+export function isSafeHref(url: string): boolean {
+  return SAFE_SCHEME.test(url.trim());
+}
+
+
+
+
+
+
+
 // -----------------------------------------------------------
 // hostOf
 // -----------------------------------------------------------
@@ -49,17 +82,6 @@ import type { KitLinkPreview } from '../core/types';
 // Used by:
 //   - LinkCard (below) — the site line when siteName is absent
 // -----------------------------------------------------------
-
-// Only web schemes may leave the card: a hostile preview URL
-// ('javascript:', 'data:text/html', 'file:') must never reach
-// env.openHref as a live tap. Scheme-less values pass — hosts
-// store bare or protocol-relative URLs for their own domains
-const SAFE_SCHEME = /^(?:https?:|\/\/|(?![a-z][a-z0-9+.-]*:))/i;
-
-export function isSafeHref(url: string): boolean {
-  return SAFE_SCHEME.test(url.trim());
-}
-
 
 function hostOf(url: string): string {
 

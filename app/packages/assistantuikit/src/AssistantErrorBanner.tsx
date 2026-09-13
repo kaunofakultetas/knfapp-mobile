@@ -24,6 +24,21 @@ import { ErrorPrimitive } from '@assistant-ui/react-native';
 import { defaultColors, type AssistantColors, type AssistantLabels } from './core/types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// AssistantErrorBanner (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - AssistantThread.tsx — above the composer, last message
+//     scope
+//   - hosts composing their own thread
+// -----------------------------------------------------------
+
 export default function AssistantErrorBanner({
   labels,
   colors = defaultColors,

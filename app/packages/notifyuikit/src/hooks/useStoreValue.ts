@@ -8,12 +8,30 @@
 //
 //  Used by:
 //    - PermissionGate.tsx / NotifySettingsPanel.tsx
+//    - the host's settings screen, on engine stores directly
 // -----------------------------------------------------------
 
 import { useCallback, useSyncExternalStore } from 'react';
 
 import type { StoreLike } from '../core/types';
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// useStoreValue
+// -----------------------------------------------------------
+//
+//   const perm = useStoreValue(engine.permission)   — any
+//     engine store (or StoreLike) as live React state
+//
+// Used by:
+//   - PermissionGate.tsx / NotifySettingsPanel.tsx
+//   - the host's settings screen, on engine stores directly
+// -----------------------------------------------------------
 
 export function useStoreValue<T>(store: StoreLike<T>): T {
   // useSyncExternalStore re-reads the snapshot after

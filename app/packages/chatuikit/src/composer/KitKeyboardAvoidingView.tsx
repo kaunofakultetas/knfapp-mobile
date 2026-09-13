@@ -34,6 +34,20 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Dimensions, Keyboard, KeyboardAvoidingView, Platform, View, type KeyboardAvoidingViewProps, type ViewProps } from 'react-native';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// KitKeyboardAvoidingView (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - app/(main)/chat-room/index.tsx — around the room's list
+//     and composer
+// -----------------------------------------------------------
+
 export default function KitKeyboardAvoidingView({
   children,
   style,

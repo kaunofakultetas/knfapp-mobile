@@ -38,108 +38,78 @@ import { buildAssistantHeaders, joinUrl, resolveFetch } from '../core/transport'
 import { ASSISTANT_TOOLS_PATH, AssistantTransportError, type AssistantLanguage, type AssistantTransportConfig } from '../core/types';
 
 
-export const ASSISTANT_TOOL_NAMES = ['lookupSchedule', 'searchNews', 'searchHandbook'] as const;
-export type AssistantToolName = (typeof ASSISTANT_TOOL_NAMES)[number];
 
-export function isAssistantToolName(name: string): name is AssistantToolName {
-  return (ASSISTANT_TOOL_NAMES as readonly string[]).includes(name);
-}
+
+
 
 
 // -----------------------------------------------------------
-// The tool types
+// ASSISTANT_TOOL_NAMES
 // -----------------------------------------------------------
 //
-// Inputs are what the model fills in; outputs are what the
-// container answers with. Dates and times travel as strings:
-// `date` is YYYY-MM-DD (today when absent), `start`/`end`
-// are ISO-8601 with an offset, `date` on a post is ISO-8601.
+// The closed set: the three frozen names the container
+// registers its tools under.
 //
 // Used by:
-//   - AssistantToolIo (below) and the JSON-schema mirrors they
-//     are kept in step with
-//   - testing/index.tsx — fixtureLessons, fixtureNewsPosts and
-//     fixtureHandbookEntries are typed against these
+//   - isAssistantToolName (below) — the set it narrows onto
+//   - describeToolsContract (below) — the conformance cases
+//   - testing/index.tsx — referenceTools serves one entry per
+//     name
 // -----------------------------------------------------------
 
-export interface LookupScheduleInput {
-  group?: string;
-  teacher?: string;
-  // YYYY-MM-DD; the container defaults to today
-  date?: string;
-  range?: 'day' | 'week';
-}
+export const ASSISTANT_TOOL_NAMES = ['lookupSchedule', 'searchNews', 'searchHandbook'] as const;
 
-export interface AssistantLesson {
-  title: string;
-  start: string;
-  end: string;
-  room?: string;
-  teacher?: string;
-  group?: string;
-  kind?: string;
-}
 
-export interface LookupScheduleOutput {
-  lessons: AssistantLesson[];
-  // 'cache' when the container answered from its last good
-  // copy because the timetable source was down
-  source: 'live' | 'cache';
-  note?: string;
-}
 
-export interface SearchNewsInput {
-  query?: string;
-  source?: string;
-  limit?: number;
-}
 
-export interface AssistantNewsPost {
-  id: string;
-  title: string;
-  summary?: string;
-  date: string;
-  source: string;
-  url?: string;
-}
 
-export interface SearchNewsOutput {
-  posts: AssistantNewsPost[];
-}
-
-export interface SearchHandbookInput {
-  query: string;
-  limit?: number;
-}
-
-export interface AssistantHandbookEntry {
-  id: string;
-  title: string;
-  excerpt: string;
-  section?: string;
-  language: AssistantLanguage;
-}
-
-export interface SearchHandbookOutput {
-  entries: AssistantHandbookEntry[];
-}
-
-// One lookup table from name to both sides — the two mapped
-// types below read it, so a fourth tool is one row here
-export interface AssistantToolIo {
-  lookupSchedule: { input: LookupScheduleInput; output: LookupScheduleOutput };
-  searchNews: { input: SearchNewsInput; output: SearchNewsOutput };
-  searchHandbook: { input: SearchHandbookInput; output: SearchHandbookOutput };
-}
-
-export type AssistantToolInput<N extends AssistantToolName> = AssistantToolIo[N]['input'];
-export type AssistantToolOutput<N extends AssistantToolName> = AssistantToolIo[N]['output'];
 
 
 // -----------------------------------------------------------
-// The JSON-schema mirrors
+// AssistantToolName
 // -----------------------------------------------------------
 //
+// One of the three frozen names, as a type — what every
+// name-keyed lookup in the contract is indexed by.
+//
+// Used by:
+//   - ASSISTANT_TOOL_SCHEMAS (below) — the record's keys
+//   - isAssistantToolName (below) — the guard's target
+//   - AssistantToolInput / AssistantToolOutput (below)
+//   - hosts switching on a streamed tool part's name
+// -----------------------------------------------------------
+
+export type AssistantToolName = (typeof ASSISTANT_TOOL_NAMES)[number];
+
+
+// The mirrors in ASSISTANT_TOOL_SCHEMAS below repeat these two
+// leaves constantly — named once so a table row stays one line
+const STRING: JsonSchemaLite = { type: 'string' };
+// Same shorthand for the integer leaves (the `limit` fields)
+const INTEGER: JsonSchemaLite = { type: 'integer' };
+
+
+// The keys dropped from SCHEMA nodes before comparing — pure
+// documentation the container may add without breaking the
+// contract (see the normalizeToolSchema banner below: `title`
+// under `properties` stays)
+const DOCUMENTATION_KEYS = new Set(['description', 'title', 'examples', '$schema', '$id', '$comment']);
+
+// The keys whose value is a name → schema MAP rather than a
+// schema: every key inside one is data, never documentation
+const SCHEMA_MAP_KEYS = new Set(['properties', 'patternProperties', '$defs']);
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ASSISTANT_TOOL_SCHEMAS
+// -----------------------------------------------------------
+//
+// The JSON-schema mirrors of the tool types, in
 // JSON-schema-lite: type / properties / required / enum /
 // items and nothing else — enough to pin field names, kinds
 // and closed value sets, small enough to write by hand and
@@ -151,24 +121,11 @@ export type AssistantToolOutput<N extends AssistantToolName> = AssistantToolIo[N
 //
 // Used by:
 //   - describeToolsContract (below)
+//   - testing/index.tsx — referenceTools serves one entry per
+//     name
 //   - the container team — the README prints these as the
 //     tools endpoint's required answer
 // -----------------------------------------------------------
-
-export type JsonSchemaLite =
-  | JsonSchemaObject
-  | { type: 'array'; items: JsonSchemaLite }
-  | { type: 'string'; enum?: string[] }
-  | { type: 'integer' | 'number' | 'boolean' };
-
-export interface JsonSchemaObject {
-  type: 'object';
-  properties: Record<string, JsonSchemaLite>;
-  required?: string[];
-}
-
-const STRING: JsonSchemaLite = { type: 'string' };
-const INTEGER: JsonSchemaLite = { type: 'integer' };
 
 export const ASSISTANT_TOOL_SCHEMAS: Record<AssistantToolName, { input: JsonSchemaObject; output: JsonSchemaObject }> = {
   lookupSchedule: {
@@ -272,6 +229,362 @@ export const ASSISTANT_TOOL_SCHEMAS: Record<AssistantToolName, { input: JsonSche
 };
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// isAssistantToolName
+// -----------------------------------------------------------
+//
+// The guard that narrows a wire string onto the closed set.
+//
+// Used by:
+//   - hosts switching on a streamed tool part's name
+// -----------------------------------------------------------
+
+export function isAssistantToolName(name: string): name is AssistantToolName {
+  return (ASSISTANT_TOOL_NAMES as readonly string[]).includes(name);
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// LookupScheduleInput
+// -----------------------------------------------------------
+//
+// What the model fills in to ask for a timetable slice.
+// Inputs are what the model fills in; outputs are what the
+// container answers with — that split holds for all six
+// shapes below.
+//
+// Used by:
+//   - AssistantToolIo (below) — the lookupSchedule row, kept
+//     in step with the JSON-schema mirror
+// -----------------------------------------------------------
+
+export interface LookupScheduleInput {
+  group?: string;
+  teacher?: string;
+  // YYYY-MM-DD; the container defaults to today
+  date?: string;
+  range?: 'day' | 'week';
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// AssistantLesson
+// -----------------------------------------------------------
+//
+// One lesson as the container answers it — `start`/`end` are
+// ISO-8601 strings with an offset, never Date objects.
+//
+// Used by:
+//   - LookupScheduleOutput (below) — the list's element
+//   - testing/index.tsx — fixtureLessons is typed against it
+// -----------------------------------------------------------
+
+export interface AssistantLesson {
+  title: string;
+  start: string;
+  end: string;
+  room?: string;
+  teacher?: string;
+  group?: string;
+  kind?: string;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// LookupScheduleOutput
+// -----------------------------------------------------------
+//
+// The container's timetable answer.
+//
+// Used by:
+//   - AssistantToolIo (below) — the lookupSchedule row, kept
+//     in step with the JSON-schema mirror
+// -----------------------------------------------------------
+
+export interface LookupScheduleOutput {
+  lessons: AssistantLesson[];
+  // 'cache' when the container answered from its last good
+  // copy because the timetable source was down
+  source: 'live' | 'cache';
+  note?: string;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// SearchNewsInput
+// -----------------------------------------------------------
+//
+// What the model fills in to search the faculty's news.
+//
+// Used by:
+//   - AssistantToolIo (below) — the searchNews row, kept in
+//     step with the JSON-schema mirror
+// -----------------------------------------------------------
+
+export interface SearchNewsInput {
+  query?: string;
+  source?: string;
+  limit?: number;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// AssistantNewsPost
+// -----------------------------------------------------------
+//
+// One news post as the container answers it — `date` is an
+// ISO-8601 string.
+//
+// Used by:
+//   - SearchNewsOutput (below) — the list's element
+//   - testing/index.tsx — fixtureNewsPosts is typed against it
+// -----------------------------------------------------------
+
+export interface AssistantNewsPost {
+  id: string;
+  title: string;
+  summary?: string;
+  date: string;
+  source: string;
+  url?: string;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// SearchNewsOutput
+// -----------------------------------------------------------
+//
+// The container's news answer.
+//
+// Used by:
+//   - AssistantToolIo (below) — the searchNews row, kept in
+//     step with the JSON-schema mirror
+// -----------------------------------------------------------
+
+export interface SearchNewsOutput {
+  posts: AssistantNewsPost[];
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// SearchHandbookInput
+// -----------------------------------------------------------
+//
+// What the model fills in to search the study handbook —
+// `query` is the one required tool input in the contract.
+//
+// Used by:
+//   - AssistantToolIo (below) — the searchHandbook row, kept
+//     in step with the JSON-schema mirror
+// -----------------------------------------------------------
+
+export interface SearchHandbookInput {
+  query: string;
+  limit?: number;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// AssistantHandbookEntry
+// -----------------------------------------------------------
+//
+// One handbook hit as the container answers it.
+//
+// Used by:
+//   - SearchHandbookOutput (below) — the list's element
+//   - testing/index.tsx — fixtureHandbookEntries is typed
+//     against it
+// -----------------------------------------------------------
+
+export interface AssistantHandbookEntry {
+  id: string;
+  title: string;
+  excerpt: string;
+  section?: string;
+  language: AssistantLanguage;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// SearchHandbookOutput
+// -----------------------------------------------------------
+//
+// The container's handbook answer.
+//
+// Used by:
+//   - AssistantToolIo (below) — the searchHandbook row, kept
+//     in step with the JSON-schema mirror
+// -----------------------------------------------------------
+
+export interface SearchHandbookOutput {
+  entries: AssistantHandbookEntry[];
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// AssistantToolIo
+// -----------------------------------------------------------
+//
+// One lookup table from name to both sides — the two mapped
+// types below read it, so a fourth tool is one row here.
+//
+// Used by:
+//   - AssistantToolInput / AssistantToolOutput (below)
+// -----------------------------------------------------------
+
+export interface AssistantToolIo {
+  lookupSchedule: { input: LookupScheduleInput; output: LookupScheduleOutput };
+  searchNews: { input: SearchNewsInput; output: SearchNewsOutput };
+  searchHandbook: { input: SearchHandbookInput; output: SearchHandbookOutput };
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// AssistantToolInput
+// -----------------------------------------------------------
+//
+// The input shape for one frozen name, looked up by type.
+//
+// Used by:
+//   - hosts typing a tool part's input off its name
+// -----------------------------------------------------------
+
+export type AssistantToolInput<N extends AssistantToolName> = AssistantToolIo[N]['input'];
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// AssistantToolOutput
+// -----------------------------------------------------------
+//
+// The output shape for one frozen name, looked up by type.
+//
+// Used by:
+//   - hosts typing a tool part's output off its name
+// -----------------------------------------------------------
+
+export type AssistantToolOutput<N extends AssistantToolName> = AssistantToolIo[N]['output'];
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// JsonSchemaLite
+// -----------------------------------------------------------
+//
+// The schema dialect the mirrors are written in: type /
+// properties / required / enum / items and nothing else —
+// enough to pin field names, kinds and closed value sets,
+// small enough to write by hand and to serve verbatim.
+//
+// Used by:
+//   - JsonSchemaObject (below) — the property values
+//   - STRING / INTEGER (above) — the shared leaves
+// -----------------------------------------------------------
+
+export type JsonSchemaLite =
+  | JsonSchemaObject
+  | { type: 'array'; items: JsonSchemaLite }
+  | { type: 'string'; enum?: string[] }
+  | { type: 'integer' | 'number' | 'boolean' };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// JsonSchemaObject
+// -----------------------------------------------------------
+//
+// The object node — what every tool's input and output mirror
+// is at its root.
+//
+// Used by:
+//   - ASSISTANT_TOOL_SCHEMAS (above) — both sides of every row
+//   - JsonSchemaLite (above) — the first arm of the union
+// -----------------------------------------------------------
+
+export interface JsonSchemaObject {
+  type: 'object';
+  properties: Record<string, JsonSchemaLite>;
+  required?: string[];
+}
+
+
+
+
+
+
+
 // -----------------------------------------------------------
 // normalizeToolSchema
 // -----------------------------------------------------------
@@ -293,12 +606,6 @@ export const ASSISTANT_TOOL_SCHEMAS: Record<AssistantToolName, { input: JsonSche
 //   - tests proving a drifted schema no longer equals ours
 // -----------------------------------------------------------
 
-const DOCUMENTATION_KEYS = new Set(['description', 'title', 'examples', '$schema', '$id', '$comment']);
-
-// The keys whose value is a name → schema MAP rather than a
-// schema: every key inside one is data, never documentation
-const SCHEMA_MAP_KEYS = new Set(['properties', 'patternProperties', '$defs']);
-
 export function normalizeToolSchema(value: unknown): unknown {
   if (Array.isArray(value)) {
     const primitives = value.every((item) => item === null || typeof item !== 'object');
@@ -314,9 +621,24 @@ export function normalizeToolSchema(value: unknown): unknown {
   return normalized;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// normalizeSchemaMap
+// -----------------------------------------------------------
+//
 // Every key kept, every VALUE normalized as a schema node; a
 // malformed map (not a plain object) is left to the ordinary
-// walk so the comparison still fails loudly on shape
+// walk so the comparison still fails loudly on shape.
+//
+// Used by:
+//   - normalizeToolSchema (above) — the SCHEMA_MAP_KEYS values
+// -----------------------------------------------------------
+
 function normalizeSchemaMap(value: unknown): unknown {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return normalizeToolSchema(value);
   const record = value as Record<string, unknown>;
@@ -326,6 +648,54 @@ function normalizeSchemaMap(value: unknown): unknown {
   }
   return normalized;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// AssistantToolDescriptor
+// -----------------------------------------------------------
+//
+// One entry of the served tools list — the schemas arrive as
+// `unknown` and are only ever compared in normalized form.
+//
+// Used by:
+//   - fetchAssistantTools / describeToolsContract (below)
+//   - testing/index.tsx — referenceTools' return type
+// -----------------------------------------------------------
+
+export interface AssistantToolDescriptor {
+  name: string;
+  input: unknown;
+  output: unknown;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// AssistantToolsConfig
+// -----------------------------------------------------------
+//
+// The transport config minus what a one-shot GET never needs
+// (no first-byte deadline, no failure listener).
+//
+// Used by:
+//   - fetchAssistantTools (below) — its config parameter
+// -----------------------------------------------------------
+
+export type AssistantToolsConfig = Pick<AssistantTransportConfig, 'baseUrl' | 'fetch' | 'getAuthToken' | 'clientVersion' | 'language'>;
+
+
+
+
+
 
 
 // -----------------------------------------------------------
@@ -343,14 +713,6 @@ function normalizeSchemaMap(value: unknown): unknown {
 //   - the container's integration job, through
 //     describeToolsContract
 // -----------------------------------------------------------
-
-export interface AssistantToolDescriptor {
-  name: string;
-  input: unknown;
-  output: unknown;
-}
-
-export type AssistantToolsConfig = Pick<AssistantTransportConfig, 'baseUrl' | 'fetch' | 'getAuthToken' | 'clientVersion' | 'language'>;
 
 export async function fetchAssistantTools(config: AssistantToolsConfig): Promise<AssistantToolDescriptor[]> {
   const run = resolveFetch(config.fetch);
@@ -379,11 +741,33 @@ export async function fetchAssistantTools(config: AssistantToolsConfig): Promise
   return tools.map(({ name, input, output }) => ({ name, input, output }));
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// isDescriptor
+// -----------------------------------------------------------
+//
+// The envelope guard: a string name plus both schema keys
+// PRESENT — their values stay unknown on purpose.
+//
+// Used by:
+//   - fetchAssistantTools (above) — validates every entry
+// -----------------------------------------------------------
+
 function isDescriptor(value: unknown): value is AssistantToolDescriptor {
   if (!value || typeof value !== 'object') return false;
   const shaped = value as { name?: unknown; input?: unknown; output?: unknown };
   return typeof shaped.name === 'string' && 'input' in shaped && 'output' in shaped;
 }
+
+
+
+
+
 
 
 // -----------------------------------------------------------

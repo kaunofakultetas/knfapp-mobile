@@ -21,9 +21,36 @@
 import type { Ionicons } from '@expo/vector-icons';
 
 
-// An Ionicons glyph name — the icon vocabulary the kit draws with
+
+
+
+
+
+// -----------------------------------------------------------
+// KitIconName
+// -----------------------------------------------------------
+//
+// An Ionicons glyph name — the icon vocabulary the kit draws
+// with.
+//
+// Used by:
+//   - KitMessageAction (below) — a host row's icon
+//   - menu/MessageContextMenu.tsx (MenuRowSpec),
+//     message/attachments/FileCard.tsx
+// -----------------------------------------------------------
+
 export type KitIconName = keyof typeof Ionicons.glyphMap;
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// KitMessageKind
+// -----------------------------------------------------------
+//
 // What a bubble carries. `kind` is optional on the wire: absent
 // means "text, or a photo when imageUrl/localImageUri is set,
 // a video when `video` is set, a document when `file` is" —
@@ -34,13 +61,53 @@ export type KitIconName = keyof typeof Ionicons.glyphMap;
 // 'custom' is the extension point: the host renders it through
 // the provider's components.MessageBody; any kind this build does
 // not know renders the unsupported placeholder instead of a blank
-// bubble (forward compatibility with a newer backend)
+// bubble (forward compatibility with a newer backend).
+//
+// Used by:
+//   - KitMessage / KitReply / messageKind (below)
+// -----------------------------------------------------------
+
 export type KitMessageKind = 'text' | 'image' | 'video' | 'file' | 'audio' | 'system' | 'custom';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// KNOWN_KINDS
+// -----------------------------------------------------------
+//
+// The kind strings this build can render — KitMessageKind as a
+// runtime list, since the wire value may come from a NEWER
+// backend than this build knows.
+//
+// Used by:
+//   - message/MessageBubble.tsx — anything not in here renders
+//     the unsupported placeholder instead of a blank bubble
+// -----------------------------------------------------------
 
 export const KNOWN_KINDS: readonly string[] = ['text', 'image', 'video', 'file', 'audio', 'system', 'custom'];
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// KitFile
+// -----------------------------------------------------------
+//
 // A document attachment: the card shows the name and the size,
-// a tap hands `uri` to the host's link handler
+// a tap hands `uri` to the host's link handler.
+//
+// Used by:
+//   - KitMessage (below) — the `file` field
+//   - message/attachments/FileCard.tsx
+// -----------------------------------------------------------
+
 export interface KitFile {
   name: string;
   uri: string;
@@ -48,11 +115,27 @@ export interface KitFile {
   mimeType?: string;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// KitVideo
+// -----------------------------------------------------------
+//
 // A video attachment. The bubble shows the poster (thumbnailUri,
 // resolved like any image; localThumbnailUri while an own send
 // is still uploading) with a play disc and the duration; a tap
 // hands the message to onPressVideo — the host decides how it
-// plays (the kit ships VideoPlayerModal for the common case)
+// plays (the kit ships VideoPlayerModal for the common case).
+//
+// Used by:
+//   - KitMessage (below) — the `video` field
+//   - message/attachments/VideoAttachment.tsx
+// -----------------------------------------------------------
+
 export interface KitVideo {
   uri: string;
   thumbnailUri?: string;
@@ -64,17 +147,51 @@ export interface KitVideo {
   name?: string;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// KitMediaSize
+// -----------------------------------------------------------
+//
 // The natural pixel size of a photo or a video frame. Handed
 // in by hosts that know it (an upload response, the picker),
 // so the bubble is laid out at its final size on the first
-// frame — no 4:3 guess, no jump when the bytes arrive
+// frame — no 4:3 guess, no jump when the bytes arrive.
+//
+// Used by:
+//   - KitMessage (below) — the `mediaSize` field
+//   - message/attachments/ImageAttachment.tsx /
+//     VideoAttachment.tsx
+// -----------------------------------------------------------
+
 export interface KitMediaSize {
   width: number;
   height: number;
 }
 
-// The card of a text message's first link, unfurled by the host's
-// backend (never by the kit); imageUrl resolves like any stored image
+
+
+
+
+
+
+// -----------------------------------------------------------
+// KitLinkPreview
+// -----------------------------------------------------------
+//
+// The card of a text message's first link, unfurled by the
+// host's backend (never by the kit); imageUrl resolves like
+// any stored image.
+//
+// Used by:
+//   - KitMessage (below) — the `linkPreview` field
+//   - message/attachments/LinkPreviewCard.tsx
+// -----------------------------------------------------------
+
 export interface KitLinkPreview {
   url: string;
   title: string;
@@ -84,12 +201,49 @@ export interface KitLinkPreview {
   imagePreview?: string | null;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// KitReaction
+// -----------------------------------------------------------
+//
+// One emoji's aggregate on a message — the pill under the
+// bubble.
+//
+// Used by:
+//   - KitMessage (below) — the `reactions` field
+//   - message/ReactionPills.tsx
+// -----------------------------------------------------------
+
 export interface KitReaction {
   emoji: string;
   count: number;
   bySelf: boolean;
   byUserIds: string[];
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// KitReply
+// -----------------------------------------------------------
+//
+// The quoted message a reply carries — enough for the one-line
+// snippet, never the whole original.
+//
+// Used by:
+//   - KitMessage (below) — the `replyTo` field
+//   - message/ReplyQuote.tsx, composer/Composer.tsx — the
+//     replying-to strip
+// -----------------------------------------------------------
 
 export interface KitReply {
   id: string;
@@ -104,7 +258,44 @@ export interface KitReply {
   fileName?: string;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// KitMessageStatus
+// -----------------------------------------------------------
+//
+// An own message's delivery state — drives the receipt line
+// under the run's last bubble and the failed-send affordance.
+//
+// Used by:
+//   - KitMessage (below) — the `status` field
+// -----------------------------------------------------------
+
 export type KitMessageStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// KitMessage
+// -----------------------------------------------------------
+//
+// The kit's message contract — a host's message type only has
+// to be structurally compatible (extra fields are fine). The
+// field comments below carry each field's story.
+//
+// Used by:
+//   - every kit component and hook — the row's payload
+//   - the host's chat screens — what they map their wire
+//     messages into
+// -----------------------------------------------------------
 
 export interface KitMessage {
   id: string;
@@ -166,7 +357,22 @@ export interface KitMessage {
 }
 
 
-// One photo of a multi-photo message
+
+
+
+
+
+// -----------------------------------------------------------
+// KitGalleryItem
+// -----------------------------------------------------------
+//
+// One photo of a multi-photo message.
+//
+// Used by:
+//   - KitMessage (above) — the `gallery` field
+//   - message/attachments/GalleryAttachment.tsx
+// -----------------------------------------------------------
+
 export interface KitGalleryItem {
   url: string;
   width?: number | null;
@@ -176,7 +382,21 @@ export interface KitGalleryItem {
 }
 
 
-// One shared-library meme the picker's grid offers
+
+
+
+
+
+// -----------------------------------------------------------
+// KitMemeItem
+// -----------------------------------------------------------
+//
+// One shared-library meme the picker's grid offers.
+//
+// Used by:
+//   - composer/MemePicker.tsx — the grid's tiles
+// -----------------------------------------------------------
+
 export interface KitMemeItem {
   id: string;
   url: string;
@@ -188,7 +408,22 @@ export interface KitMemeItem {
 }
 
 
-// A member the composer's mention strip can offer
+
+
+
+
+
+// -----------------------------------------------------------
+// KitMentionCandidate
+// -----------------------------------------------------------
+//
+// A member the composer's mention strip can offer.
+//
+// Used by:
+//   - composer/Composer.tsx — the `mentionCandidates` prop and
+//     the strip's rows
+// -----------------------------------------------------------
+
 export interface KitMentionCandidate {
   id: string;
   name: string;
@@ -196,8 +431,23 @@ export interface KitMentionCandidate {
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// KitAudio
+// -----------------------------------------------------------
+//
 // A voice note (kind 'audio'): the clip and its length — a
-// local uri while an own send still uploads
+// local uri while an own send still uploads.
+//
+// Used by:
+//   - KitMessage (above) — the `audio` field
+//   - message/attachments/AudioAttachment.tsx
+// -----------------------------------------------------------
+
 export interface KitAudio {
   uri: string;
   duration?: number;
@@ -209,6 +459,25 @@ export interface KitAudio {
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// messageKind
+// -----------------------------------------------------------
+//
+// Resolves the optional wire `kind` from what the message
+// actually carries — an explicit kind wins, then video, audio,
+// photo (imageUrl / local uri / gallery), file, and text last —
+// so hosts that only ever send text and photos never set it.
+//
+// Used by:
+//   - message/MessageBubble.tsx, list/MessageList.tsx,
+//     list/PinnedBanner.tsx, core/timeline.ts
+// -----------------------------------------------------------
+
 export function messageKind(message: KitMessage): KitMessageKind {
   if (message.kind) return message.kind;
   if (message.video) return 'video';
@@ -219,9 +488,24 @@ export function messageKind(message: KitMessage): KitMessageKind {
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// KitMessageAction
+// -----------------------------------------------------------
+//
 // A host-supplied row of the long-press menu (Report, Pin,
 // Forward…), appended between the kit's own rows. `visible`
-// decides per message; absent means always
+// decides per message; absent means always.
+//
+// Used by:
+//   - menu/MessageContextMenu.tsx — buildMenuRows' `actions`
+//   - app/(main)/chat-room/index.tsx — the host's rows
+// -----------------------------------------------------------
+
 export interface KitMessageAction {
   id: string;
   label: string;
@@ -231,10 +515,46 @@ export interface KitMessageAction {
   onPress: (message: KitMessage) => void;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// GroupPosition
+// -----------------------------------------------------------
+//
 // Where a bubble sits in a run of consecutive messages from
 // the same sender — drives corner rounding, sender name,
-// avatar and the receipt line
+// avatar and the receipt line.
+//
+// Used by:
+//   - TimelineItem / ContextTarget (below)
+//   - core/timeline.ts — buildTimeline assigns it
+//   - message/MessageBubble.tsx — draws by it
+// -----------------------------------------------------------
+
 export type GroupPosition = 'single' | 'first' | 'middle' | 'last';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// TimelineItem
+// -----------------------------------------------------------
+//
+// One row of the rendered list: a message with its place in a
+// run, a time separator, or the "new messages" line above the
+// first unread row.
+//
+// Used by:
+//   - core/timeline.ts — buildTimeline's return
+//   - list/MessageList.tsx — the `items` prop
+// -----------------------------------------------------------
 
 export type TimelineItem =
   | { type: 'message'; key: string; message: KitMessage; position: GroupPosition }
@@ -242,14 +562,49 @@ export type TimelineItem =
   // The "new messages" line above the first unread row
   | { type: 'unread'; key: string; count: number };
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// BubbleFrame
+// -----------------------------------------------------------
+//
 // Window-space rectangle of a bubble, measured on long-press so
-// the context menu can float a copy of it in place
+// the context menu can float a copy of it in place.
+//
+// Used by:
+//   - ContextTarget (below) — the `frame` it carries
+// -----------------------------------------------------------
+
 export interface BubbleFrame {
   x: number;
   y: number;
   width: number;
   height: number;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ContextTarget
+// -----------------------------------------------------------
+//
+// Everything the long-press hands the context menu: the
+// message, its place in the run and the measured frame the
+// floating copy mounts over.
+//
+// Used by:
+//   - message/MessageBubble.tsx — built in onLongPress
+//   - menu/MessageContextMenu.tsx / hooks/useContextMenu.ts /
+//     list/MessageList.tsx
+// -----------------------------------------------------------
 
 export interface ContextTarget {
   message: KitMessage;

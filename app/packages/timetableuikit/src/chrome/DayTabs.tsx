@@ -17,6 +17,19 @@ import { Pressable, Text, View } from 'react-native';
 import { useTimetableLabels, useTimetableTheme } from '../provider';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// DayTabs (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - app/(main)/tabs/schedule.tsx — under the filter row
+// -----------------------------------------------------------
+
 export default function DayTabs({
   days,
   selectedDay,

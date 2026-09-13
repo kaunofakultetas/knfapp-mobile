@@ -66,13 +66,48 @@ const AHEAD_MAX_DEG = 30;
 
 type ConnectorKind = 'stairs' | 'elevator' | 'ramp';
 
-const isConnector = (kind: EdgeKind): kind is ConnectorKind => kind === 'stairs' || kind === 'elevator' || kind === 'ramp';
-
 // A node carries at most one of these beside the fixed depart
 // and arrive; the banner gives the priority when two meet
 type EventKind = 'connector' | 'turn' | 'door' | 'continue';
 
 type StepKind = 'depart' | EventKind | 'arrive';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// isConnector
+// -----------------------------------------------------------
+//
+// The edge kinds that change floor — the ones narrated as
+// "take the …" instead of a turn.
+//
+// Used by:
+//   - buildInstructions (below) — event detection and the
+//     connector run's end
+// -----------------------------------------------------------
+
+const isConnector = (kind: EdgeKind): kind is ConnectorKind => kind === 'stairs' || kind === 'elevator' || kind === 'ramp';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// same
+// -----------------------------------------------------------
+//
+// Exact equality is enough — both points come from the same
+// graph coordinates, never from arithmetic.
+//
+// Used by:
+//   - buildInstructions / arrivalSide (below)
+// -----------------------------------------------------------
 
 const same = (a: PlanPoint, b: PlanPoint): boolean => a.x === b.x && a.y === b.y;
 
@@ -323,9 +358,24 @@ function arrivalSide(points: RoutePoint[], walkStart: number, room: Room | null)
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// polygonCentroid
+// -----------------------------------------------------------
+//
 // Area-weighted, so an L-shaped room's centre is where its floor
 // is rather than where its corners are; a polygon with no area
-// (a line, a single point) falls back to the mean of its vertices
+// (a line, a single point) falls back to the mean of its
+// vertices.
+//
+// Used by:
+//   - arrivalSide (above) — the room's reference point
+// -----------------------------------------------------------
+
 const polygonCentroid = (polygon: [number, number][]): PlanPoint => {
   let twiceArea = 0;
   let cx = 0;

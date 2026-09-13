@@ -38,6 +38,23 @@ import type { NavigationState, Route } from '../core/types';
 import { useWayfind } from '../provider';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// UseNavigationResult
+// -----------------------------------------------------------
+//
+// The hook's answer: the live state and the stable cursor
+// actions — the field comments carry each action's contract.
+//
+// Used by:
+//   - useNavigation (below) — the return shape
+//   - src/index.ts — the public surface
+// -----------------------------------------------------------
+
 export interface UseNavigationResult {
   state: NavigationState | null;
   next: () => void;
@@ -53,7 +70,22 @@ export interface UseNavigationResult {
 }
 
 
-// Without a route there is nothing to subscribe to
+
+
+
+
+
+// -----------------------------------------------------------
+// noSubscription
+// -----------------------------------------------------------
+//
+// Without a route there is nothing to subscribe to.
+//
+// Used by:
+//   - useNavigation (below) — useSyncExternalStore's subscribe
+//     while nav is null
+// -----------------------------------------------------------
+
 const noSubscription = () => () => {};
 
 

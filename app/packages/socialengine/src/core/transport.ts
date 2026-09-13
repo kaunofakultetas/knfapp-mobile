@@ -30,26 +30,118 @@
 import type { Poll, RelationshipState, SocialNotification } from './types';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// LikeResult
+// -----------------------------------------------------------
+//
 // What a like toggle settles to — the server's word on both
-// the flag and the count, so shadows can be reconciled
+// the flag and the count, so shadows can be reconciled.
+//
+// Used by:
+//   - SocialTransport (below) — setLiked's resolved answer
+//   - adapters/knf/index.ts, testing/fakeSocialTransport.ts
+//   - src/index.ts — the public surface hosts import from
+// -----------------------------------------------------------
+
 export interface LikeResult {
   liked: boolean;
   likeCount: number;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// LikeTarget
+// -----------------------------------------------------------
+//
+// What a like addresses — type and id together, since a post
+// and a comment may share an id.
+//
+// Used by:
+//   - SocialTransport (below) — setLiked's target
+//   - core/tasks.ts — the queued like's target
+//   - testing/fakeSocialTransport.ts — the like store's key
+// -----------------------------------------------------------
+
 export type LikeTarget = { type: 'post' | 'comment'; id: string };
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// RelationshipAction
+// -----------------------------------------------------------
+//
 // The viewer asks to change a relationship. 'connect' sends the
 // request (or follows, on instant backends), 'cancel' withdraws
 // an outgoing one, 'accept'/'decline' answer an incoming one,
-// 'disconnect' unfriends/unfollows
+// 'disconnect' unfriends/unfollows.
+//
+// Used by:
+//   - SocialTransport (below) — setRelationship's verb
+//   - core/tasks.ts, hooks/useRelationship.ts
+//   - adapters/knf/index.ts, testing/fakeSocialTransport.ts
+// -----------------------------------------------------------
+
 export type RelationshipAction = 'connect' | 'cancel' | 'accept' | 'decline' | 'disconnect';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// NotificationsPage
+// -----------------------------------------------------------
+//
+// One page of the activity list, with the cursor that asks for
+// the next one.
+//
+// Used by:
+//   - SocialTransport (below) — fetchNotifications' answer
+//   - testing/fakeSocialTransport.ts
+//   - src/index.ts — the public surface hosts import from
+// -----------------------------------------------------------
 
 export interface NotificationsPage {
   notifications: SocialNotification[];
   hasMore: boolean;
   cursor?: string;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// SocialTransport
+// -----------------------------------------------------------
+//
+// The contract itself — see the file banner for what is core
+// and what is optional.
+//
+// Used by:
+//   - provider/index.tsx — the env's `transport`
+//   - every hook
+//   - adapters/knf/index.ts, testing/fakeSocialTransport.ts,
+//     testing/socialContract.ts
+//   - services/socialTransport.ts — the host app's wiring
+// -----------------------------------------------------------
 
 export interface SocialTransport {
   // --- the core: likes + polls -------------------------------
@@ -76,8 +168,25 @@ export interface SocialTransport {
   fetchUnreadCount?(): Promise<number>;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// SocialNoticeCode
+// -----------------------------------------------------------
+//
 // What the engine tells the host when an interaction cannot be
-// carried out; hosts map codes to their own translated strings
+// carried out; hosts map codes to their own translated strings.
+//
+// Used by:
+//   - SocialNotice (below)
+//   - example/ExampleSocialScreen.tsx — a sample mapping
+//   - src/index.ts — the public surface hosts import from
+// -----------------------------------------------------------
+
 export type SocialNoticeCode =
   | 'like_failed'
   | 'vote_failed'
@@ -87,6 +196,26 @@ export type SocialNoticeCode =
   | 'report_failed'
   | 'notifications_failed'
   | 'auth_required';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// SocialNotice
+// -----------------------------------------------------------
+//
+// The message itself — the code plus a level the host may use
+// to pick toast styling.
+//
+// Used by:
+//   - provider/index.tsx — notify's payload
+//   - components/social/SocialEngineHost.tsx — the host's
+//     code-to-toast mapping
+//   - src/index.ts — the public surface hosts import from
+// -----------------------------------------------------------
 
 export interface SocialNotice {
   level: 'error' | 'info';

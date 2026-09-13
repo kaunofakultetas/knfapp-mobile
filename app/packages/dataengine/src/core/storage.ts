@@ -13,6 +13,25 @@
 //    - provider/index.tsx — the env's `storage` (default memory)
 // -----------------------------------------------------------
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// KeyValueStorage
+// -----------------------------------------------------------
+//
+// The persistence surface the cache writes through — the
+// AsyncStorage method shape plus key enumeration.
+//
+// Used by:
+//   - memoryStorage (below) — the default implementation
+//   - core/cache.ts — createCache's `storage` parameter
+//   - provider/index.tsx — the env's `storage` field
+// -----------------------------------------------------------
+
 export interface KeyValueStorage {
   getItem(key: string): Promise<string | null>;
   setItem(key: string, value: string): Promise<void>;

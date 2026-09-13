@@ -20,6 +20,23 @@
 
 
 
+
+
+
+
+// -----------------------------------------------------------
+// KitColors
+// -----------------------------------------------------------
+//
+// The whole colour vocabulary — kit components draw from these
+// tokens and nothing else, so a host override reaches every
+// surface at once. Per-token roles are inline.
+//
+// Used by:
+//   - KitTheme (below) — the `colors` branch
+//   - every component, via useKitTheme().colors
+// -----------------------------------------------------------
+
 export interface KitColors {
   bg: string;          // the feed canvas behind cards
   surface: string;     // cards, sheets, the comment composer
@@ -41,17 +58,74 @@ export interface KitColors {
   shadow: string;      // shadowColor for floating chrome
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// KitFonts
+// -----------------------------------------------------------
+//
+// The three family slots a host maps its loaded fonts onto;
+// the defaults stay 'System' because the kit ships no font
+// files of its own.
+//
+// Used by:
+//   - KitTheme (below) — the `fonts` branch
+//   - every text-drawing component, via useKitTheme().fonts
+// -----------------------------------------------------------
+
 export interface KitFonts {
   regular: string;
   medium: string;
   bold: string;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// KitRadii
+// -----------------------------------------------------------
+//
+// The corner-rounding vocabulary; per-token roles are inline.
+//
+// Used by:
+//   - KitTheme (below) — the `radii` branch
+//   - cards, chips and buttons, via useKitTheme().radii
+// -----------------------------------------------------------
+
 export interface KitRadii {
   card: number;   // post cards, link cards, media frames
   chip: number;   // source chips, poll bars
   pill: number;   // buttons, the new-posts pill (effectively a capsule)
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// KitTheme
+// -----------------------------------------------------------
+//
+// The complete bundle one provider serves: the scheme word
+// plus the three token branches.
+//
+// Used by:
+//   - provider/index.tsx — resolved once per (scheme, override)
+//     pair and served through useKitTheme
+//   - components/social/SocialUiKitHost.tsx — the host app
+//     builds its themed bundle in this shape
+//   - defaultTheme, darkTheme, resolveTheme (below)
+// -----------------------------------------------------------
 
 export interface KitTheme {
   scheme: 'light' | 'dark';
@@ -60,7 +134,24 @@ export interface KitTheme {
   radii: KitRadii;
 }
 
-// What a host hands the provider: any subset, any depth
+
+
+
+
+
+
+// -----------------------------------------------------------
+// KitThemeOverride
+// -----------------------------------------------------------
+//
+// What a host hands the provider: any subset, any depth — the
+// gaps are filled from the scheme's base by resolveTheme.
+//
+// Used by:
+//   - provider/index.tsx — SocialUiKitProvider's `theme` prop
+//   - resolveTheme (below) — the override side of the merge
+// -----------------------------------------------------------
+
 export interface KitThemeOverride {
   scheme?: 'light' | 'dark';
   colors?: Partial<KitColors>;
@@ -75,7 +166,7 @@ export interface KitThemeOverride {
 
 
 // -----------------------------------------------------------
-// defaultTheme / darkTheme
+// defaultTheme
 // -----------------------------------------------------------
 //
 // System fonts everywhere: the kit never ships font files, a
@@ -122,9 +213,23 @@ export const defaultTheme: KitTheme = {
 };
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// darkTheme
+// -----------------------------------------------------------
+//
 // The burgundy and the heart are lightened so they hold their
 // contrast on the dark ground; washes flip from tint-of-white
-// to tint-of-black
+// to tint-of-black.
+//
+// Used by:
+//   - provider/index.tsx — the base when scheme is 'dark'
+// -----------------------------------------------------------
+
 export const darkTheme: KitTheme = {
   ...defaultTheme,
   scheme: 'dark',

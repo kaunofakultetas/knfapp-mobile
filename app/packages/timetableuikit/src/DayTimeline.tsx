@@ -26,11 +26,28 @@ import { useNow, type NowPoint } from './hooks/useNow';
 import { usePagePan } from './hooks/usePagePan';
 import { useTimetableEnv } from './provider';
 
+// Pixels per hour — taller than the week grid's default, the
+// single column has the whole width to spend
 const DEFAULT_HOUR_HEIGHT = 64;
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// firstLessonOffset
+// -----------------------------------------------------------
+//
 // Where the day should open: just above the first real lesson,
 // or nowhere when the day is empty. Exported for the tests.
+//
+// Used by:
+//   - DayTimeline (below) — the open-position effect
+//   - __tests__/dayTimeline.test.tsx
+// -----------------------------------------------------------
+
 export function firstLessonOffset(placed: readonly PlacedLesson[], gridHeight: number): number | null {
   const lessons = placed.filter((p) => !p.entry.isBlock);
   if (lessons.length === 0) return null;
@@ -38,6 +55,23 @@ export function firstLessonOffset(placed: readonly PlacedLesson[], gridHeight: n
   return Math.max(0, firstTop - 12);
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// DayTimelineProps
+// -----------------------------------------------------------
+//
+// Everything arrives pre-placed — the timeline computes no
+// geometry of its own.
+//
+// Used by:
+//   - DayTimeline (below)
+//   - components/schedule/TimetableView.tsx — day mode's props
+// -----------------------------------------------------------
 
 export interface DayTimelineProps {
   // This one day's pre-placed lessons
@@ -56,6 +90,19 @@ export interface DayTimelineProps {
   skippedCount?: number;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// DayTimeline (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - components/schedule/TimetableView.tsx — day mode
+// -----------------------------------------------------------
 
 export default function DayTimeline({
   placed,

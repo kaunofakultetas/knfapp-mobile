@@ -31,6 +31,7 @@ import ImageAttachment, { useMediaFit } from './ImageAttachment';
 // The chrome over a poster is always white on a dark wash —
 // posters are photos, not theme surfaces
 const WASH = 'rgba(0, 0, 0, 0.45)';
+// The play icon, spinner and duration badge ink on that wash
 const CHROME = '#FFFFFF';
 
 

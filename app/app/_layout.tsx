@@ -58,6 +58,7 @@ import { DataEngineProvider } from '@knf/dataengine';
 
 // Crash fallback and shell UI
 import { ErrorFallback } from '@/components/ErrorFallback';
+import OfflineBanner from '@/components/OfflineBanner';
 import { ConfirmHost, toastConfig } from '@/components/ui';
 
 // Root crashes land in the error trail the crash screen reports
@@ -201,6 +202,9 @@ function ThemedShell() {
         </View>
       )}
       <Toast config={toastConfig} />
+      {/* The persistent "no internet" strip over the bottom
+          edge — the toast pair's replacement */}
+      <OfflineBanner />
       {/* Web confirm dialogs — themed stand-in for the
           window.confirm fallback; presents nothing on native */}
       <ConfirmHost />

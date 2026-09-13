@@ -643,8 +643,6 @@
   },
   "network": {
     "offline": "No internet connection",
-    "offlineHint": "Some features may not work",
-    "online": "Back online",
     "cachedData": "Showing cached data",
     "cachedAgo": "Updated {{time}}",
     "justNow": "just now",

@@ -7,8 +7,10 @@
 //  @knf/dataengine's bus (signalRestore), which every screen
 //  showing cached data listens to via the package's
 //  useNetworkRestore. A restore also reconnects the chat
-//  socket; both transitions surface a toast. The
-//  offline toast is immediate, but the restore fan-out is
+//  socket. Neither transition toasts: while offline the
+//  slim OfflineBanner (reading isConnected) sits over the
+//  bottom edge, and its disappearance IS the "back online"
+//  signal. The restore fan-out is
 //  debounced — it fires only after the connection has held for
 //  a moment, and a flapping link cannot re-trigger it inside
 //  the cooldown. A restore spent while NetInfo's reachability
@@ -56,7 +58,6 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { useTranslation } from 'react-i18next';
 import { AccessibilityInfo, AppState } from 'react-native';
 import Toast from 'react-native-toast-message';
 
@@ -173,14 +174,6 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
   const restoreUnconfirmed = useRef(false);
 
 
-  // The subscription reads the translator through a ref so it
-  // survives language changes without resubscribing; the ref is
-  // written in an effect, never during render
-  const { t } = useTranslation();
-  const tRef = useRef(t);
-  useEffect(() => {
-    tRef.current = t;
-  });
 
 
   // One fan-out for both resync triggers — a connectivity
@@ -188,16 +181,15 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
   // reconnect sits BEFORE the cooldown gate on purpose: it is
   // single-flight and cheap, and a blip that tore the socket
   // down must not leave it down just because a refetch ran
-  // moments earlier. `announce` keeps the "back online" toast
-  // off the resume path.
-  const fireResync = useCallback((announce: boolean) => {
+  // moments earlier. The restore is deliberately SILENT — the
+  // OfflineBanner vanishing is the "back online" signal, the
+  // way the big messengers do it; no toast interrupts.
+  const fireResync = useCallback(() => {
     connectSocket().catch(() => {});
 
     const now = Date.now();
     if (now - lastRestoreAt.current < RESTORE_COOLDOWN_MS) return;
     lastRestoreAt.current = now;
-
-    if (announce) showToast('success', tRef.current('network.online'));
 
     // Screens showing cached data refetch now (the engine guards
     // each listener — one bad closure never blocks the rest)
@@ -219,15 +211,15 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
 
 
       if (!online && prevOnline.current) {
-        // Offline feedback stays immediate; a pending restore is
-        // void — the connection did not hold — and so is an
-        // unconfirmed spend: the next transition restores anew
+        // A pending restore is void — the connection did not
+        // hold — and so is an unconfirmed spend: the next
+        // transition restores anew. The user-facing signal is
+        // the OfflineBanner reading isConnected, not a toast
         if (restoreTimer.current) {
           clearTimeout(restoreTimer.current);
           restoreTimer.current = null;
         }
         restoreUnconfirmed.current = false;
-        showToast('error', tRef.current('network.offline'), tRef.current('network.offlineHint'));
 
         // With the network known gone, the socket's retry loop is
         // only doomed polls keeping the radio awake — suspend it;
@@ -243,18 +235,18 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
             // is remembered so the confirming event can re-fire
             // once (captive portal, slow probe)
             restoreUnconfirmed.current = !confirmedRef.current;
-            fireResync(true);
+            fireResync();
           }, RESTORE_STABLE_MS);
         }
       } else if (confirmedRef.current && restoreUnconfirmed.current) {
         // The probe just confirmed a connection whose restore was
         // spent while reachability was unknown — those refetches
-        // may have died on a dead link, so fan out once more (no
-        // second toast; the cooldown is reset because this is the
-        // deliberate second half of ONE reconnection, not a flap)
+        // may have died on a dead link, so fan out once more (the
+        // cooldown is reset because this is the deliberate second
+        // half of ONE reconnection, not a flap)
         restoreUnconfirmed.current = false;
         lastRestoreAt.current = 0;
-        fireResync(false);
+        fireResync();
       }
 
 
@@ -282,7 +274,7 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
       if (status === 'background') {
         disconnectSocket();
       } else if (status === 'active') {
-        fireResync(false);
+        fireResync();
       }
     });
 

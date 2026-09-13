@@ -37,6 +37,10 @@
 //    FormTopBar      — brand top bar, back to login
 //    CodeStatus      — live code-check feedback
 //    ModeIndicator   — guest vs invited registration row
+//    validateAccountFields — the pure per-field checks
+//    useInvitationCode     — the code field: typing, scans,
+//                            the deep link, live validation
+//    useSubmitCooldown     — the 429 freeze
 //    RegisterScreen  — the form (default export)
 // -----------------------------------------------------------
 
@@ -84,9 +88,10 @@ const REASON_KEYS: Record<string, string> = {
   expired: 'register.codeExpired',
 };
 
-// Field values; keys double as the error-map keys
+// Field values; keys double as the error-map keys. The
+// invitation code is NOT here — useInvitationCode owns that
+// field's value, verdict and error wholesale
 interface RegisterFields {
-  invitationCode: string;
   username: string;
   displayName: string;
   email: string;
@@ -404,6 +409,272 @@ function ModeIndicator({ invited }: { invited: boolean }) {
 
 
 // -----------------------------------------------------------
+// validateAccountFields
+// -----------------------------------------------------------
+//
+// The pure per-field checks for the five account fields — the
+// invitation code is judged by its own live verdict in the
+// hook below, not here. The display-name cap mirrors the
+// backend's 100-char limit: its rejection is a code-less 400
+// inviteErrorKey would misread as an invitation-code failure,
+// so it must never be reachable.
+//
+// Used by:
+//   - RegisterScreen (below) — submit-time validation
+// -----------------------------------------------------------
+
+function validateAccountFields(form: RegisterFields, t: TFunction): FieldErrors {
+  const next: FieldErrors = {};
+
+  if (!form.username.trim()) next.username = t('register.errors.usernameRequired');
+  else if (form.username.trim().length < 3) next.username = t('register.errors.usernameMin');
+  if (!form.displayName.trim()) next.displayName = t('register.errors.displayNameRequired');
+  else if (form.displayName.trim().length > 100) {
+    next.displayName = t('register.errors.displayNameMax');
+  }
+  if (!form.email.trim()) next.email = t('register.errors.emailRequired');
+  else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
+    next.email = t('register.errors.emailInvalid');
+  }
+  if (!form.password) next.password = t('register.errors.passwordRequired');
+  else if (form.password.length < 6) next.password = t('register.errors.passwordMin');
+  if (form.password !== form.confirmPassword) {
+    next.confirmPassword = t('register.errors.passwordMismatch');
+  }
+
+  return next;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// useInvitationCode
+// -----------------------------------------------------------
+//
+//   const invite = useInvitationCode(deepLinkValue)
+//
+// The invitation-code field wholesale: its value, live
+// verdict and field error, fed by the three entry paths —
+// typing (uppercased, 600 ms debounce), an in-app scan, and
+// the admin QR deep link (applied once per value, run through
+// the scanner's extractCode so attacker text never reaches
+// the field or the toast that echoes it).
+//
+// All paths funnel into ONE validation routine with a
+// sequence guard: every run bumps the counter and a stale
+// response is dropped instead of clobbering the current
+// verdict. A scan or deep link kills any pending typing
+// debounce FIRST — the stale timer must not overwrite the
+// scanned code's result. flush() is the submit's door: it
+// runs a pending unchecked code NOW and returns the verdict
+// (null when nothing was pending or nothing was decided) —
+// the caller branches on the RETURN, because state read after
+// an await is the stale closure. applyServerRejection routes
+// a submit-time invite failure back onto the field.
+//
+// Used by:
+//   - RegisterScreen (below)
+// -----------------------------------------------------------
+
+function useInvitationCode(deepLinkValue: string | undefined) {
+
+  const { t } = useTranslation();
+
+  const [code, setCode] = useState('');
+  const [validation, setValidation] = useState<CodeValidation>({});
+  const [fieldError, setFieldError] = useState<string | undefined>(undefined);
+
+
+  // Typing debounce + the sequence guard + the once-per-value
+  // latch for the deep-link param
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const seqRef = useRef(0);
+  const appliedParamRef = useRef<string | null>(null);
+
+
+  const runValidation = useCallback(
+    async (raw: string, invalidKey: string): Promise<boolean | null> => {
+      const seq = ++seqRef.current;
+      const trimmed = raw.trim();
+
+      if (!trimmed || trimmed.length < 4) {
+        setValidation({});
+        return null;
+      }
+
+      setValidation({ checking: true });
+
+      try {
+        const result = await validateInvitationCode(trimmed);
+        if (seq !== seqRef.current) return null; // superseded by a newer run
+
+        // The translated verdict always wins — the backend's
+        // English prose never reaches the field; `reason`
+        // picks the precise sentence when the backend sends one
+        const message = result.valid
+          ? undefined
+          : t(REASON_KEYS[result.reason ?? ''] || invalidKey);
+        setValidation({
+          valid: result.valid,
+          role: result.role,
+          remainingUses: result.remainingUses,
+          error: message,
+        });
+        setFieldError(message);
+
+        // Android hears CodeStatus's live region; iOS needs
+        // the explicit announcement
+        if (Platform.OS === 'ios') {
+          AccessibilityInfo.announceForAccessibility(message ?? t('register.codeValid'));
+        }
+        return result.valid;
+      } catch (err) {
+        if (seq !== seqRef.current) return null;
+
+        // The check failed, not the code — clear the verdict
+        // and say so instead of a silently vanishing spinner
+        setValidation({});
+        showToast('error', errorText(err, t), errorHint(err, t));
+        return null;
+      }
+    },
+    [t],
+  );
+
+
+  // Manual typing: uppercase (codes are uppercase — the same
+  // normalization the scanner applies), reset the verdict,
+  // bump the sequence so any in-flight response is orphaned,
+  // re-validate after a pause
+  const onChangeText = (value: string) => {
+    const upper = value.toUpperCase();
+    setCode(upper);
+    setFieldError(undefined);
+    seqRef.current += 1;
+    setValidation({});
+
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      debounceRef.current = null;
+      runValidation(upper, 'register.invalidCode');
+    }, 600);
+  };
+
+
+  // Scans and the deep link share this path
+  const applyScanned = useCallback(
+    (scanned: string) => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+      }
+
+      setCode(scanned);
+      setFieldError(undefined);
+      showToast('success', t('register.codeScanned', { code: scanned }));
+      runValidation(scanned, 'register.invalidQr');
+    },
+    [runValidation, t],
+  );
+
+
+  // The admin QR encodes knfapp://register?code=X — apply the
+  // route param once per value so re-renders cannot re-run it
+  useEffect(() => {
+    if (!deepLinkValue || appliedParamRef.current === deepLinkValue) return;
+    appliedParamRef.current = deepLinkValue;
+
+    const extracted = extractCode(deepLinkValue);
+    if (!extracted) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the deep-link code arriving is the event; it applies once per value, latched by the ref
+    applyScanned(extracted);
+  }, [deepLinkValue, applyScanned]);
+
+
+  // A pending timer must not fire into an unmounted screen
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
+
+
+  const flush = async (): Promise<boolean | null> => {
+    if (!debounceRef.current) return null;
+    clearTimeout(debounceRef.current);
+    debounceRef.current = null;
+    return runValidation(code, 'register.invalidCode');
+  };
+
+  const applyServerRejection = (message: string) => {
+    setFieldError(message);
+    setValidation({ valid: false, error: message });
+    AccessibilityInfo.announceForAccessibility(message);
+  };
+
+
+  return {
+    code,
+    validation,
+    fieldError,
+    invited: validation.valid === true,
+    onChangeText,
+    applyScanned,
+    flush,
+    applyServerRejection,
+    setFieldError,
+  };
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// useSubmitCooldown
+// -----------------------------------------------------------
+//
+// The 429 freeze: trigger() disables the submit for a visible
+// moment instead of inviting an instant retry; the timer dies
+// with the screen.
+//
+// Used by:
+//   - RegisterScreen (below)
+// -----------------------------------------------------------
+
+function useSubmitCooldown(ms = 15_000) {
+
+  const [cooldown, setCooldown] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, []);
+
+  const trigger = () => {
+    setCooldown(true);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setCooldown(false), ms);
+  };
+
+  return { cooldown, trigger };
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // RegisterScreen (default export)
 // -----------------------------------------------------------
 //
@@ -432,7 +703,6 @@ export default function RegisterScreen() {
 
 
   const [form, setForm] = useState<RegisterFields>({
-    invitationCode: '',
     username: '',
     displayName: '',
     email: '',
@@ -440,9 +710,12 @@ export default function RegisterScreen() {
     confirmPassword: '',
   });
   const [errors, setErrors] = useState<FieldErrors>({});
-  const [codeValidation, setCodeValidation] = useState<CodeValidation>({});
   const [scannerVisible, setScannerVisible] = useState(false);
-  const [cooldown, setCooldown] = useState(false);
+
+
+  // The code field's whole life; the 429 freeze
+  const invite = useInvitationCode(codeValue);
+  const { cooldown, trigger: triggerCooldown } = useSubmitCooldown();
 
 
   // Focus chain — each field's Next key lands on the one below
@@ -454,138 +727,10 @@ export default function RegisterScreen() {
   const confirmRef = useRef<TextInput>(null);
 
 
-  // Typing debounce + the sequence guard (every validation run
-  // bumps the counter; stale responses compare and drop) + the
-  // once-per-value latch for the deep-link param + the 429
-  // submit cooldown timer
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const seqRef = useRef(0);
-  const appliedParamRef = useRef<string | null>(null);
-  const cooldownRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-
-  // The one validation routine behind typing, scans and the
-  // deep link; invalidKey names which entry path failed.
-  // RETURNS the verdict (true/false) — or null when nothing
-  // was decided (blank code, superseded run, failed check) —
-  // because state read after an await is the stale closure
-  const runValidation = useCallback(
-    async (raw: string, invalidKey: string): Promise<boolean | null> => {
-      const seq = ++seqRef.current;
-      const trimmed = raw.trim();
-
-      if (!trimmed || trimmed.length < 4) {
-        setCodeValidation({});
-        return null;
-      }
-
-      setCodeValidation({ checking: true });
-
-      try {
-        const result = await validateInvitationCode(trimmed);
-        if (seq !== seqRef.current) return null; // superseded by a newer run
-
-        // The translated verdict always wins — the backend's
-        // English prose never reaches the field; `reason`
-        // picks the precise sentence when the backend sends one
-        const message = result.valid
-          ? undefined
-          : t(REASON_KEYS[result.reason ?? ''] || invalidKey);
-        setCodeValidation({
-          valid: result.valid,
-          role: result.role,
-          remainingUses: result.remainingUses,
-          error: message,
-        });
-        setErrors((prev) => ({ ...prev, invitationCode: message }));
-
-        // Android hears CodeStatus's live region; iOS needs
-        // the explicit announcement
-        if (Platform.OS === 'ios') {
-          AccessibilityInfo.announceForAccessibility(message ?? t('register.codeValid'));
-        }
-        return result.valid;
-      } catch (err) {
-        if (seq !== seqRef.current) return null;
-
-        // The check failed, not the code — clear the verdict
-        // and say so instead of a silently vanishing spinner
-        setCodeValidation({});
-        showToast('error', errorText(err, t), errorHint(err, t));
-        return null;
-      }
-    },
-    [t],
-  );
-
-
   const updateField = (field: keyof RegisterFields, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));
     if (errors[field]) setErrors((prev) => ({ ...prev, [field]: undefined }));
   };
-
-
-  // Manual typing: uppercase (codes are uppercase — the same
-  // normalization the scanner applies), reset the verdict,
-  // bump the sequence so any in-flight response is orphaned,
-  // re-validate after a pause
-  const handleCodeChange = (value: string) => {
-    const upper = value.toUpperCase();
-    updateField('invitationCode', upper);
-    seqRef.current += 1;
-    setCodeValidation({});
-
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      debounceRef.current = null;
-      runValidation(upper, 'register.invalidCode');
-    }, 600);
-  };
-
-
-  // Scans and the deep link share this path. The typing
-  // debounce dies FIRST — a stale timer firing after the scan
-  // would overwrite the scanned code's verdict with the
-  // half-typed one.
-  const applyScannedCode = useCallback(
-    (scanned: string) => {
-      if (debounceRef.current) {
-        clearTimeout(debounceRef.current);
-        debounceRef.current = null;
-      }
-
-      setForm((prev) => ({ ...prev, invitationCode: scanned }));
-      setErrors((prev) => ({ ...prev, invitationCode: undefined }));
-      showToast('success', t('register.codeScanned', { code: scanned }));
-      runValidation(scanned, 'register.invalidQr');
-    },
-    [runValidation, t],
-  );
-
-
-  // The admin QR encodes knfapp://register?code=X — apply the
-  // route param once per value so re-renders cannot re-run it.
-  // The param is attacker-writable, so only a value passing
-  // the scanner's own extractCode check reaches the field (and
-  // the success toast that echoes it)
-  useEffect(() => {
-    if (!codeValue || appliedParamRef.current === codeValue) return;
-    appliedParamRef.current = codeValue;
-
-    const extracted = extractCode(codeValue);
-    if (!extracted) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- the deep-link code arriving is the event; it applies once per value, latched by the ref
-    applyScannedCode(extracted);
-  }, [codeValue, applyScannedCode]);
-
-
-  // Pending timers must not fire into an unmounted screen
-  useEffect(() => {
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-      if (cooldownRef.current) clearTimeout(cooldownRef.current);
-    };
-  }, []);
 
 
   // The code is optional — its only blocking state is an
@@ -593,34 +738,17 @@ export default function RegisterScreen() {
   // The first problem is announced and focused so screen-
   // reader users are not left on a silently refused submit
   const validate = (): boolean => {
-    const next: FieldErrors = {};
+    const next = validateAccountFields(form, t);
 
-    if (!form.username.trim()) next.username = t('register.errors.usernameRequired');
-    else if (form.username.trim().length < 3) next.username = t('register.errors.usernameMin');
-    if (!form.displayName.trim()) next.displayName = t('register.errors.displayNameRequired');
-    else if (form.displayName.trim().length > 100) {
-      // Mirrors the backend's 100-char cap — its rejection is a
-      // code-less 400 inviteErrorKey would misread as an
-      // invitation-code failure, so it must never be reachable
-      next.displayName = t('register.errors.displayNameMax');
-    }
-    if (!form.email.trim()) next.email = t('register.errors.emailRequired');
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
-      next.email = t('register.errors.emailInvalid');
-    }
-    if (!form.password) next.password = t('register.errors.passwordRequired');
-    else if (form.password.length < 6) next.password = t('register.errors.passwordMin');
-    if (form.password !== form.confirmPassword) {
-      next.confirmPassword = t('register.errors.passwordMismatch');
-    }
-    if (form.invitationCode.trim() && codeValidation.valid === false) {
-      next.invitationCode = codeValidation.error || t('register.invalidCode');
-    }
+    const codeError =
+      invite.code.trim() && invite.validation.valid === false
+        ? invite.validation.error || t('register.invalidCode')
+        : undefined;
+    if (codeError) invite.setFieldError(codeError);
 
     setErrors(next);
 
     const fieldRefs = {
-      invitationCode: codeRef,
       username: usernameRef,
       displayName: displayNameRef,
       email: emailRef,
@@ -628,13 +756,20 @@ export default function RegisterScreen() {
       confirmPassword: confirmRef,
     } as const;
     const order: (keyof RegisterFields)[] = [
-      'invitationCode',
       'username',
       'displayName',
       'email',
       'password',
       'confirmPassword',
     ];
+
+    // The code field leads the visual order, so it leads the
+    // announce-and-focus order too
+    if (codeError) {
+      AccessibilityInfo.announceForAccessibility(codeError);
+      codeRef.current?.focus();
+      return false;
+    }
     const first = order.find((field) => next[field]);
     if (first) {
       AccessibilityInfo.announceForAccessibility(next[first]!);
@@ -648,17 +783,13 @@ export default function RegisterScreen() {
   const handleRegister = async () => {
     // The button is disabled while a code check is in flight —
     // this guards the keyboard's Done key taking the same path
-    if (loading || cooldown || codeValidation.checking) return;
+    if (loading || cooldown || invite.validation.checking) return;
 
     // A pending typing debounce means the current code was
     // never checked — flush it and branch on the RETURNED
     // verdict (state read after the await is the stale closure)
-    if (debounceRef.current) {
-      clearTimeout(debounceRef.current);
-      debounceRef.current = null;
-      const verdict = await runValidation(form.invitationCode, 'register.invalidCode');
-      if (verdict === false) return; // runValidation set the field error
-    }
+    const verdict = await invite.flush();
+    if (verdict === false) return; // the hook set the field error
 
     if (!validate()) return;
     Keyboard.dismiss();
@@ -675,7 +806,7 @@ export default function RegisterScreen() {
       display_name: form.displayName.trim(),
       email: form.email.trim().toLowerCase(),
     };
-    const code = form.invitationCode.trim();
+    const code = invite.code.trim();
     if (code) params.invitation_code = code;
 
     try {
@@ -695,9 +826,7 @@ export default function RegisterScreen() {
       // rest toast — connectivity ones with their hint line
       const codeKey = inviteErrorKey(err, Boolean(code));
       if (codeKey) {
-        setErrors((prev) => ({ ...prev, invitationCode: t(codeKey) }));
-        setCodeValidation({ valid: false, error: t(codeKey) });
-        AccessibilityInfo.announceForAccessibility(t(codeKey));
+        invite.applyServerRejection(t(codeKey));
         return;
       }
 
@@ -709,11 +838,7 @@ export default function RegisterScreen() {
 
       // Rate-limited: freeze the submit for a visible moment
       // instead of inviting an instant retry
-      if (err instanceof ApiError && err.status === 429) {
-        setCooldown(true);
-        if (cooldownRef.current) clearTimeout(cooldownRef.current);
-        cooldownRef.current = setTimeout(() => setCooldown(false), 15_000);
-      }
+      if (err instanceof ApiError && err.status === 429) triggerCooldown();
     }
   };
 
@@ -726,8 +851,6 @@ export default function RegisterScreen() {
     else router.replace('/login');
   };
 
-
-  const invited = codeValidation.valid === true;
 
 
   return (
@@ -776,9 +899,9 @@ export default function RegisterScreen() {
             ref={codeRef}
             label={t('register.invitationLabel')}
             placeholder={t('register.invitationPlaceholder')}
-            value={form.invitationCode}
-            onChangeText={handleCodeChange}
-            error={errors.invitationCode}
+            value={invite.code}
+            onChangeText={invite.onChangeText}
+            error={invite.fieldError}
             autoCapitalize="characters"
             autoCorrect={false}
             autoComplete="off"
@@ -786,8 +909,8 @@ export default function RegisterScreen() {
             onSubmitEditing={() => usernameRef.current?.focus()}
           />
 
-          <CodeStatus validation={codeValidation} />
-          <ModeIndicator invited={invited} />
+          <CodeStatus validation={invite.validation} />
+          <ModeIndicator invited={invite.invited} />
 
           {/* The account fields — Next chains to the field below */}
           <Input
@@ -868,7 +991,7 @@ export default function RegisterScreen() {
               title={t('register.submit')}
               onPress={handleRegister}
               loading={loading}
-              disabled={codeValidation.checking || cooldown}
+              disabled={invite.validation.checking || cooldown}
               size="lg"
             />
           </View>
@@ -891,7 +1014,7 @@ export default function RegisterScreen() {
       <QrScanner
         visible={scannerVisible}
         onClose={() => setScannerVisible(false)}
-        onCodeScanned={applyScannedCode}
+        onCodeScanned={invite.applyScanned}
       />
     </KeyboardAvoidingView>
   );

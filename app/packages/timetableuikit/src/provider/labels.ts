@@ -28,6 +28,17 @@ export interface TimetableLabels {
   nowLine: string;
   // The header caption for an ISO week
   weekNumber: (week: number) => string;
+  // DayStepper's chevron accessibility labels
+  prevDay: string;
+  nextDay: string;
+  // ViewModeSwitch's three modes
+  viewList: string;
+  viewDay: string;
+  viewWeek: string;
+  // LessonCard's clash chip — short, it sits in a bordered pill
+  conflictBadge: string;
+  // ConflictBanner's summary line
+  conflictsOverlap: (count: number) => string;
 }
 
 
@@ -57,6 +68,19 @@ export const defaultLabels: { lt: TimetableLabels; en: TimetableLabels } = {
     conflict: 'Persidengia su kita paskaita',
     nowLine: 'Dabar',
     weekNumber: (week) => `${week} savaitė`,
+    prevDay: 'Ankstesnė diena',
+    nextDay: 'Kita diena',
+    viewList: 'Sąrašas',
+    viewDay: 'Diena',
+    viewWeek: 'Savaitė',
+    conflictBadge: 'Persidengimas',
+    conflictsOverlap: (count) =>
+      ltPlural(
+        count,
+        `${count} paskaita persidengia laiku`,
+        `${count} paskaitos persidengia laiku`,
+        `${count} paskaitų persidengia laiku`,
+      ),
   },
   en: {
     dayShort: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
@@ -67,5 +91,13 @@ export const defaultLabels: { lt: TimetableLabels; en: TimetableLabels } = {
     conflict: 'Overlaps another lesson',
     nowLine: 'Now',
     weekNumber: (week) => `Week ${week}`,
+    prevDay: 'Previous day',
+    nextDay: 'Next day',
+    viewList: 'List',
+    viewDay: 'Day',
+    viewWeek: 'Week',
+    conflictBadge: 'Overlap',
+    conflictsOverlap: (count) =>
+      count === 1 ? '1 lecture overlaps in time' : `${count} lectures overlap in time`,
   },
 };

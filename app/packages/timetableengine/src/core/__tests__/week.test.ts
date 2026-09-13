@@ -6,7 +6,7 @@
 //  as seven consecutive dates like any other week.
 // -----------------------------------------------------------
 
-import { buildWeek, isoWeekNumber, materializeWeek, mondayOf, visibleDays } from '../week';
+import { dayIndexOf, buildWeek, isoWeekNumber, materializeWeek, mondayOf, visibleDays } from '../week';
 import type { TimetableEntry } from '../types';
 
 const L = (id: string, day: number, extra: Partial<TimetableEntry> = {}): TimetableEntry => ({
@@ -93,5 +93,13 @@ describe('materializeWeek', () => {
   it('a weeks list filters by ISO week; an EMPTY list is a no-op', () => {
     const entries = [L('in', 0, { weeks: [13] }), L('out', 0, { weeks: [14] }), L('open', 0, { weeks: [] })];
     expect(materializeWeek(entries, '2026-03-23').map((d) => d.entry.id)).toEqual(['in', 'open']);
+  });
+});
+
+describe('dayIndexOf', () => {
+  it('maps JS Sunday-first days onto the 0=Monday timetable week', () => {
+    expect(dayIndexOf(new Date(2026, 8, 14))).toBe(0); // Monday
+    expect(dayIndexOf(new Date(2026, 8, 12))).toBe(5); // Saturday
+    expect(dayIndexOf(new Date(2026, 8, 13))).toBe(6); // Sunday
   });
 });

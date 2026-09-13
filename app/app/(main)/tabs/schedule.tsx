@@ -23,6 +23,14 @@
 //  active — under "all groups", parallel lectures overlap by
 //  design and flagging them would paint the list red.
 //
+//  The timetable CHROME — day stepper and tabs, the view-mode
+//  segment, the conflict banner and the lesson card — comes
+//  from @knf/timetableuikit, themed through TimetableHost
+//  (which therefore wraps the WHOLE screen) with this app's
+//  Ionicons handed in; only the filter sheet and its bar stay
+//  app-built, since they encode the group/teacher/semester
+//  policy.
+//
 //  Three view modes and two perspectives. The card LIST keeps
 //  its per-day fetch and offline path exactly as it always
 //  worked; the DAY timeline and WEEK grid come from
@@ -35,15 +43,8 @@
 //
 //  Split into (root component last):
 //
-//    jsDayToApi     — JS Date.getDay() → 0=Monday API days
-//    newestSemester — pick the newest 'YYYY-P/R' label
 //    Separator      — hoisted lesson-list separator
-//    DayStepper     — header chevrons + current day label
-//    DayTabs        — the Mon–Fri quick tab bar
-//    ViewModeSwitch — list / day / week icon segment
 //    FilterBar      — active-filter summary, opens the modal
-//    ConflictBanner — "N lectures overlap" danger strip
-//    LessonCard     — one timetable entry, conflict-aware
 //    FilterOption   — one radio row of the filter picker
 //    FilterModal    — perspective + group/teacher/semester picker
 //    ScheduleScreen — the tab itself (default export)
@@ -60,16 +61,25 @@ import TimetableView from '@/components/schedule/TimetableView';
 import {
   compareEntries,
   conflictIds as engineConflictIds,
+  dayIndexOf,
   forGroup,
   forTeacher,
   formatMinutes,
   listTeachers,
+  newestSemesterKey,
   normalizeKnf,
   type ConflictOptions,
   type KnfLesson,
   type TimetableEntry,
 } from '@knf/timetableengine';
-import type { TimetableLesson } from '@knf/timetableuikit';
+import {
+  ConflictBanner,
+  DayStepper,
+  DayTabs,
+  LessonCard,
+  ViewModeSwitch,
+  type TimetableLesson,
+} from '@knf/timetableuikit';
 
 // UI kit — chrome and the three data states
 import { Button, EmptyState, ErrorState, Header, Input, LoadingSpinner, RefreshSpinner, Screen } from '@/components/ui';
@@ -84,6 +94,7 @@ import { useScheduleConflicts } from '@/hooks/useScheduleConflicts';
 // Timetable API + the offline cache it falls back to
 import { fetchSchedule, fetchScheduleFilters, fetchScheduleWeek, type ScheduleLesson, type ScheduleResponse } from '@/services/api';
 import { cacheKeySchedule, cacheKeyScheduleWeek, SCHEDULE_CACHE_MAX_AGE } from '@/services/cacheKeys';
+import { foldForSearch } from '@/services/format';
 
 // Failed silent refreshes toast instead of touching the list
 import { showToast } from '@/context/NetworkContext';
@@ -112,32 +123,9 @@ export const SCHEDULE_PREFS_KEY = 'schedule_prefs';
 const WEEKDAYS = [0, 1, 2, 3, 4];
 const FULL_WEEK = [0, 1, 2, 3, 4, 5, 6];
 
-// i18n key suffixes per API day — short forms feed the tab
-// bar, full forms the header label and a11y announcements
-const DAY_SHORT_KEYS = ['dayMon', 'dayTue', 'dayWed', 'dayThu', 'dayFri', 'daySat', 'daySun'];
-const DAY_FULL_KEYS = ['dayFullMon', 'dayFullTue', 'dayFullWed', 'dayFullThu', 'dayFullFri', 'dayFullSat', 'dayFullSun'];
-
-// Soft elevation for lesson cards; '#000' as shadowColor is
-// the one sanctioned exception to the no-raw-hex rule
-const CARD_SHADOW = {
-  shadowColor: '#000',
-  shadowOffset: { width: 0, height: 1 },
-  shadowOpacity: 0.06,
-  shadowRadius: 4,
-  elevation: 2,
-} as const;
-
 // How the timetable renders and through whose eyes
 type ViewMode = 'list' | 'day' | 'week';
 type Perspective = 'group' | 'teacher';
-
-// Teacher search must find 'Biržietienė' from 'birz' — fold
-// the Lithuanian diacritics on both sides, like the backend's
-// search columns do
-const LT_FOLD_FROM = 'ąčęėįšųūž';
-const LT_FOLD_TO = 'aceeisuuz';
-const foldLt = (value: string): string =>
-  value.toLowerCase().replace(/[ąčęėįšųūž]/g, (ch) => LT_FOLD_TO[LT_FOLD_FROM.indexOf(ch)]);
 
 // Shape persisted under SCHEDULE_PREFS_KEY. semesterExplicit
 // records that the user picked a semester (or "all") THEMSELVES
@@ -161,217 +149,9 @@ interface FilterChoice {
   teacher: string | null;
 }
 
-// JS Date.getDay() counts 0=Sunday; the API counts 0=Monday
-const jsDayToApi = (jsDay: number): number => (jsDay === 0 ? 6 : jsDay - 1);
-
-
-// Semester labels follow 'YYYY-P' (pavasaris) / 'YYYY-R'
-// (ruduo): the newest is the highest year, autumn over spring
-// within it. The backend's list order can't be trusted (BINARY-
-// collation DESC misorders it) and unparsable labels like
-// '2025-pavasaris' never win; null when nothing parses.
-const newestSemester = (labels: string[]): string | null => {
-  let best: string | null = null;
-  let bestRank = -1;
-  for (const label of labels) {
-    const match = /^(\d{4})-([PR])$/.exec(label.trim());
-    if (!match) continue;
-    const rank = Number(match[1]) * 2 + (match[2] === 'R' ? 1 : 0);
-    if (rank > bestRank) {
-      bestRank = rank;
-      best = label;
-    }
-  }
-  return best;
-};
-
-
 // Hoisted so the lesson list's separators keep their identity
 // instead of remounting on every screen render
 const Separator = () => <View className="h-3" />;
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// DayStepper
-// -----------------------------------------------------------
-//
-// The header-right day switcher: back/forward chevrons around
-// the SHORT weekday name — the long Lithuanian full names
-// ("Ketvirtadienis") truncate next to the screen title, so
-// the full name rides on the accessibility label instead. The
-// chevron hit areas are 32×44 plus hitSlop, clearing the 44pt
-// target on both axes.
-//
-// Used by:
-//   - ScheduleScreen (below) — Header right slot
-// -----------------------------------------------------------
-
-function DayStepper({
-  label,
-  fullLabel,
-  onPrev,
-  onNext,
-}: {
-  label: string;
-  fullLabel: string;
-  onPrev: () => void;
-  onNext: () => void;
-}) {
-
-  const { t } = useTranslation();
-  const { colors } = useTheme();
-
-
-  return (
-    <View className="flex-row items-center">
-
-      <Pressable
-        onPress={onPrev}
-        hitSlop={12}
-        accessibilityRole="button"
-        accessibilityLabel={t('schedule.prevDay')}
-        className="h-11 w-8 items-center justify-center active:opacity-70"
-      >
-        <Ionicons name="chevron-back" size={20} color={colors.onBrand} />
-      </Pressable>
-
-      <Text
-        className="mx-1 font-raleway-bold text-base text-on-brand"
-        numberOfLines={1}
-        style={{ flexShrink: 1 }}
-        accessibilityLabel={fullLabel}
-      >
-        {label}
-      </Text>
-
-      <Pressable
-        onPress={onNext}
-        hitSlop={12}
-        accessibilityRole="button"
-        accessibilityLabel={t('schedule.nextDay')}
-        className="h-11 w-8 items-center justify-center active:opacity-70"
-      >
-        <Ionicons name="chevron-forward" size={20} color={colors.onBrand} />
-      </Pressable>
-
-    </View>
-  );
-}
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// DayTabs
-// -----------------------------------------------------------
-//
-// The quick tab bar under the filter bar — Mon–Fri by default,
-// the full week when the caller passes it (a weekend day in
-// view). Tabs are announced by their full day name while
-// showing the short form; the active tab carries a brand
-// underline (the label uses the AA-safe brand-text tone).
-//
-// Used by:
-//   - ScheduleScreen (below)
-// -----------------------------------------------------------
-
-function DayTabs({
-  days,
-  selectedDay,
-  onSelect,
-}: {
-  days: number[];
-  selectedDay: number;
-  onSelect: (day: number) => void;
-}) {
-
-  const { t } = useTranslation();
-
-
-  return (
-    <View className="flex-row border-b border-line bg-surface">
-      {days.map((day) => {
-        const active = selectedDay === day;
-        return (
-          <Pressable
-            key={day}
-            onPress={() => onSelect(day)}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: active }}
-            accessibilityLabel={t(`schedule.${DAY_FULL_KEYS[day]}`)}
-            className="flex-1 items-center active:opacity-70"
-          >
-            <View className={`items-center border-b-2 py-3 ${active ? 'border-brand' : 'border-transparent'}`}>
-              <Text className={`text-sm ${active ? 'font-raleway-bold text-brand-text' : 'font-raleway-medium text-ink-soft'}`}>
-                {t(`schedule.${DAY_SHORT_KEYS[day]}`)}
-              </Text>
-            </View>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
-}
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// ViewModeSwitch
-// -----------------------------------------------------------
-//
-// The list / day / week segment at the filter row's end. Icons
-// only — the row is tight — with the mode name riding on the
-// accessibility label.
-//
-// Used by:
-//   - ScheduleScreen (below) — beside FilterBar
-// -----------------------------------------------------------
-
-function ViewModeSwitch({ mode, onChange }: { mode: ViewMode; onChange: (mode: ViewMode) => void }) {
-
-  const { t } = useTranslation();
-  const { colors } = useTheme();
-
-  const options = [
-    { mode: 'list', icon: 'list-outline', label: t('schedule.viewList') },
-    { mode: 'day', icon: 'time-outline', label: t('schedule.viewDay') },
-    { mode: 'week', icon: 'grid-outline', label: t('schedule.viewWeek') },
-  ] as const;
-
-
-  return (
-    <View className="mr-md flex-row rounded-lg bg-surface-soft p-0.5">
-      {options.map((option) => {
-        const active = option.mode === mode;
-        return (
-          <Pressable
-            key={option.mode}
-            onPress={() => onChange(option.mode)}
-            hitSlop={6}
-            accessibilityRole="button"
-            accessibilityState={{ selected: active }}
-            accessibilityLabel={option.label}
-            className={`h-8 w-9 items-center justify-center rounded-md ${active ? 'bg-surface' : ''}`}
-          >
-            <Ionicons name={option.icon} size={16} color={active ? colors.brand : colors.inkFaint} />
-          </Pressable>
-        );
-      })}
-    </View>
-  );
-}
 
 
 
@@ -434,137 +214,6 @@ function FilterBar({
     </Pressable>
   );
 }
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// ConflictBanner
-// -----------------------------------------------------------
-//
-// Danger strip above the list summarizing how many lectures
-// overlap. Copy comes from the pluralized
-// schedule.conflictBanner_one/_few/_other keys — Lithuanian
-// needs all three forms.
-//
-// Used by:
-//   - ScheduleScreen (below) — only under an active group
-//     filter, and only when conflicts exist
-// -----------------------------------------------------------
-
-function ConflictBanner({ count }: { count: number }) {
-
-  const { t } = useTranslation();
-  const { colors } = useTheme();
-
-
-  return (
-    // accessible + a polite live region — role='alert' alone is
-    // a no-op announcement-wise on RN
-    <View
-      accessible
-      accessibilityLiveRegion="polite"
-      className="mx-md mt-3 flex-row items-center rounded-xl border border-danger bg-danger-soft px-3.5 py-2.5"
-    >
-      <Ionicons name="alert-circle" size={16} color={colors.danger} />
-      <Text className="ml-2 flex-1 font-raleway-bold text-xs text-danger">
-        {t('schedule.conflictBanner', { count })}
-      </Text>
-    </View>
-  );
-}
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// LessonCard
-// -----------------------------------------------------------
-//
-// One timetable entry: left accent bar, title + teacher, room
-// chip, and a footer with the time range and group·semester.
-// A conflicting lesson flips to the danger wash with an
-// "overlap" chip. Times render raw — timeStart/timeEnd are
-// wall-clock "HH:MM" strings from the schedule API, not the
-// UTC-broken preformatted timestamps other endpoints carry.
-// Memoized: with a stable renderItem only the cards whose
-// props changed re-render.
-//
-// Used by:
-//   - ScheduleScreen (below) — FlatList renderItem
-// -----------------------------------------------------------
-
-const LessonCard = memo(function LessonCard({ lesson, conflict }: { lesson: ScheduleLesson; conflict: boolean }) {
-
-  const { t } = useTranslation();
-  const { colors } = useTheme();
-
-
-  return (
-    <View
-      className={`overflow-hidden rounded-xl ${conflict ? 'bg-danger-soft' : 'bg-surface'}`}
-      style={CARD_SHADOW}
-    >
-      <View className="flex-row">
-
-        <View className={`w-1 ${conflict ? 'bg-danger' : 'bg-brand'}`} />
-
-        <View className="flex-1 p-md">
-
-          {/* The wash alone is easy to miss — the chip names the
-              problem; bordered, since a soft-on-soft fill would
-              vanish into the card's own danger wash */}
-          {conflict && (
-            <View className="mb-2 flex-row items-center self-start rounded-lg border border-danger px-2.5 py-1">
-              <Ionicons name="alert-circle" size={14} color={colors.danger} />
-              <Text className="ml-1.5 font-raleway-bold text-xs text-danger">
-                {t('schedule.conflict')}
-              </Text>
-            </View>
-          )}
-
-          <View className="flex-row items-start justify-between">
-            <View className="mr-3 flex-1">
-              <Text className="font-raleway-bold text-base leading-6 text-ink" numberOfLines={2}>
-                {lesson.title}
-              </Text>
-              <Text className="mt-1.5 font-raleway text-sm text-ink-soft" numberOfLines={1}>
-                {lesson.teacher}
-              </Text>
-            </View>
-            <View className="rounded-lg bg-brand-soft px-3.5 py-2" style={{ maxWidth: 130 }}>
-              <Text className="font-raleway-bold text-xs text-brand" numberOfLines={1}>
-                {lesson.room}
-              </Text>
-            </View>
-          </View>
-
-          <View
-            className={`mt-3.5 flex-row items-center justify-between border-t pt-3 ${conflict ? 'border-danger' : 'border-line'}`}
-          >
-            <View className="flex-row items-center gap-2">
-              <Ionicons name="time-outline" size={14} color={conflict ? colors.danger : colors.brand} />
-              <Text className={`font-raleway-bold text-sm ${conflict ? 'text-danger' : 'text-brand'}`}>
-                {lesson.timeStart} {'–'} {lesson.timeEnd}
-              </Text>
-            </View>
-            <Text className="font-raleway text-xs text-ink-soft">
-              {lesson.group} {'·'} {lesson.semester}
-            </Text>
-          </View>
-
-        </View>
-
-      </View>
-    </View>
-  );
-});
 
 
 
@@ -706,9 +355,9 @@ function FilterModal({
 
   // Folded on both sides so 'birz' finds 'Biržietienė'
   const visibleTeachers = useMemo(() => {
-    const query = foldLt(teacherQuery.trim());
+    const query = foldForSearch(teacherQuery.trim());
     if (!query) return teachers;
-    return teachers.filter((name) => foldLt(name).includes(query));
+    return teachers.filter((name) => foldForSearch(name).includes(query));
   }, [teachers, teacherQuery]);
 
 
@@ -902,11 +551,13 @@ export default function ScheduleScreen() {
   const { cache } = useDataEngine();
 
   const { t } = useTranslation();
+  // JS-side colors for the icons handed into the kit chrome
+  const { colors } = useTheme();
 
 
   // Opens on today's tab — weekends included, now that the
   // full week is reachable
-  const [selectedDay, setSelectedDay] = useState(() => jsDayToApi(new Date().getDay()));
+  const [selectedDay, setSelectedDay] = useState(() => dayIndexOf(new Date()));
 
 
   // How the timetable renders (persisted), and through whose
@@ -1185,7 +836,11 @@ export default function ScheduleScreen() {
   useEffect(() => {
     if (!prefsLoaded || !filtersFetched) return;
     if (semesterExplicit || selectedSemester !== null) return;
-    const newest = newestSemester(semesters);
+    // Engine ranking: the label year is the academic year's
+    // first calendar year, so a spring label outranks its own
+    // autumn — the hand-rolled picker this replaces had that
+    // BACKWARDS and defaulted to the stale autumn all spring
+    const newest = newestSemesterKey(semesters);
     // eslint-disable-next-line react-hooks/set-state-in-effect -- the semester list arriving is the event; the newest-label default applies once, in response
     if (newest) setSelectedSemester(newest);
   }, [prefsLoaded, filtersFetched, semesters, selectedSemester, semesterExplicit]);
@@ -1311,7 +966,7 @@ export default function ScheduleScreen() {
     const marker = new Date().toDateString();
     if (marker === dayMarkerRef.current) return;
     dayMarkerRef.current = marker;
-    setSelectedDay(jsDayToApi(new Date().getDay()));
+    setSelectedDay(dayIndexOf(new Date()));
   }, []);
 
   useFocusEffect(evaluateToday);
@@ -1389,20 +1044,37 @@ export default function ScheduleScreen() {
     viewMode !== 'list' ? 0 : perspective === 'teacher' ? teacherDayCards.filter((card) => card.conflict).length : conflictIds.size;
 
 
-  // Stable renderItem so the memoized cards only re-render
-  // when their own lesson or conflict flag changes
-  const renderLesson = useCallback(
-    ({ item }: { item: ScheduleLesson }) => (
-      <LessonCard lesson={item} conflict={conflictIds.has(item.id)} />
+  // The wire row onto the kit card's NEUTRAL shape — the one
+  // mapping point where ScheduleLesson is allowed to touch the
+  // kit; stable renderItems so only changed cards re-render
+  const lessonCard = useCallback(
+    (lesson: ScheduleLesson, conflict: boolean) => (
+      <LessonCard
+        title={lesson.title}
+        person={lesson.teacher}
+        room={lesson.room}
+        timeStart={lesson.timeStart}
+        timeEnd={lesson.timeEnd}
+        footnote={`${lesson.group} · ${lesson.semester}`}
+        conflict={conflict}
+        conflictIcon={<Ionicons name="alert-circle" size={14} color={colors.danger} />}
+        timeIcon={
+          <Ionicons name="time-outline" size={14} color={conflict ? colors.danger : colors.brand} />
+        }
+      />
     ),
-    [conflictIds],
+    [colors],
+  );
+
+  const renderLesson = useCallback(
+    ({ item }: { item: ScheduleLesson }) => lessonCard(item, conflictIds.has(item.id)),
+    [lessonCard, conflictIds],
   );
 
   const renderTeacherCard = useCallback(
-    ({ item }: { item: { conflict: boolean; lesson: ScheduleLesson } }) => (
-      <LessonCard lesson={item.lesson} conflict={item.conflict} />
-    ),
-    [],
+    ({ item }: { item: { conflict: boolean; lesson: ScheduleLesson } }) =>
+      lessonCard(item.lesson, item.conflict),
+    [lessonCard],
   );
 
 
@@ -1423,16 +1095,21 @@ export default function ScheduleScreen() {
 
   return (
     <Screen>
+      {/* TimetableProvider over the WHOLE screen: the kit chrome
+          (stepper, tabs, banner, cards) reads theme and day
+          names from it, not just the grid views */}
+      <TimetableHost>
 
       <Header
         title={t('schedule.title')}
         right={
           viewMode === 'week' ? undefined : (
             <DayStepper
-              label={t(`schedule.${DAY_SHORT_KEYS[selectedDay]}`)}
-              fullLabel={t(`schedule.${DAY_FULL_KEYS[selectedDay]}`)}
+              day={selectedDay}
               onPrev={() => changeDay(-1)}
               onNext={() => changeDay(1)}
+              prevIcon={<Ionicons name="chevron-back" size={20} color={colors.onBrand} />}
+              nextIcon={<Ionicons name="chevron-forward" size={20} color={colors.onBrand} />}
             />
           )
         }
@@ -1444,13 +1121,30 @@ export default function ScheduleScreen() {
           activeCount={activeFilterCount}
           onPress={() => setModalVisible(true)}
         />
-        <ViewModeSwitch mode={viewMode} onChange={setViewMode} />
+        <View className="mr-md">
+          <ViewModeSwitch
+            mode={viewMode}
+            onChange={setViewMode}
+            renderIcon={(candidate, color, size) => (
+              <Ionicons
+                name={candidate === 'list' ? 'list-outline' : candidate === 'day' ? 'time-outline' : 'grid-outline'}
+                size={size}
+                color={color as string}
+              />
+            )}
+          />
+        </View>
       </View>
 
       {viewMode !== 'week' && <DayTabs days={visibleDays} selectedDay={selectedDay} onSelect={setSelectedDay} />}
 
       {bodyCachedAt !== null && <CachedBanner cachedAt={bodyCachedAt} />}
-      {!bodyLoading && bannerCount > 0 && <ConflictBanner count={bannerCount} />}
+      {!bodyLoading && bannerCount > 0 && (
+        <ConflictBanner
+          count={bannerCount}
+          icon={<Ionicons name="alert-circle" size={16} color={colors.danger} />}
+        />
+      )}
 
       {/* Body — spinner, error with retry, then the active
           path: the group card list exactly as it always was,
@@ -1508,19 +1202,17 @@ export default function ScheduleScreen() {
           />
         )
       ) : (
-        <TimetableHost>
-          <View className="flex-1 px-2 pt-2">
-            <TimetableView
-              entries={perspectiveEntries}
-              skipped={normalized.skipped}
-              scope={conflictScope}
-              mode={viewMode}
-              day={selectedDay}
-              onChangeDay={changeDay}
-              onPressLesson={setSheetLesson}
-            />
-          </View>
-        </TimetableHost>
+        <View className="flex-1 px-2 pt-2">
+          <TimetableView
+            entries={perspectiveEntries}
+            skipped={normalized.skipped}
+            scope={conflictScope}
+            mode={viewMode}
+            day={selectedDay}
+            onChangeDay={changeDay}
+            onPressLesson={setSheetLesson}
+          />
+        </View>
       )}
 
       <FilterModal
@@ -1540,6 +1232,7 @@ export default function ScheduleScreen() {
 
       <LessonSheet lesson={sheetLesson} onClose={() => setSheetLesson(null)} />
 
+      </TimetableHost>
     </Screen>
   );
 }

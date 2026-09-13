@@ -2,7 +2,7 @@
 //  [*] Tests — small utilities
 // -----------------------------------------------------------
 
-import { formatMinutes, newestSemester, posToSlot, semesterRank } from '../utils';
+import { formatMinutes, newestSemester, newestSemesterKey, posToSlot, semesterRank } from '../utils';
 import type { TimetableEntry } from '../types';
 
 const L = (id: string, termKey?: string): TimetableEntry => ({
@@ -47,5 +47,20 @@ describe('posToSlot', () => {
   it('clamps the edges to real slots', () => {
     expect(posToSlot(1, 1, window)).toEqual({ day: 6, snappedStartMin: 1230 });
     expect(posToSlot(-0.1, -0.5, window)).toEqual({ day: 0, snappedStartMin: 480 });
+  });
+});
+
+describe('newestSemesterKey', () => {
+  it('spring outranks its own autumn — the label year is the academic year', () => {
+    // The bug this replaces: a host ranking R above P defaulted
+    // to the stale autumn all spring long
+    expect(newestSemesterKey(['2025-R', '2025-P'])).toBe('2025-P');
+    expect(newestSemesterKey(['2025-P', '2026-R'])).toBe('2026-R');
+  });
+
+  it('trims labels, skips unparsable ones, and yields null on an all-junk catalog', () => {
+    expect(newestSemesterKey([' 2025-R ', '2025-pavasaris'])).toBe('2025-R');
+    expect(newestSemesterKey(['ruduo', ''])).toBeNull();
+    expect(newestSemesterKey([])).toBeNull();
   });
 });

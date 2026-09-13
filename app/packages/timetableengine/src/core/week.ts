@@ -53,6 +53,14 @@ export const parseISO = (date: string): number => {
 export const toISO = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
 
 
+// A local Date to the timetable's day index — JS counts
+// 0=Sunday, every entry.day here (and the KNF wire) counts
+// 0=Monday…6=Sunday
+export function dayIndexOf(date: Date): number {
+  return (date.getDay() + 6) % 7;
+}
+
+
 // The Monday of the week holding the given date
 export function mondayOf(dateISO: string): string {
   const ms = parseISO(dateISO);

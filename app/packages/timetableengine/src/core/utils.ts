@@ -33,6 +33,27 @@ export function semesterRank(termKey: string): number {
 }
 
 
+// The most recent semester among CATALOG labels — hosts fetch
+// their filter lists as bare 'YYYY-P/R' strings, not entries.
+// Ranking is semesterRank's: the label year is the academic
+// year's FIRST calendar year, so "2025-P" (spring, held in
+// calendar 2026) outranks "2025-R" (its autumn); unparsable
+// labels never win, and a catalog of only those yields null.
+export function newestSemesterKey(keys: readonly string[]): string | null {
+  let best: string | null = null;
+  let bestRank = -1;
+  for (const key of keys) {
+    const trimmed = key.trim();
+    const rank = semesterRank(trimmed);
+    if (rank > bestRank) {
+      bestRank = rank;
+      best = trimmed;
+    }
+  }
+  return best;
+}
+
+
 // The most recent semester present in the data — the default
 // selection when the host has no saved choice
 export function newestSemester(entries: readonly TimetableEntry[]): string | undefined {

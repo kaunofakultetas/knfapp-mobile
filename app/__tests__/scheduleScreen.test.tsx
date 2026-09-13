@@ -30,6 +30,12 @@ jest.mock('@knf/dataengine', () => ({
 }));
 jest.mock('@/context/NetworkContext', () => ({ showToast: jest.fn() }));
 jest.mock('@/components/CachedBanner', () => () => null);
+// The format service pulls the whole i18n bootstrap — mocked
+// like every screen test does; the fold keeps its real
+// behavior so the teacher search cases stay meaningful
+jest.mock('@/services/format', () => ({
+  foldForSearch: (text: string) => text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase(),
+}));
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: { count?: number }) => (opts && 'count' in opts ? `${key}:${opts.count}` : key),
@@ -119,7 +125,11 @@ const flush = () =>
 
 beforeEach(async () => {
   mockFetchSchedule.mockReset().mockResolvedValue({ lessons: [row('a')] });
-  mockFetchFilters.mockReset().mockResolvedValue({ groups: ['ISKS-1', 'PDF-2'], semesters: ['2026-R', '2026-P'] });
+  // Labels key on the academic year's FIRST calendar year, so
+  // within one label-year P (its spring) outranks R (its
+  // autumn) — the engine's newestSemesterKey enforces that
+  // now. Across years, as here, the newer year simply wins.
+  mockFetchFilters.mockReset().mockResolvedValue({ groups: ['ISKS-1', 'PDF-2'], semesters: ['2025-P', '2026-R'] });
   mockFetchWeek.mockReset().mockResolvedValue({ lessons: [row('a'), row('b', { group: 'PDF-2' })] });
   await AsyncStorage.clear();
 });
@@ -185,7 +195,8 @@ describe('timetable view gating', () => {
   it('week mode without a group prompts for one and fetches NO week dataset', async () => {
     const view = await render(<ScheduleScreen />);
     await flush();
-    await fireEvent.press(view.getByLabelText('schedule.viewWeek'));
+    // The kit's ViewModeSwitch announces its own catalog (EN default env here)
+    await fireEvent.press(view.getByLabelText('Week'));
     await flush();
     expect(view.getByText('empty:schedule.pickGroup')).toBeTruthy();
     expect(mockFetchWeek).not.toHaveBeenCalled();

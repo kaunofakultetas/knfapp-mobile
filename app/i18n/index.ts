@@ -17,11 +17,14 @@
 // Intl.PluralRules polyfill — Hermes builds may ship without
 // it, and i18next then collapses the Lithuanian _few forms to
 // one/other. Both entries self-guard and no-op when native
-// support exists
-import '@formatjs/intl-getcanonicallocales/polyfill';
-import '@formatjs/intl-pluralrules/polyfill';
-import '@formatjs/intl-pluralrules/locale-data/lt';
-import '@formatjs/intl-pluralrules/locale-data/en';
+// support exists. The explicit .js subpaths matter: the
+// packages' exports maps list only the suffixed forms, which
+// Metro forgives but jest's resolver enforces — a route that
+// (transitively) imports this file must stay testable
+import '@formatjs/intl-getcanonicallocales/polyfill.js';
+import '@formatjs/intl-pluralrules/polyfill.js';
+import '@formatjs/intl-pluralrules/locale-data/lt.js';
+import '@formatjs/intl-pluralrules/locale-data/en.js';
 
 // i18next core + React bindings
 import i18n from 'i18next';

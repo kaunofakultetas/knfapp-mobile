@@ -20,6 +20,11 @@ export { usePagePan } from './hooks/usePagePan';
 
 export { default as WeekGrid } from './WeekGrid';
 export { default as DayTimeline } from './DayTimeline';
+export { default as ConflictBanner } from './chrome/ConflictBanner';
+export { default as DayStepper } from './chrome/DayStepper';
+export { default as DayTabs } from './chrome/DayTabs';
+export { default as LessonCard, type LessonCardProps } from './chrome/LessonCard';
+export { default as ViewModeSwitch, type TimetableViewMode } from './chrome/ViewModeSwitch';
 export { default as DayColumn } from './grid/DayColumn';
 export { default as HourAxis, AXIS_WIDTH } from './grid/HourAxis';
 export { default as LessonCell, FULL_MIN_HEIGHT, MEDIUM_MIN_HEIGHT } from './grid/LessonCell';

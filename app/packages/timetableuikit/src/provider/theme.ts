@@ -21,6 +21,9 @@ import { DEFAULT_SUBJECT_COLORS } from '../core/palette';
 
 export interface TimetableColors {
   brand: string;        // today's day chip, selection accents
+  brandSoft: string;    // LessonCard's room chip ground
+  brandText: string;    // brand-toned text on surfaces (AA-safe
+                        // where small brand text would fail)
   onBrand: string;      // text on brand fills
   ink: string;          // titles
   inkSoft: string;      // times, rooms
@@ -93,6 +96,8 @@ export function resolveTheme(theme: TimetableTheme): TimetableResolvedTheme {
 export const defaultTheme: TimetableTheme = {
   colors: {
     brand: '#2F6FED',
+    brandSoft: '#E4ECFF',
+    brandText: '#2457C5',
     onBrand: '#FFFFFF',
     ink: '#111827',
     inkSoft: '#4B5563',

@@ -13,11 +13,11 @@
 export { DAY_MINUTES, normalizeEntries, parseTimeToMinutes } from './core/normalize';
 export { compareEntries, placeDay } from './core/layout';
 export { deriveWindow } from './core/window';
-export { DAY_MS, buildWeek, isoWeekNumber, materializeWeek, mondayOf, parseISO, toISO, visibleDays } from './core/week';
+export { DAY_MS, buildWeek, dayIndexOf, isoWeekNumber, materializeWeek, mondayOf, parseISO, toISO, visibleDays } from './core/week';
 export { annotateConflicts, conflictIds } from './core/conflicts';
 export { nowState } from './core/now';
 export { forGroup, forTeacher, listTeachers } from './core/perspective';
-export { formatMinutes, newestSemester, posToSlot, semesterRank } from './core/utils';
+export { formatMinutes, newestSemester, newestSemesterKey, posToSlot, semesterRank } from './core/utils';
 export { normalizeKnf, toTimetableEntry } from './adapters/knf';
 
 export type {

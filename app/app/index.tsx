@@ -37,6 +37,10 @@
 // -----------------------------------------------------------
 
 // Redirect target and waiting state
+// The shipping flags — an accounts-less build never routes a
+// first-run user through the login screen
+import { isFeatureEnabled } from '@/services/features';
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
@@ -150,7 +154,7 @@ export default function IndexScreen() {
   useEffect(() => {
     if (!hydrated || onboarded === null) return;
 
-    if (!isAuthenticated && !onboarded) {
+    if (isFeatureEnabled('accounts') && !isAuthenticated && !onboarded) {
       // Consumed and discarded on purpose (file header); the
       // gate opens once the discard is done, so the warm
       // resolver cannot pick the tap up either

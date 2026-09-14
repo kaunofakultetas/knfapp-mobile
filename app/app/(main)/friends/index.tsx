@@ -25,6 +25,10 @@
 // -----------------------------------------------------------
 
 // Session state
+// The shipping gate — features.json decides whether this
+// module renders or shows the not-ready screen
+import withFeature from '@/components/FeatureGate';
+
 import { useAuth } from '@/context/AuthContext';
 import { useNetwork } from '@/context/NetworkContext';
 
@@ -198,7 +202,7 @@ const FriendRow = memo(function FriendRow({
 //   - app/(main)/_layout.tsx — route /(main)/friends
 // -----------------------------------------------------------
 
-export default function FriendsScreen() {
+function FriendsScreen() {
 
   const { isAuthenticated } = useAuth();
   const { isConnected } = useNetwork();
@@ -347,3 +351,8 @@ export default function FriendsScreen() {
     </Screen>
   );
 }
+
+
+// The gate wraps the export, so a disabled module's screen
+// never mounts — see components/FeatureGate.tsx
+export default withFeature('social', FriendsScreen);

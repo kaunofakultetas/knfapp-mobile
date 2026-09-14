@@ -28,6 +28,10 @@
 // -----------------------------------------------------------
 
 // Screen chrome
+// The shipping gate — features.json decides whether this
+// module renders or shows the not-ready screen
+import withFeature from '@/components/FeatureGate';
+
 import { Header, Screen } from '@/components/ui';
 import { useTheme } from '@/hooks/useTheme';
 
@@ -72,7 +76,7 @@ import { useTranslation } from 'react-i18next';
 //   - expo-router — the assistant tab of (main)/tabs
 // -----------------------------------------------------------
 
-export default function AssistantScreen() {
+function AssistantScreen() {
 
   const { t, i18n } = useTranslation();
   const { colors } = useTheme();
@@ -162,3 +166,8 @@ export default function AssistantScreen() {
     </Screen>
   );
 }
+
+
+// The gate wraps the export, so a disabled module's tab
+// screen never mounts even on a direct navigation
+export default withFeature('assistant', AssistantScreen);

@@ -36,6 +36,10 @@
 // -----------------------------------------------------------
 
 // UI kit and theming
+// The shipping gate — an accounts-less build carries no
+// sign-in surface at all
+import withFeature from '@/components/FeatureGate';
+
 import { Button, Input } from '@/components/ui';
 import { useTheme } from '@/hooks/useTheme';
 
@@ -576,7 +580,7 @@ function LoginStep({ returnTo, returnTarget, onBack, onGuest }: LoginStepProps) 
 //     with ?returnTo= for the post-login return trip
 // -----------------------------------------------------------
 
-export default function LoginScreen() {
+function LoginScreen() {
 
   const { t } = useTranslation();
   const router = useRouter();
@@ -690,3 +694,7 @@ export default function LoginScreen() {
     </KeyboardAvoidingView>
   );
 }
+
+
+// The gate wraps the export — see components/FeatureGate.tsx
+export default withFeature('accounts', LoginScreen);

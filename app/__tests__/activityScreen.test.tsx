@@ -19,6 +19,21 @@ import ActivityScreen from '@/app/(main)/activity/index';
 // The ui barrel drags the API client and the i18n polyfills in
 // through Avatar — plain stand-ins keep the screen's own logic
 // under test
+// This suite pins its module's BEHAVIOR, so the shipping
+// flags are pinned all-on — the real features.json (whatever
+// the current release preset says) must never decide whether
+// these tests see their subject
+jest.mock('@/services/features', () => {
+  const { TABS } = require('@/constants/tabs');
+  return {
+    isFeatureEnabled: () => true,
+    FEATURES: { accounts: true, news: true, chat: true, social: true, schedule: true, assistant: true, studentId: true, map: true },
+    ENABLED_TABS: TABS,
+    ENABLED_TAB_KEYS: new Set(TABS.map((tab: { key: string }) => tab.key)),
+    TAB_FEATURES: {},
+  };
+});
+
 jest.mock('@/components/ui', () => {
   const { Text, View } = require('react-native');
   return {

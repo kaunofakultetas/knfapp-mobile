@@ -43,7 +43,8 @@
    values are mutable boxes by contract (`.value` writes are the
    documented API); the compiler rule reads them as frozen */
 
-import { TABS, type TabDef } from '@/constants/tabs';
+import { type TabDef } from '@/constants/tabs';
+import { ENABLED_TABS, isFeatureEnabled } from '@/services/features';
 
 // Drawer state, settings, auth and theme
 import { useApp } from '@/context/AppContext';
@@ -85,11 +86,21 @@ type IoniconName = keyof typeof Ionicons.glyphMap;
 // rows need one of the listed roles
 const MORE: { key: string; icon: IoniconName; route: Href; labelKey: string; auth?: boolean; roles?: string[] }[] = [
   { key: 'info', icon: 'information-circle-outline', route: '/(main)/info', labelKey: 'info.title' },
+  // The social pair ships behind features.json — filtered out
+  // below while the module's flag is off
   { key: 'friends', icon: 'people-outline', route: '/(main)/friends', labelKey: 'friends.title', auth: true },
   { key: 'activity', icon: 'notifications-outline', route: '/(main)/activity', labelKey: 'activity.title', auth: true },
   { key: 'admin', icon: 'shield-checkmark-outline', route: '/(main)/admin', labelKey: 'admin.title', roles: ['admin', 'curator'] },
   { key: 'map-editor', icon: 'construct-outline', route: '/(main)/map-editor', labelKey: 'mapEditor.title', roles: ['admin', 'curator'] },
 ];
+
+// The drawer rows the shipping flags allow: the social pair
+// needs the social module, the map editor its map module
+const SHIPPED_MORE = MORE.filter((item) => {
+  if (item.key === 'friends' || item.key === 'activity') return isFeatureEnabled('social');
+  if (item.key === 'map-editor') return isFeatureEnabled('map');
+  return true;
+});
 
 // The panel: most of the screen on phones, capped on tablets
 const MAX_PANEL_WIDTH = 320;
@@ -174,15 +185,19 @@ function IdentityCard({ onNavigate }: { onNavigate: (route: Href) => void }) {
           {t('settings.guestMessage')}
         </Text>
         {/* A white pill on the burgundy card — the kit's variants
-            are all designed for surfaces, not for brand backgrounds */}
-        <Pressable
-          className="mt-sm h-10 self-start justify-center rounded-full bg-on-brand px-lg active:opacity-85"
-          onPress={() => onNavigate({ pathname: '/login', params: { returnTo: returnHref } } as Href)}
-          accessibilityRole="button"
-          accessibilityLabel={t('settings.login')}
-        >
-          <Text className="font-raleway-bold text-sm text-brand">{t('settings.login')}</Text>
-        </Pressable>
+            are all designed for surfaces, not for brand
+            backgrounds. An accounts-less build has no door for
+            the pill to open, so it does not render one */}
+        {isFeatureEnabled('accounts') && (
+          <Pressable
+            className="mt-sm h-10 self-start justify-center rounded-full bg-on-brand px-lg active:opacity-85"
+            onPress={() => onNavigate({ pathname: '/login', params: { returnTo: returnHref } } as Href)}
+            accessibilityRole="button"
+            accessibilityLabel={t('settings.login')}
+          >
+            <Text className="font-raleway-bold text-sm text-brand">{t('settings.login')}</Text>
+          </Pressable>
+        )}
         </View>
       </SafeAreaView>
     );
@@ -630,7 +645,7 @@ export default function Sidebar() {
   };
 
 
-  const moreRows = MORE.filter((item) => {
+  const moreRows = SHIPPED_MORE.filter((item) => {
     if (item.auth && !isAuthenticated) return false;
     if (item.roles && !(user && item.roles.includes(user.role))) return false;
     return true;
@@ -685,7 +700,7 @@ export default function Sidebar() {
               {t('menu.sections')}
             </Text>
             <Text className="mb-xs px-2 font-raleway text-xs text-ink-faint">{t('menu.pinnedHint')}</Text>
-            {TABS.map((item) => (
+            {ENABLED_TABS.map((item) => (
               <SectionRow
                 key={item.key}
                 item={item}

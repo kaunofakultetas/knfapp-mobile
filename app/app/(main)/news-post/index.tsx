@@ -40,6 +40,11 @@
 // -----------------------------------------------------------
 
 // Shared news pieces — cover defence, poll
+// The shipping gate — features.json decides whether this
+// module renders or shows the not-ready screen
+import withFeature from '@/components/FeatureGate';
+import { isFeatureEnabled } from '@/services/features';
+
 import { resolveCoverUri } from '@/components/news/NewsCard';
 import PollWidget from '@/components/news/PollWidget';
 
@@ -371,16 +376,24 @@ function ArticleHeader({
 
       {post.sourceUrl ? <SourceLink onPress={onOpenSource} /> : null}
 
-      <ActionBar
-        post={post}
-        commentCount={commentCount}
-        onPressComment={onPressComment}
-        onShare={onShare}
-      />
+      {/* Without the social module the article ends here —
+          no interaction strip, no comments heading below */}
+      {isFeatureEnabled('social') ? (
+        <>
+          <ActionBar
+            post={post}
+            commentCount={commentCount}
+            onPressComment={onPressComment}
+            onShare={onShare}
+          />
 
-      <Text className="px-md pb-sm pt-md text-lg font-raleway-bold text-ink">
-        {t('newsPost.commentsTitle')}
-      </Text>
+          <Text className="px-md pb-sm pt-md text-lg font-raleway-bold text-ink">
+            {t('newsPost.commentsTitle')}
+          </Text>
+        </>
+      ) : (
+        <View className="h-4" />
+      )}
 
     </View>
   );
@@ -517,7 +530,7 @@ function CommentsFallback({
 //     (pushed from the news feed and profile post lists)
 // -----------------------------------------------------------
 
-export default function NewsPostScreen() {
+function NewsPostScreen() {
 
   const postId = useRouteParam('postId');
   const { isAuthenticated, user } = useAuth();
@@ -890,7 +903,9 @@ export default function NewsPostScreen() {
         <FlatList
           ref={commentsListRef}
           className="flex-1"
-          data={commentsFeed.items}
+          // A social-less build renders the article alone — the
+          // thread rows, their fallback and the composer all go
+          data={isFeatureEnabled('social') ? commentsFeed.items : []}
           onScroll={(event) => {
             scrollOffsetRef.current = event.nativeEvent.contentOffset.y;
           }}
@@ -909,14 +924,16 @@ export default function NewsPostScreen() {
             />
           }
           ListEmptyComponent={
-            <CommentsFallback
-              loading={commentsFeed.loading || commentsFeed.refreshing}
-              error={commentsFeed.error}
-              onRetry={() => void commentsFeed.refresh()}
-            />
+            isFeatureEnabled('social') ? (
+              <CommentsFallback
+                loading={commentsFeed.loading || commentsFeed.refreshing}
+                error={commentsFeed.error}
+                onRetry={() => void commentsFeed.refresh()}
+              />
+            ) : null
           }
           ListFooterComponent={
-            showViewAll ? <ViewAllRow postId={postId} count={commentTotal} /> : null
+            isFeatureEnabled('social') && showViewAll ? <ViewAllRow postId={postId} count={commentTotal} /> : null
           }
           refreshControl={
             <RefreshSpinner
@@ -928,14 +945,22 @@ export default function NewsPostScreen() {
         />
 
         {/* Guests see the kit's sign-in prompt instead of the
-            field — auth adds the comment, never gates reading */}
-        <CommentComposer
-          canComment={isAuthenticated}
-          onSubmit={handleSubmitComment}
-          onPressSignIn={openLogin}
-        />
+            field — auth adds the comment, never gates reading;
+            a social-less build carries no composer at all */}
+        {isFeatureEnabled('social') && (
+          <CommentComposer
+            canComment={isAuthenticated}
+            onSubmit={handleSubmitComment}
+            onPressSignIn={openLogin}
+          />
+        )}
 
       </KeyboardAvoidingView>
     </Screen>
   );
 }
+
+
+// The gate wraps the export, so a disabled module's screen
+// never mounts — see components/FeatureGate.tsx
+export default withFeature('news', NewsPostScreen);

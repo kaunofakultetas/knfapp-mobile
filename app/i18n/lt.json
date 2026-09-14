@@ -63,7 +63,9 @@
     "showPassword": "Rodyti slaptažodį",
     "hidePassword": "Slėpti slaptažodį",
     "clear": "Išvalyti",
-    "error": "Įvyko klaida"
+    "error": "Įvyko klaida",
+    "featureUnavailableTitle": "Ši dalis dar ruošiama",
+    "featureUnavailableHint": "Funkciją įjungsime artimiausiu metu"
   },
   "auth": {
     "sessionExpired": "Sesija baigėsi – prisijunkite iš naujo"

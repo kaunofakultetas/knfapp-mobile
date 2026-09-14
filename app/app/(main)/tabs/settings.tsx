@@ -53,6 +53,10 @@
 // -----------------------------------------------------------
 
 // Device-local settings and the session
+// The shipping flags — an accounts-less build hides the
+// sign-in card entirely
+import { isFeatureEnabled } from '@/services/features';
+
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { showToast } from '@/context/NetworkContext';
@@ -736,13 +740,21 @@ export default function SettingsScreen() {
       >
 
         {/* Account — the signed-in card or the guest prompt */}
-        <View className="mb-sm">
-          <SectionTitle>{t('settings.account')}</SectionTitle>
-        </View>
-        {isAuthenticated && user ? (
-          <UserCard user={user} loggingOut={loggingOut} onLogout={handleLogout} />
-        ) : (
-          <GuestCard />
+        {/* An accounts-less build drops the whole section for
+            guests — a sign-in card with no door behind it would
+            only mislead; a signed-in session (impossible in that
+            build, but harmless) keeps its card */}
+        {(isFeatureEnabled('accounts') || (isAuthenticated && user)) && (
+          <>
+            <View className="mb-sm">
+              <SectionTitle>{t('settings.account')}</SectionTitle>
+            </View>
+            {isAuthenticated && user ? (
+              <UserCard user={user} loggingOut={loggingOut} onLogout={handleLogout} />
+            ) : (
+              <GuestCard />
+            )}
+          </>
         )}
 
         {/* Preferences — theme and language */}

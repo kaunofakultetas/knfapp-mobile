@@ -20,6 +20,21 @@
 //  phantom card into this week.
 // -----------------------------------------------------------
 
+// This suite pins its module's BEHAVIOR, so the shipping
+// flags are pinned all-on — the real features.json (whatever
+// the current release preset says) must never decide whether
+// these tests see their subject
+jest.mock('@/services/features', () => {
+  const { TABS } = require('@/constants/tabs');
+  return {
+    isFeatureEnabled: () => true,
+    FEATURES: { accounts: true, news: true, chat: true, social: true, schedule: true, assistant: true, studentId: true, map: true },
+    ENABLED_TABS: TABS,
+    ENABLED_TAB_KEYS: new Set(TABS.map((tab: { key: string }) => tab.key)),
+    TAB_FEATURES: {},
+  };
+});
+
 const mockFetchEvents = jest.fn();
 const mockFetchFilters = jest.fn();
 jest.mock('@/services/api', () => ({
@@ -249,6 +264,27 @@ describe('the dated group window', () => {
       ...fetchWindow(toISO(parseISO(monday) - 7 * DAY_MS)),
       undefined,
     ]);
+  });
+
+  it('"all groups" rows sharing one event id render side by side under distinct keys', async () => {
+    // A lecture shared by two groups arrives once PER GROUP with
+    // the SAME event id — the list must key on (event × group),
+    // or React logs the duplicate-key error the logged-out
+    // (filterless) schedule tab surfaced
+    mockFetchEvents.mockResolvedValue({
+      events: [eventRow('shared'), eventRow('shared', { group: 'PDF-2' })],
+    });
+    const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const view = await render(<ScheduleScreen />);
+      await flush();
+      expect(view.getAllByText('Lesson shared')).toHaveLength(2);
+      const complained = spy.mock.calls.some((call) =>
+        call.some((arg) => typeof arg === 'string' && arg.includes('same key')));
+      expect(complained).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('a dead wire serves the offline cache instead of an error', async () => {

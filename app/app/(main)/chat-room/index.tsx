@@ -58,6 +58,10 @@
 // -----------------------------------------------------------
 
 // Chat data hooks — list/socket, sends, reactions, typing
+// The shipping gate — features.json decides whether this
+// module renders or shows the not-ready screen
+import withFeature from '@/components/FeatureGate';
+
 import { useChatComposer, type UseChatComposerResult } from '@/hooks/chat/useChatComposer';
 import { useVoiceRecorder } from '@/hooks/chat/useVoiceRecorder';
 import { TEMP_ID_PREFIX, useChatMessages, type ParticipantProfile, type UseChatMessagesResult } from '@/hooks/chat/useChatMessages';
@@ -1752,7 +1756,7 @@ function ChatRoom({ convId, type, unreadCount }: { convId: string; type?: string
 //     (params: conversationId, type)
 // -----------------------------------------------------------
 
-export default function ChatRoomScreen() {
+function ChatRoomScreen() {
 
   const { conversationId, type, unread } = useLocalSearchParams<{
     conversationId: string;
@@ -1801,3 +1805,8 @@ export default function ChatRoomScreen() {
 
   return <ChatRoom convId={convId} type={type} unreadCount={Number(unread) || 0} />;
 }
+
+
+// The gate wraps the export, so a disabled module's screen
+// never mounts — see components/FeatureGate.tsx
+export default withFeature('chat', ChatRoomScreen);

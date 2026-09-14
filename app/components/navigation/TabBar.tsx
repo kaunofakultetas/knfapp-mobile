@@ -29,6 +29,7 @@
 
 // The shared tab roster and the pinned-tab setting
 import { TABS } from '@/constants/tabs';
+import { ENABLED_TAB_KEYS } from '@/services/features';
 import { useApp } from '@/context/AppContext';
 
 // Unread badge and theme
@@ -234,16 +235,20 @@ export default function TabBar({ state, descriptors, navigation, insets }: Botto
   const { pinnedTabs } = useApp();
 
 
-  // Visibility comes from the app's own pinned-tab setting —
-  // never from sniffing how expo-router happens to represent
-  // `href: null` in the descriptors (an undocumented internal).
-  // A hidden route can still be the focused one (opened from
-  // the drawer while unpinned): keep it in the bar while it is,
-  // so the reader never stands on a screen with no selected tab
+  // Visibility comes from the app's own pinned-tab setting AND
+  // the shipping flags — never from sniffing how expo-router
+  // happens to represent `href: null` in the descriptors (an
+  // undocumented internal; the router registers a route per
+  // FILE, so a disabled module's tab still rides the state).
+  // A hidden-but-enabled route can still be the focused one
+  // (opened from the drawer while unpinned): keep it in the bar
+  // while it is, so the reader never stands on a screen with no
+  // selected tab
   const visibleRoutes = state.routes.filter(
     (route) =>
-      state.routes[state.index]?.key === route.key ||
-      pinnedTabs.includes(route.name),
+      ENABLED_TAB_KEYS.has(route.name) &&
+      (state.routes[state.index]?.key === route.key ||
+        pinnedTabs.includes(route.name)),
   );
 
 

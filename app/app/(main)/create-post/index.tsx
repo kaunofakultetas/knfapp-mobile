@@ -36,6 +36,10 @@
 // -----------------------------------------------------------
 
 // Auth gate and the signed-in author
+// The shipping gate — features.json decides whether this
+// module renders or shows the not-ready screen
+import withFeature from '@/components/FeatureGate';
+
 import { useAuth } from '@/context/AuthContext';
 import LoginRequiredOverlay from '@/components/LoginRequiredOverlay';
 
@@ -717,7 +721,7 @@ function PollToggleRow({ active, onToggle }: { active: boolean; onToggle: () => 
 //     the news feed's compose button
 // -----------------------------------------------------------
 
-export default function CreatePostScreen() {
+function CreatePostScreen() {
 
   const { user } = useAuth();
   const { t } = useTranslation();
@@ -1089,3 +1093,8 @@ export default function CreatePostScreen() {
     </LoginRequiredOverlay>
   );
 }
+
+
+// The gate wraps the export, so a disabled module's screen
+// never mounts — see components/FeatureGate.tsx
+export default withFeature('social', CreatePostScreen);

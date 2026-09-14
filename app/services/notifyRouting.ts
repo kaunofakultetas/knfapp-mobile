@@ -45,6 +45,10 @@
 
 import type { ImperativeRouter } from 'expo-router';
 
+// The shipping flags — a tap into a module this build does
+// not carry is dropped, not crashed into a missing route
+import { isFeatureEnabled } from '@/services/features';
+
 import type { RouteIntent } from '@knf/notifyengine';
 
 
@@ -109,6 +113,9 @@ export function routeNotificationIntent(intent: RouteIntent, router: NotifyRoute
   const { type, data, coldStart } = intent;
 
   if ((type === 'chat_message' || type === 'chat_mention') && data.conversationId) {
+    // A build shipping without the module must not open a door
+    // into it — the tap falls through to the default screen
+    if (!isFeatureEnabled('chat')) return false;
     // Collapse to the messages tab first so the room sits on
     // the tab it belongs to — on a cold start the tab replaces
     // the startup gate instead of stacking on it
@@ -122,12 +129,14 @@ export function routeNotificationIntent(intent: RouteIntent, router: NotifyRoute
   }
 
   if (type === 'news' || type === 'admin_announcement') {
+    if (!isFeatureEnabled('news')) return false;
     if (coldStart) router.replace('/(main)/tabs/news');
     else router.navigate('/(main)/tabs/news');
     return true;
   }
 
   if (type === 'schedule_update') {
+    if (!isFeatureEnabled('schedule')) return false;
     if (coldStart) router.replace('/(main)/tabs/schedule');
     else router.navigate('/(main)/tabs/schedule');
     return true;

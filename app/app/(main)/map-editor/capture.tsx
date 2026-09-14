@@ -58,6 +58,10 @@
 //    CaptureScreen     — gate, params, providers (default)
 // -----------------------------------------------------------
 
+// The shipping gate — features.json decides whether this
+// module renders or shows the not-ready screen
+import withFeature from '@/components/FeatureGate';
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useRouter } from 'expo-router';
@@ -778,7 +782,7 @@ function CaptureBody({ nodeId, nodeData, baseRevision }: { nodeId: string; nodeD
 //     capture button pushes here
 // -----------------------------------------------------------
 
-export default function CaptureScreen() {
+function CaptureScreen() {
 
   const { t } = useTranslation();
   const { user, hydrated } = useAuth();
@@ -831,3 +835,8 @@ export default function CaptureScreen() {
     </Screen>
   );
 }
+
+
+// The gate wraps the export, so a disabled module's screen
+// never mounts — see components/FeatureGate.tsx
+export default withFeature('map', CaptureScreen);

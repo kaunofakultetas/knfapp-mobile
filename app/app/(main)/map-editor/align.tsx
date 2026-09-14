@@ -35,6 +35,10 @@
 //    AlignScreen  — gate, params, providers (default export)
 // -----------------------------------------------------------
 
+// The shipping gate — features.json decides whether this
+// module renders or shows the not-ready screen
+import withFeature from '@/components/FeatureGate';
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -409,7 +413,7 @@ function AlignBody({
 //     align button pushes here
 // -----------------------------------------------------------
 
-export default function AlignScreen() {
+function AlignScreen() {
 
   const { t } = useTranslation();
   const { user, hydrated } = useAuth();
@@ -470,3 +474,8 @@ export default function AlignScreen() {
     </Screen>
   );
 }
+
+
+// The gate wraps the export, so a disabled module's screen
+// never mounts — see components/FeatureGate.tsx
+export default withFeature('map', AlignScreen);

@@ -1,0 +1,10 @@
+{
+  "news": true,
+  "schedule": true,
+  "accounts": false,
+  "chat": false,
+  "social": false,
+  "assistant": false,
+  "studentId": false,
+  "map": false
+}

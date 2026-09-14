@@ -15,6 +15,16 @@
 //  that arrives after the timeout is harmless.
 // -----------------------------------------------------------
 
+// This suite pins its module's BEHAVIOR, so the shipping
+// flags are pinned all-on — the real features.json (whatever
+// the current release preset says) must never decide whether
+// these tests see their subject
+// Steerable: the flags-off case flips this off and back
+let mockFlagsOn = true;
+jest.mock('@/services/features', () => ({
+  isFeatureEnabled: () => mockFlagsOn,
+}));
+
 import { routeNotificationIntent, type NotifyRouter } from '@/services/notifyRouting';
 
 import type { RouteIntent } from '@knf/notifyengine';
@@ -128,6 +138,23 @@ describe('everything else', () => {
     expect(routeNotificationIntent(intent(type, { conversationId: 'c1' }), router as NotifyRouter)).toBe(false);
     expect(routeNotificationIntent(intent(type, { conversationId: 'c1' }, true), router as NotifyRouter)).toBe(false);
     expect(callCount(router)).toBe(0);
+  });
+});
+
+
+describe('the shipping flags', () => {
+  it('a tap into a module this build ships DISABLED is dropped, not crashed into a missing route', () => {
+    mockFlagsOn = false;
+    try {
+      const router = makeRouter();
+      expect(routeNotificationIntent(
+        intent('chat_message', { conversationId: 'c1' }, false), router)).toBe(false);
+      expect(routeNotificationIntent(intent('news', {}, true), router)).toBe(false);
+      expect(routeNotificationIntent(intent('schedule_update', {}, false), router)).toBe(false);
+      expect(callCount(router)).toBe(0);
+    } finally {
+      mockFlagsOn = true;
+    }
   });
 });
 

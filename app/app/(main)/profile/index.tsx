@@ -56,6 +56,10 @@
 // -----------------------------------------------------------
 
 // Session state and toasts
+// The shipping gate — features.json decides whether this
+// module renders or shows the not-ready screen
+import withFeature from '@/components/FeatureGate';
+
 import { useAuth } from '@/context/AuthContext';
 import { showToast, useNetwork } from '@/context/NetworkContext';
 
@@ -530,7 +534,7 @@ function avatarErrorKey(err: unknown): string {
 //     and param-less for the signed-in user's own profile
 // -----------------------------------------------------------
 
-export default function ProfileScreen() {
+function ProfileScreen() {
 
   // useRouteParam owns the honest param shape — a repeated
   // ?userId= arrives as an array and a deep link can omit it
@@ -1023,3 +1027,8 @@ export default function ProfileScreen() {
     </Screen>
   );
 }
+
+
+// The gate wraps the export, so a disabled module's screen
+// never mounts — see components/FeatureGate.tsx
+export default withFeature('social', ProfileScreen);

@@ -33,6 +33,10 @@
 // -----------------------------------------------------------
 
 // Login gate
+// The shipping gate — features.json decides whether this
+// module renders or shows the not-ready screen
+import withFeature from '@/components/FeatureGate';
+
 import LoginRequiredOverlay from '@/components/LoginRequiredOverlay';
 
 // UI kit
@@ -526,7 +530,7 @@ function NewChatForm() {
 //   - app/(main)/_layout.tsx — route /(main)/new-chat
 // -----------------------------------------------------------
 
-export default function NewChat() {
+function NewChat() {
 
   const { t } = useTranslation();
 
@@ -545,3 +549,8 @@ export default function NewChat() {
     </LoginRequiredOverlay>
   );
 }
+
+
+// The gate wraps the export, so a disabled module's screen
+// never mounts — see components/FeatureGate.tsx
+export default withFeature('chat', NewChat);

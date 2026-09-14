@@ -43,8 +43,11 @@ import { Avatar } from '@/components/ui';
 import PollWidget from '@/components/news/PollWidget';
 import SourceBadge from './SourceBadge';
 
-// The like / comments / share strip
+// The like / comments / share strip — rendered only while the
+// social module ships (features.json): without it the feed is
+// READ-ONLY and the card ends under its teaser
 import { ActionRow } from '@knf/socialuikit';
+import { isFeatureEnabled } from '@/services/features';
 
 // Feed shape, upload resolution and date formatting
 import { getUploadUrl, type SocialFeedPost } from '@/services/api';
@@ -402,20 +405,25 @@ function NewsCard({
       {/* Like / comments / share — the kit's strip; every target
           stops the event itself, so none of them also fires the
           card press above. The share target is omitted (not
-          hidden) where no sheet exists. The share tally the old
-          strip showed has no slot in the kit's row */}
-      <View className="mt-2 border-t border-line px-md py-2">
-        <ActionRow
-          likeCount={likeCount}
-          commentCount={post.comments}
-          likedByMe={liked}
-          pendingLike={pendingLike}
-          onPressLike={onToggleLike}
-          onPressComment={onOpenComments}
-          onPressShare={canShare ? onShare : undefined}
-          shareCount={post.shares}
-        />
-      </View>
+          hidden) where no sheet exists. A build shipping without
+          the social module drops the WHOLE strip: the feed reads
+          clean, and the spacer keeps the card's bottom breath */}
+      {isFeatureEnabled('social') ? (
+        <View className="mt-2 border-t border-line px-md py-2">
+          <ActionRow
+            likeCount={likeCount}
+            commentCount={post.comments}
+            likedByMe={liked}
+            pendingLike={pendingLike}
+            onPressLike={onToggleLike}
+            onPressComment={onOpenComments}
+            onPressShare={canShare ? onShare : undefined}
+            shareCount={post.shares}
+          />
+        </View>
+      ) : (
+        <View className="h-3" />
+      )}
 
     </Pressable>
   );

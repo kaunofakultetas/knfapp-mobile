@@ -36,6 +36,10 @@
 // -----------------------------------------------------------
 
 // The app's providers for the two packages
+// The shipping gate — features.json decides whether this
+// module renders or shows the not-ready screen
+import withFeature from '@/components/FeatureGate';
+
 import WayfindHost from '@/components/map/WayfindHost';
 // App chrome and shared states
 import { EmptyState, Header, Screen } from '@/components/ui';
@@ -737,10 +741,15 @@ function MapScreenInner() {
 //   - expo-router — the (main)/tabs/map route
 // -----------------------------------------------------------
 
-export default function MapScreen() {
+function MapScreen() {
   return (
     <WayfindHost>
       <MapScreenInner />
     </WayfindHost>
   );
 }
+
+
+// The gate wraps the export, so a disabled module's tab
+// screen never mounts even on a direct navigation
+export default withFeature('map', MapScreen);

@@ -20,6 +20,10 @@
 // -----------------------------------------------------------
 
 // The viewer, connectivity and the login return path
+// The shipping gate — features.json decides whether this
+// module renders or shows the not-ready screen
+import withFeature from '@/components/FeatureGate';
+
 import { useAuth } from '@/context/AuthContext';
 import { useNetwork } from '@/context/NetworkContext';
 import { useReturnHref } from '@/hooks/useReturnHref';
@@ -92,7 +96,7 @@ function destinationFor(group: NotificationGroup): Href | null {
 //   - components/Sidebar.tsx — the drawer entry with the badge
 // -----------------------------------------------------------
 
-export default function ActivityScreen() {
+function ActivityScreen() {
 
   const { isAuthenticated } = useAuth();
   const { isConnected } = useNetwork();
@@ -185,3 +189,8 @@ export default function ActivityScreen() {
     </Screen>
   );
 }
+
+
+// The gate wraps the export, so a disabled module's screen
+// never mounts — see components/FeatureGate.tsx
+export default withFeature('social', ActivityScreen);

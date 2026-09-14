@@ -55,6 +55,10 @@
 // -----------------------------------------------------------
 
 // Screen chrome and shared list states
+// The shipping gate — features.json decides whether this
+// module renders or shows the not-ready screen
+import withFeature from '@/components/FeatureGate';
+
 import CachedBanner from '@/components/CachedBanner';
 import NewsCard from '@/components/news/NewsCard';
 import { EmptyState, ErrorState, Header, LoadingSpinner, RefreshSpinner, Screen } from '@/components/ui';
@@ -80,6 +84,8 @@ import {
   type SocialFeedPost,
 } from '@/services/api';
 import { cacheKeyNews, NEWS_CACHE_MAX_AGE } from '@/services/cacheKeys';
+// The shipping flags — a social-less build serves news READ-ONLY
+import { isFeatureEnabled } from '@/services/features';
 
 // Deep links for sharing app-native posts (no public web URL)
 import * as Linking from 'expo-linking';
@@ -533,7 +539,7 @@ function FeedRow({ post, showAvatar, onOpen, onOpenComments, onShare, onOpenAuth
 //   - app/(main)/tabs/_layout.tsx — the news tab
 // -----------------------------------------------------------
 
-export default function NewsTab() {
+function NewsTab() {
 
   const router = useRouter();
   const returnHref = useReturnHref();
@@ -852,9 +858,14 @@ export default function NewsTab() {
   // has no personal posts to show them, so the chip is hidden
   // (the community chip stays: that feed serves guests its
   // public posts)
-  const visibleChips = isAuthenticated
+  // Without the social module the community/user feeds are off
+  // the menu entirely — the official feed is the whole surface
+  const socialChips = isFeatureEnabled('social')
     ? FEED_CHIPS
-    : FEED_CHIPS.filter(({ key }) => key !== 'user');
+    : FEED_CHIPS.filter(({ key }) => key !== 'community' && key !== 'user');
+  const visibleChips = isAuthenticated
+    ? socialChips
+    : socialChips.filter(({ key }) => key !== 'user');
 
 
   return (
@@ -939,10 +950,15 @@ export default function NewsTab() {
 
       </View>
 
-      {isAuthenticated ? (
+      {isAuthenticated && isFeatureEnabled('social') ? (
         <CreatePostFab onPress={() => router.push('/(main)/create-post')} />
       ) : null}
 
     </Screen>
   );
 }
+
+
+// The gate wraps the export, so a disabled module's tab
+// screen never mounts even on a direct navigation
+export default withFeature('news', NewsTab);

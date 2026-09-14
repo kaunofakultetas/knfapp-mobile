@@ -29,6 +29,10 @@
 
 // The social kit's comment row and pinned composer (the
 // provider is mounted in the (main) layout)
+// The shipping gate — features.json decides whether this
+// module renders or shows the not-ready screen
+import withFeature from '@/components/FeatureGate';
+
 import { CommentComposer, CommentRow, type KitComment } from '@knf/socialuikit';
 
 // UI kit and theming
@@ -277,7 +281,7 @@ function CommentsBody({ feed }: { feed: UseFeedResult<CommentResponse> }) {
 //     (pushed from the feed and from news-post's ViewAllRow)
 // -----------------------------------------------------------
 
-export default function NewsCommentsScreen() {
+function NewsCommentsScreen() {
 
   const postId = useRouteParam('postId');
   const { isAuthenticated } = useAuth();
@@ -353,3 +357,8 @@ export default function NewsCommentsScreen() {
     </Screen>
   );
 }
+
+
+// The gate wraps the export, so a disabled module's screen
+// never mounts — see components/FeatureGate.tsx
+export default withFeature('social', NewsCommentsScreen);

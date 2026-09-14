@@ -45,6 +45,10 @@
 // -----------------------------------------------------------
 
 // UI kit, scanner modal and theming
+// The shipping gate — an accounts-less build carries no
+// sign-in surface at all
+import withFeature from '@/components/FeatureGate';
+
 import QrScanner, { extractCode } from '@/components/QrScanner';
 import { Button, Input } from '@/components/ui';
 import { roleLabel } from '@/constants/roles';
@@ -693,7 +697,7 @@ function useSubmitCooldown(ms = 15_000) {
 //   - the admin QR deep link knfapp://register?code=X
 // -----------------------------------------------------------
 
-export default function RegisterScreen() {
+function RegisterScreen() {
 
   const { t } = useTranslation();
   const router = useRouter();
@@ -1028,3 +1032,7 @@ export default function RegisterScreen() {
     </KeyboardAvoidingView>
   );
 }
+
+
+// The gate wraps the export — see components/FeatureGate.tsx
+export default withFeature('accounts', RegisterScreen);

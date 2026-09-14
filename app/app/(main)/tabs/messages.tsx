@@ -40,6 +40,10 @@
 // -----------------------------------------------------------
 
 // Login gate and the offline-copy strip
+// The shipping gate — features.json decides whether this
+// module renders or shows the not-ready screen
+import withFeature from '@/components/FeatureGate';
+
 import CachedBanner from '@/components/CachedBanner';
 import LoginRequiredOverlay from '@/components/LoginRequiredOverlay';
 
@@ -945,7 +949,7 @@ function Conversations() {
 //   - app/(main)/tabs/_layout.tsx — the Messages tab route
 // -----------------------------------------------------------
 
-export default function Messages() {
+function Messages() {
 
   const { t } = useTranslation();
 
@@ -961,3 +965,8 @@ export default function Messages() {
     </LoginRequiredOverlay>
   );
 }
+
+
+// The gate wraps the export, so a disabled module's tab
+// screen never mounts even on a direct navigation
+export default withFeature('chat', Messages);

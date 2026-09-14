@@ -22,6 +22,21 @@
 //  SocialUiKitProvider; everything app-side is stubbed.
 // -----------------------------------------------------------
 
+// This suite pins its module's BEHAVIOR, so the shipping
+// flags are pinned all-on — the real features.json (whatever
+// the current release preset says) must never decide whether
+// these tests see their subject
+jest.mock('@/services/features', () => {
+  const { TABS } = require('@/constants/tabs');
+  return {
+    isFeatureEnabled: () => true,
+    FEATURES: { accounts: true, news: true, chat: true, social: true, schedule: true, assistant: true, studentId: true, map: true },
+    ENABLED_TABS: TABS,
+    ENABLED_TAB_KEYS: new Set(TABS.map((tab: { key: string }) => tab.key)),
+    TAB_FEATURES: {},
+  };
+});
+
 import type { ReactNode } from 'react';
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));

@@ -21,6 +21,7 @@ import { useTranslation } from 'react-i18next';
 // The custom bar and the shared tab roster
 import TabBar from '@/components/navigation/TabBar';
 import { TABS } from '@/constants/tabs';
+import { ENABLED_TAB_KEYS } from '@/services/features';
 import type { BottomTabBarProps } from "expo-router/js-tabs";
 
 // Pinned-tab visibility
@@ -77,13 +78,21 @@ export default function MainTabsLayout() {
 
   return (
     <Tabs tabBar={renderTabBar} screenOptions={{ headerShown: false, animation: 'shift' }}>
+      {/* EVERY file-backed tab is declared — expo-router
+          registers them all regardless — and a module the
+          build does not ship takes href: null, cutting its
+          linking; the bar and drawer drop it via the roster */}
       {TABS.map((tab) => (
         <Tabs.Screen
           key={tab.key}
           name={tab.key}
           options={{
             title: t(`tabs.${tab.key}`),
-            ...(tab.hardPinned ? null : { href: tabHref(tab.key) }),
+            ...(ENABLED_TAB_KEYS.has(tab.key)
+              ? tab.hardPinned
+                ? null
+                : { href: tabHref(tab.key) }
+              : { href: null }),
           }}
         />
       ))}

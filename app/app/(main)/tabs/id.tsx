@@ -39,6 +39,10 @@
 // -----------------------------------------------------------
 
 // Auth gate, session state and toasts
+// The shipping gate — features.json decides whether this
+// module renders or shows the not-ready screen
+import withFeature from '@/components/FeatureGate';
+
 import LoginRequiredOverlay from '@/components/LoginRequiredOverlay';
 import { useAuth } from '@/context/AuthContext';
 import { showToast } from '@/context/NetworkContext';
@@ -617,7 +621,7 @@ function IdCard() {
 //   - app/(main)/tabs/_layout.tsx — the "id" tab route
 // -----------------------------------------------------------
 
-export default function StudentIdScreen() {
+function StudentIdScreen() {
   const { t } = useTranslation();
 
 
@@ -632,3 +636,8 @@ export default function StudentIdScreen() {
     </LoginRequiredOverlay>
   );
 }
+
+
+// The gate wraps the export, so a disabled module's tab
+// screen never mounts even on a direct navigation
+export default withFeature('studentId', StudentIdScreen);

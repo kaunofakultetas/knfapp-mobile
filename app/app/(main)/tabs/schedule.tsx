@@ -68,6 +68,10 @@
 // -----------------------------------------------------------
 
 // Offline-cache strip shown when the list renders stale data
+// The shipping gate — features.json decides whether this
+// module renders or shows the not-ready screen
+import withFeature from '@/components/FeatureGate';
+
 import CachedBanner from '@/components/CachedBanner';
 
 // The timetable module: engine math + kit views, wired through
@@ -247,6 +251,32 @@ function termStartMonday(label: string): string | null {
   // the first Monday on or after the 1st
   const sinceMonday = (new Date(first).getUTCDay() + 6) % 7;
   return toISO(first + ((7 - sinceMonday) % 7) * DAY_MS);
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// withRowIds
+// -----------------------------------------------------------
+//
+// Re-keys wire rows on their TRUE identity, (event × group):
+// under "all groups" a lecture shared by several groups
+// repeats with the same event id, and the engine's entries —
+// which become React keys in the kit's grids — must never
+// collide. The teacher scope skips this: it merges shared
+// rows into one first.
+//
+// Used by:
+//   - ScheduleScreen (below) — the group scope's normalize
+//     inputs (shown week and both pager neighbours)
+// -----------------------------------------------------------
+
+function withRowIds(rows: ScheduleEventRow[]): ScheduleEventRow[] {
+  return rows.map((row) => ({ ...row, id: `${row.id}:${row.group}` }));
 }
 
 
@@ -705,7 +735,7 @@ function FilterModal({
 //   - expo-router — the /tabs/schedule tab
 // -----------------------------------------------------------
 
-export default function ScheduleScreen() {
+function ScheduleScreen() {
   // The engine's cache — the offline copy of each day/group/semester
   const { cache } = useDataEngine();
 
@@ -1040,7 +1070,13 @@ export default function ScheduleScreen() {
   // index signature is missing, so assert (through unknown:
   // their extra date/lectureType fields land under that
   // signature, which defeats the direct cast).
-  const datedNormalized = useMemo(() => normalizeKnf(shownWeekRows as unknown as KnfLesson[]), [shownWeekRows]);
+  const datedNormalized = useMemo(
+    () =>
+      normalizeKnf(
+        (perspective === 'teacher' ? shownWeekRows : withRowIds(shownWeekRows)) as unknown as KnfLesson[],
+      ),
+    [perspective, shownWeekRows],
+  );
 
   // The pager's side pages, scoped like the middle one — the
   // group filter or the teacher merge; their skipped counts
@@ -1049,7 +1085,7 @@ export default function ScheduleScreen() {
   const neighbourWeeks = useMemo(() => {
     const filter = (rows: ScheduleEventRow[]) => {
       if (perspective === 'teacher') return normalizeKnf(mergeEventRows(rows) as unknown as KnfLesson[]).entries;
-      const normalized = normalizeKnf(rows as unknown as KnfLesson[]).entries;
+      const normalized = normalizeKnf(withRowIds(rows) as unknown as KnfLesson[]).entries;
       return selectedGroup ? forGroup(normalized, selectedGroup) : normalized;
     };
     return { prev: filter(weekBuckets[0]), next: filter(weekBuckets[2]) };
@@ -1429,7 +1465,10 @@ export default function ScheduleScreen() {
         ) : (
           <FlatList
             data={groupDayLessons}
-            keyExtractor={(item) => item.id}
+            // The row identity is (event × group): under "all
+            // groups" a lecture shared by several groups repeats
+            // with the SAME event id, one row per group
+            keyExtractor={(item) => `${item.id}:${item.group}`}
             contentContainerStyle={{ padding: 16, paddingBottom: 24 }}
             refreshControl={refreshControl}
             ItemSeparatorComponent={Separator}
@@ -1497,3 +1536,8 @@ export default function ScheduleScreen() {
     </Screen>
   );
 }
+
+
+// The gate wraps the export, so a disabled module's tab
+// screen never mounts even on a direct navigation
+export default withFeature('schedule', ScheduleScreen);

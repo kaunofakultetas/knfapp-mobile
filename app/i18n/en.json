@@ -62,7 +62,9 @@
     "showPassword": "Show password",
     "hidePassword": "Hide password",
     "clear": "Clear",
-    "error": "Something went wrong"
+    "error": "Something went wrong",
+    "featureUnavailableTitle": "This part isn't ready yet",
+    "featureUnavailableHint": "The feature will be enabled soon"
   },
   "auth": {
     "sessionExpired": "Session expired – please sign in again"

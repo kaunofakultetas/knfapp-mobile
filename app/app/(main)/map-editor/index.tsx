@@ -52,6 +52,10 @@
 //    SeedSender       — the first-run bootstrap through the outbox
 // -----------------------------------------------------------
 
+// The shipping gate — features.json decides whether this
+// module renders or shows the not-ready screen
+import withFeature from '@/components/FeatureGate';
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
@@ -1252,7 +1256,7 @@ function EditorBody({ draft }: { draft: Draft }) {
 //   - components/Sidebar.tsx — the MORE entry
 // -----------------------------------------------------------
 
-export default function MapEditorScreen() {
+function MapEditorScreen() {
 
   const { t } = useTranslation();
   const { user, hydrated } = useAuth();
@@ -1371,3 +1375,8 @@ function SeedSender({ ops, onSent }: { ops: ReturnType<typeof seedOps> | null; o
   }, [ops, sync, onSent]);
   return null;
 }
+
+
+// The gate wraps the export, so a disabled module's screen
+// never mounts — see components/FeatureGate.tsx
+export default withFeature('map', MapEditorScreen);

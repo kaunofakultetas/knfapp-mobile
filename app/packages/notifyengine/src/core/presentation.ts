@@ -41,6 +41,11 @@ const SHOW_EVERYTHING: PresentationRule = { banner: true, list: true, sound: tru
 // createForegroundHandler
 // -----------------------------------------------------------
 //
+// The returned handler settles exactly once per notification:
+// the rule lookup (own properties only — a '__proto__' type
+// falls to the default) races the internal deadline, and
+// every failure path resolves to SHOW_EVERYTHING.
+//
 // Used by:
 //   - engine.ts — installed as the device's foreground handler
 // -----------------------------------------------------------

@@ -124,6 +124,11 @@ export interface RegistrationMachine {
 // createRegistrationMachine
 // -----------------------------------------------------------
 //
+// Every register() bumps a generation and only the newest one
+// writes state; a detach in flight is awaited so a POST never
+// overtakes the DELETE. Gate refusals are typed results with
+// no store writes; 'login'/'toggle' skip the tuple dedupe.
+//
 // Used by:
 //   - engine.ts — register/detach/rotation/TTL reconcile
 // -----------------------------------------------------------

@@ -38,6 +38,11 @@ interface LoadingSpinnerProps {
 // LoadingSpinner (default export)
 // -----------------------------------------------------------
 //
+// Whichever mode renders, the control is ONE accessibility
+// element with the progressbar role, labeled by the caption
+// when there is one; overlay mode additionally swallows
+// touches under the scrim for the duration of the wait.
+//
 // Used by:
 //   - app/_layout.tsx — the font-loading gate
 //   - app/(main)/tabs/* and other data screens — first-load

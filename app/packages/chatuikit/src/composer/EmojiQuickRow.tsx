@@ -46,6 +46,10 @@ export const DEFAULT_QUICK_EMOJI = ['😀', '😂', '😍', '😮', '😢', '�
 // EmojiQuickRow (default export)
 // -----------------------------------------------------------
 //
+// A horizontal row of 44pt round tap targets, one per emoji;
+// taps land with the keyboard up (keyboardShouldPersistTaps)
+// so a pick registers on the first touch.
+//
 // Used by:
 //   - app/(main)/chat-room/index.tsx — the reaction picker row
 // -----------------------------------------------------------

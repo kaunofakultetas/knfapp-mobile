@@ -141,6 +141,11 @@ const guard = async <T>(call: () => Promise<T>): Promise<T> => {
 // createKnfRest
 // -----------------------------------------------------------
 //
+// Every call leaves through guard, so failures arrive as
+// coded TransportErrors; uploads take a per-kind timeout and
+// re-tag the backend's "too large" refusal as
+// 'file_too_large' to match the preflight rejection.
+//
 // Used by:
 //   - adapters/knf/index.ts — createKnfTransport
 // -----------------------------------------------------------

@@ -144,6 +144,12 @@ const isGoodLength = (lengthM: number): boolean => Number.isFinite(lengthM) && l
 // validateGraph
 // -----------------------------------------------------------
 //
+// Pure and throw-free: walks the whole graph and returns
+// every finding at once — duplicate ids, dangling edges,
+// unknown kinds and levels, bad or sub-chord lengths,
+// cross-level hallways, connectors without a length — each
+// graded error or warning.
+//
 // Used by:
 //   - tools/svgToGraph.ts — mergeLevels folds its issues in beside the emitted graph
 //   - provider/index.tsx — dev-time warning once per graph

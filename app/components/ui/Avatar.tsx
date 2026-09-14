@@ -48,6 +48,11 @@ interface AvatarProps {
 // Avatar (default export)
 // -----------------------------------------------------------
 //
+// Renders the photo only when getUploadUrl resolves the uri
+// AND no load failure is recorded for it — the failed flag is
+// re-keyed to the uri during render, so a changed photo gets
+// a fresh attempt without any effect plumbing.
+//
 // Used by:
 //   - components/chat/ConversationRow.tsx — list portraits
 //     with the online dot

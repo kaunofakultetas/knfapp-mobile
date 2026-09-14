@@ -216,6 +216,11 @@ function Hairline({ colors }: { colors: NotifyColors }) {
 // NotifySettingsPanel (default export)
 // -----------------------------------------------------------
 //
+// toggleMaster owns the one judgment call: a permission or
+// unsupported failure snaps the switch back OFF before the
+// host's onBlocked; network and auth failures keep it ON.
+// One glyph anywhere reserves the icon gutter on every row.
+//
 // Used by:
 //   - hosts' settings screens, through the root export
 // -----------------------------------------------------------

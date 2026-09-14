@@ -50,6 +50,15 @@ import { usePoll } from '@knf/socialengine';
 import { PollBlock } from '@knf/socialuikit';
 
 
+// A tap inside the block must not also open the post: native's
+// responder system already keeps it on the deepest pressable,
+// but on the web the click bubbles up to the card — stopped
+// here at the block's edge (the kit's rows do not stop it)
+const stopWebClick = Platform.OS === 'web'
+  ? { onClick: (event: { stopPropagation: () => void }) => event.stopPropagation() }
+  : {};
+
+
 
 
 
@@ -97,19 +106,16 @@ function PollLoadError({ onRetry }: { onRetry: () => void }) {
 // PollWidget (default export)
 // -----------------------------------------------------------
 //
+// Guard order matters: the retry row shows only when the load
+// rejected with NOTHING held — once a poll is in hand a
+// background refresh error never tears the block down; loading
+// and missing both render null. The rest is a straight
+// hook-state → PollBlock prop mapping.
+//
 // Used by:
 //   - components/news/NewsCard.tsx — poll posts in the feed
 //   - app/(main)/news-post/index.tsx — the post detail screen
 // -----------------------------------------------------------
-
-// A tap inside the block must not also open the post: native's
-// responder system already keeps it on the deepest pressable,
-// but on the web the click bubbles up to the card — stopped
-// here at the block's edge (the kit's rows do not stop it)
-const stopWebClick = Platform.OS === 'web'
-  ? { onClick: (event: { stopPropagation: () => void }) => event.stopPropagation() }
-  : {};
-
 
 export default function PollWidget({ postId }: { postId: string }) {
 

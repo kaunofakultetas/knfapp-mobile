@@ -19,14 +19,15 @@
 //  `brandHeader` (the top bar) dims instead, so dark mode
 //  actually reads as dark.
 //
-//  Split into:
+//  Split into (data first, the two builders last):
 //
-//    Palette          — the token shape both schemes share
-//    palettes         — light + dark values
-//    cssVariables     — palette → {--token: value} map
-//    themeVars        — nativewind vars() per scheme
-//    fonts            — Raleway family + mono names
-//    navigationThemes — @react-navigation themes per scheme
+//    Palette           — the token shape both schemes share
+//    palettes          — light + dark values
+//    themeVars         — nativewind vars() per scheme
+//    fonts             — Raleway family + mono names
+//    navigationThemes  — @react-navigation themes per scheme
+//    cssVariables      — palette → {--token: value} map
+//    toNavigationTheme — palette → @react-navigation theme
 // -----------------------------------------------------------
 
 // Navigation base themes to derive ours from
@@ -206,15 +207,6 @@ export const palettes: Record<'light' | 'dark', Palette> = {
 //     web root-element mirror
 // -----------------------------------------------------------
 
-// Palette keys are camelCase; CSS variables are kebab-case
-export const cssVariables = (p: Palette): Record<string, string> =>
-  Object.fromEntries(
-    Object.entries(p).map(([key, value]) => [
-      `--${key.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase())}`,
-      value,
-    ]),
-  );
-
 export const themeVars = {
   light: vars(cssVariables(palettes.light)),
   dark: vars(cssVariables(palettes.dark)),
@@ -266,20 +258,70 @@ export const fonts = {
 //   - app/_layout.tsx — ThemeProvider value
 // -----------------------------------------------------------
 
-const toNavigationTheme = (base: Theme, p: Palette): Theme => ({
-  ...base,
-  colors: {
-    ...base.colors,
-    primary: p.brand,
-    background: p.canvas,
-    card: p.surface,
-    text: p.ink,
-    border: p.line,
-    notification: p.accent,
-  },
-});
-
 export const navigationThemes: Record<'light' | 'dark', Theme> = {
   light: toNavigationTheme(DefaultTheme, palettes.light),
   dark: toNavigationTheme(DarkTheme, palettes.dark),
 };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// cssVariables
+// -----------------------------------------------------------
+//
+// Palette keys are camelCase; CSS variables are kebab-case.
+// A hoisted `function` declaration on purpose: themeVars above
+// calls it at module init, and the data consts stay at the top
+// of the file (was a const arrow before the house sweep).
+//
+// Used by:
+//   - themeVars (above) — both schemes' vars() styles
+//   - app/_layout.tsx — the web root-element mirror
+// -----------------------------------------------------------
+
+export function cssVariables(p: Palette): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(p).map(([key, value]) => [
+      `--${key.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase())}`,
+      value,
+    ]),
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// toNavigationTheme
+// -----------------------------------------------------------
+//
+// One palette → a @react-navigation theme. A hoisted
+// `function` declaration on purpose: navigationThemes above
+// calls it at module init, and the data consts stay at the top
+// of the file (was a const arrow before the house sweep).
+//
+// Used by:
+//   - navigationThemes (above) — both schemes
+// -----------------------------------------------------------
+
+function toNavigationTheme(base: Theme, p: Palette): Theme {
+  return {
+    ...base,
+    colors: {
+      ...base.colors,
+      primary: p.brand,
+      background: p.canvas,
+      card: p.surface,
+      text: p.ink,
+      border: p.line,
+      notification: p.accent,
+    },
+  };
+}

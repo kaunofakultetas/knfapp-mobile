@@ -41,6 +41,10 @@ const TILE_GAP = 2;
 // GalleryAttachment (default export)
 // -----------------------------------------------------------
 //
+// An odd count opens with one wide hero tile, then square
+// pairs; tile indices stay in FULL-list terms so onPressItem
+// opens the host's viewer at the right photo.
+//
 // Used by:
 //   - message/MessageBubble.tsx — a message carrying two or
 //     more photos

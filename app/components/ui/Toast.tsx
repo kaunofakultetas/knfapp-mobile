@@ -12,11 +12,12 @@
 //  Toast.show({ type: 'success' | 'error' | 'info', text1, text2 })
 //  with already-translated texts.
 //
-//  Split into (exported config last):
+//  Split into (data constants first):
 //
 //    ACCENTS     — per-type accent token + icon table
+//    toastConfig — the config object (exported); safe above
+//                  ToastCard, whose function declaration hoists
 //    ToastCard   — the shared surface card
-//    toastConfig — the config object (exported)
 // -----------------------------------------------------------
 
 // Palette type + JS-side colors
@@ -41,6 +42,36 @@ const ACCENTS: Record<
   success: { icon: 'checkmark-circle', color: 'brand' },
   error: { icon: 'alert-circle', color: 'danger' },
   info: { icon: 'information-circle', color: 'info' },
+};
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// toastConfig
+// -----------------------------------------------------------
+//
+// Sits above ToastCard only for the data-constants-first rule —
+// the arrows close over ToastCard lazily and the function
+// declaration hoists, so nothing is read early.
+//
+// Used by:
+//   - app/_layout.tsx — <Toast config={toastConfig} />
+// -----------------------------------------------------------
+
+export const toastConfig: ToastConfig = {
+  success: ({ text1, text2 }) => (
+    <ToastCard kind="success" text1={text1} text2={text2} />
+  ),
+  error: ({ text1, text2 }) => (
+    <ToastCard kind="error" text1={text1} text2={text2} />
+  ),
+  info: ({ text1, text2 }) => (
+    <ToastCard kind="info" text1={text1} text2={text2} />
+  ),
 };
 
 
@@ -130,29 +161,3 @@ function ToastCard({
     </View>
   );
 }
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// toastConfig
-// -----------------------------------------------------------
-//
-// Used by:
-//   - app/_layout.tsx — <Toast config={toastConfig} />
-// -----------------------------------------------------------
-
-export const toastConfig: ToastConfig = {
-  success: ({ text1, text2 }) => (
-    <ToastCard kind="success" text1={text1} text2={text2} />
-  ),
-  error: ({ text1, text2 }) => (
-    <ToastCard kind="error" text1={text1} text2={text2} />
-  ),
-  info: ({ text1, text2 }) => (
-    <ToastCard kind="info" text1={text1} text2={text2} />
-  ),
-};

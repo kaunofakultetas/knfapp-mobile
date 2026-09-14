@@ -43,6 +43,32 @@ const NOTICE_KEYS: Record<EngineNotice['code'], string> = {
   reaction_remove_failed: 'chat.reactionRemoveError',
 };
 
+// The backend's upload caps plus the composer's own length
+// cap, handed to the engine as one limits object
+const limits = {
+  maxMessageLength: DEFAULT_MAX_LENGTH,
+  maxUploadBytes: MAX_UPLOAD_BYTES,
+  maxVideoBytes: MAX_VIDEO_UPLOAD_BYTES,
+  maxVideoSeconds: 180,
+};
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// noticeKey
+// -----------------------------------------------------------
+//
+// The NOTICE_KEYS lookup, with the two codes whose catalog
+// string depends on the notice's detail resolved first.
+//
+// Used by:
+//   - ChatEngineHost (below) — the notify callback
+// -----------------------------------------------------------
+
 function noticeKey(notice: EngineNotice): string {
   if (notice.code === 'upload_failed') {
     return notice.detail === 'video' ? 'chat.videoUploadError' : notice.detail === 'file' ? 'chat.fileUploadError' : 'chat.imageUploadError';
@@ -52,24 +78,50 @@ function noticeKey(notice: EngineNotice): string {
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// makeVideoPoster
+// -----------------------------------------------------------
+//
 // Deliberately still the DEPRECATED thumbnails package: the
 // engine uploads the poster, so a FILE URI is non-negotiable —
 // the successor API returns a native image ref with no path,
 // and converting one to a file would cost an extra dependency
 // plus an imperative player lifecycle. Revisit only when the
 // deprecated package actually stops shipping.
+//
+// Used by:
+//   - ChatEngineHost (below) — the provider's poster extractor
+// -----------------------------------------------------------
+
 const makeVideoPoster = async (uri: string) => {
   const thumb = await VideoThumbnails.getThumbnailAsync(uri, { time: 500, quality: 0.7 });
   return { uri: thumb.uri, width: thumb.width, height: thumb.height };
 };
 
-const limits = {
-  maxMessageLength: DEFAULT_MAX_LENGTH,
-  maxUploadBytes: MAX_UPLOAD_BYTES,
-  maxVideoBytes: MAX_VIDEO_UPLOAD_BYTES,
-  maxVideoSeconds: 180,
-};
 
+
+
+
+
+
+// -----------------------------------------------------------
+// ChatEngineHost (default export)
+// -----------------------------------------------------------
+//
+// Memoizes the viewer identity so the provider re-keys only
+// on a real login/logout, funnels engine notices through
+// noticeKey into the app's toasts, and hands over the
+// module-level limits, the poster extractor and the shared
+// network-restore bus unchanged.
+//
+// Used by:
+//   - app/(main)/_layout.tsx — around the authenticated stack
+// -----------------------------------------------------------
 
 export default function ChatEngineHost({ children }: { children: ReactNode }) {
 

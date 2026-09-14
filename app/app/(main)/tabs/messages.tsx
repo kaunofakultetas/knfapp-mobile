@@ -118,6 +118,7 @@ const TAB_LABEL_KEYS: Record<FilterTab, string> = {
   groups: 'messages.groups',
 };
 
+// Render order of the filter pills — one per TAB_LABEL_KEYS key
 const FILTER_TABS: FilterTab[] = ['all', 'people', 'groups'];
 
 // How long a non-connected socket state may last before the

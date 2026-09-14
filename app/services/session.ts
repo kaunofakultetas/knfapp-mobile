@@ -72,16 +72,15 @@ let tokenRead: Promise<string | null> | null = null;
 
 
 // -----------------------------------------------------------
-// readTokenFromStore / writeTokenToStore / deleteTokenFromStore
+// readTokenFromStore
 // -----------------------------------------------------------
 //
-// The only lines that know WHERE the token is: SecureStore
-// with WHEN_UNLOCKED_THIS_DEVICE_ONLY on native, AsyncStorage
+// With its two siblings below, the only lines that know WHERE
+// the token is: SecureStore on native, AsyncStorage
 // (localStorage) on web.
 //
 // Used by:
-//   - migrateLegacySession, getStoredToken, setStoredSession,
-//     clearStoredSession (below)
+//   - getStoredToken (below) — the first, uncached read
 // -----------------------------------------------------------
 
 async function readTokenFromStore(): Promise<string | null> {
@@ -89,6 +88,23 @@ async function readTokenFromStore(): Promise<string | null> {
   return SecureStore.getItemAsync(TOKEN_KEY);
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// writeTokenToStore
+// -----------------------------------------------------------
+//
+// The raw platform-branched write — native writes carry
+// WHEN_UNLOCKED_THIS_DEVICE_ONLY, so the token never lands in
+// a cloud backup.
+//
+// Used by:
+//   - migrateLegacySession, setStoredSession (below)
+// -----------------------------------------------------------
 
 async function writeTokenToStore(token: string): Promise<void> {
   if (Platform.OS === 'web') {
@@ -100,6 +116,21 @@ async function writeTokenToStore(token: string): Promise<void> {
   });
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// deleteTokenFromStore
+// -----------------------------------------------------------
+//
+// The raw platform-branched delete.
+//
+// Used by:
+//   - clearStoredSession (below)
+// -----------------------------------------------------------
 
 async function deleteTokenFromStore(): Promise<void> {
   if (Platform.OS === 'web') {

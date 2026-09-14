@@ -146,6 +146,11 @@ function InlineText({ text, className }: { text: string; className: string }) {
 // NewsBody (default export)
 // -----------------------------------------------------------
 //
+// The markdown flag decides everything: false returns the
+// text as ONE literal Text block; true splits on blank lines
+// and maps each block to heading, bullet list or paragraph,
+// with all inline styling delegated to InlineText.
+//
 // Used by:
 //   - app/(main)/news-post/index.tsx — the article body
 // -----------------------------------------------------------

@@ -92,6 +92,10 @@ export interface MutableStore<T> extends StateStore<T> {
 // createStore
 // -----------------------------------------------------------
 //
+// set() drops shallowly-equal snapshots before notifying;
+// subscribe() calls the listener immediately, under the same
+// throw isolation every later emission gets.
+//
 // Used by:
 //   - permission.ts / registration.ts / prefs.ts — their
 //     snapshot stores

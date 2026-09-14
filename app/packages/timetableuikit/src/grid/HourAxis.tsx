@@ -46,6 +46,10 @@ export const AXIS_WIDTH = 44;
 // HourAxis (default export)
 // -----------------------------------------------------------
 //
+// Labels sit 7px above their exact hour line and run
+// through the env's formatTime, so a custom formatter
+// restyles the axis and the cells together.
+//
 // Used by:
 //   - WeekGrid.tsx / DayTimeline.tsx — the left gutter
 // -----------------------------------------------------------

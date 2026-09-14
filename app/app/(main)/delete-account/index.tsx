@@ -49,6 +49,13 @@ import { KeyboardAvoidingView, Platform, ScrollView, Text, View } from 'react-na
 // DeleteAccountScreen (default export)
 // -----------------------------------------------------------
 //
+// Owns just password / error / busy. handleDelete runs
+// confirm → API → logout → replace, reading the backend's
+// overloaded 400 apart by message (wrong password vs the
+// last-admin refusal) and naming the 429 attempt budget; the
+// KeyboardAvoidingView is the screen ROOT on purpose — nested
+// deeper its frame comes up short and buries the button.
+//
 // Used by:
 //   - app/(main)/_layout.tsx — route /delete-account
 //   - app/(main)/tabs/settings.tsx — the danger link

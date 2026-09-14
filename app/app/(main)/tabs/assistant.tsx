@@ -54,9 +54,19 @@ import { useTranslation } from 'react-i18next';
 
 
 
+
+
+
 // -----------------------------------------------------------
 // AssistantScreen (default export)
 // -----------------------------------------------------------
+//
+// The adapter is memoized once with the language as a
+// CALLBACK, so a mid-session language flip answers in the new
+// tongue without remounting the runtime; labels, the color
+// map and the suggestion chips rebuild per render straight
+// off i18n/theme, and only http(s) links from model output
+// may leave the app.
 //
 // Used by:
 //   - expo-router — the assistant tab of (main)/tabs

@@ -40,6 +40,23 @@ import { parseStamp } from '@knf/chatuikit';
 // shape, reused for the life of the app
 const formatterCache = new Map<string, Intl.DateTimeFormat>();
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// cachedFormatter
+// -----------------------------------------------------------
+//
+// The memoized Intl.DateTimeFormat lookup over formatterCache
+// — the key is the locale plus the options shape.
+//
+// Used by:
+//   - formatDate, formatTime, formatDateTime (below)
+// -----------------------------------------------------------
+
 function cachedFormatter(
   locale: string,
   options: Intl.DateTimeFormatOptions,
@@ -169,6 +186,9 @@ export function formatTime(iso: string): string {
 // -----------------------------------------------------------
 // formatDateTime
 // -----------------------------------------------------------
+//
+// formatDate plus a 24-hour clock in the device timezone:
+// "2026 m. rugpjūčio 26 d. 14:05" / "26 August 2026, 14:05".
 //
 // Used by:
 //   - app/(main)/admin — invitation expiry lines

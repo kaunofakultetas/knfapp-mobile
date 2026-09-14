@@ -190,6 +190,11 @@ const isServerRejection = (err: Error) => 'data' in err;
 // createKnfSocket
 // -----------------------------------------------------------
 //
+// One live instance per token: connect() coalesces concurrent
+// callers, rebuilds when the token changed, and re-checks the
+// token after the async build. A server-refused handshake
+// lands on 'unauthorized' and stops the reconnection loop.
+//
 // Used by:
 //   - adapters/knf/index.ts — the realtime half
 //   - the host's session / network code (connect on login and

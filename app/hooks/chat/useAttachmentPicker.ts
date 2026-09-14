@@ -37,8 +37,28 @@ const DOCUMENT_TYPES = [
   'text/plain',
 ];
 
+// The camera/library cap — matches the engine's limits object
+// in components/chat/ChatEngineHost.tsx
 const MAX_VIDEO_SECONDS = 180;
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// useAttachmentPicker
+// -----------------------------------------------------------
+//
+//   const { pickMedia, pickDocument } = useAttachmentPicker(
+//     onPicked,        — one asset → one message
+//     onPickedMany?,   — several picks → one gallery message
+//   )
+//
+// Used by:
+//   - hooks/chat/useChatComposer.ts
+// -----------------------------------------------------------
 
 export function useAttachmentPicker(onPicked: (asset: PickedAsset) => Promise<void>, onPickedMany?: (assets: PickedAsset[]) => Promise<void>) {
 

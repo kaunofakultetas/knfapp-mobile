@@ -38,6 +38,25 @@ import { RefreshControl, type RefreshControlProps } from 'react-native';
 import { palettes } from '@/constants/theme';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// RefreshSpinner (default export)
+// -----------------------------------------------------------
+//
+// Prop order is the whole trick: brand theming first, the
+// caller's props spread over it (anything can be overridden),
+// and the haptic-wrapped onRefresh applied LAST so the tap
+// can never be spread away.
+//
+// Used by:
+//   - every screen with pull-to-refresh — the tabs, the news
+//     and profile stacks, friends, info, admin
+// -----------------------------------------------------------
+
 export default function RefreshSpinner({ onRefresh, ...props }: RefreshControlProps) {
 
   // Wrapped AFTER the spread so a caller's onRefresh still rides

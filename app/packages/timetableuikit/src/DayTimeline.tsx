@@ -100,6 +100,11 @@ export interface DayTimelineProps {
 // DayTimeline (default export)
 // -----------------------------------------------------------
 //
+// The header row (day name, today chip, date caption), the
+// skipped notice, and one HourAxis + DayColumn pair inside
+// the vertical scroll; the grid mounts only after onLayout
+// delivers a width — the open-position effect waits on it.
+//
 // Used by:
 //   - components/schedule/TimetableView.tsx — day mode
 // -----------------------------------------------------------

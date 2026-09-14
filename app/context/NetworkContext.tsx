@@ -72,6 +72,13 @@ const NetworkContext = createContext<NetworkContextType>({
   isConnected: true,
 });
 
+// A restore only fires after the connection has held this long —
+// a flapping connection must not trigger app-wide refetch storms
+const RESTORE_STABLE_MS = 1500;
+
+// Repeat restores inside this window are skipped
+const RESTORE_COOLDOWN_MS = 5000;
+
 
 
 
@@ -144,13 +151,6 @@ export function showToast(
 // Used by:
 //   - app/_layout.tsx — wraps the app inside AuthProvider
 // -----------------------------------------------------------
-
-// A restore only fires after the connection has held this long,
-// and repeats inside the cooldown are skipped — a flapping
-// connection must not trigger app-wide refetch storms
-const RESTORE_STABLE_MS = 1500;
-const RESTORE_COOLDOWN_MS = 5000;
-
 
 export function NetworkProvider({ children }: { children: ReactNode }) {
   // Assume online until NetInfo's first event says otherwise —
@@ -304,6 +304,11 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
 // -----------------------------------------------------------
 // useNetwork
 // -----------------------------------------------------------
+//
+// Unlike the other context hooks this one never throws: the
+// context carries a default of { isConnected: true }, so a
+// consumer outside the provider silently reads as online —
+// optimistic on purpose, the banner must not flash at boot.
 //
 // Used by:
 //   - screens checking isConnected before optimistic actions

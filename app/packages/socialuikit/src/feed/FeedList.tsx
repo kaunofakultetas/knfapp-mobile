@@ -133,6 +133,10 @@ function RowBody({ render }: { render: () => ReactNode }) {
 // FooterSpinner
 // -----------------------------------------------------------
 //
+// A centred spinner padded into the list's tail; stateless —
+// FeedList mounts it only while loadingMore, and the brand
+// colour rides in as a prop.
+//
 // Used by:
 //   - FeedList (below), while loadingMore
 // -----------------------------------------------------------
@@ -154,6 +158,11 @@ function FooterSpinner({ color }: { color: string }) {
 // -----------------------------------------------------------
 // FeedList (default export)
 // -----------------------------------------------------------
+//
+// The root wiring: the end-reached guard, the extraData
+// string that repaints cells when the gap marker or its
+// spinner moves, and the pill press that scrolls to the top
+// BEFORE asking the host to merge the waiting posts.
 //
 // Used by:
 //   - the host's feed, profile-posts and topic screens

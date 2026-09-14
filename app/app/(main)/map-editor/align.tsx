@@ -55,6 +55,25 @@ import { WayfindSyncProvider, useWayfindSync, type DrainReport, type SyncEnv } f
 import { PanoramaStage, WayfindUiKitProvider, type KitPanoGeometry } from '@knf/wayfinduikit';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// AlignNeighbour
+// -----------------------------------------------------------
+//
+// One neighbour as the NodeSheet passes it in the route
+// params: the node it names, its display name, and its plan
+// bearing (engine bearingDeg over the draft).
+//
+// Used by:
+//   - AlignBody, AlignScreen (below) — the neighbour chips
+//   - app/(main)/map-editor/index.tsx EditorBody — builds the
+//     `neighbours` route param when pushing this screen
+// -----------------------------------------------------------
+
 export interface AlignNeighbour {
   nodeId: string;
   name: string;
@@ -63,15 +82,49 @@ export interface AlignNeighbour {
 
 // One nudge of the fine-tune stepper, clamped to its range
 const FINE_STEP_DEG = 1;
+// The stepper's clamp: the fine-tune reaches at most ±10°
 const FINE_RANGE_DEG = 10;
 
+// Panorama stage height, shared with the crosshair overlay
 const STAGE_HEIGHT = 300;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// mintId
+// -----------------------------------------------------------
+//
+// Locally unique op ids for the outbox — a timestamp plus a
+// per-module counter, so two mints in one millisecond differ.
+//
+// Used by:
+//   - AlignBody (below) — the confirm write's op id
+// -----------------------------------------------------------
 
 let minted = 0;
 const mintId = (prefix: string): string => `${prefix}-${Date.now().toString(36)}${(minted++).toString(36)}`;
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// parseJson
+// -----------------------------------------------------------
+//
 // A route param is JSON or it is nothing — a mangled deep link
-// must not crash the screen
+// must not crash the screen.
+//
+// Used by:
+//   - AlignScreen (below) — the node and neighbours params
+// -----------------------------------------------------------
+
 const parseJson = <T,>(raw: string | undefined): T | null => {
   if (!raw) return null;
   try {
@@ -80,6 +133,9 @@ const parseJson = <T,>(raw: string | undefined): T | null => {
     return null;
   }
 };
+
+
+
 
 
 
@@ -101,6 +157,9 @@ export function fold360(deg: number): number {
 
   return ((deg % 360) + 360) % 360;
 }
+
+
+
 
 
 
@@ -153,6 +212,9 @@ async function settleUpsert(sync: SyncEnv, opId: string, labels: { title: string
 
 
 
+
+
+
 // -----------------------------------------------------------
 // FineTune
 // -----------------------------------------------------------
@@ -188,6 +250,9 @@ function FineTune({ value, onChange }: { value: number; onChange: (next: number)
     </View>
   );
 }
+
+
+
 
 
 
@@ -321,6 +386,9 @@ function AlignBody({
     </ScrollView>
   );
 }
+
+
+
 
 
 

@@ -268,6 +268,9 @@ export function isRetryableError(err: unknown): boolean {
 // isAuthError
 // -----------------------------------------------------------
 //
+// Reads `status` or `httpStatus` off the thrown value with no
+// HTTP-client dependency — 401 and 403 only, nothing else.
+//
 // Used by:
 //   - hooks — a 401/403 refusal surfaces as 'auth_required',
 //     not as a generic failure

@@ -216,12 +216,36 @@ api.interceptors.request.use(async (config) => {
 });
 
 
+// The auth endpoints where a 401 means "wrong credentials",
+// not "your stored session died" — they never emit
+const SESSION_EXEMPT_PATHS = ['/auth/login', '/auth/register', '/auth/validate-code'];
+
+// One emit per burst: a screen firing four parallel requests
+// over a dead token must tear the session down once, and the
+// teardown's own logout path must never re-trigger it
+const SESSION_INVALID_WINDOW_MS = 2_000;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// decodeDeep
+// -----------------------------------------------------------
+//
 // The backend html.escape()s EVERY string on output — URLs
 // included, so an '&' inside a query string arrives as
 // '&amp;' and breaks images/links unless decoded. Walk the
 // payload once here so no screen ever decodes by hand.
 // Untouched subtrees keep their ORIGINAL reference — the
 // common no-entities payload costs one scan and zero clones.
+//
+// Used by:
+//   - the response interceptor (below) — every success payload
+// -----------------------------------------------------------
+
 const decodeDeep = (value: unknown): unknown => {
   if (typeof value === 'string') return decodeHtmlEntities(value);
   if (Array.isArray(value)) {
@@ -248,25 +272,34 @@ const decodeDeep = (value: unknown): unknown => {
 };
 
 
-// The auth endpoints where a 401 means "wrong credentials",
-// not "your stored session died" — they never emit
-const SESSION_EXEMPT_PATHS = ['/auth/login', '/auth/register', '/auth/validate-code'];
 
-// One emit per burst: a screen firing four parallel requests
-// over a dead token must tear the session down once, and the
-// teardown's own logout path must never re-trigger it
-const SESSION_INVALID_WINDOW_MS = 2_000;
-let lastSessionInvalidAt = 0;
 
+
+
+
+// -----------------------------------------------------------
+// isSessionDeath
+// -----------------------------------------------------------
+//
 // True for the statuses that prove the stored session is dead:
 // any 401, plus the account-deactivated 403 (generic 403s stay
-// untouched — curators legitimately get them on /admin/*)
+// untouched — curators legitimately get them on /admin/*).
+//
+// Used by:
+//   - the response interceptor (below) — the emit gate
+// -----------------------------------------------------------
+
 const isSessionDeath = (status: number, body: unknown): boolean => {
   if (status === 401) return true;
   if (status !== 403) return false;
   const error = (body as { error?: string } | undefined)?.error;
   return typeof error === 'string' && error.includes('Account deactivated');
 };
+
+
+// When the last sessionInvalid emit fired — the burst window's
+// clock (see SESSION_INVALID_WINDOW_MS above)
+let lastSessionInvalidAt = 0;
 
 api.interceptors.response.use(
   (response) => {
@@ -310,25 +343,19 @@ api.interceptors.response.use(
 
 
 // -----------------------------------------------------------
-// request
+// normalizeError
 // -----------------------------------------------------------
 //
-//   request(api.get<Shape>('/path'))         — resolves Shape
-//   request(api.post<Shape>('/path', body))  — resolves Shape
-//
-// Unwraps response.data and converts every failure into an
-// ApiError — domain modules stay one-liners and screens catch
-// exactly one error type.
-//
-// Used by:
-//   - every services/api/* domain module
-// -----------------------------------------------------------
-
 // Error bodies ship unescaped — the backend's escape-on-output
 // middleware only rewrites success responses — so the message
 // is kept verbatim (it is debugging text, never displayed;
 // screens translate via apiErrorKey). The body's stable "code"
 // slug rides along as serverCode.
+//
+// Used by:
+//   - request (below) — every failure
+// -----------------------------------------------------------
+
 const normalizeError = (err: unknown): ApiError => {
   if (err instanceof ApiError) return err;
   if (err instanceof AxiosError && err.response) {
@@ -358,6 +385,27 @@ const normalizeError = (err: unknown): ApiError => {
   }
   return new ApiError('network', 0, 'network', err);
 };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// request
+// -----------------------------------------------------------
+//
+//   request(api.get<Shape>('/path'))         — resolves Shape
+//   request(api.post<Shape>('/path', body))  — resolves Shape
+//
+// Unwraps response.data and converts every failure into an
+// ApiError — domain modules stay one-liners and screens catch
+// exactly one error type.
+//
+// Used by:
+//   - every services/api/* domain module
+// -----------------------------------------------------------
 
 export async function request<T>(promise: Promise<AxiosResponse<T>>): Promise<T> {
   try {

@@ -19,15 +19,17 @@
 //  off in the previous app version must never be re-registered
 //  by a session restore that beat the migration.
 //
-//  Split into:
+//  Split into (data first, then the functions):
 //
 //    NOTIFY_CHANNELS           — the Android channel registry
-//    notifyChannelNames        — nameKey → localized display name
 //    NOTIFY_PRESENTATION       — the foreground policy
+//    storage                   — AsyncStorage key-value seam
+//    notifyEngine              — the singleton
+//    notifyChannelNames        — nameKey → localized display name
 //    currentLanguage           — i18n language → 'lt' | 'en'
 //    migrateLegacyMasterSwitch — one-time legacy opt-out bridge
+//    easProjectId              — app-config project id read
 //    createNotifyDevice        — the Expo adapter, hardware-gated
-//    notifyEngine              — the singleton
 //    readyNotifyEngine         — memoised migrate + init
 // -----------------------------------------------------------
 
@@ -69,10 +71,11 @@ import {
 } from '@knf/notifyengine';
 
 
-// The engine's own master-switch key (absent = enabled) and the
-// settings blob the previous app version persisted through
-// AppContext — its `notifications` boolean WAS the master switch
+// The engine's own master-switch key (absent = enabled)
 const MASTER_KEY = 'notify.masterEnabled';
+
+// The settings blob the previous app version persisted through
+// AppContext — its `notifications` boolean WAS the master switch
 const LEGACY_SETTINGS_KEY = 'app_settings';
 
 
@@ -119,6 +122,81 @@ export const NOTIFY_CHANNELS: readonly ChannelSpec[] = [
 
 
 // -----------------------------------------------------------
+// NOTIFY_PRESENTATION
+// -----------------------------------------------------------
+//
+// Every push shows in the foreground — banner, list, sound and
+// badge — matching the shipped handler. No suppress predicate
+// yet: silencing the chat room that is already on screen needs
+// the active-conversation signal wired into this module, and
+// until then a visible duplicate beats a lost notification.
+//
+// Used by:
+//   - notifyEngine (below) — the engine's foreground handler
+// -----------------------------------------------------------
+
+export const NOTIFY_PRESENTATION: PresentationPolicy = {
+  rules: {},
+  default: { banner: true, list: true, sound: true, badge: true },
+};
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// notifyEngine
+// -----------------------------------------------------------
+//
+// The one engine instance. Built at module load so its
+// identity survives fast refresh and every consumer subscribes
+// to the same stores; nothing side-effecting runs until
+// readyNotifyEngine() calls init(). The functions it calls at
+// init (createNotifyDevice, currentLanguage) are hoisted
+// `function` declarations below, so the data consts can sit up
+// here per the house order.
+//
+// Used by:
+//   - components/notify/NotifyEngineHost.tsx — init, channels,
+//     tap routing
+//   - context/AuthContext.tsx — register on login/restore,
+//     detach on logout
+//   - app/(main)/tabs/settings.tsx — the settings panel's engine
+//   - app/index.tsx — the cold-start consumeInitial
+// -----------------------------------------------------------
+
+// AsyncStorage → the engine's KeyValueStorage seam
+const storage: KeyValueStorage = {
+  get: (key) => AsyncStorage.getItem(key),
+  set: (key, value) => AsyncStorage.setItem(key, value),
+  del: (key) => AsyncStorage.removeItem(key),
+};
+
+export const notifyEngine: NotifyEngine = createNotifyEngine({
+  transport: notifyTransport,
+  device: createNotifyDevice(),
+  storage,
+  channels: [...NOTIFY_CHANNELS],
+  presentation: NOTIFY_PRESENTATION,
+  language: currentLanguage,
+  // The register endpoint is per-user, so a guest's attempt
+  // could only be a 401 on the wire: the stored session is the
+  // gate. A guest switching the master ON still records the
+  // intent in storage, and the login's register('login') claims
+  // the token afterwards
+  canRegister: async () => (await getStoredToken()) !== null,
+  onError: (scope, err) => logError(`notify:${scope}`, err),
+});
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // notifyChannelNames
 // -----------------------------------------------------------
 //
@@ -145,31 +223,6 @@ export function notifyChannelNames(t: (key: string) => string): Record<string, s
 
 
 // -----------------------------------------------------------
-// NOTIFY_PRESENTATION
-// -----------------------------------------------------------
-//
-// Every push shows in the foreground — banner, list, sound and
-// badge — matching the shipped handler. No suppress predicate
-// yet: silencing the chat room that is already on screen needs
-// the active-conversation signal wired into this module, and
-// until then a visible duplicate beats a lost notification.
-//
-// Used by:
-//   - notifyEngine (below) — the engine's foreground handler
-// -----------------------------------------------------------
-
-export const NOTIFY_PRESENTATION: PresentationPolicy = {
-  rules: {},
-  default: { banner: true, list: true, sound: true, badge: true },
-};
-
-
-
-
-
-
-
-// -----------------------------------------------------------
 // currentLanguage
 // -----------------------------------------------------------
 //
@@ -179,7 +232,7 @@ export const NOTIFY_PRESENTATION: PresentationPolicy = {
 // the fallback everywhere else in the app.
 //
 // Used by:
-//   - notifyEngine (below) — read at every register() call
+//   - notifyEngine (above) — read at every register() call
 // -----------------------------------------------------------
 
 export function currentLanguage(): Language {
@@ -235,6 +288,32 @@ export async function migrateLegacyMasterSwitch(): Promise<void> {
 
 
 // -----------------------------------------------------------
+// easProjectId
+// -----------------------------------------------------------
+//
+// app.json extra.eas.projectId — `extra` is untyped in the
+// config, so only a real string reaches the device adapter.
+// A hoisted `function` declaration on purpose: notifyEngine's
+// module-load initializer reaches it through createNotifyDevice
+// while the data consts stay at the top of the file (was a
+// const arrow before the house sweep).
+//
+// Used by:
+//   - createNotifyDevice (below) — the adapter's project id
+// -----------------------------------------------------------
+
+function easProjectId(): string | undefined {
+  const projectId: unknown = Constants.expoConfig?.extra?.eas?.projectId;
+  return typeof projectId === 'string' ? projectId : undefined;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // createNotifyDevice
 // -----------------------------------------------------------
 //
@@ -252,15 +331,8 @@ export async function migrateLegacyMasterSwitch(): Promise<void> {
 // on simulators.
 //
 // Used by:
-//   - notifyEngine (below) — the engine's device seam
+//   - notifyEngine (above) — the engine's device seam
 // -----------------------------------------------------------
-
-// app.json extra.eas.projectId — `extra` is untyped in the
-// config, so only a real string reaches the device adapter
-const easProjectId = (): string | undefined => {
-  const projectId: unknown = Constants.expoConfig?.extra?.eas?.projectId;
-  return typeof projectId === 'string' ? projectId : undefined;
-};
 
 function createNotifyDevice(): DeviceAdapter {
   const base = createExpoDevice({ projectId: easProjectId() });
@@ -273,46 +345,36 @@ function createNotifyDevice(): DeviceAdapter {
 
 
 
+// The memoised init promise — set by readyNotifyEngine's first
+// caller, shared by every later one
+let readyPromise: Promise<NotifyEngine> | null = null;
+
+
+
+
+
+
+
 // -----------------------------------------------------------
-// notifyEngine
+// becomeReady
 // -----------------------------------------------------------
 //
-// The one engine instance. Built at module load so its
-// identity survives fast refresh and every consumer subscribes
-// to the same stores; nothing side-effecting runs until
-// readyNotifyEngine() calls init().
+// The one-time migrate-then-init sequence behind the memo. An
+// init failure is logged, never thrown — see readyNotifyEngine.
 //
 // Used by:
-//   - components/notify/NotifyEngineHost.tsx — init, channels,
-//     tap routing
-//   - context/AuthContext.tsx — register on login/restore,
-//     detach on logout
-//   - app/(main)/tabs/settings.tsx — the settings panel's engine
-//   - app/index.tsx — the cold-start consumeInitial
+//   - readyNotifyEngine (below) — the first call only
 // -----------------------------------------------------------
 
-// AsyncStorage → the engine's KeyValueStorage seam
-const storage: KeyValueStorage = {
-  get: (key) => AsyncStorage.getItem(key),
-  set: (key, value) => AsyncStorage.setItem(key, value),
-  del: (key) => AsyncStorage.removeItem(key),
+const becomeReady = async (): Promise<NotifyEngine> => {
+  await migrateLegacyMasterSwitch();
+  try {
+    await notifyEngine.init();
+  } catch (err) {
+    logError('notify:init', err);
+  }
+  return notifyEngine;
 };
-
-export const notifyEngine: NotifyEngine = createNotifyEngine({
-  transport: notifyTransport,
-  device: createNotifyDevice(),
-  storage,
-  channels: [...NOTIFY_CHANNELS],
-  presentation: NOTIFY_PRESENTATION,
-  language: currentLanguage,
-  // The register endpoint is per-user, so a guest's attempt
-  // could only be a 401 on the wire: the stored session is the
-  // gate. A guest switching the master ON still records the
-  // intent in storage, and the login's register('login') claims
-  // the token afterwards
-  canRegister: async () => (await getStoredToken()) !== null,
-  onError: (scope, err) => logError(`notify:${scope}`, err),
-});
 
 
 
@@ -344,18 +406,6 @@ export const notifyEngine: NotifyEngine = createNotifyEngine({
 //   - context/AuthContext.tsx — before register/detach
 //   - app/(main)/tabs/settings.tsx — before the first server read
 // -----------------------------------------------------------
-
-let readyPromise: Promise<NotifyEngine> | null = null;
-
-const becomeReady = async (): Promise<NotifyEngine> => {
-  await migrateLegacyMasterSwitch();
-  try {
-    await notifyEngine.init();
-  } catch (err) {
-    logError('notify:init', err);
-  }
-  return notifyEngine;
-};
 
 export function readyNotifyEngine(): Promise<NotifyEngine> {
   if (!readyPromise) readyPromise = becomeReady();

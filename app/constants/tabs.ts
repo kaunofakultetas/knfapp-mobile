@@ -28,9 +28,17 @@ type IoniconName = keyof typeof Ionicons.glyphMap;
 
 
 
+
+
+
 // -----------------------------------------------------------
 // TabDef
 // -----------------------------------------------------------
+//
+// One surface's shape. `key` triples as the (main)/tabs route
+// name, the pinnedTabs entry and the tabs.* i18n lookup;
+// icon/iconFilled are the resting and focused glyph pair of
+// one Ionicons icon.
 //
 // Used by:
 //   - TABS (below)
@@ -48,9 +56,16 @@ export interface TabDef {
 
 
 
+
+
+
 // -----------------------------------------------------------
 // TABS
 // -----------------------------------------------------------
+//
+// The seven surfaces in TAB-BAR order — array position IS the
+// bar's and the drawer's order, and every key must match a
+// screen file under (main)/tabs one-to-one.
 //
 // Used by:
 //   - components/Sidebar.tsx — the drawer's section rows
@@ -67,6 +82,9 @@ export const TABS: TabDef[] = [
   { key: 'map', icon: 'map-outline', iconFilled: 'map', route: '/(main)/tabs/map', hardPinned: false },
   { key: 'settings', icon: 'settings-outline', iconFilled: 'settings', route: '/(main)/tabs/settings', hardPinned: false },
 ];
+
+
+
 
 
 

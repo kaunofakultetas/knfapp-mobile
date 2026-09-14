@@ -112,6 +112,12 @@ export function extractCode(raw: string): string | null {
 // QrScanner (default export)
 // -----------------------------------------------------------
 //
+// Wires the ref scan guard, the latched invalid hint and the
+// permission flow from the header onto three bodies: pending
+// permission shows a neutral spinner, denial the request /
+// settings pitch, granted the camera under a pointer-
+// transparent viewfinder overlay.
+//
 // Used by:
 //   - app/register.tsx — invitation-code scanning
 // -----------------------------------------------------------

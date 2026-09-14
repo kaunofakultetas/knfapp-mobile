@@ -133,6 +133,11 @@ export interface RoutingHub {
 // createRoutingHub
 // -----------------------------------------------------------
 //
+// Taps are deduped twice — a session set, plus the persisted
+// ring that guards restarts; with no resolver yet, intents
+// park in a capped buffer, and the serialized consumeInitial()
+// adopts the parked launch tap as the cold start.
+//
 // Used by:
 //   - engine.ts — wires the device listeners in
 // -----------------------------------------------------------

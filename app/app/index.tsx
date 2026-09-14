@@ -56,9 +56,23 @@ import { routeNotificationIntent, settleLaunchRouting } from '@/services/notifyR
 import type { RouteIntent } from '@knf/notifyengine';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// launchIntent
+// -----------------------------------------------------------
+//
 // The launch response as a route intent, or null when there
 // was none — or when the device layer cannot answer at all
-// (web, a missing native module): the default route wins
+// (web, a missing native module): the default route wins.
+//
+// Used by:
+//   - IndexScreen (below) — both redirect branches, via launchRef
+// -----------------------------------------------------------
+
 const launchIntent = async (): Promise<RouteIntent | null> => {
   try {
     return await notifyEngine.routing.consumeInitial();
@@ -76,6 +90,13 @@ const launchIntent = async (): Promise<RouteIntent | null> => {
 // -----------------------------------------------------------
 // IndexScreen (default export)
 // -----------------------------------------------------------
+//
+// Renders only the splash; the work is two effects — the
+// one-shot onboarded read (an unreadable store counts as not
+// onboarded) and the redirect that fires once both facts are
+// in, replace-navigating so back never returns here.
+// launchRef shares the single consumeInitial promise across
+// effect re-runs.
 //
 // Used by:
 //   - expo-router — route '/'

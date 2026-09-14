@@ -19,8 +19,41 @@ import type { BuildingGraph } from '@knf/wayfindengine';
 import { api } from './client';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// GraphFetch
+// -----------------------------------------------------------
+//
+// A conditional fetch's two answers: a fresh graph with its
+// ETag, or "unchanged — keep what you have".
+//
+// Used by:
+//   - fetchBuildingGraph (below) — the return shape
+//   - hooks/useBuildingGraph.ts — branches on `kind`
+// -----------------------------------------------------------
+
 export type GraphFetch = { kind: 'fresh'; graph: BuildingGraph; etag: string | null } | { kind: 'unchanged' };
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// fetchBuildingGraph
+// -----------------------------------------------------------
+//
+// The published graph, conditionally: the held ETag goes out
+// as If-None-Match and a 304 is an answer, not an error.
+//
+// Used by:
+//   - hooks/useBuildingGraph.ts — boot, restore, foreground
+// -----------------------------------------------------------
 
 export async function fetchBuildingGraph(buildingId: string, etag: string | null): Promise<GraphFetch> {
   const response = await api.get<BuildingGraph>(`/wayfind/buildings/${encodeURIComponent(buildingId)}/graph`, {
@@ -33,6 +66,22 @@ export async function fetchBuildingGraph(buildingId: string, etag: string | null
   return { kind: 'fresh', graph: response.data, etag: typeof tag === 'string' ? tag : null };
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// fetchPlanXml
+// -----------------------------------------------------------
+//
+// A server-hosted plan drawing as raw SVG text — the transform
+// is disabled so axios never tries to JSON-parse it.
+//
+// Used by:
+//   - hooks/usePlanXml.ts — the plan reference resolver
+// -----------------------------------------------------------
 
 export async function fetchPlanXml(path: string): Promise<string> {
   const response = await api.get<string>(path.replace(/^\/api/, ''), { responseType: 'text', transformResponse: (data) => data });

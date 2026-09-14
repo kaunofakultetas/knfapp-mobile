@@ -29,6 +29,10 @@ import { useKitLabels, useKitTheme } from '../provider';
 // UnreadPill (default export)
 // -----------------------------------------------------------
 //
+// Two targets in one pill: the labelled jump and a separate
+// ✕ with its own hit slop, so a dismiss can never misfire a
+// jump. The fades honour reduced motion.
+//
 // Used by:
 //   - list/MessageList.tsx — the default slot; hosts may
 //     replace it through the provider's `components`

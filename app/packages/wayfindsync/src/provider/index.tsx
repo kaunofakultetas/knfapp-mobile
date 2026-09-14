@@ -251,6 +251,9 @@ export function WayfindSyncProvider({
 // useWayfindSync
 // -----------------------------------------------------------
 //
+// Hands back the sync env, or throws when no provider is
+// above — queueing edits with nowhere to drain them is a bug.
+//
 // Used by:
 //   - the host's editing screen
 // -----------------------------------------------------------

@@ -21,7 +21,8 @@
 //
 //  Split into:
 //
-//    ASSISTANT_STUB_REPLIES    — the two five-reply pools
+//    ASSISTANT_STUB_REPLIES     — the two five-reply pools
+//    sleep                      — the abortable word pause
 //    createAssistantStubAdapter — the adapter factory
 // -----------------------------------------------------------
 
@@ -39,9 +40,7 @@ interface AssistantStubDeps {
 }
 
 
-// A plain timer promise; the abort check happens around it, so
-// a cancelled run wakes and returns instead of yielding on
-const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
 
 
 
@@ -78,6 +77,28 @@ export const ASSISTANT_STUB_REPLIES: Record<'lt' | 'en', string[]> = {
     'How to find your timetable in the app:\n\n1. Open the "Schedule" tab\n2. Pick your group and semester\n3. The app remembers the choice\n\nFor now I answer with prepared texts, so your exact list is there.',
   ],
 };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// sleep
+// -----------------------------------------------------------
+//
+// A plain timer promise; the abort check happens around it, so
+// a cancelled run wakes and returns instead of yielding on.
+//
+// Used by:
+//   - createAssistantStubAdapter (below) — the inter-word pause
+// -----------------------------------------------------------
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+
+
 
 
 

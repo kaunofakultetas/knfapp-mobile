@@ -134,15 +134,13 @@ const FEED_CHIPS: { key: FeedSelection; labelKey: string }[] = [
 // news rows satisfy the same shape with it absent
 type FeedPost = SocialFeedPost;
 
+// One backend page of either feed per fetch — onEndReached
+// pulls the next page of this length
 const PAGE_SIZE = 20;
 
 // The freshness peek only needs the newest few ids — the pill's
 // count is bounded by this anyway
 const PEEK_SIZE = 10;
-
-// Stable row identity for the kit's list (a fresh closure per
-// render would re-key every cell)
-const keyOfPost = (post: FeedPost) => post.id;
 
 // FAB shadow — '#000' is the sanctioned raw-hex exception
 const FAB_SHADOW: ViewStyle = {
@@ -152,6 +150,32 @@ const FAB_SHADOW: ViewStyle = {
   shadowRadius: 6,
   elevation: 6,
 };
+
+// Module-level so the list never sees a new component type
+// (a per-render wrapper would remount the scroll view).
+// HeaderScrollView is a hoisted function declaration (below),
+// so wrapping it up here with the other module constants is
+// safe at module init
+const AnimatedHeaderScrollView = Animated.createAnimatedComponent(HeaderScrollView);
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// keyOfPost
+// -----------------------------------------------------------
+//
+// Stable row identity for the kit's list (a fresh closure per
+// render would re-key every cell).
+//
+// Used by:
+//   - NewsTab (below) — the feed list's keyOf
+// -----------------------------------------------------------
+
+const keyOfPost = (post: FeedPost) => post.id;
 
 
 
@@ -431,10 +455,6 @@ function HeaderScrollView({
   );
 }
 
-// Module-level so the list never sees a new component type
-// (a per-render wrapper would remount the scroll view)
-const AnimatedHeaderScrollView = Animated.createAnimatedComponent(HeaderScrollView);
-
 
 
 
@@ -499,6 +519,15 @@ function FeedRow({ post, showAvatar, onOpen, onOpenComments, onShare, onOpenAuth
 // -----------------------------------------------------------
 // NewsTab (default export)
 // -----------------------------------------------------------
+//
+// One chip selection state drives everything — mode, filter,
+// the useFeed deps and cache key are derived views of it (a
+// logout with 'user' active resets it during render). Around
+// the feed it wires the collapsible header, the tab-press
+// scroll-to-top, the freshness probe, the pull-only spinner
+// flag, and the focus-return merge that re-fetches the last
+// OPENED post on its own so its counts (or deletion) reach a
+// row at any depth.
 //
 // Used by:
 //   - app/(main)/tabs/_layout.tsx — the news tab

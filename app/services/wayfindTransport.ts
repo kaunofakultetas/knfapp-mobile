@@ -29,6 +29,23 @@ import { SyncRejected, type FrameUploadResult, type OpsAnswer, type PanoramaUplo
 import type { BuildingGraph } from '@knf/wayfindengine';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// DraftAnswer
+// -----------------------------------------------------------
+//
+// The draft endpoint's whole answer: the working revision, the
+// last published one, the building row, the graph document and
+// the current validation issues.
+//
+// Used by:
+//   - fetchDraft (below) — the response shape
+// -----------------------------------------------------------
+
 export interface DraftAnswer {
   revision: number;
   publishedRevision: number | null;
@@ -38,13 +55,46 @@ export interface DraftAnswer {
   issues: { severity: 'error' | 'warning'; code: string; ref: string; message: string }[];
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// CaptureTargetBody
+// -----------------------------------------------------------
+//
 // One planned direction of a guided capture, as the server
-// records it (P2 vocabulary — the plan package mints these)
+// records it (P2 vocabulary — the plan package mints these).
+//
+// Used by:
+//   - createCapture (below) — the targets array
+// -----------------------------------------------------------
+
 export interface CaptureTargetBody {
   id: string;
   yawDeg: number;
   pitchDeg: number;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// CaptureStatusAnswer
+// -----------------------------------------------------------
+//
+// The capture record as the status poll sees it — counts,
+// stitch progress and, once done, the finished panorama.
+//
+// Used by:
+//   - getCapture (below) — the response shape
+//   - app/(main)/map-editor/capture.tsx — the polling screen
+// -----------------------------------------------------------
 
 export interface CaptureStatusAnswer {
   id: string;
@@ -64,25 +114,27 @@ export interface CaptureStatusAnswer {
   };
 }
 
-// A 4xx verdict on the file itself will not change on retry —
-// but a 401 (a session the admin renews by logging back in), a
-// 408 (a timeout) and a 429 (a rate limit) are the weather,
-// not a verdict: those must not park a queued panorama for good
-const isFinal = (error: unknown): error is ApiError => error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 401 && error.status !== 408 && error.status !== 429;
 
 
-const formFor = async (file: UploadFile, fields: Record<string, string>): Promise<FormData> => {
-  const form = new FormData();
-  if (Platform.OS === 'web') {
-    const blob = await (await fetch(file.uri)).blob();
-    form.append('file', blob, file.name);
-  } else {
-    form.append('file', { uri: file.uri, name: file.name, type: file.type } as unknown as Blob);
-  }
-  for (const [key, value] of Object.entries(fields)) form.append(key, value);
-  return form;
-};
 
+
+
+
+// -----------------------------------------------------------
+// wayfindTransport
+// -----------------------------------------------------------
+//
+// The SyncTransport instance itself — ops, publish and the
+// three multipart uploads; see the header for the retry and
+// rejection semantics. Its methods call isFinal and formFor
+// (below) only at request time, so the data const can sit
+// above them per the house order.
+//
+// Used by:
+//   - app/(main)/map-editor/index.tsx — the sync engine's wire
+//   - app/(main)/map-editor/align.tsx
+//   - app/(main)/map-editor/capture.tsx
+// -----------------------------------------------------------
 
 export const wayfindTransport: SyncTransport = {
   postOps: (buildingId, ops: ServerOp[]) => request(api.post<OpsAnswer>(`/wayfind/buildings/${encodeURIComponent(buildingId)}/ops`, { ops })),
@@ -136,10 +188,74 @@ export const wayfindTransport: SyncTransport = {
 };
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// isFinal
+// -----------------------------------------------------------
+//
+// A 4xx verdict on the file itself will not change on retry —
+// but a 401 (a session the admin renews by logging back in), a
+// 408 (a timeout) and a 429 (a rate limit) are the weather,
+// not a verdict: those must not park a queued panorama for good.
+//
+// Used by:
+//   - wayfindTransport (above) — the three upload methods
+// -----------------------------------------------------------
+
+const isFinal = (error: unknown): error is ApiError => error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 401 && error.status !== 408 && error.status !== 429;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// formFor
+// -----------------------------------------------------------
+//
+// One upload's multipart body. Web must materialise the picker
+// URI as a real Blob; native takes the RN file-object shape.
+//
+// Used by:
+//   - wayfindTransport (above) — the three upload methods
+// -----------------------------------------------------------
+
+const formFor = async (file: UploadFile, fields: Record<string, string>): Promise<FormData> => {
+  const form = new FormData();
+  if (Platform.OS === 'web') {
+    const blob = await (await fetch(file.uri)).blob();
+    form.append('file', blob, file.name);
+  } else {
+    form.append('file', { uri: file.uri, name: file.name, type: file.type } as unknown as Blob);
+  }
+  for (const [key, value] of Object.entries(fields)) form.append(key, value);
+  return form;
+};
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// fetchDraft
+// -----------------------------------------------------------
+//
 // A server without the building yet is the normal first-run
 // answer — accepted as a status, so it never reaches the error
 // log (in development every logged failure surfaces as an
-// on-screen notice)
+// on-screen notice).
+//
+// Used by:
+//   - app/(main)/map-editor/index.tsx — the editor's load
+// -----------------------------------------------------------
+
 export const fetchDraft = async (buildingId: string): Promise<DraftAnswer | null> => {
   const response = await api.get<DraftAnswer>(`/wayfind/buildings/${encodeURIComponent(buildingId)}/draft`, {
     validateStatus: (status) => status === 200 || status === 404,
@@ -147,19 +263,88 @@ export const fetchDraft = async (buildingId: string): Promise<DraftAnswer | null
   return response.status === 404 ? null : response.data;
 };
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// createBuilding
+// -----------------------------------------------------------
+//
+// POST /wayfind/buildings with a CLIENT-chosen id — a
+// lowercase slug (a-z, 0-9, -), refused as 400 otherwise. Not
+// idempotent like createCapture: a taken id answers 409.
+// Admin-only on the server.
+//
+// Used by:
+//   - app/(main)/map-editor/index.tsx — the first-run create
+// -----------------------------------------------------------
+
 export const createBuilding = (id: string, name: string) => request(api.post<{ id: string }>('/wayfind/buildings', { id, name }));
 
-// The guided capture's own three calls (P4). The capture id is
-// the CLIENT's uuid — creating twice with the same id answers
-// the existing record, so a retried create never forks
+
+
+
+
+
+
+// -----------------------------------------------------------
+// createCapture
+// -----------------------------------------------------------
+//
+// The guided capture's own three calls start here (P4). The
+// capture id is the CLIENT's uuid — creating twice with the
+// same id answers the existing record, so a retried create
+// never forks.
+//
+// Used by:
+//   - app/(main)/map-editor/capture.tsx — session start
+// -----------------------------------------------------------
+
 export const createCapture = (buildingId: string, body: { id: string; nodeId?: string; mode: 'full' | 'walls'; frameHfovDeg: number; targets: CaptureTargetBody[] }) =>
   request(api.post<{ id: string; status: string }>(`/wayfind/buildings/${encodeURIComponent(buildingId)}/captures`, body));
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// finishCapture
+// -----------------------------------------------------------
+//
 // centreYawDeg is the manifest's firstYawDeg — the yaw of the
 // chronologically first ACCEPTED frame. Without it the server
 // falls back to the earliest UPLOADED frame, which the retry
-// ladder can make a different one
+// ladder can make a different one.
+//
+// Used by:
+//   - app/(main)/map-editor/capture.tsx — session end
+// -----------------------------------------------------------
+
 export const finishCapture = (captureId: string, buildingId: string, centreYawDeg?: number) =>
   request(api.post<{ status: string }>(`/wayfind/captures/${encodeURIComponent(captureId)}/finish?buildingId=${encodeURIComponent(buildingId)}`, centreYawDeg != null ? { centreYawDeg } : {}));
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// getCapture
+// -----------------------------------------------------------
+//
+// The status poll of the capture trio: frames/expected count
+// the accepted uploads, and the `pano` block exists only once
+// status is 'done'. buildingId travels as a query param so the
+// server's lookup is exact rather than by capture id alone.
+//
+// Used by:
+//   - app/(main)/map-editor/capture.tsx — the stitch status poll
+// -----------------------------------------------------------
 
 export const getCapture = (captureId: string, buildingId: string) => request(api.get<CaptureStatusAnswer>(`/wayfind/captures/${encodeURIComponent(captureId)}?buildingId=${encodeURIComponent(buildingId)}`));

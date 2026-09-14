@@ -36,6 +36,11 @@ import type { UserRole } from '@/types';
 // AdminInvitation
 // -----------------------------------------------------------
 //
+// One row of GET /admin/invitations. `expired` and `fullyUsed`
+// are derived at response time, not stored — the server reads
+// damaged rows conservatively (an unparsable expiry counts as
+// expired). The wire's extra createdBy field is dropped here.
+//
 // Used by:
 //   - fetchAdminInvitations, createInvitation (below)
 //   - app/(main)/admin/index.tsx — invitation cards
@@ -62,6 +67,11 @@ export interface AdminInvitation {
 // -----------------------------------------------------------
 // AdminStats
 // -----------------------------------------------------------
+//
+// The five dashboard counters. scrapedArticles is the subset
+// of posts sourced from the knf.vu.lt / vu.lt scrapers;
+// activeInvitations counts codes neither expired nor fully
+// used.
 //
 // Used by:
 //   - fetchAdminStats (below)
@@ -116,6 +126,10 @@ export interface AdminUser {
 // fetchAdminStats
 // -----------------------------------------------------------
 //
+// GET /admin/stats — the server answers an in-process cached
+// snapshot (45 s TTL), so the tiles can lag a refetch-on-focus
+// by up to that long.
+//
 // Used by:
 //   - app/(main)/admin/index.tsx — dashboard load
 // -----------------------------------------------------------
@@ -131,6 +145,11 @@ export const fetchAdminStats = () => request(api.get<AdminStats>('/admin/stats')
 // -----------------------------------------------------------
 // fetchAdminInvitations
 // -----------------------------------------------------------
+//
+// GET /admin/invitations, newest first, everything at once —
+// the ?limit/?offset pair exists server-side but is unused
+// here. Curator sessions get a narrowed list (their own codes
+// only); the envelope stays unwrapped.
 //
 // Used by:
 //   - app/(main)/admin/index.tsx — invitation list
@@ -180,6 +199,11 @@ export const createInvitation = (params: {
 // revokeInvitation
 // -----------------------------------------------------------
 //
+// DELETE /admin/invitations/<id> — a hard row delete, not a
+// soft revoke: accounts already registered with the code are
+// untouched. 404 for an unknown id (or, for curators, a code
+// that is not their own).
+//
 // Used by:
 //   - app/(main)/admin/index.tsx — code delete action
 // -----------------------------------------------------------
@@ -197,6 +221,10 @@ export async function revokeInvitation(codeId: string): Promise<void> {
 // -----------------------------------------------------------
 // fetchAdminUsers
 // -----------------------------------------------------------
+//
+// GET /admin/users, newest account first, everything at once
+// (the server's ?limit/?offset pair goes unused here); the
+// { users } envelope stays unwrapped.
 //
 // Used by:
 //   - app/(main)/admin-users/index.tsx — user list load
@@ -228,6 +256,9 @@ export const updateAdminUser = (
   userId: string,
   updates: { role?: UserRole; active?: boolean },
 ) => request(api.patch<AdminUser>(`/admin/users/${encodeURIComponent(userId)}`, updates));
+
+
+
 
 
 

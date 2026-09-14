@@ -151,6 +151,9 @@ export function DataEngineProvider({
 // useDataEngine
 // -----------------------------------------------------------
 //
+// Hands back the engine env, or throws when no provider is
+// above — the cache and the restore bus only exist inside one.
+//
 // Used by:
 //   - hooks/useNetworkRestore.ts, hooks/useFeed.ts
 //   - hosts needing the cache directly (logout clearAll)

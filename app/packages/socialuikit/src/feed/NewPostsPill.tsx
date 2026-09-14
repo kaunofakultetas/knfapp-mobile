@@ -33,6 +33,11 @@ import { AccessibilityInfo, Animated, Pressable, Text } from 'react-native';
 // NewPostsPill (default export)
 // -----------------------------------------------------------
 //
+// Owns the entrance: the Animated value is rewound and
+// re-run each time the count returns from zero (null keeps
+// the component mounted), and a reduce-motion reader gets
+// the pill placed at rest instead of animated in.
+//
 // Used by:
 //   - feed/FeedList.tsx — overlaid on the feed while
 //     newCount > 0

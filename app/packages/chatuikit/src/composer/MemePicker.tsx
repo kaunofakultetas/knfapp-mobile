@@ -43,6 +43,11 @@ const TILE_GAP = 4;
 // MemePicker (default export)
 // -----------------------------------------------------------
 //
+// A fixed-height panel (the composer never jumps): search
+// field up top, the three-column FlatList under it. The "+"
+// tile leads the grid when onAdd is given; relative URLs go
+// through the provider's resolveImageUrl.
+//
 // Used by:
 //   - composer/Composer.tsx — the meme panel under the field
 //   - app/(main)/chat-room/index.tsx

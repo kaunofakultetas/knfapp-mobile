@@ -226,6 +226,10 @@ export function ChatUiKitProvider({
 // useKitTheme
 // -----------------------------------------------------------
 //
+// The resolved theme — palette, fonts and text styles ready
+// to spread into styles; with no provider mounted it answers
+// resolveTheme(defaultTheme).
+//
 // Used by:
 //   - every kit component — the resolved theme
 // -----------------------------------------------------------
@@ -243,6 +247,10 @@ export function useKitTheme(): KitResolvedTheme {
 // -----------------------------------------------------------
 // useKitComponents
 // -----------------------------------------------------------
+//
+// The host's slot overrides, deliberately Partial — readers
+// fill each empty slot with the kit's own piece; with no
+// provider mounted every slot is empty.
 //
 // Used by:
 //   - MessageList / MessageBubble — the host's override slots
@@ -262,6 +270,10 @@ export function useKitComponents(): Partial<KitComponents> {
 // useKitLabels
 // -----------------------------------------------------------
 //
+// The full label set, already merged for the provider's
+// locale — no per-string fallbacks needed downstream; with
+// no provider mounted, the English defaults.
+//
 // Used by:
 //   - the kit roots — the merged label set for the locale
 // -----------------------------------------------------------
@@ -279,6 +291,11 @@ export function useKitLabels(): KitLabels {
 // -----------------------------------------------------------
 // useKitEnv
 // -----------------------------------------------------------
+//
+// The whole env in one read — for pieces that need the host
+// functions (resolveImageUrl, formatTime) beside the theme;
+// with no provider mounted it answers defaultEnv: identity
+// URL resolver, plain HH:MM times, English labels.
 //
 // Used by:
 //   - MessageBubble — image resolution and time formatting,

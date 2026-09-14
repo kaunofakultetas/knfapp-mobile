@@ -67,6 +67,10 @@ export interface LessonCardProps {
 // LessonCard (default export)
 // -----------------------------------------------------------
 //
+// Purely presentational — no Pressable inside; a host that
+// wants tappable rows wraps the card itself. The accent bar
+// and the time range share one conflict-aware color.
+//
 // Used by:
 //   - app/(main)/tabs/schedule.tsx — the list view's
 //     renderItem

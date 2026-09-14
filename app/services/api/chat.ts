@@ -96,9 +96,41 @@ export interface ApiConversation {
   };
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ApiMessageKind
+// -----------------------------------------------------------
+//
+// text | image | video | file | system — what a message row IS,
+// so previews and bubbles can branch without sniffing fields.
+//
+// Used by:
+//   - ApiConversation (above), ApiMessage, SendMessageExtra
+// -----------------------------------------------------------
+
 export type ApiMessageKind = 'text' | 'image' | 'video' | 'file' | 'system';
 
-// A document / video attachment as stored (migration v57)
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ApiAttachment
+// -----------------------------------------------------------
+//
+// A document / video attachment as stored (migration v57).
+//
+// Used by:
+//   - ApiMessage, SendMessageExtra (below)
+// -----------------------------------------------------------
+
 export interface ApiAttachment {
   url: string;
   name: string;
@@ -106,8 +138,23 @@ export interface ApiAttachment {
   mime: string;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ApiMedia
+// -----------------------------------------------------------
+//
 // What a photo / video message knows about its frame (v58):
-// natural size, duration in seconds, the poster's upload path
+// natural size, duration in seconds, the poster's upload path.
+//
+// Used by:
+//   - ApiMessage, SendMessageExtra (below)
+// -----------------------------------------------------------
+
 export interface ApiMedia {
   width?: number | null;
   height?: number | null;
@@ -187,6 +234,10 @@ export interface ApiMessage {
 // ConversationsResponse
 // -----------------------------------------------------------
 //
+// Rows arrive pinned first, then newest activity, each one
+// complete — participants, last message, unreadCount — so the
+// tab renders from this single call, no follow-up fetches.
+//
 // Used by:
 //   - fetchConversations (below)
 //   - app/(main)/tabs/messages.tsx — list state
@@ -205,6 +256,11 @@ export interface ConversationsResponse {
 // -----------------------------------------------------------
 // MessagesResponse
 // -----------------------------------------------------------
+//
+// One history page: hasMore says an older page exists past
+// the cursor, while participants and conversation describe
+// the whole room, not the page — they repeat identically on
+// every page fetched.
 //
 // Used by:
 //   - fetchMessages (below)
@@ -231,6 +287,11 @@ export interface MessagesResponse {
 // SearchUserResult
 // -----------------------------------------------------------
 //
+// Rows arrive RANKED — exact username hit, display-name
+// prefix, then the rest — with deactivated accounts and both
+// halves of a block pair already excluded. Deliberately no
+// email on the wire.
+//
 // Used by:
 //   - searchUsersApi (below)
 //   - app/(main)/new-chat/index.tsx — people picker rows
@@ -253,6 +314,11 @@ export interface SearchUserResult {
 // -----------------------------------------------------------
 // MessageSearchResult
 // -----------------------------------------------------------
+//
+// `time` is the server's UTC-preformatted HH:MM — 2–3 h off
+// in Lithuania; render createdAt through services/format.ts
+// instead. isOwn is computed server-side, sparing the screen
+// a senderId comparison.
 //
 // Used by:
 //   - searchMessagesApi (below)
@@ -281,6 +347,11 @@ export interface MessageSearchResult {
 // -----------------------------------------------------------
 // fetchConversations
 // -----------------------------------------------------------
+//
+// GET /chat/conversations — everything the caller belongs to,
+// in one response with no paging: the backend answers the
+// whole tab in four set-based queries and the sort (pinned,
+// then activity) is already applied.
 //
 // Used by:
 //   - app/(main)/tabs/messages.tsx — the conversation list
@@ -354,6 +425,31 @@ export const fetchMessages = (convId: string, before?: string, limit = 50, befor
 
 
 // -----------------------------------------------------------
+// SendMessageExtra
+// -----------------------------------------------------------
+//
+// The optional third rail of a send: an uploaded attachment,
+// its media frame data, and the explicit kind.
+//
+// Used by:
+//   - sendMessageApi (below) — the `extra` parameter
+// -----------------------------------------------------------
+
+export interface SendMessageExtra {
+  // A document or a video (uploaded first — uploadFileApi)
+  attachment?: ApiAttachment;
+  // The frame size / duration / poster of a photo or video
+  media?: ApiMedia;
+  kind?: ApiMessageKind;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // sendMessageApi
 // -----------------------------------------------------------
 //
@@ -369,14 +465,6 @@ export const fetchMessages = (convId: string, before?: string, limit = 50, befor
 // Used by:
 //   - hooks/chat/useChatComposer.ts — the send action
 // -----------------------------------------------------------
-
-export interface SendMessageExtra {
-  // A document or a video (uploaded first — uploadFileApi)
-  attachment?: ApiAttachment;
-  // The frame size / duration / poster of a photo or video
-  media?: ApiMedia;
-  kind?: ApiMessageKind;
-}
 
 export const sendMessageApi = (
   convId: string,
@@ -541,6 +629,11 @@ export async function removeReactionApi(convId: string, msgId: string): Promise<
 // togglePinApi
 // -----------------------------------------------------------
 //
+// Flips the CALLER's pin — pins live on the membership row,
+// per user, not on the conversation. The backend flips with
+// one atomic UPDATE (racing toggles both land) and answers
+// the new {pinned}; a non-member gets 403.
+//
 // Used by:
 //   - app/(main)/tabs/messages.tsx — row pin action
 // -----------------------------------------------------------
@@ -557,6 +650,12 @@ export const togglePinApi = (convId: string) =>
 // -----------------------------------------------------------
 // markConversationRead
 // -----------------------------------------------------------
+//
+// PUT /chat/conversations/<id>/read — advances the caller's
+// read watermark (never backwards) and writes per-message
+// receipts; 'messages_read' goes out only when something was
+// actually new. Shares one 10-per-10 s budget with the
+// socket's mark_read (429 beyond it).
 //
 // Used by:
 //   - hooks/chat/useChatMessages.ts — on open and on new message
@@ -576,6 +675,11 @@ export async function markConversationRead(convId: string): Promise<void> {
 // fetchTotalUnreadCount
 // -----------------------------------------------------------
 //
+// One flat count over every membership — other people's
+// messages newer than the caller's watermark, unsent ones
+// excluded: the same definition as the per-row unreadCount,
+// so the tab badge and the row badges always agree.
+//
 // Used by:
 //   - hooks/useUnreadCount.ts — the messages tab badge
 // -----------------------------------------------------------
@@ -592,6 +696,12 @@ export const fetchTotalUnreadCount = () =>
 // -----------------------------------------------------------
 // deleteConversationApi
 // -----------------------------------------------------------
+//
+// A LEAVE, not a delete: the caller's membership (and their
+// receipts/reactions) go, the others keep the history with
+// the leaver's messages still attributed — only the last
+// member's leave purges the room itself. 403 for a room the
+// caller never joined, 404 for an unknown one.
 //
 // Used by:
 //   - app/(main)/tabs/messages.tsx — row delete action
@@ -611,6 +721,12 @@ export async function deleteConversationApi(convId: string): Promise<void> {
 // searchMessagesApi
 // -----------------------------------------------------------
 //
+// Case-insensitive substring over the room's un-unsent rows,
+// members only. A blank q (or one over 200 chars) is a 400;
+// the newest `limit` hits come back in chronological order,
+// and `total` SATURATES at the server's cap — that exact
+// value means "this many or more", not an exact count.
+//
 // Used by:
 //   - app/(main)/chat-room/index.tsx — in-conversation search
 // -----------------------------------------------------------
@@ -622,6 +738,28 @@ export const searchMessagesApi = (convId: string, q: string, limit = 20) =>
       { params: { q, limit } },
     ),
   );
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// PresenceResult
+// -----------------------------------------------------------
+//
+// The merged presence maps a poll resolves to — online flags
+// plus each counterpart's last socket activity.
+//
+// Used by:
+//   - fetchOnlineStatus (below) — the return shape
+// -----------------------------------------------------------
+
+export interface PresenceResult {
+  online: Record<string, boolean>;
+  lastSeen: Record<string, string | null>;
+}
 
 
 
@@ -647,11 +785,6 @@ export const searchMessagesApi = (convId: string, q: string, limit = 20) =>
 //   - app/(main)/chat-room/index.tsx — the header presence
 //     dot and the last-active line
 // -----------------------------------------------------------
-
-export interface PresenceResult {
-  online: Record<string, boolean>;
-  lastSeen: Record<string, string | null>;
-}
 
 export async function fetchOnlineStatus(userIds: string[]): Promise<PresenceResult | null> {
   try {
@@ -681,6 +814,12 @@ export async function fetchOnlineStatus(userIds: string[]): Promise<PresenceResu
 // -----------------------------------------------------------
 // searchUsersApi
 // -----------------------------------------------------------
+//
+// Substring match on username OR display name, capped at 20
+// ranked rows. Under 2 chars the server answers an empty 200
+// — never a 400 — so the picker may fire on every keystroke;
+// what stops enumeration is the 120-per-5-min budget, which
+// every call spends.
 //
 // Used by:
 //   - app/(main)/new-chat/index.tsx — the people search box

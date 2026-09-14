@@ -32,7 +32,23 @@ import { Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 
-// The slice of NativeStackHeaderProps this bar reads
+
+
+
+
+
+// -----------------------------------------------------------
+// StackHeaderProps
+// -----------------------------------------------------------
+//
+// The slice of NativeStackHeaderProps this bar reads, declared
+// locally so nothing here depends on native-stack's types.
+//
+// Used by:
+//   - BackButton, StackHeader (below)
+//   - app/(main)/_layout.tsx — types its renderHeader prop
+// -----------------------------------------------------------
+
 export interface StackHeaderProps {
   navigation: { goBack: () => void; canGoBack: () => boolean };
   route: { name: string };
@@ -112,6 +128,12 @@ function BackButton({ navigation }: { navigation: StackHeaderProps['navigation']
 // -----------------------------------------------------------
 // StackHeader (default export)
 // -----------------------------------------------------------
+//
+// Honors headerShown: false by rendering null; resolves the
+// title with react-navigation's own precedence (headerTitle,
+// then title, then route name), lets a FUNCTION headerTitle
+// replace the Text outright, and hands headerRight the
+// on-brand tint plus the live canGoBack.
 //
 // Used by:
 //   - app/(main)/_layout.tsx — the Stack's `header` option

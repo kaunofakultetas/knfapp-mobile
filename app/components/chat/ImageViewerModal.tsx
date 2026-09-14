@@ -55,7 +55,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Thumbnail rail geometry — one source for the centering math
 const THUMB_SIZE = 56;
+
+// The gap between rail thumbnails
 const THUMB_MARGIN = 8;
+
+// One rail slot — size plus gap, the centering math's stride
 const THUMB_FULL = THUMB_SIZE + THUMB_MARGIN;
 
 
@@ -67,6 +71,10 @@ const THUMB_FULL = THUMB_SIZE + THUMB_MARGIN;
 // -----------------------------------------------------------
 // ViewerImage
 // -----------------------------------------------------------
+//
+// One gallery entry: `id` is the MESSAGE id, not the URL — so
+// re-sent duplicates of the same picture keep distinct
+// positions — and `uri` arrives already resolved.
 //
 // Used by:
 //   - ImageViewerModal (below)
@@ -175,6 +183,12 @@ function StageImage({
 // -----------------------------------------------------------
 // ImageViewerModal (default export)
 // -----------------------------------------------------------
+//
+// Owns the index state, the two imperative refs (Gallery and
+// the rail FlatList) and the rail's measured width; three
+// effects keep them honest — the reopen resync, the
+// post-layout re-centre, and the clamp/close when unsends
+// shrink the image set under the current index.
 //
 // Used by:
 //   - app/(main)/chat-room/index.tsx — the chat room screen

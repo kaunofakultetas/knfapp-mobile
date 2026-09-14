@@ -25,6 +25,25 @@ import { WayfindProvider } from '@knf/wayfindengine';
 import { WayfindUiKitProvider, defaultTheme, type KitTheme } from '@knf/wayfinduikit';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// WayfindHost (default export)
+// -----------------------------------------------------------
+//
+// Two memos feed the providers: the palette-to-kit-token map
+// (route on brand, plan on surface, the photo stage kept dark
+// in both schemes) and an env whose resolveImageUrl falls
+// back to the raw value where getUploadUrl answers null — the
+// kit insists on a string.
+//
+// Used by:
+//   - app/(main)/tabs/map.tsx — wraps the map screen
+// -----------------------------------------------------------
+
 export default function WayfindHost({ children }: { children: ReactNode }) {
 
   const { colors, scheme } = useTheme();

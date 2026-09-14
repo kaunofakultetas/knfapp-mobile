@@ -44,6 +44,10 @@ import type { ContextTarget, KitMessage } from '../core/types';
 // useContextMenu
 // -----------------------------------------------------------
 //
+// Everything derives from the one target: the live row, the
+// ringed emoji, temp/canAct — recomputed every render, so a
+// reaction landing while the menu is open shows at once.
+//
 // Used by:
 //   - app/(main)/chat-room/index.tsx — between MessageList
 //     and MessageContextMenu

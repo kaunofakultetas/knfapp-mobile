@@ -187,6 +187,13 @@ const FriendRow = memo(function FriendRow({
 // FriendsScreen (default export)
 // -----------------------------------------------------------
 //
+// One useLoad fetches friends and the pending count together
+// (logged out resolves empty without a request); a
+// skip-first-focus effect refetches silently on every return,
+// and the local `refreshing` flag exists only so the pull
+// spinner never reflects those silent refreshes. Row handlers
+// are useCallback-stable to keep memoized rows cheap.
+//
 // Used by:
 //   - app/(main)/_layout.tsx — route /(main)/friends
 // -----------------------------------------------------------

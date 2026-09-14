@@ -62,10 +62,14 @@ const TAB_ICONS: Record<string, { filled: IoniconName; outline: IoniconName }> =
 
 // Critically damped — the pill glides in, the press eases down
 const PILL_SPRING = { damping: 20, stiffness: 240, mass: 0.8, overshootClamping: true };
+
+// Snappier than PILL_SPRING — the press-down scale, not the glide
 const PRESS_SPRING = { damping: 18, stiffness: 320, mass: 0.6, overshootClamping: true };
 
 // Pill geometry behind the 24pt glyph
 const PILL_WIDTH = 56;
+
+// The pill's height half is also its corner radius (a capsule)
 const PILL_HEIGHT = 32;
 
 
@@ -212,6 +216,12 @@ function TabItem({
 // -----------------------------------------------------------
 // TabBar (default export)
 // -----------------------------------------------------------
+//
+// Filters the row to pinnedTabs PLUS whichever route is
+// focused, so a screen opened from the drawer while unpinned
+// still keeps a selected tab under the reader; presses follow
+// react-navigation's contract — emit tabPress first so
+// listeners can preventDefault, then navigate.
 //
 // Used by:
 //   - app/(main)/tabs/_layout.tsx — the Tabs `tabBar` prop

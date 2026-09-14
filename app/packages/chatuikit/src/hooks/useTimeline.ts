@@ -70,6 +70,10 @@ export interface UnreadMarker {
 // useTimeline
 // -----------------------------------------------------------
 //
+// The timeline memo also keys on dayKey — a dependency the
+// lint cannot see buildTimeline use — so the midnight tick
+// relabels "Today" without any message having changed.
+//
 // Used by:
 //   - app/(main)/chat-room/index.tsx — feeds MessageList
 //     `items` + `unread`

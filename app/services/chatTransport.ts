@@ -44,6 +44,21 @@ const http: HttpClient = {
 };
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// chatTransport
+// -----------------------------------------------------------
+//
+// The app's one ChatTransport instance — see the header.
+//
+// Used by:
+//   - components/chat/ChatEngineHost.tsx — handed to the engine
+// -----------------------------------------------------------
+
 export const chatTransport = createKnfTransport({
   http,
   socket: socketClient,

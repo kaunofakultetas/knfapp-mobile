@@ -21,6 +21,23 @@ import { BUNDLED_PLANS } from '@/services/wayfind/seed';
 import { useDataEngine } from '@knf/dataengine';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// usePlanXml
+// -----------------------------------------------------------
+//
+//   usePlanXml('plan:L1')       — a bundled seed plan, at once
+//   usePlanXml('/api/...svg')   — fetched once, kept by hash
+//   usePlanXml(null)            — no reference → null
+//
+// Used by:
+//   - app/(main)/tabs/map.tsx — the plan view
+// -----------------------------------------------------------
+
 export function usePlanXml(reference: string | null | undefined): string | null {
 
   const { cache } = useDataEngine();

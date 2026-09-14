@@ -165,6 +165,10 @@ function Strip({
 // AttachButton
 // -----------------------------------------------------------
 //
+// One icon in a fixed 36×38 slot; `busy` swaps it for a
+// spinner (a11y label included), disabled dims it to 40%
+// so the bar keeps its shape.
+//
 // Used by:
 //   - Composer (below)
 // -----------------------------------------------------------
@@ -425,6 +429,11 @@ function SendSlot({
 // -----------------------------------------------------------
 // Composer (default export)
 // -----------------------------------------------------------
+//
+// Controlled throughout: the host owns the draft and every
+// action is a callback — optional ones gate their buttons
+// (no onAttachFile, no paperclip). The kit keeps only look
+// state: field height, keyboard flag, cursor for mentions.
 //
 // Used by:
 //   - app/(main)/chat-room/index.tsx

@@ -19,8 +19,27 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/hooks/useTheme';
 
 
+// The row list scrolls past this height instead of growing
+// the card off-screen
 const ROWS_MAX_HEIGHT = 340;
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// OptionRow
+// -----------------------------------------------------------
+//
+// One pickable row — optional detail line, a checkmark when
+// active.
+//
+// Used by:
+//   - OptionSheet (below) — the rows prop
+//   - app/(main)/chat-room/index.tsx — builds the row lists
+// -----------------------------------------------------------
 
 export interface OptionRow {
   id: string;
@@ -29,6 +48,26 @@ export interface OptionRow {
   active?: boolean;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// OptionSheet (default export)
+// -----------------------------------------------------------
+//
+// Fully controlled, no state of its own: without onPick the
+// rows render read-only (text role, press disabled),
+// emptyLabel stands in for an empty list, and the row
+// ScrollView caps at ROWS_MAX_HEIGHT so a long list scrolls
+// instead of pushing the card off screen.
+//
+// Used by:
+//   - app/(main)/chat-room/index.tsx — window / forward /
+//     seen-by pickers
+// -----------------------------------------------------------
 
 export default function OptionSheet({
   visible,

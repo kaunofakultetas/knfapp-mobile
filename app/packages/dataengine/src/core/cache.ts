@@ -85,6 +85,11 @@ export interface CacheHandle {
 // createCache
 // -----------------------------------------------------------
 //
+// Reads never throw — corrupt, wrong-version and expired
+// entries answer as misses and are evicted on the way out;
+// clearAll() bumps the epoch BEFORE wiping and answers false
+// on failure; maxEntries evicts oldest-written first.
+//
 // Used by:
 //   - provider/index.tsx — DataEngineProvider builds the one
 //     instance its hooks share

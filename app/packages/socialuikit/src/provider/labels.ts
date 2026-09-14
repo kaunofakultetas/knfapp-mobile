@@ -137,6 +137,11 @@ export interface KitLabels {
 // defaultLabels
 // -----------------------------------------------------------
 //
+// The two built-in catalogs, 'lt' and 'en' — each a FULL
+// KitLabels, so a locale switch never leaves a key behind.
+// Every Lithuanian count-taking key selects its noun form
+// through ltPlural (below); hosts override keys, not this.
+//
 // Used by:
 //   - provider/index.tsx — the locale picks the base set; the
 //     provider-less fallback is Lithuanian, matching the

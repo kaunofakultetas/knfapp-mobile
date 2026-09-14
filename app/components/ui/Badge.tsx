@@ -26,6 +26,10 @@ interface BadgeProps {
 // Badge (default export)
 // -----------------------------------------------------------
 //
+// Stateless — hiding at zero and the "99+" collapse both
+// derive straight from `count`, so callers render it
+// unconditionally instead of guarding with `count > 0 &&`.
+//
 // Used by:
 //   - app/(main)/tabs/_layout.tsx — messages-tab unread count
 //   - components/chat/ConversationRow.tsx — per-conversation

@@ -32,6 +32,11 @@ import { AppState, Text, View } from 'react-native';
 // CachedBanner (default export)
 // -----------------------------------------------------------
 //
+// Owns nothing but the re-render tick: a minute interval plus
+// an AppState listener bump a throwaway counter so the "ago"
+// label keeps aging; the strip itself is a single polite
+// alert element with the icon hidden from assistive tech.
+//
 // Used by:
 //   - app/(main)/info/index.tsx
 //   - the news, messages and schedule screens — whenever

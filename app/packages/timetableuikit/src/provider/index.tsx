@@ -154,6 +154,9 @@ export function TimetableProvider({
 // useTimetableTheme
 // -----------------------------------------------------------
 //
+// The resolved theme alone — a narrower read than the full
+// env; provider-less callers get resolveTheme(defaultTheme).
+//
 // Used by:
 //   - every kit component that paints — cells, chrome, grids
 // -----------------------------------------------------------
@@ -171,6 +174,9 @@ export function useTimetableTheme(): TimetableResolvedTheme {
 // -----------------------------------------------------------
 // useTimetableLabels
 // -----------------------------------------------------------
+//
+// The label catalog alone; provider-less callers get the
+// English defaultLabels set.
 //
 // Used by:
 //   - every kit component that speaks — chrome copy and
@@ -190,6 +196,10 @@ export function useTimetableLabels(): TimetableLabels {
 // -----------------------------------------------------------
 // useTimetableEnv
 // -----------------------------------------------------------
+//
+// The full env in one read — theme, labels, locale and
+// formatTime; provider-less callers get defaultEnv (neutral
+// theme, English labels, plain H:mm times).
 //
 // Used by:
 //   - components needing the locale or formatTime alongside

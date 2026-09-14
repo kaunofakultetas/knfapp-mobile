@@ -165,6 +165,11 @@ function Shell({
 // LinkCard (default export)
 // -----------------------------------------------------------
 //
+// The variant pick, top down: imageUrl → large, description
+// → compact, else the minimal line. Builds the one press
+// handler — stopPropagation plus the isSafeHref gate — and
+// the 'site — title' accessible name all variants share.
+//
 // Used by:
 //   - post/PostCard.tsx — a post carrying link and no media
 //   - the host's post detail screen

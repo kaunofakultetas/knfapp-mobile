@@ -22,14 +22,33 @@ import { showToast } from '@/context/NetworkContext';
 import type { PickedAsset } from '@knf/chatengine';
 
 
+// Auto-stop cap — the same 180 s the video pickers enforce
 const MAX_VOICE_SECONDS = 180;
+
+// The elapsed ticker's period; each tick also samples the level
 const TICK_MS = 500;
+
+// How many bars the bubble's waveform draws
 const WAVEFORM_BARS = 40;
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// downsample
+// -----------------------------------------------------------
+//
 // Bucket-averages the tick samples into the bars the bubble
 // draws; too short a take answers nothing (a flat pair of bars
-// says less than the plain track)
+// says less than the plain track).
+//
+// Used by:
+//   - useVoiceRecorder (below) — the finished take's waveform
+// -----------------------------------------------------------
+
 function downsample(samples: number[]): number[] | undefined {
   if (samples.length < 4) return undefined;
   const bars = Math.min(WAVEFORM_BARS, samples.length);
@@ -43,6 +62,24 @@ function downsample(samples: number[]): number[] | undefined {
   return out;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// useVoiceRecorder
+// -----------------------------------------------------------
+//
+//   const { recording, start, stop, cancel } =
+//     useVoiceRecorder(onRecorded)   — onRecorded gets the
+//                                      finished take as a
+//                                      PickedAsset
+//
+// Used by:
+//   - app/(main)/chat-room/index.tsx
+// -----------------------------------------------------------
 
 export function useVoiceRecorder(onRecorded: (asset: PickedAsset) => Promise<void>) {
 

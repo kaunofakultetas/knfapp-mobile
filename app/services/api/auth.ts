@@ -35,6 +35,11 @@ import type { User } from '@/types';
 // AuthResponse
 // -----------------------------------------------------------
 //
+// The 200 body of login and register: the full user plus a
+// fresh 30-day bearer token. The token exists only in this
+// response — /auth/me later answers the user alone — so the
+// caller must persist it here or lose the session.
+//
 // Used by:
 //   - loginApi, registerApi (below)
 //   - context/AuthContext.tsx — session persistence
@@ -54,6 +59,11 @@ export interface AuthResponse {
 // -----------------------------------------------------------
 // ValidateCodeResponse
 // -----------------------------------------------------------
+//
+// Always a 200 — the client branches on `valid`, never on the
+// HTTP status. `reason` keys the translated message; `error`
+// is English server prose and is never shown. role and
+// remainingUses arrive only when the code is valid.
 //
 // Used by:
 //   - validateInvitationCode (below)
@@ -77,6 +87,12 @@ export interface ValidateCodeResponse {
 // -----------------------------------------------------------
 // loginApi
 // -----------------------------------------------------------
+//
+// POST /auth/login — the `username` value is matched
+// case-insensitively against BOTH the username and email
+// columns. Unknown user and wrong password share an identical
+// 401; a deactivated account answers 403, disclosed only
+// after the password matches.
 //
 // Used by:
 //   - context/AuthContext.tsx — login()
@@ -141,6 +157,11 @@ export const fetchMe = () => request(api.get<User>('/auth/me'));
 // validateInvitationCode
 // -----------------------------------------------------------
 //
+// POST /auth/validate-code — checks WITHOUT consuming a use,
+// so typing-time probes never burn the code. Rate-limited per
+// IP (30 attempts / window): the caller must debounce, one
+// honest entry already costs a dozen calls.
+//
 // Used by:
 //   - app/register.tsx — checks the code before submitting
 // -----------------------------------------------------------
@@ -186,6 +207,9 @@ export async function logoutApi(token?: string | null): Promise<void> {
 
 
 
+
+
+
 // -----------------------------------------------------------
 // deleteAccountApi
 // -----------------------------------------------------------
@@ -205,6 +229,9 @@ export async function logoutApi(token?: string | null): Promise<void> {
 export async function deleteAccountApi(password: string): Promise<void> {
   await request(api.delete('/auth/me', { data: { password } }));
 }
+
+
+
 
 
 

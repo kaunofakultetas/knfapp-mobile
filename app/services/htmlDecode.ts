@@ -16,7 +16,6 @@
 //  ever swaps escapers.
 // -----------------------------------------------------------
 
-
 // Only entities the backend can actually emit (plus close
 // relatives) — not a general-purpose HTML entity decoder
 const ENTITY_MAP: Record<string, string> = {

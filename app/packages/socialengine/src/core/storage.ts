@@ -49,6 +49,9 @@ export interface SocialStorage {
 // memorySocialStorage
 // -----------------------------------------------------------
 //
+// A Map behind the async surface — the one SocialStorage that
+// never rejects; dump() exposes the raw contents for asserts.
+//
 // Used by:
 //   - provider/index.tsx — the default storage
 //   - tests — dump() asserts persisted state

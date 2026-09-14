@@ -26,6 +26,10 @@ interface SectionTitleProps {
 // SectionTitle (default export)
 // -----------------------------------------------------------
 //
+// Deliberately typography-only: one Text pinning the group-
+// label look in a single place — margin-free, so screens own
+// the spacing and headings never fight their layouts.
+//
 // Used by:
 //   - app/(main)/tabs/settings.tsx — every settings group
 //   - app/(main)/info/ — contacts / links / hours headings

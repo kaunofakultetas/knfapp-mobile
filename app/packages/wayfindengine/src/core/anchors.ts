@@ -175,6 +175,10 @@ export function nearestNode(
 // nodeForRoom
 // -----------------------------------------------------------
 //
+// Null both for an unknown room and for a room whose door
+// node is missing from the graph — one "cannot route there"
+// answer, never a dangling node id.
+//
 // Used by:
 //   - src/index.ts — public surface (a room pick becomes a
 //     route endpoint)

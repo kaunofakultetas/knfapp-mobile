@@ -32,6 +32,11 @@ export * from './wire';
 // createKnfRealtime
 // -----------------------------------------------------------
 //
+// Wire payloads land as ChatEvents via wire.ts (stop_typing
+// folds into 'typing' with active:false); one unsubscribe
+// drops every socket listener at once, and typing / markRead
+// go out volatile — dropped beats delivered-late.
+//
 // Used by:
 //   - createKnfTransport (below)
 // -----------------------------------------------------------

@@ -308,12 +308,20 @@ const offsetForYaw = (yaw: number, tileWidth: number, windowWidth: number, hfovD
 
 
 
-// The strip FlatPanorama (below) scrolls: the same photo five
-// times side by side. All copies share one decoded bitmap (the
-// image cache keys on the source), so the extra copies cost
-// views, not memory. Memoised so the stage's per-scroll renders
-// never touch the bitmaps; onLoad rides the first copy only —
-// one report of the real size is enough.
+// -----------------------------------------------------------
+// PanoramaTiles
+// -----------------------------------------------------------
+//
+// The same photo five times side by side. All copies share one
+// decoded bitmap (the image cache keys on the source), so the
+// extra copies cost views, not memory. Memoised so the stage's
+// per-scroll renders never touch the bitmaps; onLoad rides the
+// first copy only — one report of the real size is enough.
+//
+// Used by:
+//   - FlatPanorama (below)
+// -----------------------------------------------------------
+
 const PanoramaTiles = memo(function PanoramaTiles({
   source,
   tileWidth,

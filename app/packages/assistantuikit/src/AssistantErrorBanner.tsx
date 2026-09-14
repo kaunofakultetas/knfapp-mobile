@@ -33,6 +33,11 @@ import { defaultColors, type AssistantColors, type AssistantLabels } from './cor
 // AssistantErrorBanner (default export)
 // -----------------------------------------------------------
 //
+// Holds no state: the error primitives read the message
+// scope above and render nothing while it carries no error.
+// The retry button calls `onRetry` verbatim — wiring the
+// actual reload is the host's job.
+//
 // Used by:
 //   - AssistantThread.tsx — above the composer, last message
 //     scope

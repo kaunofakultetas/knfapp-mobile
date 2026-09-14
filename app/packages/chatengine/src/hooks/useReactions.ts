@@ -87,6 +87,10 @@ export interface UseReactionsResult {
 // useReactions
 // -----------------------------------------------------------
 //
+// Guests are a no-op; a target that vanished mid-pick raises
+// 'reaction_target_gone'; a retryable failure parks the pick
+// in the conversation's task queue instead of reverting it.
+//
 // Used by:
 //   - the host's chat room screen (directly or via useChatRoom)
 // -----------------------------------------------------------

@@ -116,11 +116,26 @@ const SOURCE_KEYS: Record<string, string> = {
 // the ViewAllRow on the dedicated comments screen
 const COMMENTS_PREVIEW = 20;
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// toKitComment
+// -----------------------------------------------------------
+//
 // The backend comment row in the kit's vocabulary. `time` is
 // the raw created_at stamp (naive UTC) — the kit's RelativeTime
 // reads a zone-less stamp as UTC, so no reformatting here.
 // isOwn paints the viewer's own comments with the brand wash;
-// the backend has no comment deletion, so `deleted` never sets
+// the backend has no comment deletion, so `deleted` never sets.
+//
+// Used by:
+//   - NewsPostScreen (below) — renderComment's row mapping
+// -----------------------------------------------------------
+
 const toKitComment = (comment: CommentResponse, viewerId: string | null): KitComment => ({
   id: comment.id,
   author: { id: comment.userId, displayName: comment.userName, avatarUrl: comment.userAvatar },
@@ -488,6 +503,14 @@ function CommentsFallback({
 // -----------------------------------------------------------
 // NewsPostScreen (default export)
 // -----------------------------------------------------------
+//
+// Owns the two loads (post via useLoad with the 404→null
+// mapping, the preview page via useFeed) and the comment
+// total, which travels through a ref so a superseded response
+// can never write state; also the author-only header actions,
+// the focus-return refetch after an edit, the keyboard
+// scroll-lift with its onLayout re-apply, and the https-only
+// source-link guard.
 //
 // Used by:
 //   - app/(main)/_layout.tsx — route /news-post?postId=

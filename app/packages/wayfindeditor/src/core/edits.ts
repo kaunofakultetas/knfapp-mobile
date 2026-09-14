@@ -117,6 +117,10 @@ const sansId = <E,>(patch: Patch<E>): Patch<E> => {
 // addLevel
 // -----------------------------------------------------------
 //
+// The id is the only gate — a taken one answers blocked
+// 'duplicate_id'; everything else about the level is the
+// validator's business.
+//
 // Used by:
 //   - hooks/useEditor.ts — actions.addLevel; the map-editor's
 //     add-floor button goes through it
@@ -136,6 +140,9 @@ export function addLevel(doc: GraphLike, level: LevelLike): Edit {
 // -----------------------------------------------------------
 // updateLevel
 // -----------------------------------------------------------
+//
+// Merges the patch over the stored row (a smuggled id is
+// dropped); an unknown level answers blocked 'missing'.
 //
 // Used by:
 //   - hooks/useEditor.ts — actions.updateLevel; the map-editor's
@@ -183,6 +190,10 @@ export function deleteLevel(doc: GraphLike, id: string): Edit {
 // addNode
 // -----------------------------------------------------------
 //
+// Only the id is checked — a duplicate answers blocked; a
+// node placed on a level that does not exist is the
+// validator's finding, not a refusal here.
+//
 // Used by:
 //   - hooks/useEditor.ts — actions.addNode; the map-editor's
 //     draw, stairs and room tools go through it
@@ -228,6 +239,11 @@ export function moveNode(doc: GraphLike, id: string, x: number, y: number): Edit
 // -----------------------------------------------------------
 // updateNode
 // -----------------------------------------------------------
+//
+// Merges the patch over the stored row with any smuggled id
+// dropped; an unknown node answers blocked 'missing'. No
+// cascade — a re-pointed roomId or a level move is taken as
+// given and left for the validator to judge.
 //
 // Used by:
 //   - hooks/useEditor.ts — actions.updateNode; the map-editor's
@@ -320,6 +336,10 @@ export function addEdge(doc: GraphLike, a: string, b: string, extra: Omit<EdgeLi
 // updateEdge
 // -----------------------------------------------------------
 //
+// Merges the patch over the stored row — only the id is
+// immutable (even the endpoints may be re-pointed); an
+// unknown edge answers blocked 'missing'.
+//
 // Used by:
 //   - hooks/useEditor.ts — actions.updateEdge
 // -----------------------------------------------------------
@@ -339,6 +359,9 @@ export function updateEdge(doc: GraphLike, id: string, patch: Patch<EdgeLike>): 
 // -----------------------------------------------------------
 // deleteEdge
 // -----------------------------------------------------------
+//
+// No cascade — an edge takes nothing with it; an unknown id
+// answers blocked 'missing'.
 //
 // Used by:
 //   - hooks/useEditor.ts — actions.deleteEdge; the map-editor's
@@ -361,6 +384,10 @@ export function deleteEdge(doc: GraphLike, id: string): Edit {
 // addRoom
 // -----------------------------------------------------------
 //
+// Only the room id is checked — a duplicate answers blocked;
+// a nodeId pointing at no node is the validator's finding,
+// not a refusal here.
+//
 // Used by:
 //   - hooks/useEditor.ts — actions.addRoom; the map-editor's
 //     room tool and node sheet go through it
@@ -380,6 +407,9 @@ export function addRoom(doc: GraphLike, room: RoomLike): Edit {
 // -----------------------------------------------------------
 // updateRoom
 // -----------------------------------------------------------
+//
+// Merges the patch over the stored row with any smuggled id
+// dropped; an unknown room answers blocked 'missing'.
 //
 // Used by:
 //   - hooks/useEditor.ts — actions.updateRoom; the map-editor's

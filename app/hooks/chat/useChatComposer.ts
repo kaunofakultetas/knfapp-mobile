@@ -21,6 +21,23 @@ import { useComposer, type UseComposerResult } from '@knf/chatengine';
 export type { PickedAsset } from '@knf/chatengine';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// UseChatComposerResult
+// -----------------------------------------------------------
+//
+// The engine's whole composer surface plus the three
+// device-picker entries the screen's attach buttons call.
+//
+// Used by:
+//   - useChatComposer (below) — the return shape
+//   - app/(main)/chat-room/index.tsx — the composer object
+// -----------------------------------------------------------
+
 export interface UseChatComposerResult extends UseComposerResult {
   // Pick a photo or a video from the library, then upload + send
   attachMedia: () => Promise<void>;
@@ -29,6 +46,24 @@ export interface UseChatComposerResult extends UseComposerResult {
   // Take a photo with the camera, then upload + send
   attachCamera: () => Promise<void>;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// useChatComposer
+// -----------------------------------------------------------
+//
+//   useChatComposer(conversationId, setMessages, messages)
+//     — the engine composer with attachMedia / attachFile /
+//       attachCamera joined on
+//
+// Used by:
+//   - app/(main)/chat-room/index.tsx
+// -----------------------------------------------------------
 
 export function useChatComposer(
   conversationId: string,

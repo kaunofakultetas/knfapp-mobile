@@ -195,6 +195,10 @@ export function WayfindUiKitProvider({
 // useKitTheme
 // -----------------------------------------------------------
 //
+// The theme the nearest provider resolved (the scheme's base
+// with the host's overrides deep-merged in); with no provider
+// mounted it answers the light-burgundy defaultTheme.
+//
 // Used by:
 //   - every kit component
 // -----------------------------------------------------------
@@ -213,6 +217,11 @@ export function useKitTheme(): KitTheme {
 // useKitLabels
 // -----------------------------------------------------------
 //
+// The label catalog for the resolved locale, the host's
+// overrides merged over the base; with no provider mounted it
+// answers the Lithuanian defaults — the provider's own
+// locale default, so text never silently switches language.
+//
 // Used by:
 //   - every kit component that shows text
 // -----------------------------------------------------------
@@ -230,6 +239,11 @@ export function useKitLabels(): KitLabels {
 // -----------------------------------------------------------
 // useKitEnv
 // -----------------------------------------------------------
+//
+// The resolved environment: the host's functions plus the
+// locale the provider settled on. With no provider mounted it
+// answers defaultEnv — the identity URL resolver, 'lt', the
+// real clock — so image paths pass through unchanged.
 //
 // Used by:
 //   - pano/FlatPanorama.tsx, pano/PanoramaStage.tsx — for

@@ -28,6 +28,10 @@ import { useKitLabels, useKitTheme } from '../provider';
 // GapRow (default export)
 // -----------------------------------------------------------
 //
+// Two faces on one testID: a spinner while `filling`, else
+// the labelled chip button; without onPress the chip stays
+// visible but inert — the hole is still worth showing.
+//
 // Used by:
 //   - feed/FeedList.tsx — rendered after the row named by
 //     gapAfterKey

@@ -68,11 +68,26 @@ import {
 // onEndReached pulls one more page of this length
 const COMMENTS_PER_PAGE = 20;
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// toKitComment
+// -----------------------------------------------------------
+//
 // The backend comment row in the kit's vocabulary. `time` is
 // the raw created_at stamp (naive UTC) — the kit's RelativeTime
 // reads a zone-less stamp as UTC, so no reformatting here.
 // isOwn paints the viewer's own comments with the brand wash;
-// the backend has no comment deletion, so `deleted` never sets
+// the backend has no comment deletion, so `deleted` never sets.
+//
+// Used by:
+//   - NewsCommentsScreen (below) — renderComment's row mapping
+// -----------------------------------------------------------
+
 const toKitComment = (comment: CommentResponse, viewerId: string | null): KitComment => ({
   id: comment.id,
   author: { id: comment.userId, displayName: comment.userName, avatarUrl: comment.userAvatar },
@@ -250,6 +265,12 @@ function CommentsBody({ feed }: { feed: UseFeedResult<CommentResponse> }) {
 // -----------------------------------------------------------
 // NewsCommentsScreen (default export)
 // -----------------------------------------------------------
+//
+// Owns the paginated feed keyed on postId and the
+// server-confirmed prepend (the composer keeps its text on a
+// failed send); the KeyboardAvoidingView offsets by the stack
+// header's height, and a missing postId short-circuits to the
+// not-found state before anything loads.
 //
 // Used by:
 //   - app/(main)/_layout.tsx — route /news-comments?postId=

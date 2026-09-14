@@ -112,6 +112,29 @@ function makeSnippet(text: string): string | null {
 
 
 // -----------------------------------------------------------
+// isUniversityHost
+// -----------------------------------------------------------
+//
+// A scraped article's absolute cover URL may point anywhere
+// under the university domain — vu.lt itself or any subdomain
+// (www.knf.vu.lt for KNF articles, newshub.vu.lt for VU ones).
+// A suffix check, not a host list: VU moves its media hosts.
+//
+// Used by:
+//   - resolveCoverUri (below)
+// -----------------------------------------------------------
+
+function isUniversityHost(hostname: string): boolean {
+  return hostname === 'vu.lt' || hostname.endsWith('.vu.lt');
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // resolveCoverUri
 // -----------------------------------------------------------
 //
@@ -128,14 +151,6 @@ function makeSnippet(text: string): string | null {
 //   - NewsCard (below)
 //   - app/(main)/news-post/index.tsx — the article's hero cover
 // -----------------------------------------------------------
-
-// A scraped article's absolute cover URL may point anywhere
-// under the university domain — vu.lt itself or any subdomain
-// (www.knf.vu.lt for KNF articles, newshub.vu.lt for VU ones).
-// A suffix check, not a host list: VU moves its media hosts.
-function isUniversityHost(hostname: string): boolean {
-  return hostname === 'vu.lt' || hostname.endsWith('.vu.lt');
-}
 
 export function resolveCoverUri(post: NewsPost): string | null {
 

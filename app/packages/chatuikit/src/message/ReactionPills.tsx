@@ -32,6 +32,10 @@ import type { KitReaction } from '../core/types';
 // ReactionPills (default export)
 // -----------------------------------------------------------
 //
+// One Pressable wraps the whole row — the tallies open the
+// reactor list together, not as per-emoji targets; the -11
+// top margin is the overlap onto the bubble's bottom edge.
+//
 // Used by:
 //   - message/MessageBubble.tsx — under the bubble
 // -----------------------------------------------------------

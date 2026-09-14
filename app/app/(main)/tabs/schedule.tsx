@@ -113,14 +113,29 @@ import { AppState, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, S
 import useKeyboardVisible from '@/hooks/useKeyboardVisible';
 
 
-// AsyncStorage key for the persisted group/semester choice —
-// exported so AuthContext can drop it on logout
+
+
+
+
+
+// -----------------------------------------------------------
+// SCHEDULE_PREFS_KEY
+// -----------------------------------------------------------
+//
+// AsyncStorage key for the persisted group/semester choice.
+//
+// Used by:
+//   - ScheduleScreen (below) — load/save of SchedulePrefs
+//   - context/AuthContext.tsx — drops the entry on logout
+// -----------------------------------------------------------
+
 export const SCHEDULE_PREFS_KEY = 'schedule_prefs';
 
 // The quick tab bar defaults to weekdays and grows to the full
 // week once a weekend day is in view; day numbers stay the
 // API's 0=Monday…6=Sunday range throughout
 const WEEKDAYS = [0, 1, 2, 3, 4];
+// The grown tab bar: every day, weekend included
 const FULL_WEEK = [0, 1, 2, 3, 4, 5, 6];
 
 // How the timetable renders and through whose eyes
@@ -149,8 +164,23 @@ interface FilterChoice {
   teacher: string | null;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// Separator
+// -----------------------------------------------------------
+//
 // Hoisted so the lesson list's separators keep their identity
-// instead of remounting on every screen render
+// instead of remounting on every screen render.
+//
+// Used by:
+//   - ScheduleScreen (below) — both lesson lists
+// -----------------------------------------------------------
+
 const Separator = () => <View className="h-3" />;
 
 
@@ -541,6 +571,16 @@ function FilterModal({
 // -----------------------------------------------------------
 // ScheduleScreen (default export)
 // -----------------------------------------------------------
+//
+// Owns two independent datasets — the per-day card list and
+// the whole-semester week fetch — each with its own sequence
+// guard, cache fallback and last-served key mark (a repeat
+// need refreshes silently instead of blanking a filled view).
+// Around them: the persisted prefs round trip with the
+// newest-semester default and stale-choice validation, the
+// semesterParam wire rule (explicit "all" vs omitted), the
+// focus/foreground today re-check, and the derived body
+// branch table the render walks.
 //
 // Used by:
 //   - expo-router — the /tabs/schedule tab

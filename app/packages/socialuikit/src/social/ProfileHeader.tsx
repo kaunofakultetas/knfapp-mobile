@@ -179,6 +179,11 @@ function CountCell({
 // ProfileHeader (default export)
 // -----------------------------------------------------------
 //
+// Assembles the rows: portrait beside the tallies, then
+// name, handle and bio, the host's actions slot last. The
+// portrait becomes a button only when onPressAvatar is
+// given — the same no-dead-target rule as the count cells.
+//
 // Used by:
 //   - the host's profile screen, above that person's post feed
 // -----------------------------------------------------------

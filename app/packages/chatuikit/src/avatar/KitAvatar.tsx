@@ -33,6 +33,11 @@ import { useKitTheme } from '../provider';
 // KitAvatar (default export)
 // -----------------------------------------------------------
 //
+// A failed photo falls back to the disc, and a NEW uri gets
+// a fresh try (the failed flag resets during render). The
+// disc colour hashes colorKey ?? name; onPress wraps any of
+// the faces in one Pressable with the same label.
+//
 // Used by:
 //   - message/MessageBubble.tsx, list/TypingBubble.tsx,
 //     list/ConversationIntro.tsx — the disc beside a run

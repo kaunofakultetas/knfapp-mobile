@@ -164,6 +164,13 @@ const RequestRow = memo(function RequestRow({
 // FriendRequestsScreen (default export)
 // -----------------------------------------------------------
 //
+// Wraps the unpaginated endpoint as a one-page useFeed, keeps
+// the per-row in-flight Map with its ref twin (the ref
+// rejects a same-frame double tap synchronously; state alone
+// commits too late), and rows leave the list only after the
+// server confirms — a 404/409 drops the row and resyncs
+// silently instead of toasting.
+//
 // Used by:
 //   - app/(main)/_layout.tsx — route /(main)/friend-requests
 // -----------------------------------------------------------

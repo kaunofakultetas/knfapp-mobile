@@ -79,6 +79,9 @@ function loadExpoAudio(): ExpoAudioModule | null {
 // Track
 // -----------------------------------------------------------
 //
+// The plain 4pt progress bar — the fallback when a message
+// carries no waveform; the fill is clamped to 0–100 %.
+//
 // Used by:
 //   - Player / AudioAttachment (below)
 // -----------------------------------------------------------
@@ -232,6 +235,12 @@ function Player({ mod, uri, duration, waveform, own, labels }: { mod: ExpoAudioM
 
 // -----------------------------------------------------------
 // AudioAttachment (default export)
+// -----------------------------------------------------------
+//
+// The row: resolves a stored path through the host, then
+// mounts Player only when expo-audio resolved — the inert
+// fallback keeps the same layout with a mic glyph and a
+// dead track, so the bubble never blanks out.
 // -----------------------------------------------------------
 
 export default function AudioAttachment({ audio, own, labels }: { audio: KitAudio; own: boolean; labels: KitLabels }) {

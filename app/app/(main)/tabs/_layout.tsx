@@ -27,7 +27,21 @@ import type { BottomTabBarProps } from "expo-router/js-tabs";
 import { useApp } from '@/context/AppContext';
 
 
-// Module-level so the navigator sees one stable bar identity
+
+
+
+
+
+// -----------------------------------------------------------
+// renderTabBar
+// -----------------------------------------------------------
+//
+// Module-level so the navigator sees one stable bar identity.
+//
+// Used by:
+//   - MainTabsLayout (below) — the Tabs `tabBar` option
+// -----------------------------------------------------------
+
 const renderTabBar = (props: BottomTabBarProps) => <TabBar {...props} />;
 
 
@@ -39,6 +53,12 @@ const renderTabBar = (props: BottomTabBarProps) => <TabBar {...props} />;
 // -----------------------------------------------------------
 // MainTabsLayout (default export)
 // -----------------------------------------------------------
+//
+// Declares the roster's routes with translated titles and
+// computes each soft-pinned tab's href — null while unpinned,
+// which only disables LINKING; visibility is the bar's own
+// pinnedTabs read. Hard-pinned tabs never receive the href
+// override at all.
 //
 // Used by:
 //   - expo-router — layout of the (main)/tabs route group

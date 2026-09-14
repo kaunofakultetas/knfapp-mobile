@@ -48,7 +48,9 @@
 //  Split into (root component last):
 //
 //    trackerSampleFrom — the per-platform sensor adapter
-//    helpers           — ids, pose fields
+//    mintId            — outbox op ids
+//    mintCaptureId     — one id per capture session
+//    poseFields        — pose as upload form fields
 //    settleUpsert      — the write's awaited verdict + dialog
 //    ModeChip          — one plan-mode choice
 //    StatusCard        — queued / stitching / done / failed
@@ -87,6 +89,7 @@ const FRAME_HFOV_DEG = 60;
 // waits for the same line
 const MIN_FRAMES = 8;
 
+// The stitch-status poll beat while the server works
 const POLL_MS = 3000;
 
 // While a frame of this capture sits queued (a retry backoff),
@@ -94,11 +97,16 @@ const POLL_MS = 3000;
 // backed-off item until a network-restore signal
 const RETRY_KICK_MS = 1000;
 
+// Gyro/accel update beat (50 Hz) — also the assumed dt of the
+// very first sample, before a previous timestamp exists
 const SENSOR_INTERVAL_MS = 20;
 
 // A stalled queue must not integrate one giant step when it
 // wakes — a late sample is capped, not trusted
 const MAX_DT_MS = 200;
+
+
+
 
 
 
@@ -129,29 +137,67 @@ export function trackerSampleFrom(gyro: Vec3, accel: Vec3, dtMs: number, platfor
 
 
 
+
+
+
 // -----------------------------------------------------------
-// helpers
+// mintId
 // -----------------------------------------------------------
 //
-// Ids and the pose-as-form-fields shape the frame upload
-// carries (P5: all strings).
+// Locally unique op ids for the outbox — a timestamp plus a
+// per-module counter, so two mints in one millisecond differ.
 //
 // Used by:
-//   - CaptureBody (below)
+//   - CaptureBody (below) — the assign write's op id
 // -----------------------------------------------------------
 
 let minted = 0;
 const mintId = (prefix: string): string => `${prefix}-${Date.now().toString(36)}${(minted++).toString(36)}`;
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// mintCaptureId
+// -----------------------------------------------------------
+//
 // The server wants [A-Za-z0-9-]{8,64}; time + randomness is
-// unique enough for one admin's phone
+// unique enough for one admin's phone.
+//
+// Used by:
+//   - CaptureBody (below) — one id per capture session
+// -----------------------------------------------------------
+
 const mintCaptureId = (): string => `cap-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// poseFields
+// -----------------------------------------------------------
+//
+// The pose-as-form-fields shape the frame upload carries
+// (P5: all strings).
+//
+// Used by:
+//   - CaptureBody (below) — every frame's upload form
+// -----------------------------------------------------------
 
 const poseFields = (pose: Pose): Record<string, string> => ({
   yawDeg: String(pose.yawDeg),
   pitchDeg: String(pose.pitchDeg),
   rollDeg: String(pose.rollDeg),
 });
+
+
+
 
 
 
@@ -204,9 +250,17 @@ async function settleUpsert(sync: SyncEnv, opId: string, labels: { title: string
 
 
 
+
+
+
 // -----------------------------------------------------------
 // ModeChip
 // -----------------------------------------------------------
+//
+// One pill of the mode row: brand fill while active,
+// surface-soft otherwise, with the selection exposed through
+// accessibilityState. Colors come from useTheme via a plain
+// style OBJECT — never a style function on a Pressable.
 //
 // Used by:
 //   - CaptureBody (below)
@@ -229,6 +283,9 @@ function ModeChip({ label, active, onPress, testID }: { label: string; active: b
     </Pressable>
   );
 }
+
+
+
 
 
 
@@ -302,6 +359,9 @@ function StatusCard({
     </View>
   );
 }
+
+
+
 
 
 
@@ -695,6 +755,9 @@ function CaptureBody({ nodeId, nodeData, baseRevision }: { nodeId: string; nodeD
     </View>
   );
 }
+
+
+
 
 
 

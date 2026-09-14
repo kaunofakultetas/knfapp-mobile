@@ -39,6 +39,11 @@ interface ScreenProps {
 // Screen (default export)
 // -----------------------------------------------------------
 //
+// Two shapes off one prop: with `scroll` the md padding goes
+// on the ScrollView's CONTENT container so the indicator
+// still hugs the screen edge; without it, on the SafeAreaView
+// itself. `edges` passes straight through, [] by default.
+//
 // Used by:
 //   - every route screen under app/ — tabs and pushed screens
 // -----------------------------------------------------------

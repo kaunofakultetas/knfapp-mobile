@@ -32,6 +32,10 @@ import { api, request } from './client';
 // InfoContact
 // -----------------------------------------------------------
 //
+// Every field is pre-localized display text; phone arrives in
+// display form ("(8 5) 219 3000") and the screen strips it
+// into a tel: URI itself. Absent optionals drop their row.
+//
 // Used by:
 //   - InfoContactCategory (below)
 //   - app/(main)/info/index.tsx — contact rows
@@ -55,6 +59,10 @@ export interface InfoContact {
 // InfoContactCategory
 // -----------------------------------------------------------
 //
+// `category` is the already-translated group heading — the
+// grouping and its order are decided in the content file, the
+// screen renders the groups exactly as served.
+//
 // Used by:
 //   - FacultyInfoResponse (below)
 //   - app/(main)/info/index.tsx — contacts section
@@ -74,6 +82,11 @@ export interface InfoContactCategory {
 // -----------------------------------------------------------
 // InfoLink
 // -----------------------------------------------------------
+//
+// `icon` is a loose backend name ("globe", "school") that the
+// screen maps to an Ionicons glyph through its ICON_MAP — an
+// unknown name falls back to the generic link icon, so new
+// content never breaks the build.
 //
 // Used by:
 //   - FacultyInfoResponse (below)
@@ -95,6 +108,11 @@ export interface InfoLink {
 // -----------------------------------------------------------
 // InfoHours
 // -----------------------------------------------------------
+//
+// `schedule` is free-form display text ("I-V 09:00-18:00"),
+// never structured times — nothing parses it. `note` is
+// required on the wire but often an empty string, which the
+// screen renders as no note row.
 //
 // Used by:
 //   - FacultyInfoResponse (below)
@@ -118,6 +136,10 @@ export interface InfoHours {
 // InfoProgram
 // -----------------------------------------------------------
 //
+// Three display strings straight from the content file —
+// `duration` included ("3,5 metų"), it is prose, not a number
+// with a unit.
+//
 // Used by:
 //   - FacultyInfoResponse (below)
 //   - app/(main)/info/index.tsx — study programs section
@@ -139,6 +161,10 @@ export interface InfoProgram {
 // InfoFaq
 // -----------------------------------------------------------
 //
+// `a` is plain text rendered verbatim — no markdown or HTML.
+// The accordion keys its expanded state on `q`, so two
+// entries sharing a question would open and close together.
+//
 // Used by:
 //   - FacultyInfoResponse (below)
 //   - app/(main)/info/index.tsx — FAQ accordion
@@ -158,6 +184,10 @@ export interface InfoFaq {
 // -----------------------------------------------------------
 // InfoGeneralContact
 // -----------------------------------------------------------
+//
+// The faculty's one main address/phone/email triple — all
+// three required and pre-formatted for display; the screen
+// derives the tel:/mailto: actions from them itself.
 //
 // Used by:
 //   - FacultyInfoResponse (below)

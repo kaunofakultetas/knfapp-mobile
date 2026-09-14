@@ -25,6 +25,11 @@ import { Keyboard, Platform } from 'react-native';
 // useKeyboardVisible (default export)
 // -----------------------------------------------------------
 //
+// Starts false and flips on the platform's earliest event —
+// iOS will-events (in step with the animation), Android
+// did-events (all it has) — and never subscribes on web,
+// where the answer is permanently false.
+//
 // Used by:
 //   - app/(main)/new-chat/index.tsx — the pinned bottom section
 //   - app/(main)/delete-account/index.tsx — the form padding

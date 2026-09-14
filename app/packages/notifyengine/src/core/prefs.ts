@@ -106,6 +106,11 @@ export interface PrefsMachine {
 // createPrefsMachine
 // -----------------------------------------------------------
 //
+// The visible channels are confirmed ⊕ pending; flushes and
+// refreshes share one wire lock, a failed flush reverts only
+// its own batch's keys, and a hydrate() that lost the race to
+// an explicit toggle drops its stale disk value.
+//
 // Used by:
 //   - engine.ts — snapshot store, hydrate() at init, and the
 //     master-switch reader for the token machine's gates

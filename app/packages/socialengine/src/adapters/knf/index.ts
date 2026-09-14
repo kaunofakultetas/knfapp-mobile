@@ -126,6 +126,11 @@ const statusOf = (err: unknown): number | null => {
 // createKnfSocialTransport
 // -----------------------------------------------------------
 //
+// Maps the engine's verbs onto the KNF routes: poll 404s read
+// as null, an already-voted 409 answers the current poll, and
+// relationship verbs look their request id up fresh per tap.
+// Comment likes and reports refuse with a definitive 400.
+//
 // Used by:
 //   - the host app (services layer) — one instance per session
 // -----------------------------------------------------------

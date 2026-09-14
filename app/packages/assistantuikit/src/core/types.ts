@@ -57,6 +57,11 @@ export interface AssistantColors {
 // defaultColors
 // -----------------------------------------------------------
 //
+// The complete neutral palette every `colors` prop falls
+// back to — grey ink on white, one blue brand. A host maps
+// its own tokens by replacing it whole; the type allows no
+// partial merge.
+//
 // Used by:
 //   - every surface's `colors` default — the thread, composer,
 //     banner, markdown, tool cards, typing dots and the kit

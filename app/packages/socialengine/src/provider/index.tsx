@@ -84,6 +84,11 @@ const SocialEngineContext = createContext<SocialEngineEnv | null>(null);
 // SocialEngineProvider
 // -----------------------------------------------------------
 //
+// Shadow stores and the task queue live in refs — one set per
+// mount, surviving re-renders; an account change wipes them
+// all. The queue drains on mount when signed in and on every
+// network-restore signal, one drain at a time.
+//
 // Used by:
 //   - the host app's root layout
 //   - every test that mounts a hook
@@ -257,6 +262,9 @@ export function SocialEngineProvider({
 // -----------------------------------------------------------
 // useSocialEngine
 // -----------------------------------------------------------
+//
+// Hands back the mounted env, or throws when no provider is
+// above — hooks never run against a half-working default.
 //
 // Used by:
 //   - every hook in the package

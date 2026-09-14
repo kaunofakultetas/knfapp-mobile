@@ -19,11 +19,12 @@
 //    getErrorLog — the buffered trail, oldest first
 // -----------------------------------------------------------
 
-
 // The trail stays small — enough context for a report without
 // ever growing over a long session
 const MAX_ENTRIES = 50;
 
+// The ring buffer itself — append at the end, shift from the
+// front once MAX_ENTRIES is exceeded
 const entries: string[] = [];
 
 

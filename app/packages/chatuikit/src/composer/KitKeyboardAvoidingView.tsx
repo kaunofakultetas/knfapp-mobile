@@ -43,6 +43,11 @@ import { Dimensions, Keyboard, KeyboardAvoidingView, Platform, View, type Keyboa
 // KitKeyboardAvoidingView (default export)
 // -----------------------------------------------------------
 //
+// Two shapes: Android renders a plain flex-1 View padding
+// itself by the measured keyboard when the window did not
+// resize; iOS wraps KeyboardAvoidingView ('padding' unless
+// overridden). Web takes the iOS branch and stays inert.
+//
 // Used by:
 //   - app/(main)/chat-room/index.tsx — around the room's list
 //     and composer

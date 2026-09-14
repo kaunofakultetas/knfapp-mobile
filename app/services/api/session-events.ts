@@ -16,7 +16,6 @@
 //    emitSessionInvalid — notify every subscriber
 // -----------------------------------------------------------
 
-
 // Subscriber set — AuthContext in practice, but the channel
 // does not care who listens
 const listeners = new Set<() => void>();
@@ -30,6 +29,11 @@ const listeners = new Set<() => void>();
 // -----------------------------------------------------------
 // onSessionInvalid
 // -----------------------------------------------------------
+//
+// Registers a callback for the "stored session is dead"
+// signal (see the header for when client.ts raises it) and
+// returns the unsubscribe. Any number of subscribers may
+// coexist; registration itself triggers nothing.
 //
 // Used by:
 //   - context/AuthContext.tsx — registers clearSession on mount

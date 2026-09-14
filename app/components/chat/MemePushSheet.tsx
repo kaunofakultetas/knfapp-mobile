@@ -21,6 +21,22 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button, Input } from '@/components/ui';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// PendingMeme
+// -----------------------------------------------------------
+//
+// The picked-but-unnamed picture the sheet is shown for.
+//
+// Used by:
+//   - MemePushSheet (below) — the asset prop
+//   - app/(main)/chat-room/index.tsx — the pending pick state
+// -----------------------------------------------------------
+
 export interface PendingMeme {
   uri: string;
   fileName?: string;
@@ -28,13 +44,47 @@ export interface PendingMeme {
 }
 
 
-// "monday-face_2.gif" → "monday face 2"
+
+
+
+
+
+// -----------------------------------------------------------
+// stemTitle
+// -----------------------------------------------------------
+//
+// "monday-face_2.gif" → "monday face 2" — the filename's stem
+// as the title suggestion.
+//
+// Used by:
+//   - MemePushSheet (below) — seeds the title field
+// -----------------------------------------------------------
+
 function stemTitle(fileName?: string): string {
   if (!fileName) return '';
   const stem = fileName.replace(/\.[a-z0-9]+$/i, '');
   return stem.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// MemePushSheet (default export)
+// -----------------------------------------------------------
+//
+// Visibility IS the asset prop — null closes the Modal. The
+// fields re-seed during render, keyed on the picked uri, so a
+// fresh pick gets its filename suggestion without an effect;
+// while `busy` the scrim tap and the hardware back are both
+// inert, so a push in flight cannot be abandoned.
+//
+// Used by:
+//   - app/(main)/chat-room/index.tsx — the meme tab's "+" flow
+// -----------------------------------------------------------
 
 export default function MemePushSheet({
   asset,

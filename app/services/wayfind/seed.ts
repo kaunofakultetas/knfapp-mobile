@@ -23,7 +23,42 @@
 import type { BuildingGraph } from '@knf/wayfindengine';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// KNF_BUILDING_ID
+// -----------------------------------------------------------
+//
+// The faculty building's stable id — the seed graph, the cache
+// keys and the server rows all agree on this string.
+//
+// Used by:
+//   - hooks/useBuildingGraph.ts — the default building
+//   - app/(main)/tabs/map.tsx, app/(main)/map-editor — the same
+// -----------------------------------------------------------
+
 export const KNF_BUILDING_ID = 'knf';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// KNF_GRAPH
+// -----------------------------------------------------------
+//
+// The bundled two-floor walk itself — see the header for how
+// the coordinates and panoYaw values were derived. revision 0,
+// so any published server graph wins.
+//
+// Used by:
+//   - hooks/useBuildingGraph.ts — the seed and the cache floor
+// -----------------------------------------------------------
 
 export const KNF_GRAPH: BuildingGraph = {
   "version": 1,
@@ -398,7 +433,21 @@ export const KNF_GRAPH: BuildingGraph = {
 };
 
 
-// Node.pano → the bundled asset (the stage takes a number)
+
+
+
+
+
+// -----------------------------------------------------------
+// BUNDLED_PANOS
+// -----------------------------------------------------------
+//
+// Node.pano → the bundled asset (the stage takes a number).
+//
+// Used by:
+//   - app/(main)/tabs/map.tsx — 'pano:' reference resolution
+// -----------------------------------------------------------
+
 export const BUNDLED_PANOS: Record<string, number> = {
   'pano:1.1.00': require('@/assets/navigation/1.1.00.jpg') as number,
   'pano:1.1.03': require('@/assets/navigation/1.1.03.jpg') as number,
@@ -411,8 +460,22 @@ export const BUNDLED_PANOS: Record<string, number> = {
 };
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// BUNDLED_PLANS
+// -----------------------------------------------------------
+//
 // Level.plan → the drawing's SVG text. The seed ships NO
 // drawing — the graph itself (corridor links, room boxes,
 // names) is the whole picture; a real floor plan an admin
-// uploads later lands here by its server reference
+// uploads later lands here by its server reference.
+//
+// Used by:
+//   - app/(main)/tabs/map.tsx — 'plan:' reference resolution
+// -----------------------------------------------------------
+
 export const BUNDLED_PLANS: Record<string, string> = {};

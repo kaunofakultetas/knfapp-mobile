@@ -31,6 +31,10 @@ import { linkify, type TextSegment } from '../core/linkify';
 // MessageText (default export)
 // -----------------------------------------------------------
 //
+// Nested Text runs, so links wrap mid-sentence like plain
+// words. Link and mention runs are tappable only when their
+// handler is passed — otherwise styled but inert.
+//
 // Used by:
 //   - message/MessageBubble.tsx — the linkified text body
 // -----------------------------------------------------------

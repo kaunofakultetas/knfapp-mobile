@@ -194,6 +194,10 @@ function Chip({
 // StatCard
 // -----------------------------------------------------------
 //
+// One counter tile: icon beside the big number, the label
+// under them. min-w-[45%] + flex-1 makes the four tiles wrap
+// into a 2×2 grid on phones without any grid math.
+//
 // Used by:
 //   - DashboardHeader (below) — the four counter tiles
 // -----------------------------------------------------------
@@ -660,6 +664,14 @@ function QrModal({
 // -----------------------------------------------------------
 // AdminScreen (default export)
 // -----------------------------------------------------------
+//
+// Role-gates everything before loading (no 403 calls over the
+// no-access screen; hydration shows a spinner so admins never
+// flash it), runs one sequence-guarded load where a stats
+// failure can never take the invitation list down, and
+// mirrors the backend's list scoping client-side so a
+// non-admin never renders codes for roles they cannot mint.
+// Revoke treats a 404 as already-gone and drops the row.
 //
 // Used by:
 //   - app/(main)/_layout.tsx — route /admin

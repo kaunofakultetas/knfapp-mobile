@@ -57,6 +57,11 @@ export interface PermissionGateLabels {
 // PermissionGate (default export)
 // -----------------------------------------------------------
 //
+// One card serves prompt and blocked alike: blocked (denied
+// with canAskAgain false) swaps the strings and points the
+// button at the host's onOpenSettings instead of the
+// engine's permission request.
+//
 // Used by:
 //   - the host's settings screen (app/(main)/tabs/settings.tsx)
 // -----------------------------------------------------------

@@ -29,6 +29,11 @@ const PAD = 14;
 // TimeSeparator (default export)
 // -----------------------------------------------------------
 //
+// The stamp splits its padding around BLOCK_GAP so it sits
+// centred in the pause (the bubble below adds its own gap);
+// the day half is bolded, and a screen reader lands on the
+// line as a header.
+//
 // Used by:
 //   - list/MessageList.tsx — the default slot; hosts may
 //     replace it through the provider's `components`

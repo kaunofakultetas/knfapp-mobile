@@ -27,6 +27,10 @@ import type { KitMessage } from '../core/types';
 // SystemMessage (default export)
 // -----------------------------------------------------------
 //
+// A centred caption and nothing else — no bubble, avatar or
+// gesture; the text role keeps screen readers treating the
+// row as one plain announcement.
+//
 // Used by:
 //   - list/MessageList.tsx — the default slot; hosts may
 //     replace it through the provider's `components`

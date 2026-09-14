@@ -55,6 +55,11 @@ export function replySnippet(reply: KitReply, labels: KitLabels): string {
 // -----------------------------------------------------------
 // ReplyQuote (default export)
 // -----------------------------------------------------------
+//
+// All three inks flip with `own` so the quote reads on both
+// bubble grounds; with neither tap handler passed the row is
+// fully inert (disabled), not merely handler-less.
+// -----------------------------------------------------------
 
 export default function ReplyQuote({
   reply,

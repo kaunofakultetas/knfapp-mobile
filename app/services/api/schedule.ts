@@ -20,6 +20,15 @@
 import { api, request } from './client';
 
 
+// The backend caps a /schedule response at 500 rows — the week
+// fetch pages with ?offset in steps of exactly this
+const WEEK_PAGE_LIMIT = 500;
+
+// Fences a runaway backend: the week fetch never asks for more
+// than this many pages (10 × 500 rows covers any real semester)
+const WEEK_MAX_PAGES = 10;
+
+
 
 
 
@@ -28,6 +37,10 @@ import { api, request } from './client';
 // -----------------------------------------------------------
 // ScheduleLesson
 // -----------------------------------------------------------
+//
+// One scraped timetable row. `group` and `semester` are the
+// sheet's own labels, matched by EXACT string against the
+// filter values — never normalized on either side.
 //
 // Used by:
 //   - ScheduleResponse (below)
@@ -56,6 +69,10 @@ export interface ScheduleLesson {
 // ScheduleResponse
 // -----------------------------------------------------------
 //
+// Rows arrive pre-sorted (day, start time, group) and capped
+// at 500 per response — fetchScheduleWeek pages past the cap,
+// fetchSchedule trusts one page to be enough once filtered.
+//
 // Used by:
 //   - fetchSchedule (below)
 //   - app/(main)/tabs/schedule.tsx — timetable state
@@ -74,6 +91,11 @@ export interface ScheduleResponse {
 // -----------------------------------------------------------
 // ScheduleFiltersResponse
 // -----------------------------------------------------------
+//
+// Only what the pickers read — the wire answer also carries
+// `days` and `semesterGroups`, dropped here. groups arrive
+// sorted; semesters newest first, with stray one-off labels
+// already filtered out server-side.
 //
 // Used by:
 //   - fetchScheduleFilters (below)
@@ -135,9 +157,6 @@ export const fetchSchedule = (day?: number, group?: string, semester?: string) =
 //     and the teacher picker
 // -----------------------------------------------------------
 
-const WEEK_PAGE_LIMIT = 500;
-const WEEK_MAX_PAGES = 10;
-
 export const fetchScheduleWeek = async (semester?: string): Promise<ScheduleResponse> => {
   const lessons: ScheduleLesson[] = [];
   for (let page = 0; page < WEEK_MAX_PAGES; page++) {
@@ -165,6 +184,10 @@ export const fetchScheduleWeek = async (semester?: string): Promise<ScheduleResp
 // -----------------------------------------------------------
 // fetchScheduleFilters
 // -----------------------------------------------------------
+//
+// GET /schedule/filters without a ?semester scope, so the
+// groups list spans EVERY semester — the screen uses it to
+// reset a remembered group that vanished from the timetable.
 //
 // Used by:
 //   - app/(main)/tabs/schedule.tsx — filter options load

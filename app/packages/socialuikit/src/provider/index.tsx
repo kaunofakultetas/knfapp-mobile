@@ -223,6 +223,10 @@ export function SocialUiKitProvider({
 // useKitTheme
 // -----------------------------------------------------------
 //
+// The resolved theme (base scheme + the host's deep-merged
+// override); with no provider mounted it answers defaultTheme
+// — the light burgundy — so components style without wiring.
+//
 // Used by:
 //   - every kit component
 // -----------------------------------------------------------
@@ -241,6 +245,10 @@ export function useKitTheme(): KitTheme {
 // useKitLabels
 // -----------------------------------------------------------
 //
+// The resolved catalog (the locale's base with the host's
+// partial merged over it); a provider-less caller gets
+// defaultLabels.lt, matching the provider's locale default.
+//
 // Used by:
 //   - every kit component that shows text
 // -----------------------------------------------------------
@@ -258,6 +266,11 @@ export function useKitLabels(): KitLabels {
 // -----------------------------------------------------------
 // useKitComponents
 // -----------------------------------------------------------
+//
+// The host's replacement slots exactly as handed in — no
+// defaults are filled, so callers test each slot and fall
+// back to the built-in face themselves. Without a provider
+// it answers the empty object: every slot absent.
 //
 // Used by:
 //   - post/PostCard.tsx — the injected Avatar and PostPoll
@@ -278,6 +291,11 @@ export function useKitComponents(): KitComponents {
 // -----------------------------------------------------------
 // useKitEnv
 // -----------------------------------------------------------
+//
+// The host functions merged field by field over the inert
+// defaults, plus the resolved locale; a provider-less caller
+// gets defaultEnv — identity URL resolver, no-op link opener,
+// 'lt', the real clock.
 //
 // Used by:
 //   - the post, comment, notification, profile, poll, media

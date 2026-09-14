@@ -51,6 +51,10 @@ export interface StackMember {
 // StackedAvatars (default export)
 // -----------------------------------------------------------
 //
+// Below two known members it degrades to one KitAvatar (the
+// people glyph when none); with two, the front portrait sits
+// in a ground-colour ring so the overlap reads as depth.
+//
 // Used by:
 //   - components/chat/ConversationRow.tsx — the group rows in
 //     the conversations tab

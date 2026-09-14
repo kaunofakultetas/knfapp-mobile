@@ -26,6 +26,10 @@ import { useTimetableLabels, useTimetableTheme } from '../provider';
 // DayTabs (default export)
 // -----------------------------------------------------------
 //
+// Each tab takes flex-1, so any day set shares the row
+// evenly; a press reports up through onSelect — the row
+// keeps no selection state of its own.
+//
 // Used by:
 //   - app/(main)/tabs/schedule.tsx — under the filter row
 // -----------------------------------------------------------

@@ -103,6 +103,9 @@ export const HISTORY_CAP = 200;
 // emptyHistory
 // -----------------------------------------------------------
 //
+// A factory, not a shared constant — every caller gets fresh
+// stacks, so one editor's history is never another's.
+//
 // Used by:
 //   - hooks/useEditor.ts — the initial history, and the reset
 //     on replace
@@ -227,6 +230,10 @@ export function begin(history: History, label: string): History {
 // record
 // -----------------------------------------------------------
 //
+// recordClosing with the closed answer dropped — changes
+// still coalesce into the open checkpoint, and outside a
+// gesture they still close around themselves.
+//
 // Used by:
 //   - hosts driving a history without the hook; nothing in the
 //     repo calls this at the moment
@@ -245,6 +252,10 @@ export function record(history: History, changes: readonly Change[], label = 'ed
 // -----------------------------------------------------------
 // end
 // -----------------------------------------------------------
+//
+// endClosing with the closed answer dropped — undo and redo
+// close the open gesture this way because they have no use
+// for the checkpoint it closed.
 //
 // Used by:
 //   - undo / redo (below)

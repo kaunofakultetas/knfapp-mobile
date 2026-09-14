@@ -38,6 +38,11 @@ interface EmptyStateProps {
 // EmptyState (default export)
 // -----------------------------------------------------------
 //
+// The icon disc is decorative and hidden from assistive tech,
+// so screen readers land straight on the title; the optional
+// action renders a full Button, turning "nothing here" into a
+// next step instead of a dead end.
+//
 // Used by:
 //   - every list screen — news, messages, friends, admin… —
 //     as FlatList ListEmptyComponent or standalone

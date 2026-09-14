@@ -24,6 +24,10 @@
 // parseStamp
 // -----------------------------------------------------------
 //
+// Accepts a zone suffix or a bare stamp (read as UTC, space
+// separator tolerated); anything else answers null — callers
+// never see an Invalid Date.
+//
 // Used by:
 //   - core/reducers.ts — orders merged pages by stamp
 //   - hosts via the package surface (chatuikit ships its own

@@ -72,8 +72,24 @@ import {
 // A fresh group gets a random face from this pool
 const GROUP_EMOJIS = ['💬', '👥', '📚', '🧑‍🏫', '🧪', '🖥️', '🧠'];
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// Separator
+// -----------------------------------------------------------
+//
 // Module-level so the results list keeps one stable separator
-// component type across renders instead of remounting hairlines
+// component type across renders instead of remounting
+// hairlines.
+//
+// Used by:
+//   - NewChatForm (below) — the results list
+// -----------------------------------------------------------
+
 const Separator = () => <View className="h-px bg-line" />;
 
 

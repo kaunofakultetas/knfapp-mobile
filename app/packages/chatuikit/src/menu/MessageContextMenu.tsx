@@ -188,6 +188,10 @@ export function buildMenuRows(
 // MenuRow
 // -----------------------------------------------------------
 //
+// One 46pt action row: label left, icon right, danger rows
+// inked in the danger colour, a hairline under every row but
+// the last so the card's rounded corners stay clean.
+//
 // Used by:
 //   - MessageContextMenu (below)
 // -----------------------------------------------------------
@@ -252,6 +256,11 @@ function MenuRow({
 // -----------------------------------------------------------
 // MessageContextMenu (default export)
 // -----------------------------------------------------------
+//
+// The layer. `target` opens it; null starts the close fade,
+// onClosed firing only once the fade lands. A snapshot of
+// target + capabilities is held while animating out, so the
+// host's props flipping to null cannot tear the geometry.
 //
 // Used by:
 //   - app/(main)/chat-room/index.tsx — on message long-press

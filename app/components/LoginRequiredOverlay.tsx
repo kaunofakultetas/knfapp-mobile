@@ -54,6 +54,12 @@ interface LoginRequiredOverlayProps {
 // LoginRequiredOverlay (default export)
 // -----------------------------------------------------------
 //
+// A three-way fork: authenticated returns the children
+// untouched, a still-hydrating session gets the neutral
+// spinner shell, and only a settled signed-out state shows
+// the pitch — its login button carrying returnTo so signing
+// in lands back on this exact screen state.
+//
 // Used by:
 //   - app/(main)/tabs/messages.tsx — and any other screen
 //     whose whole value needs an account

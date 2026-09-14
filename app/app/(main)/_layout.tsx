@@ -69,7 +69,21 @@ import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/hooks/useTheme';
 
 
-// Module-level so the Stack sees one stable header identity
+
+
+
+
+
+// -----------------------------------------------------------
+// renderHeader
+// -----------------------------------------------------------
+//
+// Module-level so the Stack sees one stable header identity.
+//
+// Used by:
+//   - MainStack (below) — the Stack `header` screen option
+// -----------------------------------------------------------
+
 const renderHeader = (props: StackHeaderProps) => <StackHeader {...props} />;
 
 
@@ -164,6 +178,12 @@ function MainStack() {
 // -----------------------------------------------------------
 // MainLayout (default export)
 // -----------------------------------------------------------
+//
+// Pure composition: the chat and social engines/kits wrap
+// BOTH the stack and the Sidebar — the drawer reads the
+// social engine for its unread badge, so it must sit inside
+// the same providers as the screens — and the Sidebar mounts
+// after MainStack so its layer stacks above everything.
 //
 // Used by:
 //   - expo-router — layout of the (main) route group

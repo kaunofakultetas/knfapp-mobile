@@ -74,6 +74,10 @@ const read = (): NowPoint => {
 // UseNowOptions
 // -----------------------------------------------------------
 //
+// The clock's two knobs: intervalMs is the tick cadence
+// (default 30 s); enabled: false runs no interval at all —
+// the hook then answers its mount-time sample forever.
+//
 // Used by:
 //   - useNow (below)
 //   - WeekGrid.tsx / DayTimeline.tsx — pass { enabled } when

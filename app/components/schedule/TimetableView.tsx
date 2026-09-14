@@ -33,6 +33,24 @@ import {
 import { DayTimeline, WeekGrid, type TimetableLesson } from '@knf/timetableuikit';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// TimetableView (default export)
+// -----------------------------------------------------------
+//
+// Four memo stages — deriveWindow, conflictIds, the placed
+// and conflict-annotated week, visibleDays — all keyed to the
+// entries, so a screen re-render without new data repacks
+// nothing; the mode fork only picks which kit view gets them.
+//
+// Used by:
+//   - app/(main)/tabs/schedule.tsx — 'day' and 'week' modes
+// -----------------------------------------------------------
+
 export default function TimetableView({
   entries,
   skipped,

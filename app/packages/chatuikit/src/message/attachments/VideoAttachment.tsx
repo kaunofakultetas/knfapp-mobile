@@ -44,6 +44,10 @@ const CHROME = '#FFFFFF';
 // PlayOverlay
 // -----------------------------------------------------------
 //
+// The chrome over the poster: the centred disc (a spinner
+// while `busy`) and the duration badge — fixed white on a
+// dark wash, whatever the theme, posters being photos.
+//
 // Used by:
 //   - VideoAttachment (below)
 // -----------------------------------------------------------
@@ -83,6 +87,12 @@ function PlayOverlay({ duration, busy }: { duration?: number; busy: boolean }) {
 
 // -----------------------------------------------------------
 // VideoAttachment (default export)
+// -----------------------------------------------------------
+//
+// Renders as ImageAttachment with the poster as the image
+// and PlayOverlay on top, so sizing, micro-preview and load
+// failure are handled once; only the no-poster case draws
+// its own dark stage.
 // -----------------------------------------------------------
 
 export default function VideoAttachment({

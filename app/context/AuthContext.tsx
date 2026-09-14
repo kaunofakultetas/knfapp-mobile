@@ -130,6 +130,8 @@ type AuthAction =
   | { type: 'LOGOUT' }
   | { type: 'SET_USER'; payload: User };
 
+// A fresh signed-out session — the reducer's start and the
+// LOGOUT target
 const initialState: AuthState = {
   isAuthenticated: false,
   user: null,
@@ -146,18 +148,50 @@ interface AuthContextType extends AuthState {
   setUser: (user: User) => void;
 }
 
+// undefined until AuthProvider mounts — useAuth throws on it
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// isAuthRejection
+// -----------------------------------------------------------
+//
 // A 401/403 from /me means the stored token is dead — anything
 // else (offline, timeout, 5xx) says nothing about the session.
 // Exported for __tests__/authSession.test.ts.
+//
+// Used by:
+//   - AuthProvider (below) — the session restore probe
+//   - __tests__/authSession.test.ts
+// -----------------------------------------------------------
+
 export const isAuthRejection = (err: unknown): boolean =>
   err instanceof ApiError &&
   err.code === 'http' &&
   (err.status === 401 || err.status === 403);
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// isValidStoredUser
+// -----------------------------------------------------------
+//
 // The persisted record is untrusted input — anything that is
-// not a real User shape must never reach LOGIN_SUCCESS
+// not a real User shape must never reach LOGIN_SUCCESS.
+//
+// Used by:
+//   - AuthProvider (below) — session hydration
+// -----------------------------------------------------------
+
 const isValidStoredUser = (user: User | null): user is User =>
   user !== null &&
   typeof user.id === 'string' &&
@@ -165,8 +199,23 @@ const isValidStoredUser = (user: User | null): user is User =>
   typeof user.displayName === 'string' &&
   typeof user.role === 'string';
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// withTimeout
+// -----------------------------------------------------------
+//
 // Cap for the detached logout-time server calls — they run
-// after the local teardown and must never linger
+// after the local teardown and must never linger.
+//
+// Used by:
+//   - AuthProvider's logout (below)
+// -----------------------------------------------------------
+
 const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T> =>
   Promise.race([
     promise,
@@ -175,6 +224,16 @@ const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T> =>
     ),
   ]);
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// promptForPermission
+// -----------------------------------------------------------
+//
 // The engine's register() never prompts: on a fresh install (or
 // for a user who never answered the OS dialog) it hands back a
 // pure typed {ok:false, reason:'permission'} and stops. The
@@ -185,6 +244,11 @@ const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T> =>
 // snapshot turns deliverable. Only an askable state prompts; a
 // denied-forever device belongs to the settings tab's deep-link
 // into system settings, never to a nag on every login.
+//
+// Used by:
+//   - AuthProvider (below) — after login, register and restore
+// -----------------------------------------------------------
+
 const promptForPermission = (engine: NotifyEngine, result: RegisterResult): void => {
   if (result.ok || result.reason !== 'permission') return;
   const { status, canAskAgain } = engine.permission.get();
@@ -571,6 +635,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 // -----------------------------------------------------------
 // useAuth
 // -----------------------------------------------------------
+//
+// The session state plus stable-identity actions — login /
+// logout / setUser are safe in effect dependency arrays.
+// Gate on `hydrated` before trusting user: it is null during
+// restore exactly as it is for a guest. Throws outside an
+// AuthProvider.
 //
 // Used by:
 //   - app/index.tsx — waits for `hydrated` before routing

@@ -521,6 +521,15 @@ function useChannelsSync(isAuthenticated: boolean): {
 // SettingsScreen (default export)
 // -----------------------------------------------------------
 //
+// Wires AppContext, the auth session and the channels latch
+// into the sections, and builds the memoized FACADE engine
+// the kit talks to — same store objects, but the two silent
+// failure paths gain toasts. Its own effect watches the ONE
+// syncState edge that means a failed save ('flushing' →
+// 'error'); reset re-enables the master switch through the
+// facade and snaps it back off, with the reason, when
+// delivery is impossible.
+//
 // Used by:
 //   - expo-router — the settings tab of (main)/tabs
 // -----------------------------------------------------------

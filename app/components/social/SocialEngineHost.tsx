@@ -41,6 +41,25 @@ const NOTICE_KEYS: Record<SocialNotice['code'], string> = {
 };
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// SocialEngineHost (default export)
+// -----------------------------------------------------------
+//
+// The viewer identity is memoized off the auth user, so the
+// provider re-keys only on a real login/logout; notify maps
+// engine notice codes onto catalog toasts, and onRequireAuth
+// pushes the login screen carrying returnTo so the
+// interrupted tap's screen is where the user lands back.
+//
+// Used by:
+//   - app/(main)/_layout.tsx — wraps every signed-in screen
+// -----------------------------------------------------------
+
 export default function SocialEngineHost({ children }: { children: ReactNode }) {
 
   const { user } = useAuth();

@@ -80,6 +80,7 @@ const TEXT_VARIANTS: Record<ButtonVariant, string> = {
   danger: 'text-on-brand',
 };
 
+// Label type scale per button size
 const TEXT_SIZES: Record<ButtonSize, string> = {
   sm: 'text-sm',
   md: 'text-base',
@@ -98,6 +99,12 @@ const ICON_SIZES: Record<ButtonSize, number> = { sm: 16, md: 18, lg: 20 };
 // -----------------------------------------------------------
 // Button (default export)
 // -----------------------------------------------------------
+//
+// The NativeWind-safe reference pressable: every layout rule
+// lives in className, pressed feedback in active: classes,
+// fullWidth in self-stretch — never a style FUNCTION beside
+// className (the css-interop justify bug) and never w-full
+// inside auto-width wrappers.
 //
 // Used by:
 //   - app/login.tsx, app/register.tsx — form submits

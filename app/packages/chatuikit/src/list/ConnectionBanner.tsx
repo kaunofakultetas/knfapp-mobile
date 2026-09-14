@@ -28,6 +28,10 @@ import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 // ConnectionBanner (default export)
 // -----------------------------------------------------------
 //
+// Renders nothing for the null state; otherwise a fading
+// live-region strip, so the reader hears the state change
+// without focus moving.
+//
 // Used by:
 //   - app/(main)/chat-room/index.tsx — over the message list
 // -----------------------------------------------------------

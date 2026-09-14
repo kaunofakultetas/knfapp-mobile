@@ -42,6 +42,11 @@ import { useNetworkRestore } from './useNetworkRestore';
 // UseLoadResult
 // -----------------------------------------------------------
 //
+// The screen contract in five fields: `error` already means
+// "failed with nothing to show", so a screen renders its
+// ErrorState off it directly; refresh keeps the shown data,
+// retry re-runs the full spinner load.
+//
 // Used by:
 //   - useLoad (below)
 //   - single-resource screens typing their load state

@@ -174,6 +174,10 @@ function relationshipOf(profile: UserProfile, isOwnProfile: boolean): Relationsh
 // StatBlock
 // -----------------------------------------------------------
 //
+// One number-over-label column of the stats row — kept dumb
+// on purpose: whether the block is pressable is the header's
+// decision (own profile only), never this component's.
+//
 // Used by:
 //   - ProfileHeader (below) — post and friend counts
 // -----------------------------------------------------------
@@ -511,6 +515,14 @@ function avatarErrorKey(err: unknown): string {
 // -----------------------------------------------------------
 // ProfileScreen (default export)
 // -----------------------------------------------------------
+//
+// Resolves the target (no param = own profile), holds the
+// profile in state with a ref twin so async handlers read the
+// CURRENT value, and layers useRelationship's shadow over the
+// payload's base standing. One sequence-guarded loadProfile
+// serves mount, retry, focus returns and network restore —
+// focus resyncs silently and leaves the paginated posts and
+// the scroll position alone; only the pull gesture spins.
 //
 // Used by:
 //   - app/(main)/_layout.tsx — route /(main)/profile

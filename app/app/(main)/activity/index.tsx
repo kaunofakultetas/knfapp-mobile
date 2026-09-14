@@ -80,6 +80,13 @@ function destinationFor(group: NotificationGroup): Href | null {
 // ActivityScreen (default export)
 // -----------------------------------------------------------
 //
+// Wires useNotifications into the page: mark-all-read fires
+// only once rows have LANDED (a failed load never claims a
+// read), a focus effect silently refetches on return visits,
+// and the guard chain runs login prompt → spinner →
+// error-with-nothing → list, with taps routed through
+// destinationFor.
+//
 // Used by:
 //   - app/(main)/_layout.tsx — the 'activity/index' route
 //   - components/Sidebar.tsx — the drawer entry with the badge

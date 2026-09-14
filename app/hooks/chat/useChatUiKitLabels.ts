@@ -18,6 +18,24 @@ import { useTranslation } from 'react-i18next';
 import type { KitLabels } from '@knf/chatuikit';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// useChatUiKitLabels (default export)
+// -----------------------------------------------------------
+//
+// Builds the complete KitLabels object — every field, plain
+// strings plus the parameterised ones as closures over t() —
+// memoised on t's identity, so a language switch mints a new
+// object and the kit re-renders its strings.
+//
+// Used by:
+//   - components/chat/ChatUiKitHost.tsx — the provider's labels
+// -----------------------------------------------------------
+
 export default function useChatUiKitLabels(): KitLabels {
 
   const { t } = useTranslation();

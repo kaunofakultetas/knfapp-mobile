@@ -678,6 +678,15 @@ function useSubmitCooldown(ms = 15_000) {
 // RegisterScreen (default export)
 // -----------------------------------------------------------
 //
+// Composes the pieces: form state and errors for the five
+// account fields, the invite hook and the 429 cooldown, and a
+// ref-per-field focus chain whose first failing field is
+// announced and focused. handleRegister flushes the pending
+// code check and branches on the RETURNED verdict, writes
+// 'onboarded' before leaving, and routes invite failures back
+// onto the field; goToLogin pops when history exists and
+// replaces on deep-link arrivals.
+//
 // Used by:
 //   - expo-router — route /register (app/_layout.tsx stack)
 //   - app/login.tsx — the "no account yet" link

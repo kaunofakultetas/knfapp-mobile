@@ -36,6 +36,11 @@ import { useKitLabels, useKitTheme } from '../provider';
 // FloorSwitcher (default export)
 // -----------------------------------------------------------
 //
+// Fully controlled, no state of its own: `current` picks the
+// filled pill by level id and a tap only calls onSelect.
+// `enabled: null` (the default) leaves every floor open — an
+// empty array would dim and disable the whole rail.
+//
 // Used by:
 //   - app/(main)/tabs/map.tsx — beside the plan
 //   - app/(main)/map-editor — the editor's floor rail

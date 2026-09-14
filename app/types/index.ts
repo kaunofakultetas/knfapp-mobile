@@ -207,6 +207,10 @@ export interface AppSettings {
 // LoginForm
 // -----------------------------------------------------------
 //
+// The credential pair as typed — `username` also accepts an
+// email: the backend matches the value against both columns
+// case-insensitively, so the form never has to distinguish.
+//
 // Used by:
 //   - app/login.tsx — the credential form state
 // -----------------------------------------------------------

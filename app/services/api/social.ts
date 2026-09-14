@@ -82,6 +82,11 @@ export interface UserProfile {
 // FriendRequest
 // -----------------------------------------------------------
 //
+// `id` is the REQUEST row's id — what accept/reject take —
+// while userId and the profile fields describe the OTHER
+// party: the sender on 'received', the recipient on 'sent'.
+// Requests from deactivated accounts never appear.
+//
 // Used by:
 //   - fetchFriendRequests (below)
 //   - app/(main)/friend-requests/index.tsx — request rows
@@ -107,6 +112,10 @@ export interface FriendRequest {
 // Friend
 // -----------------------------------------------------------
 //
+// `id` is the friend's USER id, not a friendship row id —
+// unfriendUser takes it directly. friendsSince is the accept
+// instant; deactivated accounts are left out server-side.
+//
 // Used by:
 //   - fetchFriends (below)
 //   - app/(main)/friends/index.tsx — friends-list rows
@@ -131,6 +140,10 @@ export interface Friend {
 // SocialFeedPost
 // -----------------------------------------------------------
 //
+// NewsPost plus the one field the community feed joins in —
+// the author's avatar — so cards render a face without a
+// per-author profile fetch.
+//
 // Used by:
 //   - SocialFeedResponse (below)
 //   - app/(main)/tabs/news.tsx — community-feed cards
@@ -149,6 +162,10 @@ export interface SocialFeedPost extends NewsPost {
 // -----------------------------------------------------------
 // SocialFeedResponse
 // -----------------------------------------------------------
+//
+// The same paging contract as NewsFeedResponse — echoed
+// page/perPage, server-computed hasMore — a separate type
+// only because the rows are SocialFeedPost.
 //
 // Used by:
 //   - fetchSocialFeed (below)
@@ -172,6 +189,11 @@ export interface SocialFeedResponse {
 // -----------------------------------------------------------
 // fetchUserProfile
 // -----------------------------------------------------------
+//
+// GET /social/profile/<id> — a deactivated account answers
+// 404 as if it never existed. postCount respects the viewer's
+// visibility: private posts count only for the owner and
+// accepted friends, so two viewers can see different numbers.
 //
 // Used by:
 //   - app/(main)/profile/index.tsx — profile load
@@ -288,6 +310,10 @@ export const fetchFriendRequests = (direction: 'received' | 'sent' = 'received')
 // acceptFriendRequest
 // -----------------------------------------------------------
 //
+// Recipient only — the backend writes BOTH friendship rows,
+// deletes the request and clears any stale rejection between
+// the pair. 404 for a request not addressed to the caller.
+//
 // Used by:
 //   - app/(main)/friend-requests/index.tsx — accept button
 //   - app/(main)/profile/index.tsx — accept from the profile
@@ -310,6 +336,12 @@ export const acceptFriendRequest = (requestId: string) =>
 // rejectFriendRequest
 // -----------------------------------------------------------
 //
+// Settles differently per side: the recipient's decline is
+// recorded (a cooldown against instant re-asking), while the
+// SENDER calling it merely withdraws — the row is deleted and
+// no rejection is remembered. 404 when the caller is on
+// neither end of the request.
+//
 // Used by:
 //   - app/(main)/friend-requests/index.tsx — decline button
 // -----------------------------------------------------------
@@ -331,6 +363,12 @@ export const rejectFriendRequest = (requestId: string) =>
 // fetchFriends
 // -----------------------------------------------------------
 //
+// Sorted by display name with ASCII-only case folding — real
+// Lithuanian collation is the client's job. The wire answer
+// also carries total/hasMore, dropped here: this caller never
+// pages, so a list past the server's 200-row default page
+// would be silently truncated.
+//
 // Used by:
 //   - app/(main)/friends/index.tsx — the friends list
 // -----------------------------------------------------------
@@ -347,6 +385,10 @@ export const fetchFriends = () =>
 // -----------------------------------------------------------
 // unfriendUser
 // -----------------------------------------------------------
+//
+// Takes the friend's USER id and clears BOTH direction rows
+// of the friendship in one call; 404 only when no friendship
+// existed at all.
 //
 // Used by:
 //   - app/(main)/profile/index.tsx — remove-friend action
@@ -395,6 +437,11 @@ export const fetchSocialFeed = (page = 1, perPage = 20, signal?: AbortSignal) =>
 // fetchUserPosts
 // -----------------------------------------------------------
 //
+// GET /social/posts?user_id= — covers 'user' AND 'faculty'
+// sources, so a staff profile lists its announcements too.
+// Private rows appear only for the owner and accepted
+// friends; a deactivated author reads as 404.
+//
 // Used by:
 //   - app/(main)/profile/index.tsx — the profile post list
 // -----------------------------------------------------------
@@ -430,6 +477,9 @@ export async function deletePost(postId: string): Promise<void> {
 
 
 
+
+
+
 // -----------------------------------------------------------
 // updatePost
 // -----------------------------------------------------------
@@ -453,25 +503,44 @@ export async function updatePost(
 
 
 
+
+
+
 // -----------------------------------------------------------
-// blockUser / unblockUser
+// blockUser
 // -----------------------------------------------------------
 //
 // Blocking is bidirectional in effect: neither side can start
 // a conversation with, message (in a direct chat), friend-
 // request or find the other in the chat user search until the
 // blocker lifts it. The backend also severs an existing
-// friendship and any pending request — unblocking restores
-// none of that, contact is merely possible again. Unblock is
-// idempotent, so a retried tap cannot error.
+// friendship and any pending request.
 //
 // Used by:
-//   - app/(main)/profile/index.tsx — the block/unblock action
+//   - app/(main)/profile/index.tsx — the block action
 // -----------------------------------------------------------
 
 export async function blockUser(userId: string): Promise<void> {
   await request(api.post('/social/blocks', { user_id: userId }));
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// unblockUser
+// -----------------------------------------------------------
+//
+// Unblocking restores none of what blocking severed (the
+// friendship, any pending request) — contact is merely
+// possible again. Idempotent, so a retried tap cannot error.
+//
+// Used by:
+//   - app/(main)/profile/index.tsx — the unblock action
+// -----------------------------------------------------------
 
 export async function unblockUser(userId: string): Promise<void> {
   await request(api.delete(`/social/blocks/${encodeURIComponent(userId)}`));
@@ -480,16 +549,17 @@ export async function unblockUser(userId: string): Promise<void> {
 
 
 
+
+
+
 // -----------------------------------------------------------
-// BlockedUser + fetchBlockedUsers
+// BlockedUser
 // -----------------------------------------------------------
 //
-// The caller's own block list, newest first.
+// One row of the caller's own block list.
 //
 // Used by:
-//   - nothing renders the list yet — the profile screen works
-//     off profile.blockedByMe; the list waits on a settings
-//     surface
+//   - fetchBlockedUsers (below) — the response row shape
 // -----------------------------------------------------------
 
 export interface BlockedUser {
@@ -501,8 +571,29 @@ export interface BlockedUser {
   blockedAt: string;
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// fetchBlockedUsers
+// -----------------------------------------------------------
+//
+// The caller's own block list, newest first.
+//
+// Used by:
+//   - nothing renders the list yet — the profile screen works
+//     off profile.blockedByMe; the list waits on a settings
+//     surface
+// -----------------------------------------------------------
+
 export const fetchBlockedUsers = () =>
   request(api.get<{ blocked: BlockedUser[] }>('/social/blocks'));
+
+
+
 
 
 

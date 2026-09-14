@@ -26,6 +26,10 @@ import StackedAvatars, { type StackMember } from './StackedAvatars';
 // RoomHeaderTitle (default export)
 // -----------------------------------------------------------
 //
+// One Pressable that degrades: without onPress it disables
+// and reads as a header, not a button. The online dot rings
+// itself in the header brand and carries its own a11y label.
+//
 // Used by:
 //   - app/(main)/chat-room/index.tsx — the header's title slot
 // -----------------------------------------------------------

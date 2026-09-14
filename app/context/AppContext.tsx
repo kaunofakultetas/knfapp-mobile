@@ -86,9 +86,26 @@ interface AppContextType extends AppSettings {
   resetSettings: () => void;
 }
 
+// undefined until AppProvider mounts — useApp throws on it
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-// News and messages stay pinned no matter what the caller passes
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ensureHardPinned
+// -----------------------------------------------------------
+//
+// News and messages stay pinned no matter what the caller
+// passes.
+//
+// Used by:
+//   - appReducer, AppProvider's hydration read (below)
+// -----------------------------------------------------------
+
 const ensureHardPinned = (tabs: string[]) =>
   Array.from(new Set([...HARD_PINNED_TABS, ...tabs]));
 
@@ -267,6 +284,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
 // -----------------------------------------------------------
 // useApp
 // -----------------------------------------------------------
+//
+// Settings plus the RESOLVED `scheme` (never 'system') and
+// the `hydrated` gate — until hydrated is true consumers see
+// the defaults, not the persisted choices. Throws outside an
+// AppProvider.
 //
 // Used by:
 //   - app/_layout.tsx — theme vars + navigation theme

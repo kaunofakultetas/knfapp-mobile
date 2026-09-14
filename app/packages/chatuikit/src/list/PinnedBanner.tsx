@@ -60,6 +60,11 @@ function pinSnippet(message: KitMessage, labels: KitLabels): string {
 // PinnedBanner (default export)
 // -----------------------------------------------------------
 //
+// Keeps its own cycle cursor, reset during render whenever
+// the pin set changes size; a tap hands the shown pin to
+// onPress BEFORE advancing, so the jump goes to the snippet
+// the reader saw.
+//
 // Used by:
 //   - app/(main)/chat-room/index.tsx — under the room header
 // -----------------------------------------------------------

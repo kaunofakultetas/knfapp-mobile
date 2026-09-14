@@ -102,6 +102,11 @@ function Dot({ index }: { index: number }) {
 // TypingBubble (default export)
 // -----------------------------------------------------------
 //
+// Owns the spoken side too: one iOS announcement per typing
+// burst (module-level debounce, so remounts stay quiet) while
+// Android's live region speaks on its own. The entering
+// direction flips on web — the inverted cell mirrors Y.
+//
 // Used by:
 //   - list/MessageList.tsx — the default slot; hosts may
 //     replace it through the provider's `components`

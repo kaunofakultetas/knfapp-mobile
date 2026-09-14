@@ -53,6 +53,11 @@ const HIGHLIGHT_MS = 1500;
 // useJumpToMessage
 // -----------------------------------------------------------
 //
+// A jump in three stages: an instant scroll when the row is
+// loaded, else one anchored load behind `jumping`, then the
+// scroll retried over a few render beats — onMissing fires
+// only when all of that came up empty.
+//
 // Used by:
 //   - app/(main)/chat-room/index.tsx — beside MessageList
 // -----------------------------------------------------------

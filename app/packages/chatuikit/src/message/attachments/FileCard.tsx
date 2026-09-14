@@ -60,6 +60,11 @@ export function fileGlyph(name: string, mimeType?: string): KitIconName {
 // -----------------------------------------------------------
 // FileCard (default export)
 // -----------------------------------------------------------
+//
+// One tap target for the whole card, fully disabled when
+// neither handler is passed. The name may wrap to two lines;
+// the size caption hides when the byte count is unknown.
+// -----------------------------------------------------------
 
 export default function FileCard({
   file,

@@ -121,6 +121,12 @@ function FallbackButton({
 // ErrorFallback (default export)
 // -----------------------------------------------------------
 //
+// Raw styles and the static palette only — no provider
+// survives out here. reportIssue builds a mailto draft with
+// the raw error, app/OS versions and the last ten buffered
+// logError lines, and swallows every failure on the way: the
+// crash screen must never crash again.
+//
 // Used by:
 //   - app/_layout.tsx — FallbackComponent of the root
 //     ErrorBoundary

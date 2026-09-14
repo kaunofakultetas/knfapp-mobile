@@ -67,6 +67,11 @@ export function useMediaFit(mediaSize: KitMediaSize | undefined, initialRatio: n
 // -----------------------------------------------------------
 // ImageAttachment (default export)
 // -----------------------------------------------------------
+//
+// A failed load retries when the uri changes (the local
+// preview swapping to the uploaded path); an extreme aspect
+// ratio drops to the compact strip row instead of a crop.
+// -----------------------------------------------------------
 
 export default function ImageAttachment({
   uri,

@@ -115,6 +115,11 @@ export interface SocialTaskQueue {
 // createSocialTaskQueue
 // -----------------------------------------------------------
 //
+// Persists fire-and-forget (a failed write costs persistence,
+// never the in-session queue) and rehydrates exactly once —
+// corrupt JSON reads as an empty queue, malformed rows are
+// dropped entry by entry.
+//
 // Used by:
 //   - provider/index.tsx — one queue per provider, wired to
 //     the hooks and to replayTasks()

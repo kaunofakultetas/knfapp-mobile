@@ -96,18 +96,37 @@ const MAX_PANEL_WIDTH = 320;
 
 // Soft, critically-damped springs — the panel glides, never snaps
 const OPEN_SPRING = { damping: 26, stiffness: 230, mass: 1, overshootClamping: true };
+
+// Slightly firmer than OPEN_SPRING so the glide out feels resolved
 const CLOSE_SPRING = { damping: 30, stiffness: 260, mass: 1, overshootClamping: true };
 
 // A leftward fling faster than this closes regardless of position
 const FLING_VELOCITY = -450;
 
+// The footer's three-way theme control, in display order
 const THEME_OPTIONS: { key: ThemeSetting; icon: IoniconName; labelKey: string }[] = [
   { key: 'light', icon: 'sunny-outline', labelKey: 'settings.light' },
   { key: 'dark', icon: 'moon-outline', labelKey: 'settings.dark' },
   { key: 'system', icon: 'phone-portrait-outline', labelKey: 'settings.system' },
 ];
 
-// Light selection tick on iOS; Android's own feedback covers taps
+
+
+
+
+
+
+// -----------------------------------------------------------
+// tick
+// -----------------------------------------------------------
+//
+// Light selection tick on iOS; Android's own feedback covers
+// taps.
+//
+// Used by:
+//   - QuickSwitches, Sidebar's togglePin (below)
+// -----------------------------------------------------------
+
 const tick = () => {
   if (process.env.EXPO_OS === 'ios') void Haptics.selectionAsync();
 };
@@ -474,6 +493,14 @@ function QuickSwitches() {
 // -----------------------------------------------------------
 // Sidebar (default export)
 // -----------------------------------------------------------
+//
+// Owns the motion and the wiring: the `progress` shared value
+// mirrors DrawerContext's isOpen (an effect springs it home,
+// the pan gesture writes it directly and both fling branches
+// update flag AND position together), any pathname change
+// closes the drawer, Android back is intercepted while open,
+// and touchability/a11y visibility follow the React flag —
+// never the animation — so a closing panel blocks nothing.
 //
 // Used by:
 //   - app/(main)/_layout.tsx — mounted once beside the stack

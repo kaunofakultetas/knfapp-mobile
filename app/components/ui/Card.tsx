@@ -33,6 +33,7 @@ interface CardProps {
   accessible?: boolean;
 }
 
+// The padding prop's four steps as Tailwind classes
 const PADDINGS: Record<CardPadding, string> = {
   none: 'p-0',
   sm: 'p-sm',
@@ -59,6 +60,11 @@ const CARD_SHADOW: ViewStyle = {
 // -----------------------------------------------------------
 // Card (default export)
 // -----------------------------------------------------------
+//
+// The onPress fork picks the element type: plain View when
+// static, Pressable with an active: tint when tappable. The
+// shadow always rides as an object style — safe next to
+// className, unlike a style FUNCTION (see Button.tsx).
 //
 // Used by:
 //   - components/news/NewsCard.tsx — every feed entry

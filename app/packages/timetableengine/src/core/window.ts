@@ -58,6 +58,11 @@ const DEFAULT_PAD = 60;
 // deriveWindow
 // -----------------------------------------------------------
 //
+// Only lessons earn span — blocks never widen the axis; a day
+// with no lessons answers exactly floor..ceil. The bounds are
+// a minimum span (lessons widen past them, nothing shrinks
+// inside them), and the result clamps to 00:00–24:00.
+//
 // Used by:
 //   - components/schedule/TimetableView.tsx — one window for
 //     both views

@@ -303,6 +303,11 @@ function NewerMessagesRow({ loading, labels, onPress }: { loading: boolean; labe
 // MessageList (default export)
 // -----------------------------------------------------------
 //
+// Renders the host's prebuilt timeline rows and owns all the
+// scroll mechanics: paging both directions, the away/missed
+// bookkeeping, jump-to-message retries, the pill/day/button
+// overlays. Provider slots replace any of the default rows.
+//
 // Used by:
 //   - app/(main)/chat-room/index.tsx — the chat room screen
 // -----------------------------------------------------------

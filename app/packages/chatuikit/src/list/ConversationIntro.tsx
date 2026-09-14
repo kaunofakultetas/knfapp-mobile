@@ -54,6 +54,10 @@ export interface IntroInfo {
 // ConversationIntro (default export)
 // -----------------------------------------------------------
 //
+// Takes IntroInfo straight as props: a stacked pair for a
+// group with known members, the single portrait otherwise,
+// then the title and subtitle centred beneath.
+//
 // Used by:
 //   - list/MessageList.tsx — the default slot; hosts may
 //     replace it through the provider's `components`

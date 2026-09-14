@@ -68,6 +68,13 @@ import { launchRoutingSettled, routeNotificationIntent } from '@/services/notify
 // NotifyEngineHost (default export)
 // -----------------------------------------------------------
 //
+// Renders null — four effects are the whole body: the
+// readiness kick, the gate-waiting resolver install (a cancel
+// flag keeps a superseded run from binding a dead router),
+// the language-switch channel rename + re-register, and the
+// permission-edge register. An auth ref lets those async
+// paths read login state when they COMPLETE, not when queued.
+//
 // Used by:
 //   - app/_layout.tsx — AppNavigation, once
 // -----------------------------------------------------------

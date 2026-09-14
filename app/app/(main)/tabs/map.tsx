@@ -89,7 +89,22 @@ interface Names {
 }
 
 
-// Light selection tick on iOS; Android's own feedback covers taps
+
+
+
+
+
+// -----------------------------------------------------------
+// tick
+// -----------------------------------------------------------
+//
+// Light selection tick on iOS; Android's own feedback covers
+// taps.
+//
+// Used by:
+//   - MapScreenInner (below) — selection and step handlers
+// -----------------------------------------------------------
+
 const tick = () => {
   if (Platform.OS === 'ios') void Haptics.selectionAsync();
 };
@@ -101,17 +116,14 @@ const tick = () => {
 
 
 // -----------------------------------------------------------
-// kitStep / kitSummary / kitState
+// kitStep
 // -----------------------------------------------------------
 //
-// The engine's instruction, route and navigation state as the
-// kit's display shapes: room ids become names, a level id its
-// label, and the walker's position is the route point under
-// the cursor (with its level, so the plan ignores it on other
-// floors). Pure — memoised by the screen on their inputs.
+// One engine instruction as the kit's display shape: room ids
+// become names, a level id its label. Pure.
 //
 // Used by:
-//   - MapScreen (below)
+//   - kitSummary, kitState (below)
 // -----------------------------------------------------------
 
 function kitStep(step: Instruction, names: Names): KitInstruction {
@@ -130,6 +142,23 @@ function kitStep(step: Instruction, names: Names): KitInstruction {
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// kitSummary
+// -----------------------------------------------------------
+//
+// The engine's route as the kit's summary shape — endpoints
+// carry their level so the plan ignores them on other floors.
+// Pure — memoised by the screen on its inputs.
+//
+// Used by:
+//   - MapScreenInner (below)
+// -----------------------------------------------------------
+
 function kitSummary(route: Route, names: Names): KitRouteSummary {
   const first = route.points[0];
   const last = route.points[route.points.length - 1];
@@ -143,6 +172,24 @@ function kitSummary(route: Route, names: Names): KitRouteSummary {
   };
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// kitState
+// -----------------------------------------------------------
+//
+// The engine's navigation state as the kit's display shape —
+// the walker's position is the route point under the cursor
+// (with its level, so the plan ignores it on other floors).
+// Pure — memoised by the screen on its inputs.
+//
+// Used by:
+//   - MapScreenInner (below)
+// -----------------------------------------------------------
 
 function kitState(state: NavigationState, route: Route, names: Names, place: string | null): KitNavigationState {
   const at = route.points[state.index];
@@ -491,11 +538,14 @@ function PlanStage({
 
 
 // -----------------------------------------------------------
-// MapScreen (default export)
+// MapScreenInner
 // -----------------------------------------------------------
 //
+// The whole screen, inside the WayfindHost the default export
+// mounts — split out so the hooks can read useWayfind().
+//
 // Used by:
-//   - expo-router — the (main)/tabs/map route
+//   - MapScreen (below)
 // -----------------------------------------------------------
 
 function MapScreenInner() {
@@ -668,6 +718,24 @@ function MapScreenInner() {
   );
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// MapScreen (default export)
+// -----------------------------------------------------------
+//
+// Exists only to mount WayfindHost between the route and the
+// inner screen: MapScreenInner calls the wayfinding hooks on
+// its first render, so the providers must already be above it
+// — the split is structural, not cosmetic.
+//
+// Used by:
+//   - expo-router — the (main)/tabs/map route
+// -----------------------------------------------------------
 
 export default function MapScreen() {
   return (

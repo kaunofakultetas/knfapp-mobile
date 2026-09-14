@@ -25,6 +25,11 @@ import { useKitTheme } from '../provider';
 // ScrollToLatestButton (default export)
 // -----------------------------------------------------------
 //
+// A 44pt disc with a chevron; count > 0 pins a brand badge
+// on its shoulder, capped at "99+". Layout style is static
+// on purpose — the pressed dim rides on the child function
+// (the NativeWind-on-Pressable gotcha).
+//
 // Used by:
 //   - list/MessageList.tsx — the default slot; hosts may
 //     replace it through the provider's `components`

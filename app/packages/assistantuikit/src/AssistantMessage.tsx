@@ -334,6 +334,10 @@ function ActionBar() {
 // UserBubble
 // -----------------------------------------------------------
 //
+// The right-hand row: the user's words verbatim in a brand
+// pill whose tighter bottom-right corner marks the sender,
+// the branch picker beneath once an edit made siblings.
+//
 // Used by:
 //   - AssistantMessage (below) — role 'user'
 // -----------------------------------------------------------

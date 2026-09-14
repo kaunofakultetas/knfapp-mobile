@@ -26,6 +26,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 // NotFoundScreen (default export)
 // -----------------------------------------------------------
 //
+// Static apart from i18n: hand-rolls the 56px brand band (the
+// stack header is hidden for this route) and links to '/'
+// instead of a hardcoded tab, so the guest-or-user landing
+// decision stays in the entry redirect.
+//
 // Used by:
 //   - expo-router — every unmatched route
 // -----------------------------------------------------------

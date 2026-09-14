@@ -46,6 +46,10 @@ import type { NewsPost } from '@/types';
 // NewsFeedResponse
 // -----------------------------------------------------------
 //
+// page/perPage echo the request back; total counts the whole
+// filtered set and hasMore is the server's verdict on whether
+// another page exists — pagers trust it over recomputing.
+//
 // Used by:
 //   - fetchNewsFeed (below)
 //   - services/api/social.ts — fetchUserPosts shares the shape
@@ -99,6 +103,9 @@ export interface CommentResponse {
 // CommentsListResponse
 // -----------------------------------------------------------
 //
+// Unlike the feed there is no hasMore — callers page on until
+// page * perPage reaches total. Comments arrive newest first.
+//
 // Used by:
 //   - fetchComments (below)
 //   - app/(main)/news-comments/index.tsx — paging state
@@ -121,6 +128,10 @@ export interface CommentsListResponse {
 // ShareResponse
 // -----------------------------------------------------------
 //
+// `shares` is the authoritative post-increment total — the
+// caller replaces its optimistic count with it rather than
+// adding to it.
+//
 // Used by:
 //   - sharePostApi (below)
 //   - app/(main)/tabs/news.tsx — share-count reconcile
@@ -139,6 +150,11 @@ export interface ShareResponse {
 // -----------------------------------------------------------
 // PollResponse
 // -----------------------------------------------------------
+//
+// totalVotes is recomputed from the vote rows at response
+// time, never stored. userVote is the voted option's id, or
+// null for guests and non-voters; endDate null means the poll
+// never closes.
 //
 // Used by:
 //   - createPollApi (below)
@@ -265,6 +281,10 @@ export const sharePostApi = (postId: string) =>
 // fetchComments
 // -----------------------------------------------------------
 //
+// GET /news/<id>/comments, newest first. A comment whose
+// author erased their account still arrives, named "Deleted
+// user" — rows are never silently dropped from the count.
+//
 // Used by:
 //   - app/(main)/news-comments/index.tsx — the comments screen
 //   - app/(main)/news-post/index.tsx — inline comment preview
@@ -286,6 +306,10 @@ export const fetchComments = (postId: string, page = 1, perPage = 20) =>
 // -----------------------------------------------------------
 // addCommentApi
 // -----------------------------------------------------------
+//
+// The 201 answers the written row in the exact list-row shape,
+// so callers prepend it without a refetch. Text is trimmed
+// server-side and capped at 2000 chars (400 beyond).
 //
 // Used by:
 //   - app/(main)/news-comments/index.tsx — the composer
@@ -329,6 +353,11 @@ export const createPost = (params: {
 // -----------------------------------------------------------
 // createPollApi
 // -----------------------------------------------------------
+//
+// 2–10 non-blank options after server-side trimming; only the
+// post's author (or an admin) may attach one — 403 otherwise,
+// 409 when the post already has a poll, 400 for a scraped
+// article. end_date is normalized onto UTC on arrival.
 //
 // Used by:
 //   - app/(main)/create-post/index.tsx — attach a poll on publish

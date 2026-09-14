@@ -137,6 +137,10 @@ const room = (id: string, level: string, nodeId: string, name: string, category:
 // sampleBuilding
 // -----------------------------------------------------------
 //
+// Builds a fresh object on every call — a test may mutate its
+// copy freely, and the graph-keyed index cache never bleeds
+// state between tests.
+//
 // Used by:
 //   - src/__tests__/contract.test.ts
 //   - src/__tests__/surface.test.ts

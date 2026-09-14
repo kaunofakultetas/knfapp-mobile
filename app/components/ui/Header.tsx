@@ -102,6 +102,12 @@ function MenuButton() {
 // Header (default export)
 // -----------------------------------------------------------
 //
+// Builds the 56px bar once, then picks its wrapper: a
+// SafeAreaView claiming the top inset by default, a bare View
+// when inset={false}. The title carries the real header a11y
+// role with capped font scaling; `right` slots arbitrary
+// actions into the end of the bar.
+//
 // Used by:
 //   - app/(main)/tabs/* — every tab screen
 //   - pushed screens that pass showMenu={false}

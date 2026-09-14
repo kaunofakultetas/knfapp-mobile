@@ -24,6 +24,9 @@ let activeConversationId: string | null = null;
 // setActiveConversation
 // -----------------------------------------------------------
 //
+// The newest focus wins unconditionally — the ordering guard
+// lives in clearActiveConversation, not here.
+//
 // Used by:
 //   - hooks/useConversation.ts — the focus effect claims the
 //     room it is rendering
@@ -42,6 +45,9 @@ export function setActiveConversation(conversationId: string): void {
 // -----------------------------------------------------------
 // clearActiveConversation
 // -----------------------------------------------------------
+//
+// Releases only while the caller still holds the claim, so a
+// blur arriving after the next room's focus changes nothing.
 //
 // Used by:
 //   - hooks/useConversation.ts — the focus effect's cleanup
@@ -62,6 +68,9 @@ export function clearActiveConversation(conversationId: string): void {
 // -----------------------------------------------------------
 // getActiveConversation
 // -----------------------------------------------------------
+//
+// A snapshot read, not a subscription — there is no change
+// event, so callers re-check it on each arriving message.
 //
 // Used by:
 //   - the host's unread counter (hooks/useUnreadCount.ts) and

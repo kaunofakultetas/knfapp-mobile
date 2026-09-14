@@ -36,6 +36,23 @@ type SheetLesson = TimetableLesson & {
   timeEnd?: unknown;
 };
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// str
+// -----------------------------------------------------------
+//
+// A raw backend field is `unknown` — this keeps only a real,
+// non-blank string and turns everything else into null.
+//
+// Used by:
+//   - LessonSheet (below) — the adapter-born raw fields
+// -----------------------------------------------------------
+
 const str = (value: unknown): string | null => (typeof value === 'string' && value.trim() ? value : null);
 
 
@@ -75,6 +92,12 @@ function DetailRow({ icon, text }: { icon: keyof typeof Ionicons.glyphMap; text:
 // -----------------------------------------------------------
 // LessonSheet (default export)
 // -----------------------------------------------------------
+//
+// Visibility IS the lesson prop — null closes the Modal. Each
+// display string prefers the adapter's raw backend field and
+// only then falls back to the engine's structural one
+// (formatMinutes, joined people/location); a field that comes
+// up empty drops its DetailRow entirely.
 //
 // Used by:
 //   - app/(main)/tabs/schedule.tsx — onPressLesson

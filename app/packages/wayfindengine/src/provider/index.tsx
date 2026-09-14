@@ -116,6 +116,11 @@ export function routingKey(options: RoutingOptions | null | undefined): string {
 // WayfindProvider
 // -----------------------------------------------------------
 //
+// Rebuilds `routing` only when its CONTENT changes (the
+// routingKey serialisation), so inline literals never churn
+// the env; the issue reporter rides in a ref, and validation
+// runs once per graph object under the header's rules.
+//
 // Used by:
 //   - the host app's map screen (or its layout)
 //   - every test that mounts a hook
@@ -180,6 +185,9 @@ export function WayfindProvider({
 // -----------------------------------------------------------
 // useWayfind
 // -----------------------------------------------------------
+//
+// Hands back the resolved env, or throws when no provider is
+// above — a hook must never route against a missing graph.
 //
 // Used by:
 //   - every hook in the package

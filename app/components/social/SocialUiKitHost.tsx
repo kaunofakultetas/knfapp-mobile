@@ -27,6 +27,25 @@ import { openHref } from '@knf/chatuikit';
 import { SocialUiKitProvider, type KitTheme } from '@knf/socialuikit';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// SocialUiKitHost (default export)
+// -----------------------------------------------------------
+//
+// Both provider inputs are memoized: the palette-to-kit-token
+// map (like heart on accent, chips on the soft surface)
+// rebuilt only on a palette change, and a one-time env whose
+// resolveImageUrl falls back to the raw value where
+// getUploadUrl answers null — the kit insists on a string.
+//
+// Used by:
+//   - app/(main)/_layout.tsx — above every kit-rendering screen
+// -----------------------------------------------------------
+
 export default function SocialUiKitHost({ children }: { children: ReactNode }) {
 
   const { colors, scheme } = useTheme();

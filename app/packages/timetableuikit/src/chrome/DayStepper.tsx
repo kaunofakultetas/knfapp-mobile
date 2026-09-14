@@ -31,6 +31,10 @@ import { useTimetableLabels, useTimetableTheme } from '../provider';
 // DayStepper (default export)
 // -----------------------------------------------------------
 //
+// Stateless and controlled — no internal day cursor; each
+// press only fires onPrev/onNext and the host decides how
+// (and whether) the day wraps at the week's edges.
+//
 // Used by:
 //   - app/(main)/tabs/schedule.tsx — the screen header's
 //     trailing slot

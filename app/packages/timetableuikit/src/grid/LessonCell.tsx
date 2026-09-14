@@ -76,6 +76,10 @@ export const MEDIUM_MIN_HEIGHT = 34;
 // LessonCell (default export)
 // -----------------------------------------------------------
 //
+// The tier comes from frame.height alone. Blocks — and any
+// cell without an onPress — render an inert View instead of
+// a Pressable; both carry the full a11y sentence.
+//
 // Used by:
 //   - grid/DayColumn.tsx — unless the host's renderLesson
 //     swaps it

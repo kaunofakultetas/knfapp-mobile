@@ -27,6 +27,10 @@ import { useTimetableLabels, useTimetableTheme } from '../provider';
 // ConflictBanner (default export)
 // -----------------------------------------------------------
 //
+// No self-gating — it renders whatever count arrives, so
+// the host mounts it only while conflicts exist; the icon
+// slot replaces the built-in "!" disc.
+//
 // Used by:
 //   - app/(main)/tabs/schedule.tsx — above the lesson list
 //     while conflicts exist

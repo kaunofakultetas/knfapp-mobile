@@ -24,6 +24,24 @@ import { fonts } from '@/constants/theme';
 import { useTheme } from '@/hooks/useTheme';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// TimetableHost (default export)
+// -----------------------------------------------------------
+//
+// One theme object, memoized per palette change: the active
+// palette spread wholesale with nowLine picked from accent,
+// and the four Raleway families named into the kit's font
+// roles; the locale prop tracks the app language live.
+//
+// Used by:
+//   - app/(main)/tabs/schedule.tsx — wraps the timetable views
+// -----------------------------------------------------------
+
 export default function TimetableHost({ children }: { children: ReactNode }) {
 
   const { colors } = useTheme();

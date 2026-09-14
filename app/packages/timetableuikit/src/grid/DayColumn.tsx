@@ -34,6 +34,11 @@ const CELL_GAP = 2;
 // DayColumn (default export)
 // -----------------------------------------------------------
 //
+// Paint order is the contract: hairlines, blocks, lessons,
+// then the now line — a block can never cover a lesson. A
+// host's renderLesson arrives pre-positioned: the column
+// wraps it in the absolutely-placed frame itself.
+//
 // Used by:
 //   - WeekGrid.tsx — one per visible day
 //   - DayTimeline.tsx — the single column

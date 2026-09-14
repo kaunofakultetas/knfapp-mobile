@@ -27,6 +27,10 @@ import { useKitTheme } from '../provider';
 // FloatingDay (default export)
 // -----------------------------------------------------------
 //
+// The glass only: opacity is the caller's shared value, read
+// on the UI thread. The pill swallows no touches and hides
+// from screen readers — the rows carry the real dates.
+//
 // Used by:
 //   - list/MessageList.tsx — the default slot; hosts may
 //     replace it through the provider's `components`

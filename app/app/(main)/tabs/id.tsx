@@ -609,6 +609,10 @@ function IdCard() {
 // StudentIdScreen (default export)
 // -----------------------------------------------------------
 //
+// A pure gate: wraps IdCard in LoginRequiredOverlay with the
+// id-card copy, so the tab keeps its Header while logged out
+// and IdCard itself can assume an authenticated user.
+//
 // Used by:
 //   - app/(main)/tabs/_layout.tsx — the "id" tab route
 // -----------------------------------------------------------

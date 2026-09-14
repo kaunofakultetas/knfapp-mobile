@@ -463,6 +463,11 @@ export function limitYaw(yaw: number, limits: ViewLimits): number {
 // limitPitch
 // -----------------------------------------------------------
 //
+// Holds a pitch (degrees above the horizon) inside the
+// limits' [pitchMinDeg, pitchMaxDeg] — a plain clamp, no
+// folding, since pitch never wraps; the bounds keep the view
+// on the photo's vertical band and short of the poles.
+//
 // Used by:
 //   - pano/PanoramaStage.tsx — the drag and sensor clamps
 //   - src/index.ts — the public surface

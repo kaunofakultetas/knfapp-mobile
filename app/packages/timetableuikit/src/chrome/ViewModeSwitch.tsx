@@ -53,6 +53,10 @@ const MODES: readonly TimetableViewMode[] = ['list', 'day', 'week'];
 // ViewModeSwitch (default export)
 // -----------------------------------------------------------
 //
+// The active segment gets the raised surface chip; a press
+// always calls onChange, the already-active mode included —
+// ignoring the no-op change is the host's concern.
+//
 // Used by:
 //   - app/(main)/tabs/schedule.tsx — beside the filter row
 // -----------------------------------------------------------

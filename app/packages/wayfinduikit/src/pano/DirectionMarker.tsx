@@ -91,6 +91,11 @@ const DISC_SIZE = 44;
 // DirectionMarker (default export)
 // -----------------------------------------------------------
 //
+// Pure badge, no position of its own: `deltaDeg` is the
+// signed yaw offset (positive leans the chevron right). The
+// optional `label` pill hangs under the halo and may be up to
+// twice MARKER_SIZE wide — the stage anchors on the halo.
+//
 // Used by:
 //   - pano/FlatPanorama.tsx — over the scrolling strip
 //   - pano/PanoramaStage.tsx — over the sphere

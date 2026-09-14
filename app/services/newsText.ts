@@ -31,9 +31,24 @@ const MAX_PREAMBLE_LINES = 5;
 // "2026 m. rugpjūčio 27 d.", "27.08.2026", "2026-08-27"
 const DATE_LINE_RE = /^(\d{4}\s*m\.\s+\S+\s+\d{1,2}\s*d\.|\d{1,2}\.\d{1,2}\.\d{4}|\d{4}-\d{2}-\d{2})\.?$/i;
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// normalize
+// -----------------------------------------------------------
+//
 // Case- and whitespace-insensitive line comparison, blind to
 // markdown markers — a "## Title" heading line must still
-// match the post's own plain title
+// match the post's own plain title.
+//
+// Used by:
+//   - stripScrapedPreamble (below) — chrome line comparison
+// -----------------------------------------------------------
+
 const normalize = (text: string) => stripMarkdown(text).trim().toLowerCase().replace(/\s+/g, ' ');
 
 

@@ -40,6 +40,12 @@ interface ErrorStateProps {
 // ErrorState (default export)
 // -----------------------------------------------------------
 //
+// Everything derives from the single `offline` flag — icon,
+// wash and the default copy when no message is passed; the
+// retry Button always renders, with `retrying` threaded
+// through as its spinner so a slow retry is visibly in
+// flight.
+//
 // Used by:
 //   - every data screen when useLoad/useFeed reports error
 // -----------------------------------------------------------

@@ -27,6 +27,10 @@ import type { NowState, TimetableEntry } from './types';
 // nowState
 // -----------------------------------------------------------
 //
+// Blocks are ignored and the day is sorted before the scan,
+// so callers may pass entries in any order; minutesToNext
+// clamps at 0 — an underway overlap counts down and holds.
+//
 // Used by:
 //   - nothing calls this at the moment — re-exported through
 //     the public surface

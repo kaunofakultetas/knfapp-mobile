@@ -130,6 +130,11 @@ const abortError = (): Error => {
 // createToggleQueue
 // -----------------------------------------------------------
 //
+// At most one task in flight and one waiting: repeating the
+// intent that will run last anyway joins its promise, a
+// replaced waiter rejects with AbortError, and a perform that
+// throws synchronously fails its own task, never the queue.
+//
 // Used by:
 //   - getToggleQueue (below)
 //   - tests driving the rules directly

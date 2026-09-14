@@ -56,6 +56,12 @@ interface InputProps extends TextInputProps {
 // Input (default export)
 // -----------------------------------------------------------
 //
+// forwardRef exposes the inner TextInput so forms can chain
+// focus field-to-field. Prop order around {...rest} IS the
+// contract: defaults sit before the spread (overridable), the
+// composed focus handlers, secure-entry plumbing and a11y
+// error state sit after (guaranteed).
+//
 // Used by:
 //   - app/login.tsx, app/register.tsx — the auth forms
 //   - app/(main)/tabs/id.tsx — student-card edit fields

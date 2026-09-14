@@ -72,6 +72,11 @@ function loadExpoVideo(): ExpoVideoModule | null {
 // Stage
 // -----------------------------------------------------------
 //
+// Mounted only once the module resolved — hooks cannot sit
+// behind a condition inside one component, but choosing a
+// different component is fine. Autoplays on mount; pausing
+// on unmount stops the audio the moment the modal goes.
+//
 // Used by:
 //   - VideoPlayerModal (below)
 // -----------------------------------------------------------
@@ -115,6 +120,12 @@ function Stage({ mod, uri, label }: { mod: ExpoVideoModule; uri: string; label: 
 
 // -----------------------------------------------------------
 // VideoPlayerModal (default export)
+// -----------------------------------------------------------
+//
+// The Modal shell: black stage, the close disc under the
+// status bar, Escape wired up on web. With expo-video
+// missing (or no uri yet) it shows the videoUnavailable
+// notice instead of crashing on the require.
 // -----------------------------------------------------------
 
 export default function VideoPlayerModal({

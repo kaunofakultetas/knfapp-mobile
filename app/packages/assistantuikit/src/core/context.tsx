@@ -110,6 +110,11 @@ export function AssistantKitProvider({
 // useAssistantKit
 // -----------------------------------------------------------
 //
+// Resolves the nearest provider's value — labels, colours,
+// tool registry and the host callbacks. No provider-less
+// fallback: outside AssistantThread or AssistantKitProvider
+// it throws a named error instead of painting defaults.
+//
 // Used by:
 //   - AssistantThread.tsx — the chips, empty state, latest button
 //     and error scope

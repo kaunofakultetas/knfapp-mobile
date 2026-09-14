@@ -34,6 +34,11 @@ import { Platform } from 'react-native';
 // UploadResponse
 // -----------------------------------------------------------
 //
+// `url` is a RELATIVE path ('/api/uploads/…') and must be
+// persisted exactly as received — getUploadUrl resolves it at
+// render time (see the header). width/height exist for photos
+// only, measured AFTER the server's re-encode.
+//
 // Used by:
 //   - uploadImageApi (below)
 //   - app/(main)/tabs/id.tsx — persists url as avatar_url
@@ -75,7 +80,22 @@ export interface UploadResponse {
 
 export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 
-// Videos get their own, larger cap (backend VIDEO_MAX_SIZE)
+
+
+
+
+
+
+// -----------------------------------------------------------
+// MAX_VIDEO_UPLOAD_BYTES
+// -----------------------------------------------------------
+//
+// Videos get their own, larger cap (backend VIDEO_MAX_SIZE).
+//
+// Used by:
+//   - components/chat/ChatEngineHost.tsx — the video preflight
+// -----------------------------------------------------------
+
 export const MAX_VIDEO_UPLOAD_BYTES = 50 * 1024 * 1024;
 
 

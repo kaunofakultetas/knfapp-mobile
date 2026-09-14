@@ -27,6 +27,24 @@ import { getUploadUrl } from '@/services/api';
 import { activeLocale, formatTime } from '@/services/format';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// ChatUiKitHost (default export)
+// -----------------------------------------------------------
+//
+// One KitTheme memoized on the palette — the colors ride in
+// wholesale (the kit's token names match the app's) with the
+// four Raleway roles named; labels, locale, image resolver
+// and time formatter pass straight through.
+//
+// Used by:
+//   - app/(main)/_layout.tsx — above every kit-rendering screen
+// -----------------------------------------------------------
+
 export default function ChatUiKitHost({ children }: { children: ReactNode }) {
 
   const { colors } = useTheme();

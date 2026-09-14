@@ -85,6 +85,13 @@ const SETTLE = { damping: 24, stiffness: 190, mass: 0.9, overshootClamping: true
 // useCollapsibleHeader (default export)
 // -----------------------------------------------------------
 //
+// Returns the six-piece wiring kit the header pattern needs
+// (see the header's usage sketch): all animation state lives
+// in reanimated shared values on the UI thread — only
+// barHeight is React state, and until the first onBarLayout
+// it is 0, which leaves collapsing disabled rather than
+// guessing a height.
+//
 // Used by:
 //   - app/(main)/tabs/news.tsx — the news feed header block
 // -----------------------------------------------------------

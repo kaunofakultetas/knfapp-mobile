@@ -104,50 +104,6 @@ const FAQ_ROW_SHADOW: ViewStyle = {
 
 
 // -----------------------------------------------------------
-// telUrl / mailtoUrl / copyValue
-// -----------------------------------------------------------
-//
-// Strict link builders: backend contact values arrive as
-// display strings ("(8 37) 422 523", names with spaces), so
-// tel: keeps only digits and '+' and the mailto local part is
-// percent-encoded — a raw space would make openURL reject a
-// perfectly good contact. copyValue reverses the build for
-// the clipboard fallback when no handler exists.
-//
-// Used by:
-//   - FacultyCard, ContactsSection (below) — the contact rows
-//   - InfoScreen (below) — the openLink clipboard fallback
-// -----------------------------------------------------------
-
-const telUrl = (phone: string | undefined): string =>
-  `tel:${(phone ?? '').replace(/[^+\d]/g, '')}`;
-
-const mailtoUrl = (email: string | undefined): string => {
-  const value = (email ?? '').trim();
-  const at = value.lastIndexOf('@');
-  if (at < 0) return `mailto:${encodeURIComponent(value)}`;
-  return `mailto:${encodeURIComponent(value.slice(0, at))}@${value.slice(at + 1)}`;
-};
-
-const copyValue = (url: string): string => {
-  if (/^tel:/i.test(url)) return url.slice(4);
-  if (/^mailto:/i.test(url)) {
-    try {
-      return decodeURIComponent(url.slice(7));
-    } catch {
-      return url.slice(7);
-    }
-  }
-  return url;
-};
-
-
-
-
-
-
-
-// -----------------------------------------------------------
 // ICON_MAP
 // -----------------------------------------------------------
 //
@@ -176,8 +132,89 @@ const ICON_MAP: Record<string, keyof typeof Ionicons.glyphMap> = {
 
 
 // -----------------------------------------------------------
+// telUrl
+// -----------------------------------------------------------
+//
+// Strict tel: builder: backend phone values arrive as display
+// strings ("(8 37) 422 523"), so only digits and '+' are kept
+// — a raw space would make openURL reject a perfectly good
+// contact.
+//
+// Used by:
+//   - FacultyCard, ContactsSection (below) — the phone rows
+// -----------------------------------------------------------
+
+const telUrl = (phone: string | undefined): string =>
+  `tel:${(phone ?? '').replace(/[^+\d]/g, '')}`;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// mailtoUrl
+// -----------------------------------------------------------
+//
+// Strict mailto: builder — the local part is percent-encoded
+// (contact emails can carry names with spaces), the domain is
+// left alone.
+//
+// Used by:
+//   - FacultyCard, ContactsSection (below) — the email rows
+// -----------------------------------------------------------
+
+const mailtoUrl = (email: string | undefined): string => {
+  const value = (email ?? '').trim();
+  const at = value.lastIndexOf('@');
+  if (at < 0) return `mailto:${encodeURIComponent(value)}`;
+  return `mailto:${encodeURIComponent(value.slice(0, at))}@${value.slice(at + 1)}`;
+};
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// copyValue
+// -----------------------------------------------------------
+//
+// Reverses telUrl/mailtoUrl for the clipboard fallback when
+// no URL handler exists — the user gets the readable value,
+// not the encoded scheme string.
+//
+// Used by:
+//   - InfoScreen (below) — the openLink clipboard fallback
+// -----------------------------------------------------------
+
+const copyValue = (url: string): string => {
+  if (/^tel:/i.test(url)) return url.slice(4);
+  if (/^mailto:/i.test(url)) {
+    try {
+      return decodeURIComponent(url.slice(7));
+    } catch {
+      return url.slice(7);
+    }
+  }
+  return url;
+};
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // Section
 // -----------------------------------------------------------
+//
+// Pins the block rhythm once — mt-lg before each section,
+// the SectionTitle on its own mb-sm padded line — so every
+// titled block of the page spaces identically.
 //
 // Used by:
 //   - InfoScreen (below) — every titled block of the page
@@ -383,6 +420,10 @@ function ContactsSection({
 // HoursSection
 // -----------------------------------------------------------
 //
+// One static Card per entry — place, address, the schedule
+// line behind its clock icon, the optional note; nothing here
+// is tappable, opening hours are plain reading.
+//
 // Used by:
 //   - InfoScreen (below)
 // -----------------------------------------------------------
@@ -420,6 +461,11 @@ function HoursSection({ hours }: { hours: InfoHours[] }) {
 // -----------------------------------------------------------
 // LinksSection
 // -----------------------------------------------------------
+//
+// The whole Card is the press target for each link; the icon
+// tile resolves through ICON_MAP with link-outline as the
+// fallback, so an unknown backend icon name still renders a
+// sensible glyph instead of nothing.
 //
 // Used by:
 //   - InfoScreen (below)
@@ -462,6 +508,10 @@ function LinksSection({
 // -----------------------------------------------------------
 // ProgramsSection
 // -----------------------------------------------------------
+//
+// Static Cards: the degree rides a brand-soft chip beside the
+// duration line. Purely informational — the handbook links no
+// program pages, so nothing is tappable.
 //
 // Used by:
 //   - InfoScreen (below)
@@ -559,6 +609,12 @@ function FaqItem({
 // FaqSection
 // -----------------------------------------------------------
 //
+// The one stateful section: expanded rows live in a Set keyed
+// by QUESTION TEXT, not index — a refreshed payload may
+// reorder or trim rows, and index keys would hand an open
+// answer to a different question; several rows may be open at
+// once.
+//
 // Used by:
 //   - InfoScreen (below)
 // -----------------------------------------------------------
@@ -605,6 +661,14 @@ function FaqSection({ faq }: { faq: InfoFaq[] }) {
 // -----------------------------------------------------------
 // InfoScreen (default export)
 // -----------------------------------------------------------
+//
+// Hand-rolls its load rather than using useLoad: a sequence
+// guard drops slow responses, the liveLang marker decides
+// between keep-on-screen and the per-language cache fallback,
+// and the hydration-gated language effect tears everything
+// down for a clean refetch. openLink allowlists https / tel /
+// mailto and hands the value to the clipboard when no URL
+// handler exists.
 //
 // Used by:
 //   - app/(main)/_layout.tsx — route /info

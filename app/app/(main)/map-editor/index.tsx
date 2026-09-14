@@ -38,13 +38,15 @@
 //  Split into (root component last):
 //
 //    helpers          — ids, plan shapes, seed ops
-//    Chip / ToolRail  — the tool picker
+//    Chip             — one pill button
+//    ToolRail         — the tool picker
 //    Field            — a labelled numeric / text input
 //    MoreSection      — the collapsed "Daugiau" expander
 //    NodeSheet        — the picked node
 //    LevelSheet       — the shown level, folded away
 //    IssuesPanel      — the validator's findings
-//    ConflictRow / SyncLine — one rejected op; the counts
+//    ConflictRow      — one rejected op
+//    SyncLine         — the sync status counts
 //    EditorBody       — the plan and the sheets
 //    MapEditorScreen  — gate, load, providers (default export)
 //    SeedSender       — the first-run bootstrap through the outbox
@@ -85,17 +87,49 @@ interface Draft {
   offline: boolean;
 }
 
+// Every node kind the editor can place, in the sheet's order
 const NODE_KINDS: NodeKind[] = ['corridor', 'door', 'stairs', 'elevator', 'ramp', 'entrance', 'room'];
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// mint
+// -----------------------------------------------------------
+//
 // Ids are minted on the phone: time-ordered, unique enough for
-// one building's authors
+// one building's authors.
+//
+// Used by:
+//   - NodeSheet, EditorBody (below) — new nodes, rooms, uploads
+// -----------------------------------------------------------
+
 let minted = 0;
 const mint = (prefix: string): string => `${prefix}-${Date.now().toString(36)}${(minted++).toString(36)}`;
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// seedOps
+// -----------------------------------------------------------
+//
 // The whole seed as ops with deterministic ids NAMED FOR THE
 // BUILDING — a second bootstrap after a dropped connection is
 // a batch of duplicates, and a second building's seed can
-// never collide with the first's in the server's op log
+// never collide with the first's in the server's op log.
+//
+// Used by:
+//   - MapEditorScreen (below) — the bootstrap enqueue
+//   - SeedSender (below) — its ops prop's type
+// -----------------------------------------------------------
+
 const seedOps = (graph: BuildingGraph, buildingId: string) => {
   const changes: Change[] = [
     ...graph.levels.map((level): Change => ({ kind: 'level', id: level.id, before: null, after: level })),
@@ -108,15 +142,48 @@ const seedOps = (graph: BuildingGraph, buildingId: string) => {
   return changesToOps(changes, {}, () => `seed-${buildingId}-${n++}`);
 };
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// numberOr
+// -----------------------------------------------------------
+//
+// A form field's text as a number: empty clears (null), a
+// comma decimal is accepted, and garbage keeps the fallback.
+//
+// Used by:
+//   - NodeSheet (below) — the panoYaw field
+//   - LevelSheet (below) — metersPerPixel and northDeg
+// -----------------------------------------------------------
+
 const numberOr = (text: string, fallback: number | null): number | null => {
   if (text.trim() === '') return null;
   const value = Number(text.replace(',', '.'));
   return Number.isFinite(value) ? value : fallback;
 };
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// readPanoMetadata
+// -----------------------------------------------------------
+//
 // The picked photo's own word about itself — JPEG dimensions
 // and the GPano coverage — read best-effort: a uri that will
-// not load as bytes simply skips the pre-fill
+// not load as bytes simply skips the pre-fill.
+//
+// Used by:
+//   - EditorBody (below) — the panorama pick's geometry pre-fill
+// -----------------------------------------------------------
+
 const readPanoMetadata = async (uri: string): Promise<PanoMetadata | null> => {
   try {
     const buffer = await (await fetch(uri)).arrayBuffer();
@@ -126,10 +193,42 @@ const readPanoMetadata = async (uri: string): Promise<PanoMetadata | null> => {
   }
 };
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// edgeId
+// -----------------------------------------------------------
+//
+// An edge's stable identity — its own id when it has one, else
+// the endpoints joined (the same fallback seedOps writes).
+//
+// Used by:
+//   - NodeSheet, EditorBody (below)
+// -----------------------------------------------------------
+
 const edgeId = (edge: GraphEdge): string => edge.id ?? `${edge.a}--${edge.b}`;
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// nodeName
+// -----------------------------------------------------------
+//
 // What an admin calls a node: its room, else its landmark, else
-// the kind's word — never the minted id
+// the kind's word — never the minted id.
+//
+// Used by:
+//   - NodeSheet, EditorBody (below)
+// -----------------------------------------------------------
+
 const nodeName = (doc: BuildingGraph, node: GraphNode | undefined, t: (key: string) => string): string => {
   if (!node) return '';
   // Rooms point at their door node; the back-reference is optional
@@ -146,15 +245,14 @@ const nodeName = (doc: BuildingGraph, node: GraphNode | undefined, t: (key: stri
 
 
 // -----------------------------------------------------------
-// Chip / ToolRail
+// Chip
 // -----------------------------------------------------------
 //
-// One active tool; the link and stairs tools remember their
-// first pick in the body's state, and the hint line under the
-// plan says what the next tap will do.
+// One pill button — the tool picker's unit, reused wherever
+// the editor needs a small labeled action.
 //
 // Used by:
-//   - EditorBody / NodeSheet / ConflictRow (below)
+//   - ToolRail, NodeSheet, ConflictRow, EditorBody (below)
 // -----------------------------------------------------------
 
 function Chip({ label, active, onPress, testID }: { label: string; active?: boolean; onPress: () => void; testID?: string }) {
@@ -172,6 +270,23 @@ function Chip({ label, active, onPress, testID }: { label: string; active?: bool
   );
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ToolRail
+// -----------------------------------------------------------
+//
+// One active tool; the link and stairs tools remember their
+// first pick in the body's state, and the hint line under the
+// plan says what the next tap will do.
+//
+// Used by:
+//   - EditorBody (below)
+// -----------------------------------------------------------
 
 function ToolRail({ tool, onChange }: { tool: Tool; onChange: (tool: Tool) => void }) {
   const { t } = useTranslation();
@@ -452,6 +567,10 @@ function LevelSheet({ state, actions, levelId, onPickPlan }: { state: EditorStat
 // IssuesPanel
 // -----------------------------------------------------------
 //
+// Filters the ignored ids out first and renders the no-issues
+// line when nothing remains; only WARNINGS carry the ignore
+// action — an error row stays until the graph is fixed.
+//
 // Used by:
 //   - LevelSheet (above) — under the level's "Daugiau"
 //   - EditorBody (below) — the toolbar's issues toggle
@@ -485,7 +604,7 @@ function IssuesPanel({ issues, ignored, onIgnore }: { issues: EditorIssue[]; ign
 
 
 // -----------------------------------------------------------
-// ConflictRow / SyncLine
+// ConflictRow
 // -----------------------------------------------------------
 //
 // A rejected op: keep mine re-sends without the stale base
@@ -509,6 +628,23 @@ function ConflictRow({ entry, onKeep, onTake }: { entry: OutboxEntry; onKeep: ()
   );
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// SyncLine
+// -----------------------------------------------------------
+//
+// One line of sync status under the plan: sending, pending
+// count, or synced — plus the conflict count when any op sits
+// rejected.
+//
+// Used by:
+//   - EditorBody (below)
+// -----------------------------------------------------------
 
 function SyncLine() {
   const { t } = useTranslation();

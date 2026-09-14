@@ -31,9 +31,19 @@ import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/hooks/useTheme';
 
 
+
+
+
+
+
 // -----------------------------------------------------------
 // OfflineBanner (default export)
 // -----------------------------------------------------------
+//
+// Returns null while connected — mounting and vanishing IS
+// the whole behavior. The strip is pointer-transparent, one
+// polite alert element, and pads itself past the home
+// indicator off the live bottom inset.
 //
 // Used by:
 //   - app/_layout.tsx — ThemedShell, beside the Toast host

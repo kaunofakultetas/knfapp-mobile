@@ -57,6 +57,9 @@ const BUTTON_STYLE = {
 // ActionLabel
 // -----------------------------------------------------------
 //
+// The one 14-point semibold text both buttons share; the
+// caller picks the colour — onBrand on Send, ink on Cancel.
+//
 // Used by:
 //   - AssistantComposer (below) — Send and Cancel
 // -----------------------------------------------------------
@@ -74,6 +77,11 @@ function ActionLabel({ text, color }: { text: string; color: string }) {
 // -----------------------------------------------------------
 // AssistantComposer (default export)
 // -----------------------------------------------------------
+//
+// Lays the field and one button in a row; isRunning swaps
+// Send for Cancel, canSend only DIMS Send — the primitive
+// owns the real disable. Every string arrives in `labels`,
+// `colors` falls back to the neutral palette.
 //
 // Used by:
 //   - AssistantThread.tsx

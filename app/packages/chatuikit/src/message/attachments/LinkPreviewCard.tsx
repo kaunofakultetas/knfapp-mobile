@@ -34,6 +34,10 @@ import type { KitLinkPreview } from '../../core/types';
 // LinkPreviewCard (default export)
 // -----------------------------------------------------------
 //
+// The hero image collapses to an inline link glyph when the
+// unfurl carried no picture; the title falls back to the raw
+// URL, so the card never renders empty.
+//
 // Used by:
 //   - message/MessageBubble.tsx — under a linkified body
 // -----------------------------------------------------------

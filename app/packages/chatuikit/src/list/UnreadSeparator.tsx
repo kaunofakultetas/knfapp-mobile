@@ -26,6 +26,10 @@ import { useKitLabels, useKitTheme } from '../provider';
 // UnreadSeparator (default export)
 // -----------------------------------------------------------
 //
+// Picks its label from the count — "N new" when known, the
+// plain unread wording at zero — and hands the whole line
+// to the reader as one header element.
+//
 // Used by:
 //   - list/MessageList.tsx — the default slot; hosts may
 //     replace it through the provider's `components`

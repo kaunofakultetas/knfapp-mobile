@@ -132,6 +132,11 @@ export interface ShadowStore<S> {
 // createShadowStore
 // -----------------------------------------------------------
 //
+// patch() shallow-merges (an undefined value deletes its
+// field) and fires that id's listeners; clearAll() bumps the
+// epoch and still notifies every wiped id, so settle guards
+// and mounted hooks both see the wipe.
+//
 // Used by:
 //   - provider/index.tsx — the two per-provider stores
 // -----------------------------------------------------------

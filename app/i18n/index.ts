@@ -38,10 +38,25 @@ import lt from './lt.json';
 import en from './en.json';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// deviceLanguage
+// -----------------------------------------------------------
+//
 // Lithuanian devices start in Lithuanian, everyone else in
-// English; the persisted setting overrides this after hydration.
-// Exported so AppContext can seed a fresh install from the same
-// detection instead of re-reading i18n.language
+// English; the persisted setting overrides this after
+// hydration. Exported so AppContext can seed a fresh install
+// from the same detection instead of re-reading i18n.language.
+//
+// Used by:
+//   - the init() call below — the starting lng
+//   - context/AppContext.tsx — first-launch language seed
+// -----------------------------------------------------------
+
 export const deviceLanguage = getLocales()[0]?.languageCode === 'lt' ? 'lt' : 'en';
 
 i18n.use(initReactI18next).init({

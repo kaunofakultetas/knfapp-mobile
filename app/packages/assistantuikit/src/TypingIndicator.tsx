@@ -81,6 +81,11 @@ function useReduceMotion(): boolean {
 // TypingIndicator (default export)
 // -----------------------------------------------------------
 //
+// One Animated.Value per dot, made once in a lazy
+// initializer so the loop drives the same values across
+// renders. Reduce motion swaps the loop for a still
+// half-strength row; cleanup stops the loop on unmount.
+//
 // Used by:
 //   - AssistantMessage.tsx — through the Empty part slot
 // -----------------------------------------------------------

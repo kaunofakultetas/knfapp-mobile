@@ -43,6 +43,11 @@ interface SourceBadgeProps {
 // SourceBadge (default export)
 // -----------------------------------------------------------
 //
+// Null without a source; the label falls back to the raw
+// value when the key lookup misses. `overlay` swaps the
+// inline brand-soft wash for a solid brand fill pinned to the
+// image corner — the only fill readable over any photo.
+//
 // Used by:
 //   - components/news/NewsCard.tsx — image corner (overlay)
 //     and the date line (inline)

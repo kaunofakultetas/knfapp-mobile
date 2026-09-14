@@ -26,18 +26,71 @@ import { useDataEngine } from '@knf/dataengine';
 import type { BuildingGraph } from '@knf/wayfindengine';
 
 
+// The cached copy carries its ETag so a cold start still
+// revalidates cheaply
 interface StoredGraph {
   graph: BuildingGraph;
   etag: string | null;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// BuildingGraphState
+// -----------------------------------------------------------
+//
+// What the hook answers: the graph to route over and which
+// source it came from.
+//
+// Used by:
+//   - useBuildingGraph (below) — the return shape
+//   - components/map/WayfindHost.tsx — destructures graph
+// -----------------------------------------------------------
 
 export interface BuildingGraphState {
   graph: BuildingGraph;
   source: 'seed' | 'cache' | 'server';
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// revisionOf
+// -----------------------------------------------------------
+//
+// A graph without a numeric revision counts as revision 0 —
+// the seed's rank.
+//
+// Used by:
+//   - useBuildingGraph (below) — the adopt comparisons
+// -----------------------------------------------------------
+
 const revisionOf = (graph: BuildingGraph): number => (typeof graph.revision === 'number' ? graph.revision : 0);
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// useBuildingGraph
+// -----------------------------------------------------------
+//
+//   useBuildingGraph()            — the KNF building
+//   useBuildingGraph(buildingId)  — another building's graph
+//
+// Used by:
+//   - components/map/WayfindHost.tsx — the provider's graph
+// -----------------------------------------------------------
 
 export function useBuildingGraph(buildingId: string = KNF_BUILDING_ID): BuildingGraphState {
 

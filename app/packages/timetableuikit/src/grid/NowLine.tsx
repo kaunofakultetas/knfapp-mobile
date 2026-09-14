@@ -25,6 +25,10 @@ import { useTimetableEnv } from '../provider';
 // NowLine (default export)
 // -----------------------------------------------------------
 //
+// The gate is double: DayColumn mounts it only for today,
+// and it bails itself when nowMin falls outside the window.
+// The dot hangs 3px past the left edge on purpose.
+//
 // Used by:
 //   - grid/DayColumn.tsx — today's column only
 // -----------------------------------------------------------

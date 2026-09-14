@@ -88,6 +88,10 @@ export interface WeekGridProps {
 // WeekGrid (default export)
 // -----------------------------------------------------------
 //
+// Day-name chips over one DayColumn per visible day, each
+// dayWidth wide (floored, see the header); the empty notice
+// shows only when EVERY visible day's bucket is empty.
+//
 // Used by:
 //   - components/schedule/TimetableView.tsx — week mode
 // -----------------------------------------------------------

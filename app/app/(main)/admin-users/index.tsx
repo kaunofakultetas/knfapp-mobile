@@ -143,8 +143,22 @@ const fold = (value: string): string =>
   value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// Separator
+// -----------------------------------------------------------
+//
 // Stable list separator — an inline closure would remount
-// every separator on each list re-render
+// every separator on each list re-render.
+//
+// Used by:
+//   - AdminUsersScreen (below) — the user list
+// -----------------------------------------------------------
+
 const Separator = () => <View className="h-sm" />;
 
 
@@ -156,6 +170,10 @@ const Separator = () => <View className="h-sm" />;
 // -----------------------------------------------------------
 // RoleBadge
 // -----------------------------------------------------------
+//
+// The role pill in its role-colored wash; an unknown role
+// falls back to the student classes so a new backend role
+// still renders a readable badge instead of unstyled text.
 //
 // Used by:
 //   - UserCard (below) — the right-hand role pill
@@ -494,6 +512,14 @@ function RoleModal({
 // -----------------------------------------------------------
 // AdminUsersScreen (default export)
 // -----------------------------------------------------------
+//
+// Admin-only fetch behind the role gate (a deep link as any
+// other role never 403s over the no-access body), one
+// sequence-guarded load, and a diacritic-folded live filter
+// that searches the VISIBLE role label too. Every mutation
+// replaces the row with the PATCH echo — never a locally
+// guessed merge — and a 404 drops the stale row; self can
+// never be deactivated or erased.
 //
 // Used by:
 //   - app/(main)/_layout.tsx — route /admin-users

@@ -1,3 +1,11 @@
+// -----------------------------------------------------------
+//  [*] UI kit — the barrel
+//
+//  Re-exports the shared primitives so screens import from
+//  '@/components/ui' instead of reaching into single files.
+//  Pure re-exports — no code of its own.
+// -----------------------------------------------------------
+
 export { default as Button } from './Button';
 export { default as Input } from './Input';
 export { default as Card } from './Card';

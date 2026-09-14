@@ -144,6 +144,11 @@ export interface NotifyEngine {
 // createNotifyEngine
 // -----------------------------------------------------------
 //
+// Wires the five machines together. init() is shared between
+// concurrent callers and every await re-checks disposed; a
+// push-token event echoing the token already held is dropped
+// (re-acquiring would loop), and a stale tuple re-registers.
+//
 // Used by:
 //   - the host, once near the root (services/notifyEngine.ts)
 // -----------------------------------------------------------

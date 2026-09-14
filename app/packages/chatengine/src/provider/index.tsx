@@ -123,6 +123,11 @@ const ChatEngineContext = createContext<ChatEngineEnv | null>(null);
 // ChatEngineProvider
 // -----------------------------------------------------------
 //
+// Fills the host's gaps (no-op notify and network-restore
+// bus, defaultLimits merge, per-mount memory storage) and
+// prefixes every persistence key with the user's id — two
+// accounts on one device never share an outbox or drafts.
+//
 // Used by:
 //   - the host app, once, above its chat screens
 // -----------------------------------------------------------
@@ -193,6 +198,9 @@ export function ChatEngineProvider({
 // -----------------------------------------------------------
 // useChatEngine
 // -----------------------------------------------------------
+//
+// Throws (naming the missing provider in the message) when
+// mounted outside one — never a silent default env.
 //
 // Used by:
 //   - every engine hook

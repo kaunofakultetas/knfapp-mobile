@@ -34,6 +34,12 @@ const ROWS_MAX_HEIGHT = 320;
 // ReactionsViewer (default export)
 // -----------------------------------------------------------
 //
+// A stateless render of pre-resolved rows: each emoji + count
+// pair collapses into ONE labeled accessibility node (a bare
+// number means nothing read aloud), and the footer Close is
+// the assistive dismissal — the scrim Pressable stays hidden
+// from readers.
+//
 // Used by:
 //   - app/(main)/chat-room/index.tsx — the chat room screen
 // -----------------------------------------------------------

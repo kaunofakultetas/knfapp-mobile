@@ -142,6 +142,11 @@ function FaceButton({
 // ConnectButton (default export)
 // -----------------------------------------------------------
 //
+// The state switch of the header's face table: null for
+// 'self' and 'blockedBy' (never a disabled face), the
+// accept/decline pair in one row for 'incoming', one
+// FaceButton wired to its verb for every other state.
+//
 // Used by:
 //   - the host's profile screen — usually dropped into
 //     ProfileHeader's actions slot

@@ -32,8 +32,22 @@ import { useMemo } from 'react';
 import type { ScheduleLesson } from '@/services/api';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// parseTime
+// -----------------------------------------------------------
+//
 // "HH:MM" → minutes since midnight; anything else → NaN, and
-// detectConflicts skips lessons whose times did not parse
+// detectConflicts skips lessons whose times did not parse.
+//
+// Used by:
+//   - detectConflicts (below)
+// -----------------------------------------------------------
+
 function parseTime(hhmm: string): number {
   const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm);
   if (!m) return NaN;

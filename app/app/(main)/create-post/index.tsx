@@ -90,6 +90,7 @@ import type { User } from '@/types';
 
 // Backend contract: a poll carries 2–10 options
 const MIN_POLL_OPTIONS = 2;
+// The other end of the same backend contract
 const MAX_POLL_OPTIONS = 10;
 
 // These roles publish as the faculty, not as themselves
@@ -102,6 +103,23 @@ interface PollOptionDraft {
   id: string;
   text: string;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// makePollOption
+// -----------------------------------------------------------
+//
+// A fresh empty option with a stable module-sequence id — see
+// PollOptionDraft above for why ids, not array indexes.
+//
+// Used by:
+//   - CreatePostScreen (below) — the initial pair, add, reset
+// -----------------------------------------------------------
 
 let pollOptionSeq = 0;
 const makePollOption = (): PollOptionDraft => ({ id: `option-${++pollOptionSeq}`, text: '' });
@@ -685,6 +703,14 @@ function PollToggleRow({ active, onToggle }: { active: boolean; onToggle: () => 
 // -----------------------------------------------------------
 // CreatePostScreen (default export)
 // -----------------------------------------------------------
+//
+// Runs the three-step publish flow (a finished upload is
+// remembered by asset uri so a retry never re-uploads) and
+// the ?editPostId branch — the post loads HERE, prefills
+// once, ownership is checked before any typing can be lost,
+// and the save is one text-only PUT. hasDraft feeds the leave
+// guard, comparing against the edit ORIGINAL when editing
+// rather than against empty fields.
 //
 // Used by:
 //   - app/(main)/_layout.tsx — route /create-post, pushed from

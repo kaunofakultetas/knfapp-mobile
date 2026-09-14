@@ -64,6 +64,11 @@ export interface PermissionMachine {
 // createPermissionMachine
 // -----------------------------------------------------------
 //
+// Runtimes without remote push short-circuit to the terminal
+// 'unsupported' snapshot; a failed OS read keeps the previous
+// truth; request() answers settled states without a prompt
+// and falls back to poll() when the OS prompt throws.
+//
 // Used by:
 //   - engine.ts — built at createNotifyEngine; polled at init
 //     and on every return to the foreground

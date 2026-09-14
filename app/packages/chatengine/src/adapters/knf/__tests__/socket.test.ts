@@ -77,6 +77,29 @@ describe('createKnfSocket', () => {
     expect(statuses).toContain('connecting');
   });
 
+  it("a 'busy' or 'error' refusal is a capacity verdict, never a session one — disconnected, not unauthorized", async () => {
+    // The server evicts past the per-user cap now, but the
+    // process cap ('busy') and a transient handshake failure
+    // ('error') still refuse — telling a freshly logged-in user
+    // their session expired over those was the conversations-list
+    // banner bug
+    const client = createKnfSocket({ url: 'http://host', getToken: async () => 'tok', followAppState: false });
+    await client.connect();
+    mockInstances[0].fire('connect_error', Object.assign(new Error('busy'), { data: undefined }));
+    expect(client.status()).toBe('disconnected');
+    expect(mockInstances[0].disconnected).toBe(true);
+
+    await client.connect();
+    mockInstances[1].fire('connect_error', Object.assign(new Error('error'), { data: undefined }));
+    expect(client.status()).toBe('disconnected');
+
+    // An explicit 'unauthorized' reason still lands on the
+    // session-expired face
+    await client.connect();
+    mockInstances[2].fire('connect_error', Object.assign(new Error('unauthorized'), { data: undefined }));
+    expect(client.status()).toBe('unauthorized');
+  });
+
   it('a logout landing mid-establish wins over the half-built socket', async () => {
     let release: (t: string | null) => void = () => {};
     const client = createKnfSocket({ url: 'http://host', getToken: () => new Promise((r) => (release = r)), followAppState: false });

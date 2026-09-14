@@ -193,7 +193,10 @@ const isServerRejection = (err: Error) => 'data' in err;
 // One live instance per token: connect() coalesces concurrent
 // callers, rebuilds when the token changed, and re-checks the
 // token after the async build. A server-refused handshake
-// lands on 'unauthorized' and stops the reconnection loop.
+// stops the reconnection loop and lands on 'unauthorized' —
+// unless the refusal reason says 'busy' or 'error' (capacity /
+// transient), which read as plain 'disconnected' so the UI
+// never claims a live session expired.
 //
 // Used by:
 //   - adapters/knf/index.ts — the realtime half
@@ -276,8 +279,18 @@ export function createKnfSocket(options: KnfSocketOptions): KnfSocketClient {
     instance.on('connect_error', (err: Error) => {
       log('socket', err);
       if (isServerRejection(err)) {
+        // The refusal reason rides err.message. Only an auth
+        // refusal may paint the "session expired" face — 'busy'
+        // (process capacity) and 'error' (a transient handshake
+        // failure server-side) are not session verdicts, so they
+        // land on the retryable 'disconnected' face instead; the
+        // host's reconnect triggers (focus, foreground, network
+        // restore) try again. Anything else stays 'unauthorized':
+        // legacy servers refuse bad tokens with the stock message.
         disconnect();
-        setStatus('unauthorized');
+        if (err.message !== 'busy' && err.message !== 'error') {
+          setStatus('unauthorized');
+        }
         return;
       }
       setStatus('disconnected');

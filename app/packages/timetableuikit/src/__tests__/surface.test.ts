@@ -11,6 +11,7 @@ describe('@knf/timetableuikit surface', () => {
     expect(Object.keys(pkg).sort()).toEqual([
       'AXIS_WIDTH',
       'ConflictBanner',
+      'DEFAULT_HOUR_HEIGHT',
       'DEFAULT_SUBJECT_COLORS',
       'DayColumn',
       'DayStepper',
@@ -25,6 +26,7 @@ describe('@knf/timetableuikit surface', () => {
       'SnapPager',
       'TimetableProvider',
       'ViewModeSwitch',
+      'WeekDaysHeader',
       'WeekGrid',
       'defaultLabels',
       'defaultTheme',

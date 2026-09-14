@@ -256,7 +256,10 @@ export default function TabBar({ state, descriptors, navigation, insets }: Botto
     <View
       className="flex-row bg-surface"
       style={{
-        paddingBottom: insets.bottom + 6,
+        // The home-indicator inset needs clearance, not a full
+        // empty band on top of the labels' own spacing — shave
+        // it, with a floor for square-bottomed devices
+        paddingBottom: Math.max(insets.bottom - 10, 6),
         paddingTop: 6,
         borderTopWidth: StyleSheet.hairlineWidth,
         borderTopColor: colors.line,

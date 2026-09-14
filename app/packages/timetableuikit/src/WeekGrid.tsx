@@ -35,9 +35,29 @@ import { useTimetableEnv } from './provider';
 
 // Monday–Friday — the column set when the host passes none
 const WEEKDAYS = [0, 1, 2, 3, 4];
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// DEFAULT_HOUR_HEIGHT
+// -----------------------------------------------------------
+//
 // Pixels per hour — tighter than the day view, five columns
-// must share the width
-const DEFAULT_HOUR_HEIGHT = 56;
+// must share the width. Exported so a host embedding
+// headerless grids in one shared scroll can size the pager
+// to the exact body height the grid will draw.
+//
+// Used by:
+//   - WeekGrid (below) — the hourHeight default
+//   - components/schedule/TimetableView.tsx — the shared-
+//     scroll pager's height
+// -----------------------------------------------------------
+
+export const DEFAULT_HOUR_HEIGHT = 56;
 
 
 
@@ -76,6 +96,116 @@ export interface WeekGridProps {
   weekLabel?: string;
   // The normalizer's dropped-row count — shown as a notice
   skippedCount?: number;
+  // False renders a headerless BODY for a host that pins one
+  // WeekDaysHeader over several pager pages
+  showHeader?: boolean;
+  // False drops the grid's own vertical ScrollView (and its
+  // edge padding) — the host's shared scroll supplies both,
+  // so every pager page rides one offset and a settled swipe
+  // never snaps the view
+  scrollEnabled?: boolean;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// WeekDaysHeader
+// -----------------------------------------------------------
+//
+// The Monday-first day-name row (today wearing the brand
+// chip) with the optional week label and skipped notice above
+// it — extracted so a host sharing ONE vertical scroll across
+// pager pages can pin a single header outside that scroll
+// while the pages render headerless bodies. Self-measuring
+// like the grid, so its chips land on the same dayWidth.
+//
+// Used by:
+//   - WeekGrid (below) — its own header
+//   - components/schedule/TimetableView.tsx — pinned over the
+//     shared-scroll week pager
+// -----------------------------------------------------------
+
+export function WeekDaysHeader({
+  visibleDays = WEEKDAYS,
+  now,
+  weekLabel,
+  skippedCount = 0,
+  width,
+}: {
+  visibleDays?: readonly number[];
+  // Resolved by the caller (or the kit clock when undefined);
+  // null = no today chip, a foreign week
+  now?: NowPoint | null;
+  weekLabel?: string;
+  skippedCount?: number;
+  // The grid passes its own measured width so header and
+  // columns agree on dayWidth from one measurement; standalone
+  // the header measures itself
+  width?: number;
+}) {
+
+  const { theme, labels } = useTimetableEnv();
+  const [measured, setMeasured] = useState(0);
+  const containerWidth = width ?? measured;
+
+  const clock = useNow({ enabled: now === undefined });
+  const effectiveNow = now === undefined ? clock : now;
+
+  const dayWidth = containerWidth > 0 ? Math.floor((containerWidth - AXIS_WIDTH) / visibleDays.length) : 0;
+  const onLayout = (event: LayoutChangeEvent) => setMeasured(Math.round(event.nativeEvent.layout.width));
+
+
+  return (
+    <View onLayout={width === undefined ? onLayout : undefined}>
+
+      {weekLabel ? (
+        <Text style={[theme.text.meta, { color: theme.colors.inkSoft, paddingLeft: AXIS_WIDTH, paddingBottom: 2 }]}>
+          {weekLabel}
+        </Text>
+      ) : null}
+
+      {skippedCount > 0 ? (
+        <Text
+          testID="timetableuikit-skipped"
+          style={[theme.text.meta, { color: theme.colors.inkFaint, paddingLeft: AXIS_WIDTH, paddingBottom: 4 }]}
+        >
+          {labels.lessonsSkipped(skippedCount)}
+        </Text>
+      ) : null}
+
+      {/* The Monday-first header — today wears the brand chip */}
+      <View style={{ flexDirection: 'row', paddingBottom: 4 }}>
+        <View style={{ width: AXIS_WIDTH }} />
+        {dayWidth > 0
+          ? visibleDays.map((day) => {
+              const today = effectiveNow?.day === day;
+              return (
+                <View key={day} style={{ width: dayWidth, alignItems: 'center' }}>
+                  <View
+                    testID={`timetableuikit-dayname-${day}`}
+                    style={{
+                      paddingHorizontal: 8,
+                      paddingVertical: 2,
+                      borderRadius: 10,
+                      backgroundColor: today ? theme.colors.brand : 'transparent',
+                    }}
+                  >
+                    <Text style={[theme.text.day, { color: today ? theme.colors.onBrand : theme.colors.inkSoft }]}>
+                      {labels.dayShort[day]}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })
+          : null}
+      </View>
+
+    </View>
+  );
 }
 
 
@@ -107,6 +237,8 @@ export default function WeekGrid({
   hourHeight = DEFAULT_HOUR_HEIGHT,
   weekLabel,
   skippedCount = 0,
+  showHeader = true,
+  scrollEnabled = true,
 }: WeekGridProps) {
 
   const { theme, labels } = useTimetableEnv();
@@ -125,57 +257,34 @@ export default function WeekGrid({
 
   const onLayout = (event: LayoutChangeEvent) => setContainerWidth(Math.round(event.nativeEvent.layout.width));
 
+  // The body container: the grid's own vertical scroll, or a
+  // plain block when the host scrolls several pages as one
+  const Body = scrollEnabled ? ScrollView : View;
+  const bodyProps = scrollEnabled
+    ? { contentContainerStyle: { paddingTop: 12, paddingBottom: 12 }, showsVerticalScrollIndicator: false }
+    : {};
+
   return (
-    <View testID="timetableuikit-week" style={{ flex: 1 }} onLayout={onLayout} {...pan}>
+    <View testID="timetableuikit-week" style={scrollEnabled ? { flex: 1 } : null} onLayout={onLayout} {...pan}>
 
-      {weekLabel ? (
-        <Text style={[theme.text.meta, { color: theme.colors.inkSoft, paddingLeft: AXIS_WIDTH, paddingBottom: 2 }]}>
-          {weekLabel}
-        </Text>
-      ) : null}
-
-      {skippedCount > 0 ? (
-        <Text
-          testID="timetableuikit-skipped"
-          style={[theme.text.meta, { color: theme.colors.inkFaint, paddingLeft: AXIS_WIDTH, paddingBottom: 4 }]}
-        >
-          {labels.lessonsSkipped(skippedCount)}
-        </Text>
+      {showHeader ? (
+        <WeekDaysHeader
+          visibleDays={visibleDays}
+          now={effectiveNow}
+          weekLabel={weekLabel}
+          skippedCount={skippedCount}
+          width={containerWidth}
+        />
       ) : null}
 
 
-      {/* The Monday-first header — today wears the brand chip */}
-      <View style={{ flexDirection: 'row', paddingBottom: 4 }}>
-        <View style={{ width: AXIS_WIDTH }} />
-        {dayWidth > 0
-          ? visibleDays.map((day) => {
-              const today = effectiveNow?.day === day;
-              return (
-                <View key={day} style={{ width: dayWidth, alignItems: 'center' }}>
-                  <View
-                    testID={`timetableuikit-dayname-${day}`}
-                    style={{
-                      paddingHorizontal: 8,
-                      paddingVertical: 2,
-                      borderRadius: 10,
-                      backgroundColor: today ? theme.colors.brand : 'transparent',
-                    }}
-                  >
-                    <Text style={[theme.text.day, { color: today ? theme.colors.onBrand : theme.colors.inkSoft }]}>
-                      {labels.dayShort[day]}
-                    </Text>
-                  </View>
-                </View>
-              );
-            })
-          : null}
-      </View>
-
-
-      <ScrollView // Top padding gives the first hour label (drawn centered
+      <Body
+        // Top padding gives the first hour label (drawn centered
         // on its line) room to render whole instead of being
-        // halved by the container edge; bottom likewise
-        contentContainerStyle={{ paddingTop: 12, paddingBottom: 12 }} showsVerticalScrollIndicator={false}>
+        // halved by the container edge; bottom likewise — both
+        // the host's job in the shared-scroll (embedded) mode
+        {...bodyProps}
+      >
         {dayWidth > 0 ? (
           <View style={{ flexDirection: 'row' }}>
 
@@ -225,7 +334,7 @@ export default function WeekGrid({
             {labels.noLessons}
           </Text>
         ) : null}
-      </ScrollView>
+      </Body>
 
     </View>
   );

@@ -39,7 +39,16 @@ import {
   type KnfLesson,
   type TimetableEntry,
 } from '@knf/timetableengine';
-import { DayTimeline, SnapPager, WeekGrid, type TimetableLesson } from '@knf/timetableuikit';
+import { ScrollView, View } from 'react-native';
+
+import {
+  DEFAULT_HOUR_HEIGHT,
+  DayTimeline,
+  SnapPager,
+  WeekDaysHeader,
+  WeekGrid,
+  type TimetableLesson,
+} from '@knf/timetableuikit';
 
 
 
@@ -128,33 +137,51 @@ export default function TimetableView({
 
 
   if (mode === 'week') {
-    const grid = (pageDays: typeof days, pageNow: typeof now) => (
+    if (neighbourDays && onChangeWeek) {
+      // ONE vertical scroll for all three pages, the day-name
+      // header pinned outside it: every week rides the same
+      // offset, so the neighbour appears at the level you are
+      // reading and a settled swipe has nothing to snap to
+      const gridHeight = ((window.endMin - window.startMin) / 60) * DEFAULT_HOUR_HEIGHT;
+      return (
+        <View style={{ flex: 1 }}>
+          <WeekDaysHeader visibleDays={weekDays} now={now} skippedCount={skipped} />
+          <ScrollView
+            contentContainerStyle={{ paddingTop: 12, paddingBottom: 12 }}
+            showsVerticalScrollIndicator={false}
+            testID="timetable-week-scroll"
+          >
+            <SnapPager
+              style={{ height: gridHeight + 48 }}
+              onSettle={onChangeWeek}
+              // Side pages are never "now" — whatever week they
+              // hold, it is not the one on screen when they settle
+              renderPage={(offset) => (
+                <WeekGrid
+                  days={offset === 0 ? days : offset < 0 ? neighbourDays.prev : neighbourDays.next}
+                  window={window}
+                  visibleDays={weekDays}
+                  now={offset === 0 ? now : null}
+                  showHeader={false}
+                  scrollEnabled={false}
+                  onPressLesson={onPressLesson}
+                />
+              )}
+            />
+          </ScrollView>
+        </View>
+      );
+    }
+    return (
       <WeekGrid
-        days={pageDays}
+        days={days}
         window={window}
         visibleDays={weekDays}
         skippedCount={skipped}
-        now={pageNow}
+        now={now}
         onPressLesson={onPressLesson}
       />
     );
-
-    if (neighbourDays && onChangeWeek) {
-      return (
-        <SnapPager
-          onSettle={onChangeWeek}
-          // Side pages are never "now" — whatever week they
-          // hold, it is not the one on screen when they settle
-          renderPage={(offset) =>
-            grid(
-              offset === 0 ? days : offset < 0 ? neighbourDays.prev : neighbourDays.next,
-              offset === 0 ? now : null,
-            )
-          }
-        />
-      );
-    }
-    return grid(days, now);
   }
 
 

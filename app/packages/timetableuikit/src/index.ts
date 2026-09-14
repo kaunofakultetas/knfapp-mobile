@@ -18,7 +18,7 @@ export { DEFAULT_SUBJECT_COLORS, subjectTint } from './core/palette';
 export { useNow } from './hooks/useNow';
 export { usePagePan } from './hooks/usePagePan';
 
-export { default as WeekGrid } from './WeekGrid';
+export { default as WeekGrid, WeekDaysHeader, DEFAULT_HOUR_HEIGHT } from './WeekGrid';
 export { default as DayTimeline } from './DayTimeline';
 export { default as ConflictBanner } from './chrome/ConflictBanner';
 export { default as DayStepper } from './chrome/DayStepper';

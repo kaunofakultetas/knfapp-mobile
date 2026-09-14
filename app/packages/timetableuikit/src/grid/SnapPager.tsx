@@ -28,6 +28,8 @@ import {
   type LayoutChangeEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
+  type StyleProp,
+  type ViewStyle,
 } from 'react-native';
 
 
@@ -59,9 +61,14 @@ const OFFSETS = [-1, 0, 1] as const;
 export default function SnapPager({
   renderPage,
   onSettle,
+  style,
 }: {
   renderPage: (offset: -1 | 0 | 1) => ReactNode;
   onSettle: (direction: 1 | -1) => void;
+  // Overrides the flex-1 frame — a pager living INSIDE a
+  // shared scroll passes its content height instead, since
+  // flex has nothing to fill there
+  style?: StyleProp<ViewStyle>;
 }) {
 
   const [width, setWidth] = useState(0);
@@ -89,7 +96,7 @@ export default function SnapPager({
 
 
   return (
-    <View style={{ flex: 1 }} onLayout={onLayout} testID="timetableuikit-snappager-frame">
+    <View style={style ?? { flex: 1 }} onLayout={onLayout} testID="timetableuikit-snappager-frame">
       {width > 0 && (
         <ScrollView
           ref={scrollRef}

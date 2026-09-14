@@ -1,16 +1,35 @@
 // -----------------------------------------------------------
 //  [*] Tabs — Schedule
 //
-//  The faculty timetable, one day at a time: a quick tab bar
+//  The faculty timetable on REAL dates: a weekStart cursor
+//  (the ISO Monday of the visible week) under a quick tab bar
 //  (Mon–Fri, growing to the full week once a weekend day is
-//  in view) plus header chevrons that cycle all seven days —
-//  the API numbers days 0=Monday…6=Sunday and weekend lessons
-//  exist, so they must be reachable. The screen opens on
-//  today and re-follows the calendar on focus/foreground. The
-//  group/semester filter persists across launches and is
-//  re-validated against the server's non-empty filter lists;
-//  with no stored choice the newest parsable semester is
-//  defaulted so stale semesters never interleave into one day.
+//  in view) and header chevrons that CROSS week boundaries —
+//  stepping past Sunday lands on the next week's Monday,
+//  before Monday on the previous week's Sunday, and week mode
+//  steps whole weeks. The header always shows where the
+//  cursor is: the selected day's date under its name, or the
+//  ISO week number over the week's date range. The screen
+//  opens on today's week and re-follows the calendar on
+//  focus/foreground.
+//
+//  The GROUP perspective lives off ONE dated fetch per
+//  (week, group) — GET /schedule/events rows, ScheduleLesson
+//  plus date and lectureType — feeding all three view modes:
+//  the card list filters the week client-side by the selected
+//  day, the day timeline and week grid run the same rows
+//  through the engine pipeline. The TEACHER perspective stays
+//  on the legacy folded whole-semester fetch (a lecturer's
+//  lessons across every group, merged into single cards,
+//  double-bookings washed via the engine's person-scope
+//  conflicts); the semester picker filters its wire — while
+//  in the group perspective it is a TIME JUMP: a non-current
+//  term moves weekStart to that term's first Monday, the
+//  current term or "all" back to today's week. With no stored
+//  choice the CURRENT term is defaulted — today's own label
+//  when the server lists it (the next term's exam weeks
+//  arrive early and must not steal the default), the newest
+//  parsable label otherwise.
 //
 //  Every load is sequence-guarded — rapid day tapping fires
 //  overlapping requests and only the newest may write. A
@@ -31,23 +50,15 @@
 //  app-built, since they encode the group/teacher/semester
 //  policy.
 //
-//  Three view modes and two perspectives. The card LIST keeps
-//  its per-day fetch and offline path exactly as it always
-//  worked; the DAY timeline and WEEK grid come from
-//  @knf/timetableuikit over @knf/timetableengine geometry, fed
-//  by ONE whole-semester fetch (every group, paged past the
-//  backend's 500-row cap) that also powers the TEACHER
-//  perspective — a lecturer's lessons across every group,
-//  merged into single cards, double-bookings washed via the
-//  engine's person-scope conflicts.
-//
 //  Split into (root component last):
 //
-//    Separator      — hoisted lesson-list separator
-//    FilterBar      — active-filter summary, opens the modal
-//    FilterOption   — one radio row of the filter picker
-//    FilterModal    — perspective + group/teacher/semester picker
-//    ScheduleScreen — the tab itself (default export)
+//    currentTermKey  — today's 'YYYY-R/P' semester label
+//    termStartMonday — a term label → its first ISO Monday
+//    Separator       — hoisted lesson-list separator
+//    FilterBar       — active-filter summary, opens the modal
+//    FilterOption    — one radio row of the filter picker
+//    FilterModal     — perspective + group/teacher/semester picker
+//    ScheduleScreen  — the tab itself (default export)
 // -----------------------------------------------------------
 
 // Offline-cache strip shown when the list renders stale data
@@ -59,15 +70,20 @@ import LessonSheet from '@/components/schedule/LessonSheet';
 import TimetableHost from '@/components/schedule/TimetableHost';
 import TimetableView from '@/components/schedule/TimetableView';
 import {
+  DAY_MS,
   compareEntries,
   conflictIds as engineConflictIds,
   dayIndexOf,
   forGroup,
   forTeacher,
   formatMinutes,
+  isoWeekNumber,
   listTeachers,
+  mondayOf,
   newestSemesterKey,
   normalizeKnf,
+  parseISO,
+  toISO,
   type ConflictOptions,
   type KnfLesson,
   type TimetableEntry,
@@ -92,8 +108,16 @@ import { useDataEngine, useNetworkRestore } from '@knf/dataengine';
 import { useScheduleConflicts } from '@/hooks/useScheduleConflicts';
 
 // Timetable API + the offline cache it falls back to
-import { fetchSchedule, fetchScheduleFilters, fetchScheduleWeek, type ScheduleLesson, type ScheduleResponse } from '@/services/api';
-import { cacheKeySchedule, cacheKeyScheduleWeek, SCHEDULE_CACHE_MAX_AGE } from '@/services/cacheKeys';
+import {
+  fetchScheduleEvents,
+  fetchScheduleFilters,
+  fetchScheduleWeek,
+  type ScheduleEventRow,
+  type ScheduleEventsResponse,
+  type ScheduleLesson,
+  type ScheduleResponse,
+} from '@/services/api';
+import { cacheKeyScheduleEvents, cacheKeyScheduleWeek, SCHEDULE_CACHE_MAX_AGE } from '@/services/cacheKeys';
 import { foldForSearch } from '@/services/format';
 
 // Failed silent refreshes toast instead of touching the list
@@ -171,6 +195,65 @@ interface FilterChoice {
 
 
 // -----------------------------------------------------------
+// currentTermKey
+// -----------------------------------------------------------
+//
+// Today's semester label by the sheets' naming: the label
+// year is the ACADEMIC year's first calendar year, so
+// September–January belong to that year's R (autumn) and
+// February–August to the PREVIOUS label year's P (spring —
+// '2026-P' runs in calendar 2027).
+//
+// Used by:
+//   - ScheduleScreen (below) — the current-term default and
+//     the semester time-jump's "back to today" branch
+// -----------------------------------------------------------
+
+function currentTermKey(now: Date = new Date()): string {
+  const year = now.getFullYear();
+  const month = now.getMonth(); // 0=January
+  if (month >= 8) return `${year}-R`;
+  if (month === 0) return `${year - 1}-R`;
+  return `${year - 1}-P`;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// termStartMonday
+// -----------------------------------------------------------
+//
+// A 'YYYY-R/P' label → the ISO Monday its lectures start on:
+// the first Monday of September YYYY for autumn, of February
+// YYYY+1 for spring (the label year is the academic year's
+// first calendar year). A label outside that shape — a stray
+// sheet name — returns null and the time-jump stays put.
+//
+// Used by:
+//   - ScheduleScreen (below) — the semester time-jump
+// -----------------------------------------------------------
+
+function termStartMonday(label: string): string | null {
+  const match = /^(\d{4})-([PR])$/.exec(label);
+  if (!match) return null;
+  const first = match[2] === 'R' ? Date.UTC(Number(match[1]), 8, 1) : Date.UTC(Number(match[1]) + 1, 1, 1);
+  // 0=Sunday..6=Saturday → days SINCE Monday, then the hop to
+  // the first Monday on or after the 1st
+  const sinceMonday = (new Date(first).getUTCDay() + 6) % 7;
+  return toISO(first + ((7 - sinceMonday) % 7) * DAY_MS);
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // Separator
 // -----------------------------------------------------------
 //
@@ -182,6 +265,51 @@ interface FilterChoice {
 // -----------------------------------------------------------
 
 const Separator = () => <View className="h-3" />;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// TodayButton
+// -----------------------------------------------------------
+//
+// The snap-back-to-today button, brand-filled so it reads as
+// a button on the white day-tab strip it sits in (the header
+// bar hid it — a brand pill on the brand ground). The screen
+// mounts it only while the cursors are away from today, so
+// its presence itself marks displacement. Button.tsx rules:
+// layout in className, active: feedback, no style function.
+//
+// Used by:
+//   - ScheduleScreen (below) — the day-tab strip's trailing
+//     slot, every view mode
+// -----------------------------------------------------------
+
+function TodayButton({ onPress }: { onPress: () => void }) {
+
+  const { t } = useTranslation();
+
+
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={t('schedule.today')}
+      hitSlop={8}
+      className="h-7 items-center justify-center self-center rounded-full bg-brand px-md active:bg-brand-strong"
+    >
+      <Text
+        className="font-raleway-semibold text-xs text-on-brand"
+        style={{ includeFontPadding: false, textAlignVertical: 'center' }}
+      >
+        {t('schedule.today')}
+      </Text>
+    </Pressable>
+  );
+}
 
 
 
@@ -572,15 +700,17 @@ function FilterModal({
 // ScheduleScreen (default export)
 // -----------------------------------------------------------
 //
-// Owns two independent datasets — the per-day card list and
-// the whole-semester week fetch — each with its own sequence
-// guard, cache fallback and last-served key mark (a repeat
-// need refreshes silently instead of blanking a filled view).
-// Around them: the persisted prefs round trip with the
-// newest-semester default and stale-choice validation, the
-// semesterParam wire rule (explicit "all" vs omitted), the
-// focus/foreground today re-check, and the derived body
-// branch table the render walks.
+// Owns two independent datasets — the group perspective's
+// DATED week of events and the teacher perspective's folded
+// whole-semester week — each with its own sequence guard,
+// cache fallback and last-served key mark (a repeat need
+// refreshes silently instead of blanking a filled view).
+// Around them: the weekStart cursor the chevrons and the
+// semester time-jump move, the persisted prefs round trip
+// with the current-term default and stale-choice validation,
+// the teacher path's semesterParam wire rule (explicit "all"
+// vs omitted), the focus/foreground today re-check, and the
+// derived body branch table the render walks.
 //
 // Used by:
 //   - expo-router — the /tabs/schedule tab
@@ -599,6 +729,10 @@ export default function ScheduleScreen() {
   // full week is reachable
   const [selectedDay, setSelectedDay] = useState(() => dayIndexOf(new Date()));
 
+  // The ISO Monday of the visible week — the dated fetch, the
+  // header captions and the semester time-jump all move on it
+  const [weekStart, setWeekStart] = useState(() => mondayOf(toISO(Date.now())));
+
 
   // How the timetable renders (persisted), and through whose
   // eyes: the group's — or one teacher's, across every group
@@ -607,10 +741,10 @@ export default function ScheduleScreen() {
   const [teacher, setTeacher] = useState<string | null>(null);
 
 
-  // The whole-semester dataset behind the timetable views and
-  // the teacher perspective — null until first needed. Its own
-  // three states beside the day list's, so flipping view modes
-  // never blanks the other path's data.
+  // The folded whole-semester dataset behind the TEACHER
+  // perspective and its roster — null until first needed. Its
+  // own three states beside the dated ones, so flipping
+  // perspectives never blanks the other path's data.
   const [weekLessons, setWeekLessons] = useState<ScheduleLesson[] | null>(null);
   const [weekLoading, setWeekLoading] = useState(false);
   const [weekError, setWeekError] = useState(false);
@@ -621,12 +755,14 @@ export default function ScheduleScreen() {
   const [sheetLesson, setSheetLesson] = useState<TimetableLesson | null>(null);
 
 
-  // Lesson list, its three data states, and the cache age
-  const [lessons, setLessons] = useState<ScheduleLesson[]>([]);
-  const [loading, setLoading] = useState(true);
+  // The group perspective's dataset — ONE dated week of
+  // events per (weekStart, group), feeding all three view
+  // modes — its three data states, and the cache age
+  const [events, setEvents] = useState<ScheduleEventRow[] | null>(null);
+  const [eventsLoading, setEventsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState(false);
-  const [cachedAt, setCachedAt] = useState<number | null>(null);
+  const [eventsError, setEventsError] = useState(false);
+  const [eventsCachedAt, setEventsCachedAt] = useState<number | null>(null);
 
 
   // Server-provided filter options + the user's choice;
@@ -651,13 +787,8 @@ export default function ScheduleScreen() {
 
   // Only the newest request may write — rapid day taps fire
   // overlapping fetches, and a slow early response must not
-  // put the wrong day on screen or flip the spinner off early
-  const loadSeqRef = useRef(0);
-
-
-  // Under "all groups" parallel lectures overlap by design, so
-  // detection only runs while a group filter is active
-  const conflictIds = useScheduleConflicts(lessons, selectedGroup !== null);
+  // put the wrong week on screen or flip the spinner off early
+  const eventsSeqRef = useRef(0);
 
 
   // Both loaders remember which cache key they last SERVED — a
@@ -667,65 +798,79 @@ export default function ScheduleScreen() {
   // mark so the next need retries with the full spinner path
   const weekSeqRef = useRef(0);
   const weekKeyRef = useRef<string | null>(null);
-  const listKeyRef = useRef<string | null>(null);
+  const eventsKeyRef = useRef<string | null>(null);
+
+  // What the dated rows on screen were fetched FOR — the load
+  // effect reads it to tell a hop onto an already-rendered
+  // neighbour week (silent refresh) from a real jump (spinner)
+  const eventsServedRef = useRef<{ weekStart: string; group: string | null } | null>(null);
 
 
-  // One code path for first load / day change (spinner), pull-
-  // to-refresh and network restore (silent); a failure serves
-  // the offline cache before admitting a distinct error state
-  const loadLessons = useCallback(
-    async (day: number, group: string | null, semester: string | null, spinner: boolean) => {
-      const seq = ++loadSeqRef.current;
+  // One code path for first load / window change (spinner),
+  // pull-to-refresh and network restore (silent): THREE dated
+  // weeks — the shown one plus a week either side, so the week
+  // pager has real neighbour pages to scroll onto and a day
+  // step across the boundary lands on data it already holds —
+  // cached per (weekStart, group); a failure serves the
+  // offline cache before admitting a distinct error state
+  const loadEvents = useCallback(
+    async (weekStartISO: string, group: string | null, spinner: boolean) => {
+      const seq = ++eventsSeqRef.current;
       if (spinner) {
-        setLoading(true);
-        setError(false);
+        setEventsLoading(true);
+        setEventsError(false);
       }
 
-      const key = cacheKeySchedule(day, group, semester);
+      const key = cacheKeyScheduleEvents(weekStartISO, group);
+      const fromISO = toISO(parseISO(weekStartISO) - 7 * DAY_MS);
+      const untilISO = toISO(parseISO(weekStartISO) + 13 * DAY_MS);
       try {
-        const resp = await fetchSchedule(day, group ?? undefined, semester ?? undefined);
-        if (seq !== loadSeqRef.current) return;
-        setLessons(resp.lessons);
-        setCachedAt(null);
-        setError(false);
-        listKeyRef.current = key;
+        const resp = await fetchScheduleEvents(fromISO, untilISO, group ?? undefined);
+        if (seq !== eventsSeqRef.current) return;
+        setEvents(resp.events);
+        setEventsCachedAt(null);
+        setEventsError(false);
+        eventsKeyRef.current = key;
+        eventsServedRef.current = { weekStart: weekStartISO, group };
         void cache.set(key, resp);
       } catch {
         // A failed SILENT refresh keeps whatever is on screen
-        // and just toasts — swapping live lessons for stale
+        // and just toasts — swapping live rows for stale
         // cache (or an empty error state) mid-view is worse
         // than admitting the refresh failed. Spinner loads
-        // (first load / day change) still fall back to cache
-        // before the error state.
+        // (first load / window change) still fall back to
+        // cache before the error state.
         if (!spinner) {
-          if (seq === loadSeqRef.current) showToast('error', t('schedule.loadError'));
+          if (seq === eventsSeqRef.current) showToast('error', t('schedule.loadError'));
           return;
         }
-        const cached = await cache.get<ScheduleResponse>(key, SCHEDULE_CACHE_MAX_AGE);
-        if (seq !== loadSeqRef.current) return;
+        const cached = await cache.get<ScheduleEventsResponse>(key, SCHEDULE_CACHE_MAX_AGE);
+        if (seq !== eventsSeqRef.current) return;
         if (cached) {
-          setLessons(cached.data.lessons);
-          setCachedAt(cached.cachedAt);
-          setError(false);
-          listKeyRef.current = key;
+          setEvents(cached.data.events);
+          setEventsCachedAt(cached.cachedAt);
+          setEventsError(false);
+          eventsKeyRef.current = key;
+          eventsServedRef.current = { weekStart: weekStartISO, group };
         } else {
-          setLessons([]);
-          setCachedAt(null);
-          setError(true);
-          listKeyRef.current = null;
+          setEvents([]);
+          setEventsCachedAt(null);
+          setEventsError(true);
+          eventsKeyRef.current = null;
+          eventsServedRef.current = null;
         }
       } finally {
-        if (seq === loadSeqRef.current) setLoading(false);
+        if (seq === eventsSeqRef.current) setEventsLoading(false);
       }
     },
     [t, cache],
   );
 
 
-  // The whole-semester fetch behind the timetable views: every
-  // group, every day, paged past the backend's 500-row cap by
-  // fetchScheduleWeek, cached like the day rows and falling
-  // back to that cache the same way
+  // The folded whole-semester fetch behind the TEACHER
+  // perspective: every group, every day, paged past the
+  // backend's 500-row cap by fetchScheduleWeek, cached like
+  // the dated rows and falling back to that cache the same way
   const loadWeek = useCallback(
     async (semester: string | null, spinner: boolean) => {
       const seq = ++weekSeqRef.current;
@@ -824,10 +969,11 @@ export default function ScheduleScreen() {
   }, [loadFilters]);
 
 
-  // Browsing groups writes one cache row per day/group/semester
-  // combination and most are never read again (cacheGet only
-  // evicts what it is asked for) — sweep the expired ones once
-  // per mount so the store cannot grow without bound
+  // Browsing writes one cache row per week/group combination
+  // (plus the teacher path's per-semester rows) and most are
+  // never read again (cacheGet only evicts what it is asked
+  // for) — sweep the expired ones once per mount so the store
+  // cannot grow without bound
   useEffect(() => {
     void cache.sweepPrefix('schedule:', SCHEDULE_CACHE_MAX_AGE);
   }, [cache]);
@@ -869,75 +1015,131 @@ export default function ScheduleScreen() {
   }, [prefsLoaded, filtersFetched, groups, semesters, selectedGroup, selectedSemester]);
 
 
-  // No stored semester choice: default to the newest label the
-  // 'YYYY-P/R' shape parses to, so lectures from stale
-  // semesters never interleave into one day. "All semesters"
-  // stays an explicit opt-in through the filter modal.
+  // No stored semester choice: default to the CURRENT term —
+  // the backend also lists the NEXT term early (its exam
+  // weeks), so the newest label must not steal the default.
+  // Today's own label wins whenever the server lists it; only
+  // a list without it falls back to the newest parsable label
+  // (engine ranking: the label year is the academic year's
+  // first calendar year, so a spring label outranks its own
+  // autumn). "All semesters" stays an explicit opt-in through
+  // the filter modal.
   useEffect(() => {
     if (!prefsLoaded || !filtersFetched) return;
     if (semesterExplicit || selectedSemester !== null) return;
-    // Engine ranking: the label year is the academic year's
-    // first calendar year, so a spring label outranks its own
-    // autumn — the hand-rolled picker this replaces had that
-    // BACKWARDS and defaulted to the stale autumn all spring
-    const newest = newestSemesterKey(semesters);
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- the semester list arriving is the event; the newest-label default applies once, in response
-    if (newest) setSelectedSemester(newest);
+    const current = currentTermKey();
+    const picked = semesters.includes(current) ? current : newestSemesterKey(semesters);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the semester list arriving is the event; the current-term default applies once, in response
+    if (picked) setSelectedSemester(picked);
   }, [prefsLoaded, filtersFetched, semesters, selectedSemester, semesterExplicit]);
 
 
-  // What the wire and the cache keys call the semester choice:
-  // a picked label rides as itself; a DELIBERATE "all" must be
-  // sent as the literal 'all' — the backend rewrites an omitted
-  // ?semester to the newest one and only 'all' opts out; the
-  // transient null before the auto-default lands stays omitted
-  // (the backend's newest IS what the default will pick)
+  // What the TEACHER wire and its cache key call the semester
+  // choice: a picked label rides as itself; a DELIBERATE "all"
+  // must be sent as the literal 'all' — the backend rewrites an
+  // omitted ?semester to the newest one and only 'all' opts
+  // out; the transient null before the auto-default lands stays
+  // omitted. The group perspective's dated fetch needs none of
+  // this — its dates themselves say which term is on screen.
   const semesterParam = selectedSemester ?? (semesterExplicit ? 'all' : null);
 
 
-  // (Re)load whenever the visible day or the filters change —
-  // gated on prefsLoaded so the persisted filter applies to
-  // the very first fetch instead of arriving one fetch late.
-  // The per-day path only serves the group-perspective card
-  // list; the other views live off the week dataset below.
+  // (Re)load the dated week whenever the window or the group
+  // changes — gated on prefsLoaded so the persisted filter
+  // applies to the very first fetch instead of arriving one
+  // fetch late. ONE fetch serves all three group-perspective
+  // view modes; the teacher path lives off the folded dataset
+  // below.
   useEffect(() => {
-    if (!prefsLoaded) return;
-    if (viewMode !== 'list' || perspective !== 'group') return;
-    const spinner = listKeyRef.current !== cacheKeySchedule(selectedDay, selectedGroup, semesterParam);
-    void loadLessons(selectedDay, selectedGroup, semesterParam, spinner);
-  }, [prefsLoaded, viewMode, perspective, selectedDay, selectedGroup, semesterParam, loadLessons]);
+    if (!prefsLoaded || perspective !== 'group') return;
+    // A hop onto a week the fetched window ALREADY covers (same
+    // group, one week either side — a settled pager swipe, a day
+    // step across the boundary, Today from next door) refreshes
+    // silently: the grid is fully drawn, and flashing a spinner
+    // over it was the settle glitch. Real jumps keep the spinner
+    const served = eventsServedRef.current;
+    const adjacent =
+      served !== null &&
+      served.group === selectedGroup &&
+      Math.abs(parseISO(weekStart) - parseISO(served.weekStart)) <= 7 * DAY_MS;
+    const spinner = !adjacent && eventsKeyRef.current !== cacheKeyScheduleEvents(weekStart, selectedGroup);
+    void loadEvents(weekStart, selectedGroup, spinner);
+  }, [prefsLoaded, perspective, weekStart, selectedGroup, loadEvents]);
 
 
-  // Which paths need the whole-semester dataset — the teacher
-  // perspective always (the roster rides it); group-perspective
-  // timetable views only once a group is picked, because an
-  // all-groups grid packs parallel lessons into unreadable
-  // slivers and the body shows the pick-a-group prompt instead
-  const needsWeek = perspective === 'teacher' || (viewMode !== 'list' && selectedGroup !== null);
+  // The folded whole-semester dataset now serves the TEACHER
+  // perspective alone — a lecturer's lessons across every
+  // group, plus the roster the filter modal lists
+  const teacherData = perspective === 'teacher';
 
 
-  // Load the week dataset when a timetable view or the teacher
-  // perspective first needs it — with a spinner only when the
-  // semester's data was never served, silently after that
+  // Load it when the teacher perspective needs it — with a
+  // spinner only when the semester's data was never served,
+  // silently after that
   useEffect(() => {
-    if (!prefsLoaded || !needsWeek) return;
+    if (!prefsLoaded || !teacherData) return;
     void loadWeek(semesterParam, weekKeyRef.current !== cacheKeyScheduleWeek(semesterParam));
-  }, [prefsLoaded, needsWeek, semesterParam, loadWeek]);
+  }, [prefsLoaded, teacherData, semesterParam, loadWeek]);
 
 
-  // The engine pipeline over the week dataset: normalize once,
-  // then filter through the active perspective's eyes
-  // ScheduleLesson is exactly the wire row the adapter expects
-  // — only the open index signature is missing, so assert
-  const normalized = useMemo(() => normalizeKnf((weekLessons ?? []) as KnfLesson[]), [weekLessons]);
-  const weekEntries = normalized.entries;
+  // The engine pipeline, once per dataset: the group
+  // The fetched window holds THREE weeks — bucket the rows by
+  // their week relative to weekStart, so every downstream
+  // consumer reads exactly one week and the pager gets its
+  // neighbour pages. dayOfWeek alone cannot split them: three
+  // Thursdays live in one response
+  const weekBuckets = useMemo(() => {
+    const buckets: [ScheduleEventRow[], ScheduleEventRow[], ScheduleEventRow[]] = [[], [], []];
+    const base = parseISO(weekStart);
+    for (const row of events ?? []) {
+      const offset = Math.floor((parseISO(row.date) - base) / (7 * DAY_MS));
+      if (offset >= -1 && offset <= 1) buckets[offset + 1].push(row);
+    }
+    return buckets;
+  }, [events, weekStart]);
 
-  const teachers = useMemo(() => listTeachers(weekEntries), [weekEntries]);
+
+  // perspective normalizes the DATED weeks (ScheduleEventRow is
+  // a ScheduleLesson superset, so the adapter takes the rows
+  // unchanged), the teacher perspective the folded semester.
+  // Each is exactly the wire row the adapter expects — only
+  // the open index signature is missing, so assert (the dated
+  // rows through unknown: their extra date/lectureType fields
+  // land under that signature, which defeats the direct cast).
+  const datedNormalized = useMemo(() => normalizeKnf(weekBuckets[1] as unknown as KnfLesson[]), [weekBuckets]);
+  const weekNormalized = useMemo(() => normalizeKnf((weekLessons ?? []) as KnfLesson[]), [weekLessons]);
+
+  // The pager's side pages, group-filtered like the middle one;
+  // their skipped counts stay silent — the notice describes the
+  // week actually on screen
+  const neighbourWeeks = useMemo(() => {
+    const filter = (rows: ScheduleEventRow[]) => {
+      const normalized = normalizeKnf(rows as unknown as KnfLesson[]).entries;
+      return selectedGroup ? forGroup(normalized, selectedGroup) : normalized;
+    };
+    return { prev: filter(weekBuckets[0]), next: filter(weekBuckets[2]) };
+  }, [weekBuckets, selectedGroup]);
+
+  const teachers = useMemo(() => listTeachers(weekNormalized.entries), [weekNormalized]);
 
   const perspectiveEntries = useMemo<TimetableEntry<KnfLesson>[]>(() => {
-    if (perspective === 'teacher') return teacher ? forTeacher(weekEntries, teacher) : [];
-    return selectedGroup ? forGroup(weekEntries, selectedGroup) : weekEntries;
-  }, [weekEntries, perspective, teacher, selectedGroup]);
+    if (perspective === 'teacher') return teacher ? forTeacher(weekNormalized.entries, teacher) : [];
+    return selectedGroup ? forGroup(datedNormalized.entries, selectedGroup) : datedNormalized.entries;
+  }, [weekNormalized, datedNormalized, perspective, teacher, selectedGroup]);
+
+
+  // The card list's rows: the SHOWN week filtered to the
+  // selected day CLIENT-side — the per-day endpoint round
+  // trips are gone. Rows arrive pre-sorted (date, start,
+  // group) and the filter keeps that order.
+  const groupDayLessons = useMemo(
+    () => weekBuckets[1].filter((row) => row.dayOfWeek === selectedDay),
+    [weekBuckets, selectedDay],
+  );
+
+  // Under "all groups" parallel lectures overlap by design, so
+  // detection only runs while a group filter is active
+  const conflictIds = useScheduleConflicts(groupDayLessons, selectedGroup !== null);
 
   const conflictScope = useMemo<ConflictOptions>(
     () =>
@@ -976,37 +1178,68 @@ export default function ScheduleScreen() {
   }, [viewMode, perspective, perspectiveEntries, selectedDay]);
 
 
-  // Connectivity returning refetches whichever paths are in
-  // use (and the filter lists if they never arrived);
+  // Connectivity returning refetches whichever path is in use
+  // (and the filter lists if they never arrived);
   // useNetworkRestore always runs the latest closure, so no
   // refs are needed
   useNetworkRestore(() => {
-    if (viewMode === 'list' && perspective === 'group') {
-      void loadLessons(selectedDay, selectedGroup, semesterParam, lessons.length === 0);
-    }
-    if (needsWeek) void loadWeek(semesterParam, weekLessons === null);
+    if (perspective === 'group') void loadEvents(weekStart, selectedGroup, events === null);
+    else void loadWeek(semesterParam, weekLessons === null);
     if (!filtersFetched) void loadFilters();
   });
 
 
-  // Chevrons cycle the FULL week — weekend lessons exist and
-  // must be reachable; the +7 keeps the modulo positive when
-  // stepping back from Monday
+  // Chevrons and day swipes CROSS week boundaries instead of
+  // wrapping: past Sunday lands on the next week's Monday,
+  // before Monday on the previous week's Sunday — the window
+  // effect then refetches the new week
   const changeDay = (delta: number) => {
-    setSelectedDay((prev) => (prev + delta + 7) % 7);
+    const next = selectedDay + delta;
+    if (next < 0) {
+      setWeekStart((prev) => toISO(parseISO(prev) - 7 * DAY_MS));
+      setSelectedDay(6);
+    } else if (next > 6) {
+      setWeekStart((prev) => toISO(parseISO(prev) + 7 * DAY_MS));
+      setSelectedDay(0);
+    } else {
+      setSelectedDay(next);
+    }
+  };
+
+  // Week mode steps whole weeks, the day cursor staying put
+  const changeWeek = (delta: number) => {
+    setWeekStart((prev) => toISO(parseISO(prev) + delta * 7 * DAY_MS));
+  };
+
+
+  // The snap back from wherever the cursors wandered — the
+  // TodayButton mounts in the day-tab strip only while
+  // displaced, so its presence itself says "you are not on
+  // today". Week mode ignores the day cursor: the week is the
+  // displacement
+  const todayMonday = mondayOf(toISO(Date.now()));
+  const todayIndex = dayIndexOf(new Date());
+  const displaced =
+    viewMode === 'week'
+      ? weekStart !== todayMonday
+      : weekStart !== todayMonday || selectedDay !== todayIndex;
+  const goToToday = () => {
+    setWeekStart(todayMonday);
+    setSelectedDay(todayIndex);
   };
 
 
   // The mount-time "today" must not fossilize: on focus and on
   // foreground the calendar date is re-checked, and once it
-  // rolled over the selection follows today again (the load
-  // effect refetches on the day change)
+  // rolled over the selection AND the week window follow today
+  // again (the load effect refetches on the change)
   const dayMarkerRef = useRef(new Date().toDateString());
   const evaluateToday = useCallback(() => {
     const marker = new Date().toDateString();
     if (marker === dayMarkerRef.current) return;
     dayMarkerRef.current = marker;
     setSelectedDay(dayIndexOf(new Date()));
+    setWeekStart(mondayOf(toISO(Date.now())));
   }, []);
 
   useFocusEffect(evaluateToday);
@@ -1021,11 +1254,27 @@ export default function ScheduleScreen() {
 
   // The modal lifts everything at once; a semester that truly
   // moved — to a label or to "all" — is the user's own choice
-  // and must survive as such
+  // and must survive as such. In the GROUP perspective that
+  // choice is a TIME JUMP: a non-current term moves the window
+  // to its first Monday (and Monday's tab), the current term
+  // or "all" back to today's week — the teacher wire keeps
+  // filtering by the label instead.
   const applyFilters = (choice: FilterChoice) => {
     if (choice.semesterChanged) {
       setSemesterExplicit(true);
       setSelectedSemester(choice.semester);
+      if (choice.perspective === 'group') {
+        const todayMonday = mondayOf(toISO(Date.now()));
+        const target =
+          choice.semester && choice.semester !== currentTermKey()
+            ? termStartMonday(choice.semester)
+            : todayMonday;
+        // An unparsable label has no start date — stay put
+        if (target) {
+          setWeekStart(target);
+          setSelectedDay(target === todayMonday ? dayIndexOf(new Date()) : 0);
+        }
+      }
     }
     setSelectedGroup(choice.group);
     setPerspective(choice.perspective);
@@ -1044,20 +1293,20 @@ export default function ScheduleScreen() {
   };
 
 
-  // Pull-to-refresh: silent reload of whichever path is on
-  // screen, first-load spinner hidden
+  // Pull-to-refresh: silent reload of the current window (or
+  // the teacher's semester), first-load spinner hidden
   const onRefresh = async () => {
     setRefreshing(true);
-    if (needsWeek) await loadWeek(semesterParam, false);
-    else await loadLessons(selectedDay, selectedGroup, semesterParam, false);
+    if (teacherData) await loadWeek(semesterParam, false);
+    else await loadEvents(weekStart, selectedGroup, false);
     setRefreshing(false);
   };
 
 
   // ErrorState's button — full reload with the spinner
   const retry = () => {
-    if (needsWeek) void loadWeek(semesterParam, true);
-    else void loadLessons(selectedDay, selectedGroup, semesterParam, true);
+    if (teacherData) void loadWeek(semesterParam, true);
+    else void loadEvents(weekStart, selectedGroup, true);
   };
 
 
@@ -1075,13 +1324,31 @@ export default function ScheduleScreen() {
     .join(' · ');
 
 
-  // Which path fills the body, and that path's states
+  // Which path fills the body, and that path's states — the
+  // whole group perspective rides the dated week, the teacher
+  // perspective the folded semester
   const groupList = viewMode === 'list' && perspective === 'group';
-  const bodyLoading = groupList ? loading : weekLoading;
-  const bodyError = groupList ? error : weekError;
-  const bodyCachedAt = groupList ? cachedAt : weekCachedAt;
+  const bodyLoading = teacherData ? weekLoading : eventsLoading;
+  const bodyError = teacherData ? weekError : eventsError;
+  const bodyCachedAt = teacherData ? weekCachedAt : eventsCachedAt;
+  const skippedCount = teacherData ? weekNormalized.skipped : datedNormalized.skipped;
   const bannerCount =
     viewMode !== 'list' ? 0 : perspective === 'teacher' ? teacherDayCards.filter((card) => card.conflict).length : conflictIds.size;
+
+
+  // The header's proof of where the cursor is: day modes show
+  // the selected day's real date under its name, week mode
+  // the ISO week number over the Monday–Sunday range. The
+  // range trims to MM-DD except across New Year, where the
+  // trimmed form ("12-29 – 01-04") would hide which years the
+  // week straddles — those weeks keep the full dates
+  const weekEnd = toISO(parseISO(weekStart) + 6 * DAY_MS);
+  const selectedDateISO = toISO(parseISO(weekStart) + selectedDay * DAY_MS);
+  const weekCaption = t('schedule.weekShort', { week: isoWeekNumber(weekStart) });
+  const weekRange =
+    weekStart.slice(0, 4) === weekEnd.slice(0, 4)
+      ? `${weekStart.slice(5)} – ${weekEnd.slice(5)}`
+      : `${weekStart} – ${weekEnd}`;
 
 
   // The wire row onto the kit card's NEUTRAL shape — the one
@@ -1140,12 +1407,29 @@ export default function ScheduleScreen() {
           names from it, not just the grid views */}
       <TimetableHost>
 
+      {/* Week mode repurposes the stepper as a WEEK cursor:
+          the label swaps the day name for the ISO week number
+          and the chevrons step whole weeks — day modes step
+          days across week boundaries and date the day */}
       <Header
         title={t('schedule.title')}
         right={
-          viewMode === 'week' ? undefined : (
+          viewMode === 'week' ? (
             <DayStepper
               day={selectedDay}
+              label={weekCaption}
+              subtitle={weekRange}
+              onPrev={() => changeWeek(-1)}
+              onNext={() => changeWeek(1)}
+              prevAccessibilityLabel={t('schedule.prevWeek')}
+              nextAccessibilityLabel={t('schedule.nextWeek')}
+              prevIcon={<Ionicons name="chevron-back" size={20} color={colors.onBrand} />}
+              nextIcon={<Ionicons name="chevron-forward" size={20} color={colors.onBrand} />}
+            />
+          ) : (
+            <DayStepper
+              day={selectedDay}
+              subtitle={selectedDateISO}
               onPrev={() => changeDay(-1)}
               onNext={() => changeDay(1)}
               prevIcon={<Ionicons name="chevron-back" size={20} color={colors.onBrand} />}
@@ -1176,7 +1460,33 @@ export default function ScheduleScreen() {
         </View>
       </View>
 
-      {viewMode !== 'week' && <DayTabs days={visibleDays} selectedDay={selectedDay} onSelect={setSelectedDay} />}
+      {/* The Today button lives IN the day-tab row: the wrapper
+          carries the same surface ground and hairline as the
+          tabs, so the strip stays one unbroken white row however
+          much of it the tabs yield to the button. Week mode
+          keeps the strip in place — steady chrome across the
+          mode switch — just without the day tabs, whose height
+          the min-h pins while they are absent */}
+      <View className="min-h-9 flex-row items-center border-b border-line bg-surface">
+        {viewMode !== 'week' ? (
+          <View className="flex-1">
+            <DayTabs
+              days={visibleDays}
+              selectedDay={selectedDay}
+              // A foreign week has no today column to outline
+              today={weekStart === todayMonday ? todayIndex : undefined}
+              onSelect={setSelectedDay}
+            />
+          </View>
+        ) : (
+          <View className="flex-1" />
+        )}
+        {displaced && (
+          <View className="mr-md">
+            <TodayButton onPress={goToToday} />
+          </View>
+        )}
+      </View>
 
       {bodyCachedAt !== null && <CachedBanner cachedAt={bodyCachedAt} />}
       {!bodyLoading && bannerCount > 0 && (
@@ -1200,7 +1510,7 @@ export default function ScheduleScreen() {
           <ErrorState message={t('schedule.loadError')} onRetry={retry} />
         </ScrollView>
       ) : groupList ? (
-        lessons.length === 0 ? (
+        groupDayLessons.length === 0 ? (
           <ScrollView contentContainerStyle={{ flexGrow: 1 }} refreshControl={refreshControl}>
             <EmptyState
               icon="calendar-outline"
@@ -1210,7 +1520,7 @@ export default function ScheduleScreen() {
           </ScrollView>
         ) : (
           <FlatList
-            data={lessons}
+            data={groupDayLessons}
             keyExtractor={(item) => item.id}
             contentContainerStyle={{ padding: 16, paddingBottom: 24 }}
             refreshControl={refreshControl}
@@ -1245,11 +1555,19 @@ export default function ScheduleScreen() {
         <View className="flex-1 px-2 pt-2">
           <TimetableView
             entries={perspectiveEntries}
-            skipped={normalized.skipped}
+            skipped={skippedCount}
             scope={conflictScope}
             mode={viewMode}
             day={selectedDay}
+            // The teacher dataset is a weekly PATTERN, where the
+            // clock always applies; the dated group window only
+            // owns "now" while it actually shows this week
+            currentWeek={perspective === 'teacher' || weekStart === todayMonday}
+            // A weekly PATTERN has no other week to scroll to —
+            // only the dated group window gets the pager pages
+            weeks={perspective === 'group' ? neighbourWeeks : undefined}
             onChangeDay={changeDay}
+            onChangeWeek={perspective === 'group' ? changeWeek : undefined}
             onPressLesson={setSheetLesson}
           />
         </View>

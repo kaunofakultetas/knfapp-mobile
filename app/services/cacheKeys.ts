@@ -47,8 +47,8 @@ export const NEWS_CACHE_MAX_AGE = 24 * 60 * 60 * 1000;
 // 7 days — the schedule rarely changes mid-week.
 //
 // Used by:
-//   - app/(main)/tabs/schedule.tsx — day + week reads and the
-//     'schedule:' prefix sweep
+//   - app/(main)/tabs/schedule.tsx — dated-events + folded
+//     week reads and the 'schedule:' prefix sweep
 // -----------------------------------------------------------
 
 export const SCHEDULE_CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
@@ -140,9 +140,10 @@ export function cacheKeyConversations(userId: string): string {
 // cacheKeyScheduleWeek
 // -----------------------------------------------------------
 //
-// The whole-week fetch is per semester only — groups and days
-// filter client-side in the timetable views. The 'schedule:'
-// prefix keeps it under the same sweep as the day rows.
+// The folded whole-semester fetch behind the TEACHER
+// perspective — per semester only, a lecturer's lessons
+// filter client-side. The 'schedule:' prefix keeps it under
+// the same sweep as the dated rows.
 //
 // Used by:
 //   - app/(main)/tabs/schedule.tsx — loadWeek + staleness checks
@@ -159,22 +160,21 @@ export function cacheKeyScheduleWeek(semester?: string | null): string {
 
 
 // -----------------------------------------------------------
-// cacheKeySchedule
+// cacheKeyScheduleEvents
 // -----------------------------------------------------------
 //
-// Day/group/semester each change the result set — '*' keeps
-// the unfiltered variant distinct from filtered ones.
+// One DATED week of lecture events — the group perspective's
+// whole dataset, keyed by the window's ISO Monday plus the
+// group ('*' when every group rides along). No semester in
+// the key: the dates themselves say which term the rows are.
 //
 // Used by:
-//   - app/(main)/tabs/schedule.tsx — the day-list read
+//   - app/(main)/tabs/schedule.tsx — loadEvents + staleness
+//     checks
 // -----------------------------------------------------------
 
-export function cacheKeySchedule(
-  day: number,
-  group?: string | null,
-  semester?: string | null,
-): string {
-  return `schedule:${day}:${group || '*'}:${semester || '*'}`;
+export function cacheKeyScheduleEvents(weekStart: string, group?: string | null): string {
+  return `schedule:events:${weekStart}:${group || '*'}`;
 }
 
 

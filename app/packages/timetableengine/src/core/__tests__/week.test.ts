@@ -103,3 +103,21 @@ describe('dayIndexOf', () => {
     expect(dayIndexOf(new Date(2026, 8, 13))).toBe(6); // Sunday
   });
 });
+
+
+describe('the New Year seam', () => {
+  it('mondayOf crosses back into the old year', () => {
+    // 2027-01-01 is a Friday — its week began in 2026
+    expect(mondayOf('2027-01-01')).toBe('2026-12-28');
+  });
+
+  it('isoWeekNumber follows ISO 8601 at the year boundary, not the calendar year', () => {
+    // ISO week 1 is the week holding January 4th: the last days
+    // of December can be week 1 of NEXT year, and a year whose
+    // last Thursday falls on Dec 31 keeps a week 53
+    expect(isoWeekNumber('2025-12-29')).toBe(1);  // Monday of 2026's week 1
+    expect(isoWeekNumber('2026-01-04')).toBe(1);  // Sunday closing it
+    expect(isoWeekNumber('2026-12-28')).toBe(53); // 2026 runs 53 weeks
+    expect(isoWeekNumber('2027-01-04')).toBe(1);  // the Monday after
+  });
+});

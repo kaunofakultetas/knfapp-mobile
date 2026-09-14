@@ -29,6 +29,7 @@ export { default as DayColumn } from './grid/DayColumn';
 export { default as HourAxis, AXIS_WIDTH } from './grid/HourAxis';
 export { default as LessonCell, FULL_MIN_HEIGHT, MEDIUM_MIN_HEIGHT } from './grid/LessonCell';
 export { default as NowLine } from './grid/NowLine';
+export { default as SnapPager } from './grid/SnapPager';
 
 export type { WeekGridProps } from './WeekGrid';
 export type { DayTimelineProps } from './DayTimeline';

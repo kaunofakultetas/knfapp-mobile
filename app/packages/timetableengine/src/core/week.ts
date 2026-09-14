@@ -14,6 +14,8 @@
 //
 //  Used by:
 //    - hosts bucketing entries for the grid
+//    - app/(main)/tabs/schedule.tsx — the dated week window
+//      (weekStart cursor, fetch bounds, header captions)
 //    - future dated features (parity, "this week" copies)
 // -----------------------------------------------------------
 
@@ -35,6 +37,7 @@ import type { TimetableEntry } from './types';
 //
 // Used by:
 //   - mondayOf, isoWeekNumber, materializeWeek (below)
+//   - app/(main)/tabs/schedule.tsx — the dated week window
 // -----------------------------------------------------------
 
 export const DAY_MS = 86_400_000;
@@ -104,6 +107,7 @@ export function visibleDays(entries: readonly TimetableEntry[]): number[] {
 //
 // Used by:
 //   - mondayOf, isoWeekNumber, materializeWeek (below)
+//   - app/(main)/tabs/schedule.tsx — week window arithmetic
 // -----------------------------------------------------------
 
 export const parseISO = (date: string): number => {
@@ -126,6 +130,7 @@ export const parseISO = (date: string): number => {
 //
 // Used by:
 //   - mondayOf, materializeWeek (below)
+//   - app/(main)/tabs/schedule.tsx — week window arithmetic
 // -----------------------------------------------------------
 
 export const toISO = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
@@ -166,6 +171,7 @@ export function dayIndexOf(date: Date): number {
 //
 // Used by:
 //   - materializeWeek (below)
+//   - app/(main)/tabs/schedule.tsx — the weekStart cursor
 // -----------------------------------------------------------
 
 export function mondayOf(dateISO: string): string {
@@ -185,11 +191,12 @@ export function mondayOf(dateISO: string): string {
 // isoWeekNumber
 // -----------------------------------------------------------
 //
-// ISO-8601 week number — the future key for parity/weeks
-// filters (week 53 exists; Jan 1 can belong to week 52/53)
+// ISO-8601 week number — the key for parity/weeks filters
+// (week 53 exists; Jan 1 can belong to week 52/53)
 //
 // Used by:
 //   - materializeWeek (below)
+//   - app/(main)/tabs/schedule.tsx — week mode's caption
 // -----------------------------------------------------------
 
 export function isoWeekNumber(dateISO: string): number {

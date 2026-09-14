@@ -54,6 +54,50 @@ describe('DayStepper', () => {
     expect(screen.getByText('Pr')).toBeTruthy();
     expect(screen.getByLabelText('Ankstesnė diena')).toBeTruthy();
   });
+
+  it('stacks the dated subtitle under the day name', async () => {
+    const screen = await render(
+      <DayStepper day={0} subtitle="2026-09-14" onPrev={jest.fn()} onNext={jest.fn()} />,
+    );
+    expect(screen.getByText('Mon')).toBeTruthy();
+    expect(screen.getByText('2026-09-14')).toBeTruthy();
+  });
+
+  it('lets a week-cursor host replace the day name via label', async () => {
+    const screen = await render(
+      <DayStepper day={0} label="38 sav." subtitle="09-14 – 09-20" onPrev={jest.fn()} onNext={jest.fn()} />,
+    );
+    expect(screen.getByText('38 sav.')).toBeTruthy();
+    expect(screen.queryByText('Mon')).toBeNull();
+    expect(screen.getByText('09-14 – 09-20')).toBeTruthy();
+  });
+
+  it('a week cursor renames what the chevrons announce', async () => {
+    const screen = await render(
+      <DayStepper
+        day={0}
+        prevAccessibilityLabel="Previous week"
+        nextAccessibilityLabel="Next week"
+        onPrev={jest.fn()}
+        onNext={jest.fn()}
+      />,
+    );
+    expect(screen.getByLabelText('Previous week')).toBeTruthy();
+    expect(screen.getByLabelText('Next week')).toBeTruthy();
+    expect(screen.queryByLabelText('Previous day')).toBeNull();
+  });
+
+  it('renders the Today pill only when the host hands the snap-back over', async () => {
+    const onToday = jest.fn();
+    const screen = await render(<DayStepper day={0} onToday={onToday} onPrev={jest.fn()} onNext={jest.fn()} />);
+    fireEvent.press(screen.getByText('Today'));
+    expect(onToday).toHaveBeenCalledTimes(1);
+  });
+
+  it('no onToday means no pill — presence itself marks displacement', async () => {
+    const screen = await render(<DayStepper day={0} onPrev={jest.fn()} onNext={jest.fn()} />);
+    expect(screen.queryByText('Today')).toBeNull();
+  });
 });
 
 
@@ -67,6 +111,23 @@ describe('DayTabs', () => {
     expect(tuesday.props.accessibilityState).toEqual({ selected: true });
     fireEvent.press(screen.getByLabelText('Friday'));
     expect(onSelect).toHaveBeenCalledWith(4);
+  });
+
+  it("today's pill announces itself, and only when the host marks one", async () => {
+    const marked = await render(
+      <DayTabs days={[0, 1, 2, 3, 4]} selectedDay={1} today={3} onSelect={jest.fn()} />,
+    );
+    // The a11y label carries the today marker; selection stays
+    // on Tuesday untouched
+    expect(marked.getByLabelText('Thursday, Today')).toBeTruthy();
+    expect(marked.getByLabelText('Tuesday').props.accessibilityState).toEqual({ selected: true });
+
+    // A foreign week passes no today — no pill claims it
+    const foreign = await render(
+      <DayTabs days={[0, 1, 2, 3, 4]} selectedDay={1} onSelect={jest.fn()} />,
+    );
+    expect(foreign.queryByLabelText('Thursday, Today')).toBeNull();
+    expect(foreign.getByLabelText('Thursday')).toBeTruthy();
   });
 });
 

@@ -182,7 +182,10 @@ export default function DayTimeline({
       ) : null}
 
 
-      <ScrollView ref={scrollRef} contentContainerStyle={{ paddingBottom: 12 }} showsVerticalScrollIndicator={false}>
+      <ScrollView ref={scrollRef} // Top padding gives the first hour label (drawn centered
+        // on its line) room to render whole instead of being
+        // halved by the container edge; bottom likewise
+        contentContainerStyle={{ paddingTop: 12, paddingBottom: 12 }} showsVerticalScrollIndicator={false}>
         {containerWidth > 0 ? (
           <View style={{ flexDirection: 'row' }}>
             <HourAxis window={window} height={gridHeight} />

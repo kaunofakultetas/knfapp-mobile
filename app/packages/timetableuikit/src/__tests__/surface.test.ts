@@ -22,6 +22,7 @@ describe('@knf/timetableuikit surface', () => {
       'LessonCell',
       'MEDIUM_MIN_HEIGHT',
       'NowLine',
+      'SnapPager',
       'TimetableProvider',
       'ViewModeSwitch',
       'WeekGrid',

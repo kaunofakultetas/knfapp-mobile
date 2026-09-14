@@ -10,7 +10,8 @@ import {
   cacheKeyConversations,
   cacheKeyInfo,
   cacheKeyNews,
-  cacheKeySchedule,
+  cacheKeyScheduleEvents,
+  cacheKeyScheduleWeek,
   CONVERSATIONS_CACHE_MAX_AGE,
   INFO_CACHE_MAX_AGE,
   NEWS_CACHE_MAX_AGE,
@@ -26,11 +27,12 @@ describe('cache keys', () => {
     expect(cacheKeyNews('u1')).not.toBe(cacheKeyNews('u2'));
   });
 
-  it('keeps the unfiltered schedule variant apart from filtered ones', () => {
-    expect(cacheKeySchedule(1)).toBe('schedule:1:*:*');
-    expect(cacheKeySchedule(1, 'G1')).toBe('schedule:1:G1:*');
-    expect(cacheKeySchedule(1, null, 'S2')).toBe('schedule:1:*:S2');
-    expect(cacheKeySchedule(1, '', '')).toBe('schedule:1:*:*');
+  it('keeps the all-groups schedule variants apart from filtered ones', () => {
+    expect(cacheKeyScheduleEvents('2026-09-14')).toBe('schedule:events:2026-09-14:*');
+    expect(cacheKeyScheduleEvents('2026-09-14', 'G1')).toBe('schedule:events:2026-09-14:G1');
+    expect(cacheKeyScheduleEvents('2026-09-14', '')).toBe('schedule:events:2026-09-14:*');
+    expect(cacheKeyScheduleWeek('2026-R')).toBe('schedule:week:2026-R');
+    expect(cacheKeyScheduleWeek(null)).toBe('schedule:week:*');
   });
 
   it('separates info pages per language and keeps the TTLs sane', () => {

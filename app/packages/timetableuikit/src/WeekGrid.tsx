@@ -172,7 +172,10 @@ export default function WeekGrid({
       </View>
 
 
-      <ScrollView contentContainerStyle={{ paddingBottom: 12 }} showsVerticalScrollIndicator={false}>
+      <ScrollView // Top padding gives the first hour label (drawn centered
+        // on its line) room to render whole instead of being
+        // halved by the container edge; bottom likewise
+        contentContainerStyle={{ paddingTop: 12, paddingBottom: 12 }} showsVerticalScrollIndicator={false}>
         {dayWidth > 0 ? (
           <View style={{ flexDirection: 'row' }}>
 

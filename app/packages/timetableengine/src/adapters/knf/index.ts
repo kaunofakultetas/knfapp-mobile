@@ -20,12 +20,11 @@
 //    group    "ISKS-1"      → groupKey
 //    semester "2025-R"      → termKey
 //
-//  One response is ONE PAGE: GET /api/schedule caps a call at
-//  500 rows and a semester holds more across all groups, so an
-//  ungrouped fetch (the teacher perspective needs every group)
-//  must page with ?offset until a short page comes back, and
-//  hand the CONCATENATED rows here in one call. The adapter
-//  stays transport-free on purpose.
+//  One response is ONE PAGE: the schedule endpoints cap a
+//  call at 500 rows and an unfiltered query holds more across
+//  all groups, so a wide fetch must page with ?offset until a
+//  short page comes back, and hand the CONCATENATED rows here
+//  in one call. The adapter stays transport-free on purpose.
 //
 //  Used by:
 //    - hosts feeding the faculty schedule into the core
@@ -208,7 +207,8 @@ export function toTimetableEntry(lesson: KnfLesson): TimetableEntry<KnfLesson> {
 // everything usable still renders
 //
 // Used by:
-//   - app/(main)/tabs/schedule.tsx — both fetch paths
+//   - app/(main)/tabs/schedule.tsx — the dated events of both
+//     perspectives, shown week and pager side pages alike
 // -----------------------------------------------------------
 
 export function normalizeKnf(lessons: readonly KnfLesson[]): NormalizeResult<KnfLesson> {

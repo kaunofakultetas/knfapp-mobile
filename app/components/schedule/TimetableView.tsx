@@ -17,7 +17,8 @@
 //  screen's cursor while the pager recenters. The time axis
 //  and the visible-day set derive from ALL three weeks, so
 //  pages never jump vertically or change column count
-//  mid-swipe. Without neighbours (the teacher pattern) the
+//  mid-swipe. Without neighbours (a host with no dated window
+//  — the schedule screen always hands them over now) the
 //  static single views render, day swipes paging through the
 //  timeline's own pan exactly as before.
 //

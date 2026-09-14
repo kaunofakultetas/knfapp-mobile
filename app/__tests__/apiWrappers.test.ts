@@ -100,7 +100,7 @@ describe('news wire shape', () => {
 });
 
 
-describe('admin and schedule wire shape', () => {
+describe('admin wire shape', () => {
   it('creates invitations with the exact snake_case params', async () => {
     const { createInvitation } = require('@/services/api/admin');
     await createInvitation({ role: 'teacher', max_uses: 5, expires_hours: 48 });
@@ -115,23 +115,5 @@ describe('admin and schedule wire shape', () => {
     const { revokeInvitation } = require('@/services/api/admin');
     await revokeInvitation('code 9');
     expect(mockDelete).toHaveBeenCalledWith('/admin/invitations/code%209');
-  });
-
-  it('drops unset schedule filters instead of sending empty params', async () => {
-    const { fetchSchedule } = require('@/services/api/schedule');
-    await fetchSchedule(2, '', undefined);
-    expect(mockGet).toHaveBeenCalledWith('/schedule', { params: { day: 2 } });
-
-    mockGet.mockClear();
-    await fetchSchedule(undefined, 'IF-23', '2026-ruduo');
-    expect(mockGet).toHaveBeenCalledWith('/schedule', {
-      params: { group: 'IF-23', semester: '2026-ruduo' },
-    });
-  });
-
-  it('keeps day 0 (Monday) distinct from an unset day', async () => {
-    const { fetchSchedule } = require('@/services/api/schedule');
-    await fetchSchedule(0);
-    expect(mockGet).toHaveBeenCalledWith('/schedule', { params: { day: 0 } });
   });
 });

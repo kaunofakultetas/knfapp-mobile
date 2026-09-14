@@ -2,28 +2,29 @@
 //  [*] Tests — the schedule screen's state machine
 //
 //  The seams the wiring promises and no lower layer can pin:
-//  the group perspective's ONE dated Monday–Sunday fetch per
-//  (week, group) with the chevrons crossing week boundaries,
-//  the semester picker acting as a TIME JUMP (a past term's
-//  first Monday, the current term back to today) while its
-//  default is the CURRENT term — not the next term the
-//  backend publishes early; on the teacher side the explicit
-//  "all semesters" choice riding the folded wire as the
-//  literal 'all' (an omitted param means NEWEST to the
-//  backend), the filter modal's untouched Apply preserving an
+//  ONE dated Monday–Sunday fetch per (week, scope) for BOTH
+//  perspectives — the group as ?group=, the teacher as
+//  ?teacher= with the exact display string — with the
+//  chevrons crossing week boundaries, the semester picker
+//  acting as a TIME JUMP (a past term's first Monday, the
+//  current term back to today) while its default is the
+//  CURRENT term — not the next term the backend publishes
+//  early; the filter modal's untouched Apply preserving an
 //  auto-default that landed under the open sheet, prefs
 //  round-tripping without promoting a default to a choice,
-//  the pick-a-group gate in front of the timetable views, and
-//  the teacher perspective's merged day cards.
+//  the pick-a-group gate in front of the timetable views, the
+//  teacher roster coming from the filters response, the
+//  teacher day cards merging shared-id rows, and the
+//  alternating-slot regression the dated wire exists for: a
+//  lecture that lives on next week's date never paints a
+//  phantom card into this week.
 // -----------------------------------------------------------
 
 const mockFetchEvents = jest.fn();
 const mockFetchFilters = jest.fn();
-const mockFetchWeek = jest.fn();
 jest.mock('@/services/api', () => ({
   fetchScheduleEvents: (...args: unknown[]) => mockFetchEvents(...(args as [])),
   fetchScheduleFilters: (...args: unknown[]) => mockFetchFilters(...(args as [])),
-  fetchScheduleWeek: (...args: unknown[]) => mockFetchWeek(...(args as [])),
 }));
 jest.mock('@react-native-async-storage/async-storage', () =>
   require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
@@ -72,6 +73,7 @@ jest.mock('@/hooks/useTheme', () => ({
     },
   }),
 }));
+const tabPressListeners: (() => void)[] = [];
 jest.mock('expo-router', () => ({
   useFocusEffect: (effect: () => void) => {
     const { useEffect } = require('react');
@@ -79,7 +81,18 @@ jest.mock('expo-router', () => ({
       effect();
     }, [effect]);
   },
+  // The tab-repress reset: tests fire the captured listeners to
+  // simulate tapping the Schedule tab while already on it
+  useNavigation: () => ({
+    addListener: (_event: string, listener: () => void) => {
+      tabPressListeners.push(listener);
+      return () => {};
+    },
+    isFocused: () => true,
+  }),
 }));
+jest.mock('expo-router/js-tabs', () => ({}));
+jest.mock('expo-router/react-navigation', () => ({}));
 jest.mock('@/components/ui', () => {
   const { Pressable, Text, TextInput, View } = require('react-native');
   return {
@@ -189,14 +202,19 @@ const cacheMock = () =>
   (globalThis as Record<string, unknown>).__cacheMock as { get: jest.Mock; set: jest.Mock };
 
 beforeEach(async () => {
+  tabPressListeners.length = 0;
   cacheMock().get.mockReset().mockResolvedValue(null);
   cacheMock().set.mockReset().mockResolvedValue(undefined);
   mockFetchEvents.mockReset().mockResolvedValue({ events: [eventRow('a')] });
   // '2023-R' gives the time-jump a PAST term with a known
   // first Monday; nextTerm ranks newest and must not win the
-  // default over currentTerm
-  mockFetchFilters.mockReset().mockResolvedValue({ groups: ['ISKS-1', 'PDF-2'], semesters: ['2023-R', currentTerm, nextTerm] });
-  mockFetchWeek.mockReset().mockResolvedValue({ lessons: [row('a'), row('b', { group: 'PDF-2' })] });
+  // default over currentTerm. The teacher roster rides the
+  // same filters response — exact display strings, titles in
+  mockFetchFilters.mockReset().mockResolvedValue({
+    groups: ['ISKS-1', 'PDF-2'],
+    semesters: ['2023-R', currentTerm, nextTerm],
+    teachers: ['A. Petraitis', 'Eglė Gabrėnaitė, Doc., Dr.'],
+  });
   await AsyncStorage.clear();
 });
 
@@ -214,9 +232,6 @@ describe('the dated group window', () => {
     await flush();
     expect(mockFetchEvents).toHaveBeenCalledWith(...fetchWindow(monday), undefined);
     expect(view.getByText('Lesson a')).toBeTruthy();
-    // The folded semester dataset belongs to the teacher
-    // perspective alone now
-    expect(mockFetchWeek).not.toHaveBeenCalled();
   });
 
   it('stepping back past Monday crosses into the previous week and refetches', async () => {
@@ -269,23 +284,22 @@ describe('the dated group window', () => {
     expect(view.queryByText('loading')).toBeNull();
   });
 
-  it('the Today pill appears only while displaced and snaps both cursors back', async () => {
+  it('re-tapping the Schedule tab snaps back to today; a mere tab switch never does', async () => {
     const view = await render(<ScheduleScreen />);
     await flush();
-    // On today's week and day the button must NOT exist — its
-    // presence is the displacement cue; it renders app-side on
-    // the day-tab row, so the mock t answers with the raw key
-    expect(view.queryByText('schedule.today')).toBeNull();
 
+    // Wander a week away
     await fireEvent.press(view.getByLabelText('Previous day'));
     await flush();
-    await fireEvent.press(view.getByText('schedule.today'));
-    await flush();
+    const wandered = lastEventsCall();
+    expect(wandered).not.toEqual([...fetchWindow(monday), undefined]);
 
-    // Back on today's window (day steps inside the week fetch
-    // nothing new — the LAST fetch is today's week either way)
+    // The news-feed gesture: tapping the tab while ON it
+    await act(async () => {
+      for (const listener of tabPressListeners) listener();
+    });
+    await flush();
     expect(lastEventsCall()).toEqual([...fetchWindow(monday), undefined]);
-    expect(view.queryByText('schedule.today')).toBeNull();
   });
 });
 
@@ -315,19 +329,7 @@ describe('the semester time-jump', () => {
   });
 });
 
-describe('teacher semester wire contract', () => {
-  it("a restored explicit 'all semesters' rides the folded wire as the literal 'all'", async () => {
-    await AsyncStorage.setItem(
-      SCHEDULE_PREFS_KEY,
-      JSON.stringify({ group: null, semester: null, semesterExplicit: true, perspective: 'teacher', teacher: 'A. Petraitis' }),
-    );
-    await render(<ScheduleScreen />);
-    await flush();
-    expect(mockFetchWeek).toHaveBeenCalledWith('all');
-    // The dated fetch is the group perspective's alone
-    expect(mockFetchEvents).not.toHaveBeenCalled();
-  });
-
+describe('prefs round trip', () => {
   it('a restored auto-default stays a default in the next persisted blob', async () => {
     await AsyncStorage.setItem(
       SCHEDULE_PREFS_KEY,
@@ -367,14 +369,13 @@ describe('filter modal semantics', () => {
 });
 
 describe('timetable view gating', () => {
-  it('week mode without a group prompts for one and fetches NO folded dataset', async () => {
+  it('week mode without a group prompts for one', async () => {
     const view = await render(<ScheduleScreen />);
     await flush();
     // The kit's ViewModeSwitch announces its own catalog (EN default env here)
     await fireEvent.press(view.getByLabelText('Week'));
     await flush();
     expect(view.getByText('empty:schedule.pickGroup')).toBeTruthy();
-    expect(mockFetchWeek).not.toHaveBeenCalled();
   });
 
   it('week mode with a group feeds the dated rows through the grid seam', async () => {
@@ -391,30 +392,82 @@ describe('timetable view gating', () => {
   });
 });
 
-describe('teacher perspective', () => {
-  it('merges a cross-group double slot into one card listing both groups', async () => {
-    mockFetchWeek.mockResolvedValue({
-      lessons: [
-        // The SAME slot taught to two groups at once — only the
-        // group differs, so the teacher view merges it
-        row('a', { teacher: 'Eglė Gabrėnaitė, Doc., Dr.', group: 'ISKS-1' }),
-        row('b', { title: 'Lesson a', teacher: 'Eglė Gabrėnaitė, Doc., Dr.', group: 'PDF-2' }),
+describe('teacher perspective on the dated wire', () => {
+  it('a restored teacher rides as ?teacher= on the dated window — never the remembered group', async () => {
+    await AsyncStorage.setItem(
+      SCHEDULE_PREFS_KEY,
+      JSON.stringify({
+        // The remembered group must NOT leak onto the teacher
+        // scope's wire — exactly one scope param per fetch
+        group: 'ISKS-1', semester: null, semesterExplicit: true,
+        perspective: 'teacher', teacher: 'A. Petraitis',
+      }),
+    );
+    const view = await render(<ScheduleScreen />);
+    await flush();
+    expect(mockFetchEvents).toHaveBeenCalledWith(...fetchWindow(monday), undefined, 'A. Petraitis');
+    expect(view.getByText('Lesson a')).toBeTruthy();
+  });
+
+  it('picking a teacher from the filters roster fetches their dated window', async () => {
+    const view = await render(<ScheduleScreen />);
+    await flush();
+    // The roster is the filters response's `teachers` — no
+    // dataset fetch stands behind the picker any more
+    await fireEvent.press(view.getByLabelText('schedule.filterTitle'));
+    await fireEvent.press(view.getByText('schedule.teacherLabel'));
+    await fireEvent.press(view.getByLabelText('Eglė Gabrėnaitė, Doc., Dr.'));
+    await fireEvent.press(view.getByText('schedule.applyFilters'));
+    await flush();
+    expect(lastEventsCall()).toEqual([...fetchWindow(monday), undefined, 'Eglė Gabrėnaitė, Doc., Dr.']);
+  });
+
+  it('merges shared-id rows of a cross-group lecture into one card listing every group, sorted', async () => {
+    mockFetchEvents.mockResolvedValue({
+      events: [
+        // The SAME physical lecture served to two groups — the
+        // wire ships it once per group under ONE event id
+        eventRow('a', { teacher: 'Eglė Gabrėnaitė, Doc., Dr.', group: 'ISKS-1' }),
+        eventRow('a', { teacher: 'Eglė Gabrėnaitė, Doc., Dr.', group: 'FT-1' }),
       ],
     });
     await AsyncStorage.setItem(
       SCHEDULE_PREFS_KEY,
       JSON.stringify({
         group: null, semester: currentTerm, semesterExplicit: true,
-        viewMode: 'list', perspective: 'teacher', teacher: 'Eglė Gabrėnaitė',
+        viewMode: 'list', perspective: 'teacher', teacher: 'Eglė Gabrėnaitė, Doc., Dr.',
       }),
     );
     const view = await render(<ScheduleScreen />);
     await flush();
-    // One merged card, its group cell naming both cohorts; the
-    // dated group fetch never runs in this perspective
-    expect(view.getByText('Lesson a')).toBeTruthy();
-    expect(view.queryByText('Lesson b')).toBeNull();
-    expect(view.getByText(/ISKS-1, PDF-2/)).toBeTruthy();
-    expect(mockFetchEvents).not.toHaveBeenCalled();
+    expect(view.getAllByText('Lesson a')).toHaveLength(1);
+    expect(view.getByText(/FT-1, ISKS-1/)).toBeTruthy();
+  });
+
+  it('an alternating slot shows ONE card this week — the next-week twin stays on its own date', async () => {
+    mockFetchEvents.mockResolvedValue({
+      events: [
+        eventRow('now', { title: 'Tinklai', timeStart: '13:45', timeEnd: '15:15' }),
+        // The twin lives ONLY next week, same weekday and time.
+        // The folded weekly pattern used to paint BOTH copies
+        // into every week — six lectures instead of five
+        eventRow('next', {
+          title: 'Tinklai',
+          timeStart: '13:45',
+          timeEnd: '15:15',
+          date: toISO(parseISO(monday) + (7 + todayIdx) * DAY_MS),
+        }),
+      ],
+    });
+    await AsyncStorage.setItem(
+      SCHEDULE_PREFS_KEY,
+      JSON.stringify({
+        group: null, semester: currentTerm, semesterExplicit: true,
+        viewMode: 'list', perspective: 'teacher', teacher: 'A. Petraitis',
+      }),
+    );
+    const view = await render(<ScheduleScreen />);
+    await flush();
+    expect(view.getAllByText('Tinklai')).toHaveLength(1);
   });
 });

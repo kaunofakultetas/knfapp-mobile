@@ -30,7 +30,9 @@ import type { TimetableEntry } from './types';
 // Sorted unique teacher names across every entry
 //
 // Used by:
-//   - app/(main)/tabs/schedule.tsx — the teacher picker's list
+//   - no app code since the teacher roster moved to the
+//     backend's /schedule/filters response — kept on the
+//     public surface for hosts deriving a roster from entries
 // -----------------------------------------------------------
 
 export function listTeachers(entries: readonly TimetableEntry[]): string[] {
@@ -95,7 +97,9 @@ const naturalKey = (entry: TimetableEntry) =>
 // merged card listing every group it serves
 //
 // Used by:
-//   - app/(main)/tabs/schedule.tsx — the teacher perspective
+//   - no app code since the teacher perspective moved to
+//     server-filtered dated events merged by event id — kept
+//     on the public surface for hosts folding weekly patterns
 // -----------------------------------------------------------
 
 export function forTeacher<T = object>(entries: readonly TimetableEntry<T>[], name: string): TimetableEntry<T>[] {

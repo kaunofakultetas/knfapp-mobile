@@ -47,8 +47,8 @@ export const NEWS_CACHE_MAX_AGE = 24 * 60 * 60 * 1000;
 // 7 days — the schedule rarely changes mid-week.
 //
 // Used by:
-//   - app/(main)/tabs/schedule.tsx — dated-events + folded
-//     week reads and the 'schedule:' prefix sweep
+//   - app/(main)/tabs/schedule.tsx — dated-events reads and
+//     the 'schedule:' prefix sweep
 // -----------------------------------------------------------
 
 export const SCHEDULE_CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
@@ -137,43 +137,24 @@ export function cacheKeyConversations(userId: string): string {
 
 
 // -----------------------------------------------------------
-// cacheKeyScheduleWeek
-// -----------------------------------------------------------
-//
-// The folded whole-semester fetch behind the TEACHER
-// perspective — per semester only, a lecturer's lessons
-// filter client-side. The 'schedule:' prefix keeps it under
-// the same sweep as the dated rows.
-//
-// Used by:
-//   - app/(main)/tabs/schedule.tsx — loadWeek + staleness checks
-// -----------------------------------------------------------
-
-export function cacheKeyScheduleWeek(semester?: string | null): string {
-  return `schedule:week:${semester || '*'}`;
-}
-
-
-
-
-
-
-
-// -----------------------------------------------------------
 // cacheKeyScheduleEvents
 // -----------------------------------------------------------
 //
-// One DATED week of lecture events — the group perspective's
-// whole dataset, keyed by the window's ISO Monday plus the
-// group ('*' when every group rides along). No semester in
-// the key: the dates themselves say which term the rows are.
+// One DATED week of lecture events — BOTH perspectives'
+// dataset, keyed by the window's ISO Monday plus the scope:
+// the group ('*' when every group rides along), or 't:' plus
+// the teacher's display string when the teacher scope is set
+// (the prefix keeps a teacher's rows apart from a group that
+// could share the spelling). No semester in the key: the
+// dates themselves say which term the rows are.
 //
 // Used by:
 //   - app/(main)/tabs/schedule.tsx — loadEvents + staleness
 //     checks
 // -----------------------------------------------------------
 
-export function cacheKeyScheduleEvents(weekStart: string, group?: string | null): string {
+export function cacheKeyScheduleEvents(weekStart: string, group?: string | null, teacher?: string | null): string {
+  if (teacher) return `schedule:events:${weekStart}:t:${teacher}`;
   return `schedule:events:${weekStart}:${group || '*'}`;
 }
 

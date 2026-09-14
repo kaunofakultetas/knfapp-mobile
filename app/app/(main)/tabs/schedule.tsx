@@ -13,23 +13,28 @@
 //  opens on today's week and re-follows the calendar on
 //  focus/foreground.
 //
-//  The GROUP perspective lives off ONE dated fetch per
-//  (week, group) — GET /schedule/events rows, ScheduleLesson
-//  plus date and lectureType — feeding all three view modes:
-//  the card list filters the week client-side by the selected
+//  BOTH perspectives live off ONE dated fetch per (week,
+//  scope) — GET /schedule/events rows, ScheduleLesson plus
+//  date and lectureType — feeding all three view modes: the
+//  card list filters the week client-side by the selected
 //  day, the day timeline and week grid run the same rows
-//  through the engine pipeline. The TEACHER perspective stays
-//  on the legacy folded whole-semester fetch (a lecturer's
-//  lessons across every group, merged into single cards,
-//  double-bookings washed via the engine's person-scope
-//  conflicts); the semester picker filters its wire — while
-//  in the group perspective it is a TIME JUMP: a non-current
-//  term moves weekStart to that term's first Monday, the
-//  current term or "all" back to today's week. With no stored
-//  choice the CURRENT term is defaulted — today's own label
-//  when the server lists it (the next term's exam weeks
-//  arrive early and must not steal the default), the newest
-//  parsable label otherwise.
+//  through the engine pipeline. The scope is the selected
+//  group, or ?teacher= with the lecturer's exact display
+//  string — teacher rows arrive server-filtered, once per
+//  group under the SAME event id, so a lecture shared by
+//  several groups merges by id into one card listing every
+//  group; double-bookings are washed via the engine's
+//  person-scope conflicts. An alternating slot (Monday one
+//  week, Tuesday the next) therefore shows only on its real
+//  dates — the folded weekly pattern that painted both
+//  phantom copies every week is gone. The semester picker is
+//  a TIME JUMP in both perspectives: a non-current term moves
+//  weekStart to that term's first Monday, the current term or
+//  "all" back to today's week. With no stored choice the
+//  CURRENT term is defaulted — today's own label when the
+//  server lists it (the next term's exam weeks arrive early
+//  and must not steal the default), the newest parsable label
+//  otherwise.
 //
 //  Every load is sequence-guarded — rapid day tapping fires
 //  overlapping requests and only the newest may write. A
@@ -54,6 +59,7 @@
 //
 //    currentTermKey  — today's 'YYYY-R/P' semester label
 //    termStartMonday — a term label → its first ISO Monday
+//    mergeEventRows  — shared-id rows → one row, groups joined
 //    Separator       — hoisted lesson-list separator
 //    FilterBar       — active-filter summary, opens the modal
 //    FilterOption    — one radio row of the filter picker
@@ -71,14 +77,10 @@ import TimetableHost from '@/components/schedule/TimetableHost';
 import TimetableView from '@/components/schedule/TimetableView';
 import {
   DAY_MS,
-  compareEntries,
   conflictIds as engineConflictIds,
   dayIndexOf,
   forGroup,
-  forTeacher,
-  formatMinutes,
   isoWeekNumber,
-  listTeachers,
   mondayOf,
   newestSemesterKey,
   normalizeKnf,
@@ -111,13 +113,11 @@ import { useScheduleConflicts } from '@/hooks/useScheduleConflicts';
 import {
   fetchScheduleEvents,
   fetchScheduleFilters,
-  fetchScheduleWeek,
   type ScheduleEventRow,
   type ScheduleEventsResponse,
   type ScheduleLesson,
-  type ScheduleResponse,
 } from '@/services/api';
-import { cacheKeyScheduleEvents, cacheKeyScheduleWeek, SCHEDULE_CACHE_MAX_AGE } from '@/services/cacheKeys';
+import { cacheKeyScheduleEvents, SCHEDULE_CACHE_MAX_AGE } from '@/services/cacheKeys';
 import { foldForSearch } from '@/services/format';
 
 // Failed silent refreshes toast instead of touching the list
@@ -128,8 +128,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Rendering
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect } from 'expo-router';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { BottomTabNavigationProp } from 'expo-router/js-tabs';
+import { type ParamListBase } from 'expo-router/react-navigation';
+import { useFocusEffect, useNavigation } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AppState, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 
@@ -254,6 +256,42 @@ function termStartMonday(label: string): string | null {
 
 
 // -----------------------------------------------------------
+// mergeEventRows
+// -----------------------------------------------------------
+//
+// The teacher scope's wire ships one row PER GROUP for a
+// lecture shared by several — all under the SAME event id.
+// One card per physical lecture: rows sharing an id collapse
+// into the first one, their group labels joined sorted
+// ("FT-1, ISKS-1"), so the card footnote and the grid cell
+// name every cohort. Order is the wire's (date, start time),
+// which the first-seen row keeps.
+//
+// Used by:
+//   - ScheduleScreen (below) — the teacher perspective's rows
+//     before normalizing (cards, timeline, grid, pager pages)
+// -----------------------------------------------------------
+
+function mergeEventRows(rows: readonly ScheduleEventRow[]): ScheduleEventRow[] {
+  const merged = new Map<string, { row: ScheduleEventRow; groups: Set<string> }>();
+  for (const row of rows) {
+    const held = merged.get(row.id);
+    if (held) held.groups.add(row.group);
+    else merged.set(row.id, { row, groups: new Set([row.group]) });
+  }
+  return [...merged.values()].map(({ row, groups }) => ({
+    ...row,
+    group: [...groups].sort((a, b) => a.localeCompare(b)).join(', '),
+  }));
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // Separator
 // -----------------------------------------------------------
 //
@@ -265,51 +303,6 @@ function termStartMonday(label: string): string | null {
 // -----------------------------------------------------------
 
 const Separator = () => <View className="h-3" />;
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// TodayButton
-// -----------------------------------------------------------
-//
-// The snap-back-to-today button, brand-filled so it reads as
-// a button on the white day-tab strip it sits in (the header
-// bar hid it — a brand pill on the brand ground). The screen
-// mounts it only while the cursors are away from today, so
-// its presence itself marks displacement. Button.tsx rules:
-// layout in className, active: feedback, no style function.
-//
-// Used by:
-//   - ScheduleScreen (below) — the day-tab strip's trailing
-//     slot, every view mode
-// -----------------------------------------------------------
-
-function TodayButton({ onPress }: { onPress: () => void }) {
-
-  const { t } = useTranslation();
-
-
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={t('schedule.today')}
-      hitSlop={8}
-      className="h-7 items-center justify-center self-center rounded-full bg-brand px-md active:bg-brand-strong"
-    >
-      <Text
-        className="font-raleway-semibold text-xs text-on-brand"
-        style={{ includeFontPadding: false, textAlignVertical: 'center' }}
-      >
-        {t('schedule.today')}
-      </Text>
-    </Pressable>
-  );
-}
 
 
 
@@ -433,8 +426,10 @@ function FilterOption({
 // visit instead of one behind the sheet for every candidate
 // tapped; "Valyti" clears the visible branch without closing,
 // and a scrim/back dismissal discards an unapplied draft.
-// Switching to the teacher tab asks the screen for the roster
-// (onNeedTeachers) — it arrives from the whole-semester fetch.
+// The teacher roster is the filters response's `teachers`
+// list, fetched once at mount alongside groups and semesters
+// — the search folds both sides, so 'birz' finds
+// 'Biržietienė'.
 //
 // The sheet rides above the keyboard the proven way (see
 // new-chat's banner): a KeyboardAvoidingView at the MODAL
@@ -453,26 +448,22 @@ function FilterModal({
   groups,
   semesters,
   teachers,
-  teachersLoading,
   selectedGroup,
   selectedSemester,
   perspective,
   selectedTeacher,
   onApply,
-  onNeedTeachers,
   onClose,
 }: {
   visible: boolean;
   groups: string[];
   semesters: string[];
   teachers: string[];
-  teachersLoading: boolean;
   selectedGroup: string | null;
   selectedSemester: string | null;
   perspective: Perspective;
   selectedTeacher: string | null;
   onApply: (choice: FilterChoice) => void;
-  onNeedTeachers: () => void;
   onClose: () => void;
 }) {
 
@@ -500,7 +491,6 @@ function FilterModal({
       setDraftTeacher(selectedTeacher);
       setTeacherQuery('');
       semesterTouchedRef.current = false;
-      if (perspective === 'teacher') onNeedTeachers();
     }
     // Re-seed only on open — the applied values cannot change
     // while the sheet is up
@@ -597,10 +587,7 @@ function FilterModal({
                 return (
                   <Pressable
                     key={candidate}
-                    onPress={() => {
-                      setDraftPerspective(candidate);
-                      if (candidate === 'teacher') onNeedTeachers();
-                    }}
+                    onPress={() => setDraftPerspective(candidate)}
                     accessibilityRole="tab"
                     accessibilityState={{ selected: active }}
                     className={`flex-1 items-center rounded-lg py-3 ${active ? 'bg-surface' : ''}`}
@@ -630,11 +617,6 @@ function FilterModal({
                       autoCorrect={false}
                       testID="schedule-teacher-search"
                     />
-                    {teachersLoading && teachers.length === 0 ? (
-                      <Text className="mb-2 font-raleway text-sm text-ink-soft">
-                        {t('schedule.teachersLoading')}
-                      </Text>
-                    ) : null}
                   </View>
                 ) : (
                   <>
@@ -650,7 +632,11 @@ function FilterModal({
                 )
               }
               ListEmptyComponent={
-                teacherMode && !teachersLoading ? (
+                // Only a query that folded every name away says
+                // so — a roster that never arrived (the silent
+                // filters failure) stays as blank as the groups
+                // list does
+                teacherMode && teachers.length > 0 ? (
                   <Text className="mt-2 font-raleway text-sm text-ink-soft">{t('schedule.searchNoResults')}</Text>
                 ) : null
               }
@@ -700,17 +686,20 @@ function FilterModal({
 // ScheduleScreen (default export)
 // -----------------------------------------------------------
 //
-// Owns two independent datasets — the group perspective's
-// DATED week of events and the teacher perspective's folded
-// whole-semester week — each with its own sequence guard,
-// cache fallback and last-served key mark (a repeat need
-// refreshes silently instead of blanking a filled view).
-// Around them: the weekStart cursor the chevrons and the
-// semester time-jump move, the persisted prefs round trip
-// with the current-term default and stale-choice validation,
-// the teacher path's semesterParam wire rule (explicit "all"
-// vs omitted), the focus/foreground today re-check, and the
-// derived body branch table the render walks.
+// Owns ONE dataset: the DATED three-week window of events,
+// fetched per (week, scope) where the scope is the selected
+// group or the selected teacher — with a sequence guard,
+// cache fallback and last-served key mark (a repeat need for
+// the same scope refreshes silently instead of blanking a
+// filled view; a hop onto an already-fetched neighbour week
+// refreshes silently too, teacher hops included). Around it:
+// the weekStart cursor the chevrons and the semester
+// time-jump move, the persisted prefs round trip with the
+// current-term default and stale-choice validation, the
+// focus/foreground today re-check, and the derived body
+// branch table the render walks. With the teacher perspective
+// on but no teacher picked nothing fetches — the
+// pick-a-teacher prompt renders instead.
 //
 // Used by:
 //   - expo-router — the /tabs/schedule tab
@@ -741,22 +730,12 @@ export default function ScheduleScreen() {
   const [teacher, setTeacher] = useState<string | null>(null);
 
 
-  // The folded whole-semester dataset behind the TEACHER
-  // perspective and its roster — null until first needed. Its
-  // own three states beside the dated ones, so flipping
-  // perspectives never blanks the other path's data.
-  const [weekLessons, setWeekLessons] = useState<ScheduleLesson[] | null>(null);
-  const [weekLoading, setWeekLoading] = useState(false);
-  const [weekError, setWeekError] = useState(false);
-  const [weekCachedAt, setWeekCachedAt] = useState<number | null>(null);
-
-
   // A tapped timetable cell opens the detail sheet
   const [sheetLesson, setSheetLesson] = useState<TimetableLesson | null>(null);
 
 
-  // The group perspective's dataset — ONE dated week of
-  // events per (weekStart, group), feeding all three view
+  // BOTH perspectives' dataset — ONE dated three-week window
+  // of events per (weekStart, scope), feeding all three view
   // modes — its three data states, and the cache age
   const [events, setEvents] = useState<ScheduleEventRow[] | null>(null);
   const [eventsLoading, setEventsLoading] = useState(true);
@@ -768,9 +747,12 @@ export default function ScheduleScreen() {
   // Server-provided filter options + the user's choice;
   // filtersFetched separates "lists arrived" from "fetch
   // failed", and validation additionally trusts only NON-EMPTY
-  // lists, so an empty catalogue can't wipe a stored choice
+  // lists, so an empty catalogue can't wipe a stored choice.
+  // teachers is the whole roster the filter modal searches —
+  // exact ?teacher= values, no dataset fetch behind it
   const [groups, setGroups] = useState<string[]>([]);
   const [semesters, setSemesters] = useState<string[]>([]);
+  const [teachers, setTeachers] = useState<string[]>([]);
   const [filtersFetched, setFiltersFetched] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
   const [selectedSemester, setSelectedSemester] = useState<string | null>(null);
@@ -781,7 +763,7 @@ export default function ScheduleScreen() {
   // True once the user (or their restored prefs) chose a
   // semester — including "all". Until then the newest parsable
   // semester is defaulted so stale semesters stay out of view.
-  // STATE, not a ref: the wire param below derives from it
+  // STATE, not a ref: the prefs persistence effect watches it
   const [semesterExplicit, setSemesterExplicit] = useState(false);
 
 
@@ -791,19 +773,18 @@ export default function ScheduleScreen() {
   const eventsSeqRef = useRef(0);
 
 
-  // Both loaders remember which cache key they last SERVED — a
-  // repeat need for the same data (a view-mode round trip, a
-  // perspective flip) refreshes silently instead of blanking a
-  // filled view behind a spinner; a failed serve clears the
-  // mark so the next need retries with the full spinner path
-  const weekSeqRef = useRef(0);
-  const weekKeyRef = useRef<string | null>(null);
+  // The loader remembers which cache key it last SERVED — a
+  // repeat need for the same data (a view-mode round trip)
+  // refreshes silently instead of blanking a filled view
+  // behind a spinner; a failed serve clears the mark so the
+  // next need retries with the full spinner path
   const eventsKeyRef = useRef<string | null>(null);
 
   // What the dated rows on screen were fetched FOR — the load
   // effect reads it to tell a hop onto an already-rendered
-  // neighbour week (silent refresh) from a real jump (spinner)
-  const eventsServedRef = useRef<{ weekStart: string; group: string | null } | null>(null);
+  // neighbour week of the SAME scope (silent refresh) from a
+  // real jump or a scope change (spinner)
+  const eventsServedRef = useRef<{ weekStart: string; group: string | null; teacher: string | null } | null>(null);
 
 
   // One code path for first load / window change (spinner),
@@ -811,27 +792,34 @@ export default function ScheduleScreen() {
   // weeks — the shown one plus a week either side, so the week
   // pager has real neighbour pages to scroll onto and a day
   // step across the boundary lands on data it already holds —
-  // cached per (weekStart, group); a failure serves the
-  // offline cache before admitting a distinct error state
+  // cached per (weekStart, scope), where the scope is a group
+  // OR a teacher (never both — the effect below derives it
+  // from the perspective); a failure serves the offline cache
+  // before admitting a distinct error state
   const loadEvents = useCallback(
-    async (weekStartISO: string, group: string | null, spinner: boolean) => {
+    async (weekStartISO: string, group: string | null, teacher: string | null, spinner: boolean) => {
       const seq = ++eventsSeqRef.current;
       if (spinner) {
         setEventsLoading(true);
         setEventsError(false);
       }
 
-      const key = cacheKeyScheduleEvents(weekStartISO, group);
+      const key = cacheKeyScheduleEvents(weekStartISO, group, teacher);
       const fromISO = toISO(parseISO(weekStartISO) - 7 * DAY_MS);
       const untilISO = toISO(parseISO(weekStartISO) + 13 * DAY_MS);
       try {
-        const resp = await fetchScheduleEvents(fromISO, untilISO, group ?? undefined);
+        // Group scope keeps the three-argument call shape the
+        // wire tests pin; only the teacher scope rides the
+        // fourth parameter
+        const resp = teacher
+          ? await fetchScheduleEvents(fromISO, untilISO, undefined, teacher)
+          : await fetchScheduleEvents(fromISO, untilISO, group ?? undefined);
         if (seq !== eventsSeqRef.current) return;
         setEvents(resp.events);
         setEventsCachedAt(null);
         setEventsError(false);
         eventsKeyRef.current = key;
-        eventsServedRef.current = { weekStart: weekStartISO, group };
+        eventsServedRef.current = { weekStart: weekStartISO, group, teacher };
         void cache.set(key, resp);
       } catch {
         // A failed SILENT refresh keeps whatever is on screen
@@ -851,7 +839,7 @@ export default function ScheduleScreen() {
           setEventsCachedAt(cached.cachedAt);
           setEventsError(false);
           eventsKeyRef.current = key;
-          eventsServedRef.current = { weekStart: weekStartISO, group };
+          eventsServedRef.current = { weekStart: weekStartISO, group, teacher };
         } else {
           setEvents([]);
           setEventsCachedAt(null);
@@ -867,62 +855,15 @@ export default function ScheduleScreen() {
   );
 
 
-  // The folded whole-semester fetch behind the TEACHER
-  // perspective: every group, every day, paged past the
-  // backend's 500-row cap by fetchScheduleWeek, cached like
-  // the dated rows and falling back to that cache the same way
-  const loadWeek = useCallback(
-    async (semester: string | null, spinner: boolean) => {
-      const seq = ++weekSeqRef.current;
-      if (spinner) {
-        setWeekLoading(true);
-        setWeekError(false);
-      }
-
-      const key = cacheKeyScheduleWeek(semester);
-      try {
-        const resp = await fetchScheduleWeek(semester ?? undefined);
-        if (seq !== weekSeqRef.current) return;
-        setWeekLessons(resp.lessons);
-        setWeekCachedAt(null);
-        setWeekError(false);
-        weekKeyRef.current = key;
-        void cache.set(key, resp);
-      } catch {
-        if (!spinner) {
-          if (seq === weekSeqRef.current) showToast('error', t('schedule.loadError'));
-          return;
-        }
-        const cached = await cache.get<ScheduleResponse>(key, SCHEDULE_CACHE_MAX_AGE);
-        if (seq !== weekSeqRef.current) return;
-        if (cached) {
-          setWeekLessons(cached.data.lessons);
-          setWeekCachedAt(cached.cachedAt);
-          setWeekError(false);
-          weekKeyRef.current = key;
-        } else {
-          setWeekLessons([]);
-          setWeekCachedAt(null);
-          setWeekError(true);
-          // Next need for ANY semester must take the spinner
-          // path again — it is the only one reading the cache
-          weekKeyRef.current = null;
-        }
-      } finally {
-        if (seq === weekSeqRef.current) setWeekLoading(false);
-      }
-    },
-    [t, cache],
-  );
-
-
   // Filter options fail silently — the modal simply offers
-  // only the "all" rows until the network-restore retry below
+  // only the "all" rows (and an empty teacher roster) until
+  // the network-restore retry below
   const loadFilters = useCallback(async () => {
     try {
       const resp = await fetchScheduleFilters();
       setGroups(resp.groups);
       setSemesters(resp.semesters);
+      setTeachers(resp.teachers);
       setFiltersFetched(true);
     } catch {
       // keep whatever we had
@@ -969,11 +910,10 @@ export default function ScheduleScreen() {
   }, [loadFilters]);
 
 
-  // Browsing writes one cache row per week/group combination
-  // (plus the teacher path's per-semester rows) and most are
-  // never read again (cacheGet only evicts what it is asked
-  // for) — sweep the expired ones once per mount so the store
-  // cannot grow without bound
+  // Browsing writes one cache row per week/scope combination
+  // and most are never read again (cacheGet only evicts what
+  // it is asked for) — sweep the expired ones once per mount
+  // so the store cannot grow without bound
   useEffect(() => {
     void cache.sweepPrefix('schedule:', SCHEDULE_CACHE_MAX_AGE);
   }, [cache]);
@@ -1034,55 +974,43 @@ export default function ScheduleScreen() {
   }, [prefsLoaded, filtersFetched, semesters, selectedSemester, semesterExplicit]);
 
 
-  // What the TEACHER wire and its cache key call the semester
-  // choice: a picked label rides as itself; a DELIBERATE "all"
-  // must be sent as the literal 'all' — the backend rewrites an
-  // omitted ?semester to the newest one and only 'all' opts
-  // out; the transient null before the auto-default lands stays
-  // omitted. The group perspective's dated fetch needs none of
-  // this — its dates themselves say which term is on screen.
-  const semesterParam = selectedSemester ?? (semesterExplicit ? 'all' : null);
+  // The fetch scope BOTH perspectives share: exactly one of
+  // group/teacher is set — the other perspective's remembered
+  // choice never leaks onto the wire. No semester either: the
+  // dates themselves say which term is on screen. With the
+  // teacher perspective on but no teacher picked there is
+  // nothing to fetch — teacherIdle parks the loader and the
+  // body renders the pick-a-teacher prompt instead
+  const scopeGroup = perspective === 'group' ? selectedGroup : null;
+  const scopeTeacher = perspective === 'teacher' ? teacher : null;
+  const teacherIdle = perspective === 'teacher' && teacher === null;
 
 
-  // (Re)load the dated week whenever the window or the group
+  // (Re)load the dated week whenever the window or the scope
   // changes — gated on prefsLoaded so the persisted filter
   // applies to the very first fetch instead of arriving one
-  // fetch late. ONE fetch serves all three group-perspective
-  // view modes; the teacher path lives off the folded dataset
-  // below.
+  // fetch late. ONE fetch serves all three view modes of
+  // whichever perspective is on.
   useEffect(() => {
-    if (!prefsLoaded || perspective !== 'group') return;
+    if (!prefsLoaded || teacherIdle) return;
     // A hop onto a week the fetched window ALREADY covers (same
-    // group, one week either side — a settled pager swipe, a day
+    // scope, one week either side — a settled pager swipe, a day
     // step across the boundary, Today from next door) refreshes
     // silently: the grid is fully drawn, and flashing a spinner
-    // over it was the settle glitch. Real jumps keep the spinner
+    // over it was the settle glitch. Real jumps — a new week, a
+    // group or teacher change, a perspective flip — keep the
+    // spinner
     const served = eventsServedRef.current;
     const adjacent =
       served !== null &&
-      served.group === selectedGroup &&
+      served.group === scopeGroup &&
+      served.teacher === scopeTeacher &&
       Math.abs(parseISO(weekStart) - parseISO(served.weekStart)) <= 7 * DAY_MS;
-    const spinner = !adjacent && eventsKeyRef.current !== cacheKeyScheduleEvents(weekStart, selectedGroup);
-    void loadEvents(weekStart, selectedGroup, spinner);
-  }, [prefsLoaded, perspective, weekStart, selectedGroup, loadEvents]);
+    const spinner = !adjacent && eventsKeyRef.current !== cacheKeyScheduleEvents(weekStart, scopeGroup, scopeTeacher);
+    void loadEvents(weekStart, scopeGroup, scopeTeacher, spinner);
+  }, [prefsLoaded, teacherIdle, weekStart, scopeGroup, scopeTeacher, loadEvents]);
 
 
-  // The folded whole-semester dataset now serves the TEACHER
-  // perspective alone — a lecturer's lessons across every
-  // group, plus the roster the filter modal lists
-  const teacherData = perspective === 'teacher';
-
-
-  // Load it when the teacher perspective needs it — with a
-  // spinner only when the semester's data was never served,
-  // silently after that
-  useEffect(() => {
-    if (!prefsLoaded || !teacherData) return;
-    void loadWeek(semesterParam, weekKeyRef.current !== cacheKeyScheduleWeek(semesterParam));
-  }, [prefsLoaded, teacherData, semesterParam, loadWeek]);
-
-
-  // The engine pipeline, once per dataset: the group
   // The fetched window holds THREE weeks — bucket the rows by
   // their week relative to weekStart, so every downstream
   // consumer reads exactly one week and the pager gets its
@@ -1099,33 +1027,42 @@ export default function ScheduleScreen() {
   }, [events, weekStart]);
 
 
-  // perspective normalizes the DATED weeks (ScheduleEventRow is
-  // a ScheduleLesson superset, so the adapter takes the rows
-  // unchanged), the teacher perspective the folded semester.
-  // Each is exactly the wire row the adapter expects — only
-  // the open index signature is missing, so assert (the dated
-  // rows through unknown: their extra date/lectureType fields
-  // land under that signature, which defeats the direct cast).
-  const datedNormalized = useMemo(() => normalizeKnf(weekBuckets[1] as unknown as KnfLesson[]), [weekBuckets]);
-  const weekNormalized = useMemo(() => normalizeKnf((weekLessons ?? []) as KnfLesson[]), [weekLessons]);
+  // The teacher scope merges shared-id rows FIRST, so one
+  // physical lecture is one row however many groups sit in it
+  // — the group scope's rows are already one-per-lecture
+  const shownWeekRows = useMemo(
+    () => (perspective === 'teacher' ? mergeEventRows(weekBuckets[1]) : weekBuckets[1]),
+    [perspective, weekBuckets],
+  );
 
-  // The pager's side pages, group-filtered like the middle one;
-  // their skipped counts stay silent — the notice describes the
-  // week actually on screen
+  // The shown week through the engine gate. The rows are
+  // exactly the wire shape the adapter expects — only the open
+  // index signature is missing, so assert (through unknown:
+  // their extra date/lectureType fields land under that
+  // signature, which defeats the direct cast).
+  const datedNormalized = useMemo(() => normalizeKnf(shownWeekRows as unknown as KnfLesson[]), [shownWeekRows]);
+
+  // The pager's side pages, scoped like the middle one — the
+  // group filter or the teacher merge; their skipped counts
+  // stay silent, the notice describes the week actually on
+  // screen
   const neighbourWeeks = useMemo(() => {
     const filter = (rows: ScheduleEventRow[]) => {
+      if (perspective === 'teacher') return normalizeKnf(mergeEventRows(rows) as unknown as KnfLesson[]).entries;
       const normalized = normalizeKnf(rows as unknown as KnfLesson[]).entries;
       return selectedGroup ? forGroup(normalized, selectedGroup) : normalized;
     };
     return { prev: filter(weekBuckets[0]), next: filter(weekBuckets[2]) };
-  }, [weekBuckets, selectedGroup]);
+  }, [weekBuckets, perspective, selectedGroup]);
 
-  const teachers = useMemo(() => listTeachers(weekNormalized.entries), [weekNormalized]);
-
+  // Both perspectives read the same dated entries — teacher
+  // rows arrived server-filtered by ?teacher=, so no client
+  // filter re-runs here; the group filter is the belt over
+  // the server's braces
   const perspectiveEntries = useMemo<TimetableEntry<KnfLesson>[]>(() => {
-    if (perspective === 'teacher') return teacher ? forTeacher(weekNormalized.entries, teacher) : [];
+    if (perspective === 'teacher') return datedNormalized.entries;
     return selectedGroup ? forGroup(datedNormalized.entries, selectedGroup) : datedNormalized.entries;
-  }, [weekNormalized, datedNormalized, perspective, teacher, selectedGroup]);
+  }, [datedNormalized, perspective, selectedGroup]);
 
 
   // The card list's rows: the SHOWN week filtered to the
@@ -1151,40 +1088,27 @@ export default function ScheduleScreen() {
 
 
 
-  // The teacher perspective's card list: that day's merged
-  // cards mapped back onto the LessonCard shape — group chips
-  // joined, times from the raw row when it survived the merge
+  // The teacher perspective's card list: the shown week's
+  // merged rows filtered to the selected day — the wire's
+  // (date, start time) order survives the merge, so no
+  // re-sort. The person-scope wash flags real double-bookings
+  // while the engine's identity rule keeps a shared slot from
+  // clashing with itself
   const teacherDayCards = useMemo(() => {
     if (viewMode !== 'list' || perspective !== 'teacher') return [];
-    const ids = engineConflictIds(perspectiveEntries, { scope: 'person' });
-    return perspectiveEntries
-      .filter((entry) => entry.day === selectedDay)
-      .slice()
-      .sort(compareEntries)
-      .map((entry) => ({
-        conflict: ids.has(entry.id),
-        lesson: {
-          id: entry.id,
-          title: entry.title,
-          teacher: (entry.people ?? []).join(', '),
-          room: (entry.location ?? []).join(', '),
-          timeStart: typeof entry.timeStart === 'string' ? entry.timeStart : formatMinutes(entry.startMin),
-          timeEnd: typeof entry.timeEnd === 'string' ? entry.timeEnd : formatMinutes(entry.endMin),
-          dayOfWeek: entry.day,
-          group: (entry.groupKeys ?? (entry.groupKey ? [entry.groupKey] : [])).join(', '),
-          semester: entry.termKey ?? '',
-        } satisfies ScheduleLesson,
-      }));
-  }, [viewMode, perspective, perspectiveEntries, selectedDay]);
+    const ids = engineConflictIds(datedNormalized.entries, { scope: 'person' });
+    return shownWeekRows
+      .filter((row) => row.dayOfWeek === selectedDay)
+      .map((row) => ({ conflict: ids.has(row.id), lesson: row as ScheduleLesson }));
+  }, [viewMode, perspective, shownWeekRows, datedNormalized, selectedDay]);
 
 
-  // Connectivity returning refetches whichever path is in use
-  // (and the filter lists if they never arrived);
+  // Connectivity returning refetches the current scope's
+  // window (and the filter lists if they never arrived);
   // useNetworkRestore always runs the latest closure, so no
   // refs are needed
   useNetworkRestore(() => {
-    if (perspective === 'group') void loadEvents(weekStart, selectedGroup, events === null);
-    else void loadWeek(semesterParam, weekLessons === null);
+    if (!teacherIdle) void loadEvents(weekStart, scopeGroup, scopeTeacher, events === null);
     if (!filtersFetched) void loadFilters();
   });
 
@@ -1212,21 +1136,25 @@ export default function ScheduleScreen() {
   };
 
 
-  // The snap back from wherever the cursors wandered — the
-  // TodayButton mounts in the day-tab strip only while
-  // displaced, so its presence itself says "you are not on
-  // today". Week mode ignores the day cursor: the week is the
-  // displacement
+  // Today's coordinates — the tab strip's outline marker and
+  // the now-line gate read them each render
   const todayMonday = mondayOf(toISO(Date.now()));
   const todayIndex = dayIndexOf(new Date());
-  const displaced =
-    viewMode === 'week'
-      ? weekStart !== todayMonday
-      : weekStart !== todayMonday || selectedDay !== todayIndex;
-  const goToToday = () => {
-    setWeekStart(todayMonday);
-    setSelectedDay(todayIndex);
-  };
+
+
+  // The news-feed gesture, adopted here: tapping the Schedule
+  // tab WHILE ALREADY ON IT snaps both cursors back to today —
+  // switching in from another tab keeps whatever week and day
+  // the user left. Fresh Date reads inside the handler, so a
+  // listener mounted before midnight still lands on the new day
+  const navigation = useNavigation<BottomTabNavigationProp<ParamListBase>>();
+  useEffect(() => {
+    return navigation.addListener('tabPress', () => {
+      if (!navigation.isFocused()) return;
+      setWeekStart(mondayOf(toISO(Date.now())));
+      setSelectedDay(dayIndexOf(new Date()));
+    });
+  }, [navigation]);
 
 
   // The mount-time "today" must not fossilize: on focus and on
@@ -1254,26 +1182,24 @@ export default function ScheduleScreen() {
 
   // The modal lifts everything at once; a semester that truly
   // moved — to a label or to "all" — is the user's own choice
-  // and must survive as such. In the GROUP perspective that
-  // choice is a TIME JUMP: a non-current term moves the window
-  // to its first Monday (and Monday's tab), the current term
-  // or "all" back to today's week — the teacher wire keeps
-  // filtering by the label instead.
+  // and must survive as such. In BOTH perspectives that choice
+  // is a TIME JUMP: a non-current term moves the window to its
+  // first Monday (and Monday's tab), the current term or "all"
+  // back to today's week — nothing rides the wire, the dates
+  // say it all.
   const applyFilters = (choice: FilterChoice) => {
     if (choice.semesterChanged) {
       setSemesterExplicit(true);
       setSelectedSemester(choice.semester);
-      if (choice.perspective === 'group') {
-        const todayMonday = mondayOf(toISO(Date.now()));
-        const target =
-          choice.semester && choice.semester !== currentTermKey()
-            ? termStartMonday(choice.semester)
-            : todayMonday;
-        // An unparsable label has no start date — stay put
-        if (target) {
-          setWeekStart(target);
-          setSelectedDay(target === todayMonday ? dayIndexOf(new Date()) : 0);
-        }
+      const todayMonday = mondayOf(toISO(Date.now()));
+      const target =
+        choice.semester && choice.semester !== currentTermKey()
+          ? termStartMonday(choice.semester)
+          : todayMonday;
+      // An unparsable label has no start date — stay put
+      if (target) {
+        setWeekStart(target);
+        setSelectedDay(target === todayMonday ? dayIndexOf(new Date()) : 0);
       }
     }
     setSelectedGroup(choice.group);
@@ -1282,31 +1208,19 @@ export default function ScheduleScreen() {
   };
 
 
-  // The teacher tab of the modal needs the roster, which rides
-  // the week dataset — fetch it whenever the held data is not
-  // THIS semester's serve: never fetched, a failed last try
-  // (the key mark was cleared), or another semester's leftovers
-  const ensureTeachers = () => {
-    if (weekLoading) return;
-    if (weekKeyRef.current === cacheKeyScheduleWeek(semesterParam)) return;
-    void loadWeek(semesterParam, true);
-  };
-
-
-  // Pull-to-refresh: silent reload of the current window (or
-  // the teacher's semester), first-load spinner hidden
+  // Pull-to-refresh: silent reload of the current window,
+  // first-load spinner hidden; nothing to reload while the
+  // teacher prompt is up
   const onRefresh = async () => {
     setRefreshing(true);
-    if (teacherData) await loadWeek(semesterParam, false);
-    else await loadEvents(weekStart, selectedGroup, false);
+    if (!teacherIdle) await loadEvents(weekStart, scopeGroup, scopeTeacher, false);
     setRefreshing(false);
   };
 
 
   // ErrorState's button — full reload with the spinner
   const retry = () => {
-    if (teacherData) void loadWeek(semesterParam, true);
-    else void loadEvents(weekStart, selectedGroup, true);
+    if (!teacherIdle) void loadEvents(weekStart, scopeGroup, scopeTeacher, true);
   };
 
 
@@ -1324,14 +1238,16 @@ export default function ScheduleScreen() {
     .join(' · ');
 
 
-  // Which path fills the body, and that path's states — the
-  // whole group perspective rides the dated week, the teacher
-  // perspective the folded semester
+  // Which branch fills the body, and the dated states behind
+  // it. While the teacher prompt is up the loader is parked,
+  // so its states are leftovers of the OTHER scope — the
+  // teacherIdle gates keep a stale spinner, error or cache
+  // banner from covering the prompt
   const groupList = viewMode === 'list' && perspective === 'group';
-  const bodyLoading = teacherData ? weekLoading : eventsLoading;
-  const bodyError = teacherData ? weekError : eventsError;
-  const bodyCachedAt = teacherData ? weekCachedAt : eventsCachedAt;
-  const skippedCount = teacherData ? weekNormalized.skipped : datedNormalized.skipped;
+  const bodyLoading = !teacherIdle && eventsLoading;
+  const bodyError = !teacherIdle && eventsError;
+  const bodyCachedAt = teacherIdle ? null : eventsCachedAt;
+  const skippedCount = datedNormalized.skipped;
   const bannerCount =
     viewMode !== 'list' ? 0 : perspective === 'teacher' ? teacherDayCards.filter((card) => card.conflict).length : conflictIds.size;
 
@@ -1460,13 +1376,10 @@ export default function ScheduleScreen() {
         </View>
       </View>
 
-      {/* The Today button lives IN the day-tab row: the wrapper
-          carries the same surface ground and hairline as the
-          tabs, so the strip stays one unbroken white row however
-          much of it the tabs yield to the button. Week mode
-          keeps the strip in place — steady chrome across the
-          mode switch — just without the day tabs, whose height
-          the min-h pins while they are absent */}
+      {/* The day-tab strip: one unbroken white row under the
+          filter bar. Week mode keeps it in place — steady chrome
+          across the mode switch — just without the day tabs,
+          whose height the min-h pins while they are absent */}
       <View className="min-h-9 flex-row items-center border-b border-line bg-surface">
         {viewMode !== 'week' ? (
           <View className="flex-1">
@@ -1480,11 +1393,6 @@ export default function ScheduleScreen() {
           </View>
         ) : (
           <View className="flex-1" />
-        )}
-        {displaced && (
-          <View className="mr-md">
-            <TodayButton onPress={goToToday} />
-          </View>
         )}
       </View>
 
@@ -1559,15 +1467,12 @@ export default function ScheduleScreen() {
             scope={conflictScope}
             mode={viewMode}
             day={selectedDay}
-            // The teacher dataset is a weekly PATTERN, where the
-            // clock always applies; the dated group window only
-            // owns "now" while it actually shows this week
-            currentWeek={perspective === 'teacher' || weekStart === todayMonday}
-            // A weekly PATTERN has no other week to scroll to —
-            // only the dated group window gets the pager pages
-            weeks={perspective === 'group' ? neighbourWeeks : undefined}
+            // Both perspectives ride real dates now — the window
+            // only owns "now" while it actually shows this week
+            currentWeek={weekStart === todayMonday}
+            weeks={neighbourWeeks}
             onChangeDay={changeDay}
-            onChangeWeek={perspective === 'group' ? changeWeek : undefined}
+            onChangeWeek={changeWeek}
             onPressLesson={setSheetLesson}
           />
         </View>
@@ -1578,13 +1483,11 @@ export default function ScheduleScreen() {
         groups={groups}
         semesters={semesters}
         teachers={teachers}
-        teachersLoading={weekLoading}
         selectedGroup={selectedGroup}
         selectedSemester={selectedSemester}
         perspective={perspective}
         selectedTeacher={teacher}
         onApply={applyFilters}
-        onNeedTeachers={ensureTeachers}
         onClose={() => setModalVisible(false)}
       />
 

@@ -255,11 +255,9 @@
     "weekShort": "Wk {{week}}",
     "prevWeek": "Previous week",
     "nextWeek": "Next week",
-    "today": "Back to today",
     "teacherLabel": "Teacher",
     "pickTeacher": "Choose a teacher",
     "searchTeacher": "Search teachers…",
-    "teachersLoading": "Loading teachers…",
     "lessonDetails": "Lesson details",
     "pickGroup": "Choose a group",
     "searchNoResults": "No matches"

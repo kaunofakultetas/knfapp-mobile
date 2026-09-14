@@ -1,22 +1,22 @@
 // -----------------------------------------------------------
 //  [*] API — schedule
 //
-//  The lecture timetable and its filter values. Times come as
+//  The lecture timetable and its filter values, all on REAL
+//  dates: GET /schedule/events is the one lesson wire — the
+//  legacy folded GET /schedule stays on the backend for old
+//  builds, but this client no longer speaks it. Times come as
 //  plain "HH:MM" wall-clock strings (no timezone games here,
 //  unlike chat) and dayOfWeek is 0=Monday … 6=Sunday.
 //
 //  Split into:
 //
-//    ScheduleLesson          — one weekly-pattern entry (the
-//                              legacy folded shape)
+//    ScheduleLesson          — the base lesson shape the cards
+//                              render
 //    ScheduleEventRow        — one DATED lecture instance
-//    ScheduleResponse        — filtered lesson list
 //    ScheduleEventsResponse  — dated event list
-//    ScheduleFiltersResponse — available groups + semesters
-//    fetchSchedule           — lessons, optionally filtered
-//    fetchScheduleWeek       — one semester, EVERY group and
-//                              day, paged past the 500-row cap
-//    fetchScheduleEvents     — dated events for a date range
+//    ScheduleFiltersResponse — groups + semesters + teachers
+//    fetchScheduleEvents     — dated events for a date range,
+//                              scoped by group or teacher
 //    fetchScheduleFilters    — filter dropdown values
 // -----------------------------------------------------------
 
@@ -24,13 +24,14 @@
 import { api, request } from './client';
 
 
-// The backend caps a /schedule response at 500 rows — the week
-// fetch pages with ?offset in steps of exactly this
-const WEEK_PAGE_LIMIT = 500;
+// The backend caps a /schedule/events response at 500 rows —
+// the events fetch pages with ?offset in steps of exactly this
+const EVENTS_PAGE_LIMIT = 500;
 
-// Fences a runaway backend: the week fetch never asks for more
-// than this many pages (10 × 500 rows covers any real semester)
-const WEEK_MAX_PAGES = 10;
+// Fences a runaway backend: the events fetch never asks for
+// more than this many pages (10 × 500 rows covers any window
+// the 220-day range cap allows)
+const EVENTS_MAX_PAGES = 10;
 
 
 
@@ -42,14 +43,14 @@ const WEEK_MAX_PAGES = 10;
 // ScheduleLesson
 // -----------------------------------------------------------
 //
-// One scraped timetable row. `group` and `semester` are the
-// sheet's own labels, matched by EXACT string against the
-// filter values — never normalized on either side.
+// The lesson fields every card renders. `group` and `semester`
+// are the sheet's own labels, matched by EXACT string against
+// the filter values — never normalized on either side.
 //
 // Used by:
-//   - ScheduleEventRow / ScheduleResponse (below)
-//   - app/(main)/tabs/schedule.tsx — teacher cards + conflict
-//     checks (dated rows pass wherever this shape is asked)
+//   - ScheduleEventRow (below) — the dated superset
+//   - app/(main)/tabs/schedule.tsx — the card shape both
+//     perspectives hand to LessonCard
 // -----------------------------------------------------------
 
 export interface ScheduleLesson {
@@ -78,11 +79,13 @@ export interface ScheduleLesson {
 // with the real calendar date on it, so an irregular one-off
 // lecture is a row on its own date instead of a phantom
 // weekly pattern. dayOfWeek is server-derived from the date
-// (0=Monday) so every client agrees on it.
+// (0=Monday) so every client agrees on it. A lecture shared
+// by several groups arrives once PER GROUP under the SAME id
+// — consumers merge by id when they want one card.
 //
 // Used by:
 //   - ScheduleEventsResponse (below)
-//   - app/(main)/tabs/schedule.tsx — the dated week views
+//   - app/(main)/tabs/schedule.tsx — both perspectives' rows
 // -----------------------------------------------------------
 
 export interface ScheduleEventRow extends ScheduleLesson {
@@ -102,7 +105,7 @@ export interface ScheduleEventRow extends ScheduleLesson {
 //
 // Rows arrive pre-sorted (date, start time, group) and capped
 // at 500 per response — fetchScheduleEvents pages past the
-// cap the same way the week fetch does.
+// cap and concatenates in order.
 //
 // Used by:
 //   - fetchScheduleEvents (below)
@@ -120,116 +123,26 @@ export interface ScheduleEventsResponse {
 
 
 // -----------------------------------------------------------
-// ScheduleResponse
-// -----------------------------------------------------------
-//
-// Rows arrive pre-sorted (day, start time, group) and capped
-// at 500 per response — fetchScheduleWeek pages past the cap,
-// fetchSchedule trusts one page to be enough once filtered.
-//
-// Used by:
-//   - fetchSchedule / fetchScheduleWeek (below)
-//   - app/(main)/tabs/schedule.tsx — the teacher week state
-// -----------------------------------------------------------
-
-export interface ScheduleResponse {
-  lessons: ScheduleLesson[];
-}
-
-
-
-
-
-
-
-// -----------------------------------------------------------
 // ScheduleFiltersResponse
 // -----------------------------------------------------------
 //
 // Only what the pickers read — the wire answer also carries
 // `days` and `semesterGroups`, dropped here. groups arrive
 // sorted; semesters newest first, with stray one-off labels
-// already filtered out server-side.
+// already filtered out server-side; teachers casefold-sorted
+// display strings, each an EXACT ?teacher= value.
 //
 // Used by:
 //   - fetchScheduleFilters (below)
-//   - app/(main)/tabs/schedule.tsx — group/semester pickers
+//   - app/(main)/tabs/schedule.tsx — group/teacher/semester
+//     pickers (the teacher roster lists these names verbatim)
 // -----------------------------------------------------------
 
 export interface ScheduleFiltersResponse {
   groups: string[];
   semesters: string[];
+  teachers: string[];
 }
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// fetchSchedule
-// -----------------------------------------------------------
-//
-//   fetchSchedule()               — the whole timetable
-//   fetchSchedule(0, 'IT-3')      — Monday of one group
-//
-// Used by:
-//   - no screen since the dated events path took over the
-//     group perspective — kept while the legacy folded
-//     GET /schedule stays on the wire
-// -----------------------------------------------------------
-
-export const fetchSchedule = (day?: number, group?: string, semester?: string) =>
-  request(
-    api.get<ScheduleResponse>('/schedule', {
-      params: {
-        ...(day !== undefined ? { day } : {}),
-        ...(group ? { group } : {}),
-        ...(semester ? { semester } : {}),
-      },
-    }),
-  );
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// fetchScheduleWeek
-// -----------------------------------------------------------
-//
-// The whole weekly timetable of one semester — every group,
-// every day — for the timetable views and the teacher
-// perspective, which needs a teacher's lessons ACROSS groups.
-// The backend caps a response at 500 rows and a semester holds
-// more, so this pages with ?offset until a short page says the
-// table is done; the page cap only fences a runaway backend.
-//
-// Used by:
-//   - app/(main)/tabs/schedule.tsx — the TEACHER perspective
-//     (all its view modes) and the teacher picker's roster
-// -----------------------------------------------------------
-
-export const fetchScheduleWeek = async (semester?: string): Promise<ScheduleResponse> => {
-  const lessons: ScheduleLesson[] = [];
-  for (let page = 0; page < WEEK_MAX_PAGES; page++) {
-    const resp = await request(
-      api.get<ScheduleResponse>('/schedule', {
-        params: {
-          limit: WEEK_PAGE_LIMIT,
-          offset: page * WEEK_PAGE_LIMIT,
-          ...(semester ? { semester } : {}),
-        },
-      }),
-    );
-    lessons.push(...resp.lessons);
-    if (resp.lessons.length < WEEK_PAGE_LIMIT) break;
-  }
-  return { lessons };
-};
 
 
 
@@ -241,36 +154,42 @@ export const fetchScheduleWeek = async (semester?: string): Promise<ScheduleResp
 // fetchScheduleEvents
 // -----------------------------------------------------------
 //
-//   fetchScheduleEvents('2026-03-02', '2026-03-08')          — everyone's week
-//   fetchScheduleEvents('2026-03-02', '2026-03-08', 'IS-1')  — one group's week
+//   fetchScheduleEvents('2026-03-02', '2026-03-08')            — everyone's week
+//   fetchScheduleEvents('2026-03-02', '2026-03-08', 'IS-1')    — one group's week
+//   fetchScheduleEvents('2026-03-02', '2026-03-08',
+//                       undefined, 'Eimantas Rebždys, Lekt.')  — one teacher's week,
+//                                                                across every group
 //
 // Inclusive ISO date bounds; the backend caps a range at 220
-// days. Pages past the 500-row cap like fetchScheduleWeek —
-// one group's week is a single short page, the all-groups
-// week is not.
+// days. The teacher value is the filters response's display
+// string, matched EXACTLY server-side. Pages past the 500-row
+// cap — one group's or teacher's week is a single short page,
+// the all-groups week is not.
 //
 // Used by:
-//   - app/(main)/tabs/schedule.tsx — the dated week views
+//   - app/(main)/tabs/schedule.tsx — the one loader behind
+//     both perspectives
 // -----------------------------------------------------------
 
 export const fetchScheduleEvents = async (
-  from: string, to: string, group?: string,
+  from: string, to: string, group?: string, teacher?: string,
 ): Promise<ScheduleEventsResponse> => {
   const events: ScheduleEventRow[] = [];
-  for (let page = 0; page < WEEK_MAX_PAGES; page++) {
+  for (let page = 0; page < EVENTS_MAX_PAGES; page++) {
     const resp = await request(
       api.get<ScheduleEventsResponse>('/schedule/events', {
         params: {
           from,
           to,
-          limit: WEEK_PAGE_LIMIT,
-          offset: page * WEEK_PAGE_LIMIT,
+          limit: EVENTS_PAGE_LIMIT,
+          offset: page * EVENTS_PAGE_LIMIT,
           ...(group ? { group } : {}),
+          ...(teacher ? { teacher } : {}),
         },
       }),
     );
     events.push(...resp.events);
-    if (resp.events.length < WEEK_PAGE_LIMIT) break;
+    if (resp.events.length < EVENTS_PAGE_LIMIT) break;
   }
   return { events };
 };
@@ -287,7 +206,9 @@ export const fetchScheduleEvents = async (
 //
 // GET /schedule/filters without a ?semester scope, so the
 // groups list spans EVERY semester — the screen uses it to
-// reset a remembered group that vanished from the timetable.
+// reset a remembered group that vanished from the timetable,
+// and its teachers list is the whole roster the teacher
+// picker searches.
 //
 // Used by:
 //   - app/(main)/tabs/schedule.tsx — filter options load

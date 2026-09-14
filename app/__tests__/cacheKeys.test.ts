@@ -11,7 +11,6 @@ import {
   cacheKeyInfo,
   cacheKeyNews,
   cacheKeyScheduleEvents,
-  cacheKeyScheduleWeek,
   CONVERSATIONS_CACHE_MAX_AGE,
   INFO_CACHE_MAX_AGE,
   NEWS_CACHE_MAX_AGE,
@@ -31,8 +30,17 @@ describe('cache keys', () => {
     expect(cacheKeyScheduleEvents('2026-09-14')).toBe('schedule:events:2026-09-14:*');
     expect(cacheKeyScheduleEvents('2026-09-14', 'G1')).toBe('schedule:events:2026-09-14:G1');
     expect(cacheKeyScheduleEvents('2026-09-14', '')).toBe('schedule:events:2026-09-14:*');
-    expect(cacheKeyScheduleWeek('2026-R')).toBe('schedule:week:2026-R');
-    expect(cacheKeyScheduleWeek(null)).toBe('schedule:week:*');
+  });
+
+  it("prefixes the teacher scope with 't:' so a teacher's rows never collide with a group's", () => {
+    expect(cacheKeyScheduleEvents('2026-09-14', null, 'Eimantas Rebždys, Lekt.')).toBe(
+      'schedule:events:2026-09-14:t:Eimantas Rebždys, Lekt.',
+    );
+    // The teacher scope wins whatever the group argument holds
+    // — the loader never sets both
+    expect(cacheKeyScheduleEvents('2026-09-14', 'G1', 'A. Petraitis')).toBe(
+      'schedule:events:2026-09-14:t:A. Petraitis',
+    );
   });
 
   it('separates info pages per language and keeps the TTLs sane', () => {

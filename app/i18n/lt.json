@@ -259,11 +259,9 @@
     "weekShort": "{{week}} sav.",
     "prevWeek": "Ankstesnė savaitė",
     "nextWeek": "Kita savaitė",
-    "today": "Grįžti į šiandieną",
     "teacherLabel": "Dėstytojas",
     "pickTeacher": "Pasirinkite dėstytoją",
     "searchTeacher": "Ieškoti dėstytojo…",
-    "teachersLoading": "Kraunami dėstytojai…",
     "lessonDetails": "Paskaitos informacija",
     "pickGroup": "Pasirinkite grupę",
     "searchNoResults": "Nieko nerasta"

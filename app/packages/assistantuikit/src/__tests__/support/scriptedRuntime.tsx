@@ -183,6 +183,9 @@ export const LABELS: AssistantLabels = {
   previousBranch: 'Ankstesnis atsakymas',
   nextBranch: 'Kitas atsakymas',
   scrollToLatest: 'Naujausia žinutė',
+  sourcesTitle: 'Šaltiniai',
+  feedbackUp: 'Naudingas atsakymas',
+  feedbackDown: 'Nenaudingas atsakymas',
 };
 
 export type View = RenderResult;

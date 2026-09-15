@@ -29,16 +29,21 @@ const NOW = Date.UTC(2026, 8, 5, 12, 0, 0);
 
 
 describe('AssistantTransportError', () => {
-  it('carries the failure, takes its message from it, names itself and keeps the cause', () => {
+  it('carries the failure, prefixes its message with code and status, names itself and keeps the cause', () => {
     const failure: AssistantFailure = { code: 'auth', status: 401, message: 'expired' };
     const cause = new Error('wire');
     const error = new AssistantTransportError(failure, { cause });
 
     expect(error).toBeInstanceOf(Error);
     expect(error.name).toBe('AssistantTransportError');
-    expect(error.message).toBe('expired');
+    // The banner prints error.message — a screenshot must name
+    // the failure precisely, so code and status ride in it
+    expect(error.message).toBe('auth 401: expired');
     expect(error.failure).toBe(failure);
     expect(error.cause).toBe(cause);
+
+    const statusless: AssistantFailure = { code: 'network', message: 'refused' };
+    expect(new AssistantTransportError(statusless).message).toBe('network: refused');
   });
 });
 

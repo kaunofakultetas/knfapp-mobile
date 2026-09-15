@@ -91,9 +91,12 @@ function ActionLabel({ text, color }: { text: string; color: string }) {
 export default function AssistantComposer({
   labels,
   colors = defaultColors,
+  onSend,
 }: {
   labels: AssistantLabels;
   colors?: AssistantColors;
+  // The host's haptic tick, fired as a sending press lands
+  onSend?: () => void;
 }) {
 
   const running = useAuiState((s) => s.thread.isRunning);
@@ -147,6 +150,9 @@ export default function AssistantComposer({
       ) : (
         <ComposerPrimitive.Send
           testID="assistantuikit-composer-send"
+          // The host's haptic tick — onPressIn so it lands with
+          // the finger, only when the press will actually send
+          onPressIn={canSend ? onSend : undefined}
           style={{ ...BUTTON_STYLE, backgroundColor: colors.brand, opacity: canSend ? 1 : 0.4 }}
         >
           <ActionLabel text={labels.send} color={colors.onBrand} />

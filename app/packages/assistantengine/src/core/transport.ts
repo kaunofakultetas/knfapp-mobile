@@ -19,11 +19,18 @@
 //  reads as 'aborted' — reported nowhere, since it was asked
 //  for — and keeps cutting the body long after headers came.
 //
+//  A configured threadId resolver is asked on every send
+//  which server-side thread the turn persists into, and its
+//  answer is stamped into the chat body as `threadId` — the
+//  lazy-creation seam: the host mints the thread on the
+//  first send and just returns the id afterwards.
+//
 //  Split into:
 //
 //    resolveFetch               — the seam or the global
 //    joinUrl                    — base + fixed path, no '//'
 //    buildAssistantHeaders      — the three faculty headers
+//    resolveThreadBody          — the threadId injection
 //    createAssistantFetch       — the wrapped fetch
 //    createKnfAssistantTransport — the upstream transport built
 //                                 on it
@@ -224,6 +231,67 @@ async function readToken(getAuthToken: AssistantTransportConfig['getAuthToken'])
 
 
 // -----------------------------------------------------------
+// resolveThreadBody
+// -----------------------------------------------------------
+//
+// The threadId injection: with a resolver configured and a
+// JSON string body in hand, ask the host which thread this
+// send persists into and stamp it as `threadId` next to the
+// upstream's own fields. Everything else passes through
+// untouched — no resolver, a null/undefined id, or a body
+// that is not a JSON object string (defensive: the upstream
+// only ever sends one). A THROWING resolver fails the
+// request as a network failure — the host was creating the
+// thread and could not, and a silently stateless turn would
+// lose the person's history.
+//
+// Used by:
+//   - createAssistantFetch (above)
+// -----------------------------------------------------------
+
+async function resolveThreadBody(
+  config: AssistantTransportConfig,
+  body: BodyInit | null | undefined,
+  fail: (failure: AssistantFailure, cause?: unknown) => never,
+): Promise<BodyInit | null | undefined> {
+  if (!config.threadId || typeof body !== 'string') return body;
+
+  let threadId: string | null | undefined;
+  try {
+    threadId = await config.threadId();
+  } catch (error) {
+    // The resolver's failure keeps its HTTP identity — a 429
+    // on the lazy thread-create must read as quota, not as a
+    // connectivity problem
+    const status = (error as { status?: unknown })?.status;
+    const code =
+      status === 401 || status === 403 ? 'auth'
+      : status === 429 ? 'quota'
+      : status === 502 || status === 503 || status === 504 ? 'unavailable'
+      : 'network';
+    return fail(
+      { code, ...(typeof status === 'number' ? { status } : {}), message: 'Thread could not be created' },
+      error,
+    );
+  }
+  if (!threadId) return body;
+
+  try {
+    const parsed = JSON.parse(body) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return body;
+    return JSON.stringify({ ...(parsed as Record<string, unknown>), threadId });
+  } catch {
+    return body;
+  }
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // rejectOnAbort
 // -----------------------------------------------------------
 //
@@ -295,6 +363,7 @@ export function createAssistantFetch(config: AssistantTransportConfig): typeof f
     };
 
     const headers = await buildAssistantHeaders(config, init?.headers);
+    const body = await resolveThreadBody(config, init?.body, fail);
     if (callerSignal?.aborted) return fail({ code: 'aborted', message: 'Request aborted' });
     callerSignal?.addEventListener('abort', forwardAbort, { once: true });
 
@@ -306,7 +375,7 @@ export function createAssistantFetch(config: AssistantTransportConfig): typeof f
 
     let response: Response;
     try {
-      response = await Promise.race([run(input, { ...init, headers, signal: controller.signal }), rejectOnAbort(controller.signal)]);
+      response = await Promise.race([run(input, { ...init, headers, body, signal: controller.signal }), rejectOnAbort(controller.signal)]);
     } catch (error) {
       clearTimeout(timer);
       if (callerSignal?.aborted) return fail({ code: 'aborted', message: 'Request aborted' }, error);

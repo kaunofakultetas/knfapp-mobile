@@ -47,6 +47,15 @@ export interface AssistantKitValue {
   tools: Record<string, ToolCardRenderer>;
   copyToClipboard?: (text: string) => Promise<void> | void;
   onPressLink?: (url: string) => void;
+  // The host records a thumbs verdict on one assistant
+  // message (1 up, -1 down, 0 clears); absent = no buttons
+  onFeedback?: (messageId: string, rating: 1 | -1 | 0) => Promise<void> | void;
+  // Fired the moment the send button is pressed with content
+  // to send — the host's haptic tick; absent = silence
+  onComposerSend?: () => void;
+  // Fired once when the LAST assistant message settles from
+  // running — the host's answer-complete haptic
+  onAnswerSettled?: () => void;
 }
 
 // null marks "no provider above" — the hook turns it into a
@@ -84,6 +93,9 @@ export function AssistantKitProvider({
   tools = NO_TOOLS,
   copyToClipboard,
   onPressLink,
+  onFeedback,
+  onComposerSend,
+  onAnswerSettled,
   children,
 }: {
   labels: AssistantLabels;
@@ -91,11 +103,14 @@ export function AssistantKitProvider({
   tools?: Record<string, ToolCardRenderer>;
   copyToClipboard?: (text: string) => Promise<void> | void;
   onPressLink?: (url: string) => void;
+  onFeedback?: (messageId: string, rating: 1 | -1 | 0) => Promise<void> | void;
+  onComposerSend?: () => void;
+  onAnswerSettled?: () => void;
   children: ReactNode;
 }) {
   const value = useMemo<AssistantKitValue>(
-    () => ({ labels, colors, tools, copyToClipboard, onPressLink }),
-    [labels, colors, tools, copyToClipboard, onPressLink],
+    () => ({ labels, colors, tools, copyToClipboard, onPressLink, onFeedback, onComposerSend, onAnswerSettled }),
+    [labels, colors, tools, copyToClipboard, onPressLink, onFeedback, onComposerSend, onAnswerSettled],
   );
   return <AssistantKitContext.Provider value={value}>{children}</AssistantKitContext.Provider>;
 }

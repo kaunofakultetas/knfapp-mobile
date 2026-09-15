@@ -42,7 +42,7 @@
 // -----------------------------------------------------------
 
 import { useMemo } from 'react';
-import { Platform, Text, View } from 'react-native';
+import { Platform, ScrollView, Text, View } from 'react-native';
 
 import { appendStreamTail, parseMarkdown, splitStreamingTail, type MarkdownBlock, type MarkdownInline, type MarkdownList } from './core/markdown';
 import { defaultColors, type AssistantColors } from './core/types';
@@ -230,7 +230,12 @@ function ListBlock({ list, colors, onPressLink, gap }: RenderProps & { list: Mar
           <Text style={[body(colors), { color: colors.inkSoft, minWidth: list.ordered ? 26 : 18 }]}>
             {list.ordered ? `${list.start + index}.` : '•'}
           </Text>
-          <View style={{ flex: 1 }}>
+          {/* grow+shrink with basis AUTO, never flex:1 — a
+              basis-0 column re-measured after growing makes
+              iOS Fabric cache the wrong wrapped-text height
+              inside the intrinsic-width bubble (text painted
+              over the action bar on device) */}
+          <View style={{ flexGrow: 1, flexShrink: 1 }}>
             <Text style={body(colors)}>
               <Inline spans={item.spans} colors={colors} onPressLink={onPressLink} />
             </Text>
@@ -239,6 +244,89 @@ function ListBlock({ list, colors, onPressLink, gap }: RenderProps & { list: Mar
         </View>
       ))}
     </View>
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// TableBlock
+// -----------------------------------------------------------
+//
+// The pipe table as a bordered grid: bold header row on the
+// soft surface, hairline rules between rows. Up to three
+// columns the cells share the bubble's width (flex-equal,
+// wrapping) — no scroll. FOUR or more columns squeezed into
+// a phone bubble left every cell a one-word-per-line sliver,
+// so a wide table rides in a horizontal ScrollView instead,
+// each column at a fixed readable width. Column alignment
+// comes from the delimiter row's colons.
+//
+// Used by:
+//   - Block (below) — the 'table' branch
+// -----------------------------------------------------------
+
+// Columns past this many scroll horizontally instead of
+// squeezing; each then gets this fixed width (fixed, not
+// flexed — a wrapping Text column with flex inside an
+// intrinsic-width row is the iOS Fabric measurement trap)
+const TABLE_SQUEEZE_MAX_COLUMNS = 3;
+const TABLE_SCROLL_COLUMN_WIDTH = 140;
+
+function TableBlock({ table, colors, onPressLink, gap }: RenderProps & {
+  table: Extract<MarkdownBlock, { type: 'table' }>;
+  gap: number;
+}) {
+  const wide = table.header.length > TABLE_SQUEEZE_MAX_COLUMNS;
+  const cellStyle = (column: number) => ({
+    ...(wide ? { width: TABLE_SCROLL_COLUMN_WIDTH } : { flex: 1 }),
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    textAlign: table.align[column] ?? ('left' as const),
+  });
+  const grid = (
+    <View
+      testID="assistantuikit-markdown-table"
+      style={{
+        marginTop: wide ? 0 : gap,
+        borderWidth: 1,
+        borderColor: colors.line,
+        borderRadius: 8,
+        overflow: 'hidden',
+      }}
+    >
+      <View style={{ flexDirection: 'row', backgroundColor: colors.surfaceSoft }}>
+        {table.header.map((spans, column) => (
+          <Text key={column} style={[body(colors), { fontWeight: '700' }, cellStyle(column)]}>
+            <Inline spans={spans} colors={colors} onPressLink={onPressLink} />
+          </Text>
+        ))}
+      </View>
+      {table.rows.map((row, rowIndex) => (
+        <View key={rowIndex} style={{ flexDirection: 'row', borderTopWidth: 1, borderTopColor: colors.line }}>
+          {row.map((spans, column) => (
+            <Text key={column} style={[body(colors), cellStyle(column)]}>
+              <Inline spans={spans} colors={colors} onPressLink={onPressLink} />
+            </Text>
+          ))}
+        </View>
+      ))}
+    </View>
+  );
+  if (!wide) return grid;
+  return (
+    <ScrollView
+      testID="assistantuikit-markdown-table-scroll"
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      style={{ marginTop: gap }}
+    >
+      {grid}
+    </ScrollView>
   );
 }
 
@@ -309,6 +397,7 @@ function Block({ block, colors, onPressLink, first }: RenderProps & { block: Mar
   if (block.type === 'code') return <CodeBlock code={block.code} colors={colors} gap={gap} />;
   if (block.type === 'list') return <ListBlock list={block} colors={colors} onPressLink={onPressLink} gap={gap} />;
   if (block.type === 'quote') return <QuoteBlock blocks={block.blocks} colors={colors} onPressLink={onPressLink} gap={gap} />;
+  if (block.type === 'table') return <TableBlock table={block} colors={colors} onPressLink={onPressLink} gap={gap} />;
   return <View style={{ marginTop: gap, height: 1, backgroundColor: colors.line }} />;
 }
 

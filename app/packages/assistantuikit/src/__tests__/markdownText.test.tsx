@@ -48,6 +48,79 @@ const hosts = (view: Awaited<ReturnType<typeof render>>): HostNode[] => {
 };
 
 
+describe('pipe tables', () => {
+  const TABLE = '| Diena | Laikas |\n| --- | ---: |\n| Pirmadienis | 9:00 |\n| Antradienis | 11:00 |';
+
+  it('a header, a delimiter and rows render as the bordered grid with alignment', async () => {
+    const view = await render(<MarkdownText text={TABLE} />);
+    expect(view.getByTestId('assistantuikit-markdown-table')).toBeTruthy();
+    expect(flat(view.getByText('Diena').props.style).fontWeight).toBe('700');
+    expect(flat(view.getByText('Laikas').props.style).textAlign).toBe('right');
+    expect(flat(view.getByText('Pirmadienis').props.style).textAlign).toBe('left');
+    expect(view.getByText('9:00')).toBeTruthy();
+    expect(view.getByText('11:00')).toBeTruthy();
+  });
+
+  it('ragged rows pad and overflow drops; a count mismatch with the delimiter stays prose', async () => {
+    const ragged = '| A | B |\n| --- | --- |\n| tik |\n| vienas | du | trys |';
+    const view = await render(<MarkdownText text={ragged} />);
+    expect(view.getByText('tik')).toBeTruthy();
+    expect(view.queryByText('trys')).toBeNull();
+
+    const mismatch = '| A | B |\n| --- |\nprose after';
+    const asProse = await render(<MarkdownText text={mismatch} />);
+    expect(asProse.queryByTestId('assistantuikit-markdown-table')).toBeNull();
+    expect(asProse.getByText(/A \| B/)).toBeTruthy();
+  });
+
+  it('an escaped pipe stays inside its cell', async () => {
+    const view = await render(<MarkdownText text={'| Zenklas | Reiksme |\n| --- | --- |\n| a \\| b | viena |'} />);
+    expect(view.getByText('a | b')).toBeTruthy();
+  });
+
+  it('while streaming, a row being written stays wholly in the plain tail until its newline', async () => {
+    const streaming = TABLE + '\n| Trecia';
+    const view = await render(<MarkdownText text={streaming} isStreaming />);
+    expect(view.getByTestId('assistantuikit-markdown-table')).toBeTruthy();
+    expect(view.queryByText('Trecia')).toBeNull();
+    expect(view.getByTestId('assistantuikit-markdown-tail').props.children).toBe('| Trecia');
+
+    const closed = await render(<MarkdownText text={streaming + ' | 13:00 |\n'} isStreaming />);
+    expect(closed.getByText('Trecia')).toBeTruthy();
+    expect(closed.getByText('13:00')).toBeTruthy();
+  });
+
+  it('a lone header line with pipes stays prose until the delimiter lands', async () => {
+    const view = await render(<MarkdownText text={'| Diena | Laikas |\n'} isStreaming />);
+    expect(view.queryByTestId('assistantuikit-markdown-table')).toBeNull();
+    expect(view.getByText(/Diena \| Laikas/)).toBeTruthy();
+  });
+
+  it('up to three columns squeeze into the bubble — flexed cells, no scroll wrapper', async () => {
+    const view = await render(<MarkdownText text={TABLE} />);
+    expect(view.queryByTestId('assistantuikit-markdown-table-scroll')).toBeNull();
+    const cell = flat(view.getByText('Pirmadienis').props.style);
+    expect(cell.flex).toBe(1);
+    expect(cell.width).toBeUndefined();
+  });
+
+  it('FOUR columns ride a horizontal scroll at a fixed readable width instead of slivers', async () => {
+    const wide = '| Diena | Laikas | Aud. | Dėstytojas |\n| --- | --- | --- | --- |\n| Pirmadienis | 9:00 | 215 | Petraitis |';
+    const view = await render(<MarkdownText text={wide} />);
+
+    const scroll = view.getByTestId('assistantuikit-markdown-table-scroll');
+    expect(scroll.props.horizontal).toBe(true);
+    expect(view.getByTestId('assistantuikit-markdown-table')).toBeTruthy();
+    // Fixed width, never flex — a wrapping flexed Text column
+    // inside an intrinsic-width row is the iOS Fabric trap
+    const cell = flat(view.getByText('Pirmadienis').props.style);
+    expect(cell.width).toBe(140);
+    expect(cell.flex).toBeUndefined();
+    expect(view.getByText('Petraitis')).toBeTruthy();
+  });
+});
+
+
 describe('blocks and marks', () => {
   it('paragraphs and headings render their text; a heading carries the header role and its weight', async () => {
     const view = await render(<MarkdownText text={'# Antraštė\n\nLabas rytas.'} />);

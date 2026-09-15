@@ -324,9 +324,12 @@ describe('the dated group window', () => {
     const view = await render(<ScheduleScreen />);
     await flush();
 
-    // Wander a week away
-    await fireEvent.press(view.getByLabelText('Previous day'));
-    await flush();
+    // Wander a week away — press past Monday whatever today
+    // is (a single press only crosses the boundary on Mondays)
+    for (let i = 0; i <= todayIdx; i++) {
+      await fireEvent.press(view.getByLabelText('Previous day'));
+      await flush();
+    }
     const wandered = lastEventsCall();
     expect(wandered).not.toEqual([...fetchWindow(monday), undefined]);
 

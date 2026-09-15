@@ -154,6 +154,16 @@ export interface AssistantTransportConfig {
   // Wrapped in try/catch — a throwing listener never becomes
   // the failure it reports
   onFailure?: (failure: AssistantFailure) => void;
+  // The server-side thread this chat persists into, resolved
+  // fresh on EVERY send — the host returns the id it already
+  // holds, or creates the thread on the first send (so an
+  // abandoned empty chat never mints a row) and returns the
+  // new id. The wrapper injects it into the chat body as
+  // `threadId`; null/undefined sends a stateless turn, and a
+  // REJECTING resolver fails the request (a thread the host
+  // meant to persist must not silently degrade to stateless).
+  // Absent = the transport never touches the body
+  threadId?: () => string | null | undefined | Promise<string | null | undefined>;
 }
 
 
@@ -248,7 +258,11 @@ export class AssistantTransportError extends Error {
   readonly failure: AssistantFailure;
 
   constructor(failure: AssistantFailure, options?: { cause?: unknown }) {
-    super(failure.message, options);
+    // The message carries the code and HTTP status ON PURPOSE:
+    // the thread's error banner prints error.message, and a
+    // student's screenshot must name the failure precisely —
+    // "auth 401: Session expired", not just the prose
+    super(`${failure.code}${failure.status !== undefined ? ` ${failure.status}` : ''}: ${failure.message}`, options);
     this.name = 'AssistantTransportError';
     this.failure = failure;
   }

@@ -121,6 +121,9 @@ export interface AssistantLabels {
   previousBranch: string;
   nextBranch: string;
   scrollToLatest: string;
+  sourcesTitle: string;
+  feedbackUp: string;
+  feedbackDown: string;
 }
 
 

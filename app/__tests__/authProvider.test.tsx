@@ -106,6 +106,14 @@ jest.mock('@/services/notifyEngine', () => {
 });
 jest.mock('@/context/NetworkContext', () => ({ showToast: jest.fn() }));
 jest.mock('expo-notifications', () => ({ dismissAllNotificationsAsync: jest.fn(async () => {}) }));
+// The assistant thread hand-overs: login OFFERS the guest
+// registry to the account, every session drop CLEARS it (the
+// shared-phone hygiene) — the provider owns the WHEN
+jest.mock('@/services/assistantThreads', () => ({
+  claimGuestThreads: jest.fn(async () => { mockLog.push('claimGuestThreads'); return 0; }),
+  clearGuestThreadRegistry: jest.fn(async () => { mockLog.push('clearGuestRegistry'); }),
+}));
+jest.mock('@/services/features', () => ({ isFeatureEnabled: () => true }));
 
 
 const user: User = {
@@ -241,9 +249,26 @@ describe('AuthProvider', () => {
       // The local wipe already emptied the api layer's token, so
       // the detach must carry the captured bearer itself
       expect(notifyEngine.detach).toHaveBeenCalledWith({ authToken: 'tok' });
+
+      // The guest thread registry goes with the LOCAL teardown —
+      // the phone's next user must not inherit the map to the
+      // previous one's assistant chats
+      expect(mockLog.indexOf('clearGuestRegistry')).toBeGreaterThanOrEqual(0);
+      expect(mockLog.indexOf('clearGuestRegistry')).toBeLessThan(mockLog.indexOf('detach'));
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  it('a login offers the device\'s guest threads to the account once', async () => {
+    seedLogin();
+    const { result } = await renderAuth();
+    await waitFor(() => expect(result.current.hydrated).toBe(true));
+
+    await act(async () => {
+      await result.current.login('jonas', 'slaptazodis');
+    });
+    await waitFor(() => expect(mockLog).toContain('claimGuestThreads'));
   });
 
 

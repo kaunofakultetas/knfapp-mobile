@@ -82,6 +82,9 @@ import {
 
 // Session side-effects — realtime socket, push token, offline
 // cache, session-expired toast
+import { claimGuestThreads, clearGuestThreadRegistry } from '@/services/assistantThreads';
+import { isFeatureEnabled } from '@/services/features';
+
 import { showToast } from '@/context/NetworkContext';
 import { useDataEngine } from '@knf/dataengine';
 import type { NotifyEngine, RegisterResult } from '@knf/notifyengine';
@@ -362,6 +365,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       // Guest default applies on the next schedule visit
     }
+    // Guest assistant-thread ids a failed claim left behind
+    // must not pass to the phone's next user — they would
+    // absorb them into their own account on login
+    try {
+      await clearGuestThreadRegistry();
+    } catch {
+      // The registry only maps to unguessable server threads
+    }
     try {
       await Notifications.dismissAllNotificationsAsync();
     } catch {
@@ -418,6 +429,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void readyNotifyEngine()
       .then(async (engine) => promptForPermission(engine, await engine.register('login')))
       .catch(() => {});
+    // Same spirit for the assistant: offer the device's guest
+    // chat threads to the account once — a failed claim keeps
+    // the registry, so the next login simply tries again
+    if (isFeatureEnabled('assistant')) {
+      void claimGuestThreads().catch(() => {});
+    }
   }, [cache]);
 
 

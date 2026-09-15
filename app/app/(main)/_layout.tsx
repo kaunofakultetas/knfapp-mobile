@@ -147,6 +147,7 @@ function MainStack() {
           options={{ title: t('profile.newPost'), fullScreenGestureEnabled: false }}
         />
         <Stack.Screen name="friends/index" options={{ title: t('friends.title') }} />
+        <Stack.Screen name="assistant-threads/index" options={{ title: t('assistant.threadsTitle') }} />
         <Stack.Screen name="friend-requests/index" options={{ title: t('friendRequests.title') }} />
         <Stack.Screen name="activity/index" options={{ title: t('activity.title') }} />
         <Stack.Screen name="delete-account/index" options={{ title: t('deleteAccount.title') }} />

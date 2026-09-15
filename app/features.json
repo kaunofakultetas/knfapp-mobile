@@ -4,7 +4,7 @@
   "accounts": false,
   "chat": false,
   "social": false,
-  "assistant": false,
+  "assistant": true,
   "studentId": false,
   "map": false
 }

@@ -286,7 +286,7 @@ describe('failures', () => {
     // whose status carries the error — the one signal an error
     // banner renders from, pinned here at the transport seam
     expect(last(probe).role).toBe('assistant');
-    expect(last(probe).status).toMatchObject({ type: 'incomplete', reason: 'error', error: 'expired' });
+    expect(last(probe).status).toMatchObject({ type: 'incomplete', reason: 'error', error: 'auth 401: expired' });
   });
 
   it('a throwing wire reads as network', async () => {

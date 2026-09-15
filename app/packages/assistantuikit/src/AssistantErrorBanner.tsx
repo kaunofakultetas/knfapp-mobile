@@ -73,7 +73,17 @@ export default function AssistantErrorBanner({
         <Pressable
           accessibilityRole="button"
           onPress={onRetry}
-          style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, backgroundColor: colors.brand }}
+          style={{
+            paddingHorizontal: 16,
+            borderRadius: 10,
+            backgroundColor: colors.brand,
+            // The platform touch-target floor — students retry
+            // this exact button on bad dorm Wi-Fi
+            minHeight: 44,
+            minWidth: 44,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
         >
           <Text style={{ fontSize: 13, fontWeight: '600', color: colors.onBrand }}>{labels.retry}</Text>
         </Pressable>

@@ -64,11 +64,14 @@ describe('@knf/assistantuikit surface', () => {
       previousBranch: 'pb',
       nextBranch: 'nb',
       scrollToLatest: 'sl',
+      sourcesTitle: 'st',
+      feedbackUp: 'fu',
+      feedbackDown: 'fd',
     };
     const renderer: pkg.ToolCardRenderer = (part: pkg.ToolCardPart) => (part.status === 'done' ? null : null);
     const suggestion: pkg.AssistantSuggestion = { title: 't', prompt: 'p' };
     const status: pkg.ToolCardStatus = 'running';
-    expect(Object.keys(labels)).toHaveLength(20);
+    expect(Object.keys(labels)).toHaveLength(23);
     expect(renderer({ toolName: 'x', input: {}, status })).toBeNull();
     expect(suggestion.description).toBeUndefined();
   });

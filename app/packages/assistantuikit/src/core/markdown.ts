@@ -6,7 +6,10 @@
 //  dialect is the small one a chat answer actually uses —
 //  paragraphs with bold / italic / inline code / links,
 //  headings 1-3, fenced code, ordered and unordered lists
-//  nested one level, blockquotes, horizontal rules — plus the
+//  nested one level, blockquotes, horizontal rules, and pipe
+//  tables (header + :---: delimiter + rows, GFM-style, after
+//  a blank line; a line being written that carries a pipe
+//  stays wholly in the streaming tail) — plus the
 //  rules that keep it honest while the text is still ARRIVING,
 //  each pinned by a test:
 //
@@ -151,7 +154,28 @@ export type MarkdownBlock =
   | { type: 'code'; language: string | null; code: string }
   | { type: 'quote'; blocks: MarkdownBlock[] }
   | { type: 'rule' }
+  | { type: 'table'; align: MarkdownTableAlign[]; header: MarkdownInline[][]; rows: MarkdownInline[][][] }
   | MarkdownList;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// MarkdownTableAlign
+// -----------------------------------------------------------
+//
+// One column's alignment, read from the delimiter row's
+// colons; null renders as the platform default (left).
+//
+// Used by:
+//   - MarkdownBlock (above) — the table block's align list
+//   - readTableAlign (below) and MarkdownText's TableBlock
+// -----------------------------------------------------------
+
+export type MarkdownTableAlign = 'left' | 'center' | 'right' | null;
 
 
 // The block openers, matched against a line already stripped
@@ -167,6 +191,12 @@ const HEADING_RE = /^ {0,3}(#{1,6})(?:[ \t]+(.*?))?(?:[ \t]+#+)?$/;
 const RULE_RE = /^ {0,3}([-*_])(?:[ \t]*\1){2,}$/;
 // '>' with an optional single space eaten — '>text' quotes too
 const QUOTE_RE = /^ {0,3}> ?(.*)$/;
+// A table's delimiter row: cells of dashes with optional
+// alignment colons. The pipe requirement lives in the table
+// branch (both the header and this row must carry one), which
+// is also what keeps "---" a rule, never a one-column table
+const TABLE_DELIM_RE = /^ {0,3}\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*$/;
+
 // List markers keep their leading whitespace — nesting depth
 // is read from it by indentWidth below
 const BULLET_RE = /^([ \t]*)([-*+])[ \t]+(.*)$/;
@@ -377,7 +407,15 @@ export function splitStreamingTail(text: string): { settled: string; tail: strin
   if (fenceStart !== -1) return { settled: src.slice(0, fenceStart), tail: src.slice(fenceStart) };
   if (src.endsWith('\n') || closedOnLastLine) return { settled: src, tail: '' };
   const lineStart = src.lastIndexOf('\n') + 1;
-  const cut = lineStart + settledEndOfLine(src.slice(lineStart));
+  // A line-in-progress that carries a pipe may be a table row
+  // whose cells the next delta reshapes — the whole line stays
+  // in the tail until its newline settles it
+  const lastLine = src.slice(lineStart);
+  if (hasTablePipe(lastLine)) {
+    return { settled: src.slice(0, lineStart), tail: lastLine };
+  }
+
+  const cut = lineStart + settledEndOfLine(lastLine);
   return { settled: src.slice(0, cut), tail: src.slice(cut) };
 }
 
@@ -636,6 +674,35 @@ function parseBlocks(lines: readonly string[], depth: number): MarkdownBlock[] {
       continue;
     }
 
+    // A pipe table: this line as the header when the NEXT line
+    // is a matching delimiter row — both must carry a real
+    // pipe, and the delimiter must agree on the column count,
+    // or the lines stay the prose they were
+    if (hasTablePipe(line) && TABLE_DELIM_RE.test(lines[i + 1] ?? '') && hasTablePipe(lines[i + 1] ?? '')) {
+      const headerCells = splitTableRow(line);
+      const align = readTableAlign(lines[i + 1] ?? '');
+      if (headerCells.length === align.length) {
+        const rows: MarkdownInline[][][] = [];
+        let j = i + 2;
+        while (j < lines.length && hasTablePipe(lines[j] ?? '')) {
+          const cells = splitTableRow(lines[j] ?? '');
+          // Ragged rows normalise to the header's width — GFM
+          // pads the short and drops the overflow
+          while (cells.length < headerCells.length) cells.push('');
+          rows.push(cells.slice(0, headerCells.length).map((cell) => parseInline(cell, depth)));
+          j += 1;
+        }
+        blocks.push({
+          type: 'table',
+          align,
+          header: headerCells.map((cell) => parseInline(cell, depth)),
+          rows,
+        });
+        i = j;
+        continue;
+      }
+    }
+
     // A paragraph: this line, then every following line until
     // a blank one or a block opener. Leading indent is prose
     // indent, not code — there is no indented-code form here
@@ -703,6 +770,112 @@ const startsBlock = (line: string): boolean => {
   const item = readItem(line);
   return item !== null && (!item.ordered || item.start === 1);
 };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// hasTablePipe
+// -----------------------------------------------------------
+//
+// Whether a line carries a REAL pipe — `\|` is an escaped
+// character inside a cell, so the walk skips escaped pairs.
+// This is both the "is this a table row at all" question and
+// the streaming guard's "could this line still become one".
+//
+// Used by:
+//   - parseBlocks (below) — the table branch
+//   - splitStreamingTail (above) — the whole-line tail guard
+// -----------------------------------------------------------
+
+function hasTablePipe(line: string): boolean {
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line.charAt(i);
+    if (ch === '\\') {
+      i += 1;
+      continue;
+    }
+    if (ch === '|') return true;
+  }
+  return false;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// splitTableRow
+// -----------------------------------------------------------
+//
+// One row line into trimmed cell texts: unescaped pipes cut,
+// escaped pairs are copied through for parseInline to
+// unescape, and only UNESCAPED outer pipes drop as
+// decoration.
+//
+// Used by:
+//   - parseBlocks (below) — header and body rows
+//   - readTableAlign (below)
+// -----------------------------------------------------------
+
+function splitTableRow(line: string): string[] {
+  let trimmed = line.trim();
+  if (trimmed.startsWith('|')) trimmed = trimmed.slice(1);
+  // Only an UNESCAPED trailing pipe is decoration
+  if (trimmed.endsWith('|') && !trimmed.endsWith('\\|')) trimmed = trimmed.slice(0, -1);
+
+  const cells: string[] = [];
+  let current = '';
+  for (let i = 0; i < trimmed.length; i += 1) {
+    const ch = trimmed.charAt(i);
+    if (ch === '\\') {
+      current += ch + trimmed.charAt(i + 1);
+      i += 1;
+      continue;
+    }
+    if (ch === '|') {
+      cells.push(current.trim());
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  cells.push(current.trim());
+  return cells;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// readTableAlign
+// -----------------------------------------------------------
+//
+// The delimiter row's colons as one alignment per column —
+// :--- left, ---: right, :---: center, bare dashes null.
+//
+// Used by:
+//   - parseBlocks (below) — the table branch
+// -----------------------------------------------------------
+
+function readTableAlign(line: string): MarkdownTableAlign[] {
+  return splitTableRow(line).map((cell) => {
+    const left = cell.startsWith(':');
+    const right = cell.endsWith(':');
+    if (left && right) return 'center';
+    if (right) return 'right';
+    if (left) return 'left';
+    return null;
+  });
+}
 
 
 

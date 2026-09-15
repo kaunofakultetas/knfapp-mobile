@@ -102,7 +102,10 @@ describe('the list', () => {
   it('keeps visible content in place; the host inset pads the column, the list keeps its own 8', async () => {
     const view = await renderThread(createScriptedModel([]), { contentPaddingBottom: 72 });
     const list = hostList(view);
-    expect(list.props.maintainVisibleContentPosition).toEqual({ minIndexForVisible: 0 });
+    // Android keeps the read position pinned; iOS must NOT get
+    // the prop — it corrupts a growing last row's cell frame
+    // (the jest platform is ios, so the pin asserts the absence)
+    expect(list.props.maintainVisibleContentPosition).toBeUndefined();
     // The inset sits under the composer — inside the list it
     // could never move a covered Send button
     expect(flat(list.props.contentContainerStyle).paddingBottom).toBe(8);

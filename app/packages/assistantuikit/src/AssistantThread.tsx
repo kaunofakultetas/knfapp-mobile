@@ -247,10 +247,13 @@ function ScrollToLatest({ onPress }: { onPress: () => void }) {
 //
 // The upstream FlatList with the kit's row, the empty slot and
 // the away tracking. maintainVisibleContentPosition keeps what
-// the reader sees still while the tail grows; the upstream
-// auto-scroll follows the tail only while pinned to it, so the
-// away state below is purely the button's — it never scrolls
-// on its own. Taps inside the list keep the keyboard (a send
+// the reader sees still while the tail grows — but ANDROID
+// ONLY: on iOS the prop corrupts a last row whose height grows
+// mid-stream (the cell keeps its stale frame, so the answer's
+// text paints past its bubble over the action bar — seen on
+// device the first live day); the upstream auto-scroll follows
+// the tail only while pinned to it, so the away state below is
+// purely the button's — it never scrolls on its own. Taps inside the list keep the keyboard (a send
 // press must not need two taps) and a drag dismisses it —
 // interactively where the platform can, on the drag where it
 // cannot.
@@ -291,7 +294,7 @@ function MessageList({ suggestions }: { suggestions?: AssistantSuggestion[] }) {
       <ThreadPrimitive.MessagesFlatList
         ref={listRef}
         contentContainerStyle={{ flexGrow: 1, paddingTop: 8, paddingBottom: 8 }}
-        maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+        maintainVisibleContentPosition={Platform.OS === 'android' ? { minIndexForVisible: 0 } : undefined}
         keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
         keyboardShouldPersistTaps="handled"
         onScroll={onScroll}
@@ -465,6 +468,9 @@ export default function AssistantThread({
   suggestions,
   copyToClipboard,
   onPressLink,
+  onFeedback,
+  onComposerSend,
+  onAnswerSettled,
   contentPaddingBottom = 0,
 }: {
   labels: AssistantLabels;
@@ -476,12 +482,17 @@ export default function AssistantThread({
   // Without it the copy action is not rendered at all
   copyToClipboard?: (text: string) => Promise<void> | void;
   onPressLink?: (url: string) => void;
+  // Without it the thumbs actions are not rendered at all
+  onFeedback?: (messageId: string, rating: 1 | -1 | 0) => Promise<void> | void;
+  // The host's haptic seams — send press, answer settled
+  onComposerSend?: () => void;
+  onAnswerSettled?: () => void;
   // Room under the composer — a floating tab bar, a home
   // indicator the host does not pad for
   contentPaddingBottom?: number;
 }) {
   return (
-    <AssistantKitProvider labels={labels} colors={colors} tools={tools} copyToClipboard={copyToClipboard} onPressLink={onPressLink}>
+    <AssistantKitProvider labels={labels} colors={colors} tools={tools} copyToClipboard={copyToClipboard} onPressLink={onPressLink} onFeedback={onFeedback} onComposerSend={onComposerSend} onAnswerSettled={onAnswerSettled}>
       <KeyboardSafeColumn>
         <ThreadPrimitive.Root
           testID="assistantuikit-thread"
@@ -489,7 +500,7 @@ export default function AssistantThread({
         >
           <MessageList suggestions={suggestions} />
           <LastMessageError />
-          <AssistantComposer labels={labels} colors={colors} />
+          <AssistantComposer labels={labels} colors={colors} onSend={onComposerSend} />
         </ThreadPrimitive.Root>
       </KeyboardSafeColumn>
     </AssistantKitProvider>

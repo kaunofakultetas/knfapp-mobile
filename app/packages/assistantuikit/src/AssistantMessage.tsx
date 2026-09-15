@@ -29,7 +29,9 @@
 //    ReasoningPart    — the collapsible thinking row
 //    EmptyPart        — typing dots while running
 //    BranchPicker     — ‹ n / count › when siblings exist
-//    ActionBar        — copy + regenerate + branch picker
+//    SourcesFooter    — searchHandbook citations under the bubble
+//    FeedbackButtons  — the host-backed thumbs pair
+//    ActionBar        — copy + regenerate + thumbs + branch picker
 //    UserBubble       — the right-hand row
 //    AssistantBubble  — the left-hand row
 //    AssistantMessage — the role switch (default export)
@@ -39,8 +41,8 @@
 //    - hosts composing their own list under AssistantKitProvider
 // -----------------------------------------------------------
 
-import { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Dimensions, Pressable, Text, View } from 'react-native';
 import {
   ActionBarPrimitive,
   BranchPickerPrimitive,
@@ -58,12 +60,26 @@ import TypingIndicator from './TypingIndicator';
 
 
 // Both bubble kinds cap at this share of the row, so a long
-// answer never touches the opposite edge
-const BUBBLE_MAX_WIDTH = '86%';
+// answer never touches the opposite edge. Computed in POINTS
+// off the window at load, not a yoga percentage — percent
+// maxWidth inside a virtualized list row is an iOS
+// measurement trap
+const BUBBLE_MAX_WIDTH = Math.round(Dimensions.get('window').width * 0.86);
+
 
 // Static objects on purpose: a style FUNCTION on a Pressable is
-// dropped under the host's JSX runtime
-const ACTION_STYLE = { paddingHorizontal: 8, paddingVertical: 4, marginRight: 4 };
+// dropped under the host's JSX runtime. The 44pt minimums are
+// the platform touch-target floor — the labels stay small, the
+// PRESSABLE does not (a 24pt copy button misses half its taps)
+const ACTION_STYLE = {
+  paddingHorizontal: 8,
+  paddingVertical: 4,
+  marginRight: 4,
+  minWidth: 44,
+  minHeight: 44,
+  alignItems: 'center' as const,
+  justifyContent: 'center' as const,
+};
 
 // A disabled action is dimmed to this — the primitives disable
 // the press themselves, the dim only makes it visible
@@ -161,7 +177,8 @@ function ReasoningPart({ text }: ReasoningMessagePartProps) {
         accessibilityRole="button"
         accessibilityState={{ expanded: open }}
         onPress={() => setOpen((was) => !was)}
-        style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 4 }}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 4, minHeight: 32 }}
       >
         <Text style={{ fontSize: 12, color: colors.inkSoft, marginRight: 6 }}>{open ? '▾' : '▸'}</Text>
         <Text style={{ fontSize: 12, fontWeight: '600', color: colors.inkSoft }}>{labels.thinking}</Text>
@@ -268,18 +285,172 @@ function BranchPicker() {
 
 
 // -----------------------------------------------------------
+// SourcesFooter
+// -----------------------------------------------------------
+//
+// The citation list under an answer that used searchHandbook:
+// every entry the tool returned, numbered in tool order — the
+// same numbering the system prompt tells the model to cite as
+// [1], [2] inline. Each row is a button: a tap expands the
+// entry's EXCERPT in place (accordion, one open at a time),
+// so a citation is verifiable without leaving the thread.
+// Reads the message's tool parts straight from the upstream
+// state, so it needs no new wire shape; hidden while the
+// message still runs and when no entries exist.
+//
+// Used by:
+//   - AssistantBubble (below) — inside the bubble, under parts
+// -----------------------------------------------------------
+
+function SourcesFooter() {
+
+  const { labels, colors } = useAssistantKit();
+  const running = useAuiState((s) => s.message.status?.type === 'running');
+  // The selector must answer a STABLE snapshot — the parts
+  // array reference is one; the derived list is memoized off it
+  const parts = useAuiState((s) => s.message.parts);
+  const entries = useMemo(
+    () =>
+      parts.flatMap((part) => {
+        const candidate = part as { toolName?: unknown; result?: { entries?: unknown } };
+        if (candidate.toolName !== 'searchHandbook') return [];
+        const listed = candidate.result?.entries;
+        return Array.isArray(listed)
+          ? listed.filter(
+              (entry): entry is { id: string; title: string; excerpt?: string; section?: string } =>
+                !!entry && typeof (entry as { title?: unknown }).title === 'string',
+            )
+          : [];
+      }),
+    [parts],
+  );
+  const [openIndex, setOpenIndex] = useState<number | null>(null);
+
+
+  if (running || entries.length === 0) return null;
+
+
+  return (
+    <View testID="assistantuikit-sources" style={{ marginTop: 8, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 6 }}>
+      <Text style={{ fontSize: 11, fontWeight: '700', color: colors.inkSoft, marginBottom: 2 }}>
+        {labels.sourcesTitle}
+      </Text>
+      {entries.map((entry, index) => (
+        <View key={`${entry.id ?? index}`}>
+          <Pressable
+            testID={`assistantuikit-source-${index}`}
+            accessibilityRole="button"
+            accessibilityLabel={`[${index + 1}] ${entry.title}`}
+            accessibilityState={{ expanded: openIndex === index }}
+            onPress={() => setOpenIndex((was) => (was === index ? null : index))}
+            style={{ paddingVertical: 6, justifyContent: 'center' }}
+          >
+            <Text style={{ fontSize: 12, color: colors.inkSoft, lineHeight: 17 }} numberOfLines={1}>
+              {openIndex === index ? '▾' : '▸'} [{index + 1}] {entry.title}
+              {entry.section ? ` — ${entry.section}` : ''}
+            </Text>
+          </Pressable>
+          {openIndex === index && entry.excerpt ? (
+            <Text
+              testID={`assistantuikit-source-excerpt-${index}`}
+              style={{ fontSize: 12, lineHeight: 17, color: colors.inkSoft, paddingLeft: 14, paddingBottom: 4 }}
+            >
+              {entry.excerpt}
+            </Text>
+          ) : null}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// FeedbackButtons
+// -----------------------------------------------------------
+//
+// The thumbs pair, rendered only when the host handed an
+// onFeedback callback: a tap records the verdict, tapping
+// the same thumb again clears it (rating 0). The chosen
+// state lives here per message row — the store of record is
+// the host's, and a failed send simply leaves the visual
+// choice, retried on the next tap.
+//
+// Used by:
+//   - ActionBar (below)
+// -----------------------------------------------------------
+
+function FeedbackButtons() {
+
+  const { labels, colors, onFeedback } = useAssistantKit();
+  const messageId = useAuiState((s) => s.message.id);
+  const [chosen, setChosen] = useState<1 | -1 | 0>(0);
+
+
+  if (!onFeedback) return null;
+
+
+  const choose = (rating: 1 | -1) => {
+    const next = chosen === rating ? 0 : rating;
+    setChosen(next);
+    void onFeedback(messageId, next);
+  };
+
+  const label = (selected: boolean) => ({
+    fontSize: 12,
+    fontWeight: '600' as const,
+    color: selected ? colors.brand : colors.inkSoft,
+  });
+  return (
+    <>
+      <Pressable
+        testID="assistantuikit-feedback-up"
+        onPress={() => choose(1)}
+        accessibilityRole="button"
+        accessibilityLabel={labels.feedbackUp}
+        accessibilityState={{ selected: chosen === 1 }}
+        style={ACTION_STYLE}
+      >
+        <Text style={label(chosen === 1)}>👍</Text>
+      </Pressable>
+      <Pressable
+        testID="assistantuikit-feedback-down"
+        onPress={() => choose(-1)}
+        accessibilityRole="button"
+        accessibilityLabel={labels.feedbackDown}
+        accessibilityState={{ selected: chosen === -1 }}
+        style={ACTION_STYLE}
+      >
+        <Text style={label(chosen === -1)}>👎</Text>
+      </Pressable>
+    </>
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // ActionBar
 // -----------------------------------------------------------
 //
 // Under a settled assistant bubble: copy (only when the host
 // wired a clipboard — the upstream hook disables itself
 // without one, and a dead button is worse than none), then
-// regenerate on the last assistant message, then the branch
-// picker. Hidden entirely while the message is still running.
-// The copy selector mirrors the upstream primitive's exact
-// disabled predicate — a message with no text to copy shows
-// the action dimmed, so the disable the primitive applies is
-// visible too.
+// regenerate on the last assistant message, then the thumbs
+// pair, then the branch picker. Hidden entirely while the
+// message is still running. The copy selector mirrors the
+// upstream primitive's exact disabled predicate — a message
+// with no text to copy shows the action dimmed, so the
+// disable the primitive applies is visible too.
 //
 // Used by:
 //   - AssistantBubble (below)
@@ -319,6 +490,7 @@ function ActionBar() {
           <Text style={label}>{labels.regenerate}</Text>
         </ActionBarPrimitive.Reload>
       ) : null}
+      <FeedbackButtons />
       <BranchPicker />
     </View>
   );
@@ -391,10 +563,33 @@ function UserBubble() {
 
 function AssistantBubble() {
 
-  const { colors } = useAssistantKit();
+  const { colors, onAnswerSettled } = useAssistantKit();
   const settledEmpty = useAuiState(
     (s) => s.message.parts.length === 0 && s.message.status?.type !== 'running' && s.message.status?.type !== 'requires-action',
   );
+
+  // The answer-complete haptic: fired once on the running →
+  // settled transition of the LAST message — a replayed old
+  // thread (never running) stays silent. DEBOUNCED: between a
+  // tool round-trip's response and the automatic follow-up
+  // send the upstream reads 'ready' for a frame, and firing
+  // there buzzes "done" in the middle of nearly every answer;
+  // the timer is cancelled the moment running resumes
+  const running = useAuiState((s) => s.message.status?.type === 'running');
+  const isLast = useAuiState((s) => s.message.isLast);
+  const wasRunning = useRef(false);
+  useEffect(() => {
+    if (running) {
+      wasRunning.current = true;
+      return;
+    }
+    if (!wasRunning.current || !isLast) return;
+    const timer = setTimeout(() => {
+      wasRunning.current = false;
+      onAnswerSettled?.();
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [running, isLast, onAnswerSettled]);
 
 
   if (settledEmpty) return null;
@@ -418,6 +613,7 @@ function AssistantBubble() {
         }}
       >
         <MessagePrimitive.Parts components={ASSISTANT_PARTS} />
+        <SourcesFooter />
       </View>
       <ActionBar />
     </MessagePrimitive.Root>

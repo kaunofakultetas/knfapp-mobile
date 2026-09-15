@@ -1802,7 +1802,7 @@ export function describeTransportContract(
         // carries the error — failure hook or not
         const failed = lastMessage(probe);
         expect(failed.role).toBe('assistant');
-        expect(failed.status).toMatchObject({ type: 'incomplete', reason: 'error', error: CONTRACT_REPLIES.auth.body.error });
+        expect(failed.status).toMatchObject({ type: 'incomplete', reason: 'error', error: `auth 401: ${CONTRACT_REPLIES.auth.body.error}` });
       }));
 
     it('429 with Retry-After: 30 reads as quota with retryAfterMs 30 000', () =>

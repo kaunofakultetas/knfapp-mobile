@@ -89,6 +89,8 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Pressable, View } from 'react-native';
+import { TAB_BAR_CLEARANCE } from '@/components/navigation/tabBarCollapse';
+import useKeyboardVisible from '@/hooks/useKeyboardVisible';
 
 
 // The origin the transport appends its fixed paths to —
@@ -359,6 +361,11 @@ function AssistantScreen() {
   const sessionKey = isAuthenticated ? (user?.id ?? 'user') : 'guest';
 
 
+  // Whether the keyboard is up — the composer's chip clearance
+  // applies only while it is down (see the render note)
+  const keyboardUp = useKeyboardVisible();
+
+
   // The mounted conversation: a stored one carries its
   // transcript; null is a fresh chat. `epoch` keys fresh
   // chats apart so "new conversation" really resets one
@@ -432,8 +439,12 @@ function AssistantScreen() {
 
       {/* The chat stays mounted while a transcript loads — the
           spinner is an overlay, so a failed open never destroys
-          the conversation that was on screen */}
-      <View style={{ flex: 1 }}>
+          the conversation that was on screen. The bottom pad
+          lifts the composer above the floating tab chip — but
+          only while the keyboard is down: an open keyboard
+          covers the chip's zone itself, and the pad would sit
+          as a dead band between composer and keys */}
+      <View style={{ flex: 1, paddingBottom: keyboardUp ? 0 : TAB_BAR_CLEARANCE - 20 }}>
         <AssistantChat
           key={`${sessionKey}:${active ? active.id : `new-${epoch}`}`}
           threadId={active?.id ?? null}

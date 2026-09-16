@@ -81,6 +81,7 @@ import {
   SectionTitle,
   confirmAction,
 } from '@/components/ui';
+import { TAB_BAR_CLEARANCE, useTabBarScroll } from '@/components/navigation/tabBarCollapse';
 import { useTheme } from '@/hooks/useTheme';
 
 // Param-preserving current href for the login returnTo
@@ -541,6 +542,7 @@ function useChannelsSync(isAuthenticated: boolean): {
 export default function SettingsScreen() {
 
   const { theme, language, setTheme, setLanguage, resetSettings } = useApp();
+  const tabBarScroll = useTabBarScroll();
   const { isAuthenticated, user, logout, loggingOut } = useAuth();
   const { colors } = useTheme();
   const { t } = useTranslation();
@@ -730,7 +732,12 @@ export default function SettingsScreen() {
 
       <ScrollView
         className="flex-1"
-        contentContainerClassName="p-md pb-xl"
+        contentContainerClassName="p-md"
+        contentContainerStyle={{ paddingBottom: TAB_BAR_CLEARANCE }}
+        onScroll={tabBarScroll.onScroll}
+        onScrollBeginDrag={tabBarScroll.onScrollBeginDrag}
+        onScrollEndDrag={tabBarScroll.onScrollEndDrag}
+        scrollEventThrottle={tabBarScroll.scrollEventThrottle}
         refreshControl={
           <RefreshSpinner
             refreshing={refreshing}

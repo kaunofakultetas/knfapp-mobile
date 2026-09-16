@@ -105,6 +105,7 @@ import {
 
 // UI kit — chrome and the three data states
 import { Button, EmptyState, ErrorState, Header, Input, LoadingSpinner, RefreshSpinner, Screen } from '@/components/ui';
+import { TAB_BAR_CLEARANCE, useTabBarScroll } from '@/components/navigation/tabBarCollapse';
 
 // JS-side colors for icons and the refresh tint
 import { useTheme } from '@/hooks/useTheme';
@@ -740,6 +741,7 @@ function ScheduleScreen() {
   const { cache } = useDataEngine();
 
   const { t } = useTranslation();
+  const tabBarScroll = useTabBarScroll();
   // JS-side colors for the icons handed into the kit chrome
   const { colors } = useTheme();
 
@@ -1469,7 +1471,11 @@ function ScheduleScreen() {
             // groups" a lecture shared by several groups repeats
             // with the SAME event id, one row per group
             keyExtractor={(item) => `${item.id}:${item.group}`}
-            contentContainerStyle={{ padding: 16, paddingBottom: 24 }}
+            contentContainerStyle={{ padding: 16, paddingBottom: TAB_BAR_CLEARANCE }}
+            onScroll={tabBarScroll.onScroll}
+            onScrollBeginDrag={tabBarScroll.onScrollBeginDrag}
+            onScrollEndDrag={tabBarScroll.onScrollEndDrag}
+            scrollEventThrottle={tabBarScroll.scrollEventThrottle}
             refreshControl={refreshControl}
             ItemSeparatorComponent={Separator}
             renderItem={renderLesson}
@@ -1492,7 +1498,11 @@ function ScheduleScreen() {
           <FlatList
             data={teacherDayCards}
             keyExtractor={(card) => card.lesson.id}
-            contentContainerStyle={{ padding: 16, paddingBottom: 24 }}
+            contentContainerStyle={{ padding: 16, paddingBottom: TAB_BAR_CLEARANCE }}
+            onScroll={tabBarScroll.onScroll}
+            onScrollBeginDrag={tabBarScroll.onScrollBeginDrag}
+            onScrollEndDrag={tabBarScroll.onScrollEndDrag}
+            scrollEventThrottle={tabBarScroll.scrollEventThrottle}
             refreshControl={refreshControl}
             ItemSeparatorComponent={Separator}
             renderItem={renderTeacherCard}

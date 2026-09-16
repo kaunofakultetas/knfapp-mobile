@@ -1,5 +1,6 @@
 {
   "tabs": {
+    "expand": "Rodyti naršymą",
     "news": "Naujienos",
     "messages": "Žinutės",
     "messagesUnread_one": "{{count}} neskaityta žinutė",

@@ -60,6 +60,7 @@ import {
   Screen,
   confirmAction,
 } from '@/components/ui';
+import { TAB_BAR_CLEARANCE, useTabBarScroll } from '@/components/navigation/tabBarCollapse';
 
 // Auth, theming and toast feedback
 import { useAuth } from '@/context/AuthContext';
@@ -443,6 +444,7 @@ function Conversations() {
 
   const router = useRouter();
   const { t } = useTranslation();
+  const tabBarScroll = useTabBarScroll();
   const { user, isAuthenticated } = useAuth();
   const socketStatus = useSocketStatus();
   const userId = user?.id ?? null;
@@ -910,10 +912,15 @@ function Conversations() {
           data={visible}
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
+          onScroll={tabBarScroll.onScroll}
+          onScrollBeginDrag={tabBarScroll.onScrollBeginDrag}
+          onScrollEndDrag={tabBarScroll.onScrollEndDrag}
+          scrollEventThrottle={tabBarScroll.scrollEventThrottle}
           contentContainerStyle={{
             paddingHorizontal: 16,
             paddingTop: 8,
-            paddingBottom: 24,
+            // The floating tab chip hovers over the list's tail
+            paddingBottom: TAB_BAR_CLEARANCE,
             flexGrow: 1,
           }}
           keyboardShouldPersistTaps="handled"

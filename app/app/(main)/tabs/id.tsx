@@ -49,6 +49,7 @@ import { showToast } from '@/context/NetworkContext';
 
 // UI kit and theming
 import { Avatar, Button, Header, Input, RefreshSpinner, Screen } from '@/components/ui';
+import { TAB_BAR_CLEARANCE, useTabBarScroll } from '@/components/navigation/tabBarCollapse';
 import { useTheme } from '@/hooks/useTheme';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -361,6 +362,7 @@ function IdCard() {
   const { user, setUser } = useAuth();
   const { t } = useTranslation();
   const { colors } = useTheme();
+  const tabBarScroll = useTabBarScroll();
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -487,7 +489,12 @@ function IdCard() {
       >
         <ScrollView
           keyboardShouldPersistTaps="handled"
-          contentContainerClassName="items-center p-md pb-2xl"
+          contentContainerClassName="items-center p-md"
+          contentContainerStyle={{ paddingBottom: TAB_BAR_CLEARANCE }}
+          onScroll={tabBarScroll.onScroll}
+          onScrollBeginDrag={tabBarScroll.onScrollBeginDrag}
+          onScrollEndDrag={tabBarScroll.onScrollEndDrag}
+          scrollEventThrottle={tabBarScroll.scrollEventThrottle}
           refreshControl={
             <RefreshSpinner
               refreshing={refreshing}

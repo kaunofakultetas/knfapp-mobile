@@ -61,6 +61,7 @@ import withFeature from '@/components/FeatureGate';
 
 import CachedBanner from '@/components/CachedBanner';
 import NewsCard from '@/components/news/NewsCard';
+import { useTabBarScroll } from '@/components/navigation/tabBarCollapse';
 import { EmptyState, ErrorState, Header, LoadingSpinner, RefreshSpinner, Screen } from '@/components/ui';
 
 // Feed engine, like engine, feed chrome
@@ -225,7 +226,10 @@ function SourceChips({ filters, active, onSelect }: {
         horizontal
         className="grow-0 shrink-0"
         showsHorizontalScrollIndicator={false}
-        contentContainerClassName="flex-row items-center gap-sm px-md py-2.5"
+        // Asymmetric on purpose: the Header's fixed 56pt row
+        // already leaves air under the title, so the chips hug
+        // it and keep their breathing room below only
+        contentContainerClassName="flex-row items-center gap-sm px-md pt-0 pb-2.5"
       >
         {filters.map(({ key, labelKey }) => {
           const selected = active === key;
@@ -419,6 +423,11 @@ function HeaderScrollView({
   ref?: Ref<ScrollView>;
 }) {
 
+  // The floating tab chip folds away on downward scroll — this
+  // screen's feed is one of its feeders
+  const tabBarScroll = useTabBarScroll();
+
+
   // One node, two owners: the animated wrapper (which also
   // forwards it to the FlatList) and the screen's scrollRef
   const captureRef = (node: ScrollView | null) => {
@@ -443,14 +452,17 @@ function HeaderScrollView({
       }
       onScroll={(event) => {
         list.onScroll?.(event);
+        tabBarScroll.onScroll(event);
         onScroll?.(event);
       }}
       onScrollBeginDrag={(event) => {
         list.onScrollBeginDrag?.(event);
+        tabBarScroll.onScrollBeginDrag(event);
         onScrollBeginDrag?.(event);
       }}
       onScrollEndDrag={(event) => {
         list.onScrollEndDrag?.(event);
+        tabBarScroll.onScrollEndDrag(event);
         onScrollEndDrag?.(event);
       }}
       onMomentumScrollEnd={(event) => {

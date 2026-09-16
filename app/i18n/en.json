@@ -1,5 +1,6 @@
 {
   "tabs": {
+    "expand": "Show navigation",
     "news": "News",
     "messages": "Messages",
     "messagesUnread_one": "{{count}} unread message",

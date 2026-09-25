@@ -25,9 +25,14 @@
 //  fixes the output order and pins group.key — the newest
 //  member's id — regardless of how the pages arrived.
 //
+//  Also the unread SIGNAL — the one wire between the list's
+//  mark-all-read and the badge that counts what is unread
+//  (createUnreadSignal, bottom of the file).
+//
 //  Used by:
 //    - hooks/useNotifications.ts — groups whatever it holds
 //    - hosts re-grouping a list of their own (public export)
+//    - provider/index.tsx — one unread signal per provider
 // -----------------------------------------------------------
 
 import type { NotificationGroup, NotificationKind, SocialNotification, SocialUser } from './types';
@@ -188,4 +193,64 @@ export function groupNotifications(list: SocialNotification[], options?: GroupNo
     subjectId: g.newest.subjectId ?? null,
     subjectPreview: g.subjectPreview,
   }));
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// UnreadSignal
+// -----------------------------------------------------------
+//
+// What the activity list tells the badge: 'cleared' — every
+// row was just marked read (the badge drops to zero at once
+// instead of waiting out its poll interval), 'stale' — the
+// count the badge shows may be wrong now (a mark-read the
+// server refused; the badge re-probes).
+//
+// Used by:
+//   - createUnreadSignal (below)
+//   - provider/index.tsx — the env's `unread`
+//   - hooks/useNotifications.ts — emits; hooks/useUnreadBadge.ts
+//     — listens
+// -----------------------------------------------------------
+
+export interface UnreadSignal {
+  emit(kind: 'cleared' | 'stale'): void;
+  // Returns the unsubscribe
+  subscribe(listener: (kind: 'cleared' | 'stale') => void): () => void;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// createUnreadSignal
+// -----------------------------------------------------------
+//
+// A plain listener set — synchronous delivery, no memory of
+// past emits (a badge mounted later probes the server on its
+// own anyway).
+//
+// Used by:
+//   - provider/index.tsx — one per provider mount
+// -----------------------------------------------------------
+
+export function createUnreadSignal(): UnreadSignal {
+  const listeners = new Set<(kind: 'cleared' | 'stale') => void>();
+  return {
+    emit: (kind) => listeners.forEach((listener) => listener(kind)),
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
 }

@@ -9,9 +9,11 @@
 //  onPressLink decides what opening means — the kit never
 //  navigates); headings, quotes, rules and lists are Views;
 //  fenced code is a monospace box that wraps rather than
-//  scrolls. Every colour is a token from AssistantColors; the
-//  kit owns no string, and the only glyphs it draws are the
-//  list markers.
+//  scrolls. Every colour is a token from AssistantColors and
+//  every face comes from the host's AssistantFonts (bold is
+//  the host's bold FAMILY, not a synthesized weight); the kit
+//  owns no string, and the only glyphs it draws are the list
+//  markers.
 //
 //  isStreaming is the one behaviour switch. The parser is
 //  tolerant on its own — an open ** or ``` is text until it
@@ -23,12 +25,16 @@
 //  or [link] renders rich as it arrives, and the mutable
 //  suffix stays plain: spliced into the last leaf as text when
 //  it continues the line being written, or shown as a plain
-//  tail Text when the whole line is still unsettled. When the
-//  stream ends the whole text parses.
+//  tail Text when the whole line is still unsettled. While it
+//  streams, the settled prefix goes through ONE incremental
+//  parser per text part (createStreamingParser): the blocks
+//  before the answer's last safe boundary are reused, so a
+//  delta re-parses only the block being written, not the whole
+//  answer (KNF-088). When the stream ends the whole text parses
+//  once more, plainly.
 //
 //  Split into (root component last):
 //
-//    MONO         — the platform's monospace family
 //    body         — the shared prose text style
 //    Inline       — spans into nested Text
 //    CodeBlock    — the fenced code box
@@ -41,17 +47,21 @@
 //    - AssistantMessage.tsx — the assistant bubble's Text part
 // -----------------------------------------------------------
 
-import { useMemo } from 'react';
-import { Platform, ScrollView, Text, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import { ScrollView, Text, View } from 'react-native';
 
-import { appendStreamTail, parseMarkdown, splitStreamingTail, type MarkdownBlock, type MarkdownInline, type MarkdownList } from './core/markdown';
-import { defaultColors, type AssistantColors } from './core/types';
+import {
+  appendStreamTail,
+  createStreamingParser,
+  parseMarkdown,
+  splitStreamingTail,
+  type MarkdownBlock,
+  type MarkdownInline,
+  type MarkdownList,
+} from './core/markdown';
+import { monoFamily, typeface } from './core/typography';
+import { defaultColors, defaultFonts, type AssistantColors, type AssistantFonts } from './core/types';
 
-
-// Neither platform knows the other's family: iOS has no generic
-// 'monospace', Android no Menlo, and an unknown family falls
-// back to the proportional system font without a word
-const MONO = Platform.select({ ios: 'Menlo', default: 'monospace' });
 
 // The type scale, in dp — body matches the bubbles around it,
 // code steps down so a snippet fits the narrow bubble
@@ -77,9 +87,19 @@ const HEADING_TYPE: Record<1 | 2 | 3, { fontSize: number; lineHeight: number }> 
   3: { fontSize: 15, lineHeight: 21 },
 };
 
+// Tables with more columns than this scroll horizontally
+// instead of squeezing every cell to a one-word sliver
+const TABLE_SQUEEZE_MAX_COLUMNS = 3;
+
+// A scrolling table's fixed column width — fixed, not flexed:
+// a wrapping Text column with flex inside an intrinsic-width
+// row is the iOS Fabric measurement trap
+const TABLE_SCROLL_COLUMN_WIDTH = 140;
+
 // What every renderer below needs from the root
 interface RenderProps {
   colors: AssistantColors;
+  fonts: AssistantFonts;
   onPressLink?: (url: string) => void;
 }
 
@@ -93,14 +113,20 @@ interface RenderProps {
 // body
 // -----------------------------------------------------------
 //
-// The body text style, in the given ink — the prose blocks
-// and the streaming tail all build on it.
+// The body text style, in the given ink and the host's
+// regular face — the prose blocks and the streaming tail all
+// build on it.
 //
 // Used by:
-//   - ListBlock, Block, MarkdownText (below)
+//   - ListBlock, TableBlock, Block, MarkdownText (below)
 // -----------------------------------------------------------
 
-const body = (colors: AssistantColors) => ({ fontSize: BODY_SIZE, lineHeight: BODY_LINE, color: colors.ink });
+const body = (colors: AssistantColors, fonts: AssistantFonts) => ({
+  fontSize: BODY_SIZE,
+  lineHeight: BODY_LINE,
+  ...typeface(fonts, 'regular'),
+  color: colors.ink,
+});
 
 
 
@@ -122,29 +148,29 @@ const body = (colors: AssistantColors) => ({ fontSize: BODY_SIZE, lineHeight: BO
 //   - Block, ListBlock (below) — paragraphs, headings, items
 // -----------------------------------------------------------
 
-function Inline({ spans, colors, onPressLink }: RenderProps & { spans: MarkdownInline[] }) {
+function Inline({ spans, colors, fonts, onPressLink }: RenderProps & { spans: MarkdownInline[] }) {
   return (
     <>
       {spans.map((span, index) => {
         if (span.type === 'text') return span.text;
         if (span.type === 'code') {
           return (
-            <Text key={index} style={{ fontFamily: MONO, fontSize: CODE_SIZE, backgroundColor: colors.surfaceSoft }}>
+            <Text key={index} style={{ fontFamily: monoFamily(fonts), fontSize: CODE_SIZE, backgroundColor: colors.surfaceSoft }}>
               {span.text}
             </Text>
           );
         }
         if (span.type === 'bold') {
           return (
-            <Text key={index} style={{ fontWeight: '700' }}>
-              <Inline spans={span.spans} colors={colors} onPressLink={onPressLink} />
+            <Text key={index} style={typeface(fonts, 'bold')}>
+              <Inline spans={span.spans} colors={colors} fonts={fonts} onPressLink={onPressLink} />
             </Text>
           );
         }
         if (span.type === 'italic') {
           return (
             <Text key={index} style={{ fontStyle: 'italic' }}>
-              <Inline spans={span.spans} colors={colors} onPressLink={onPressLink} />
+              <Inline spans={span.spans} colors={colors} fonts={fonts} onPressLink={onPressLink} />
             </Text>
           );
         }
@@ -153,9 +179,9 @@ function Inline({ spans, colors, onPressLink }: RenderProps & { spans: MarkdownI
             key={index}
             accessibilityRole="link"
             onPress={onPressLink ? () => onPressLink(span.url) : undefined}
-            style={{ color: colors.brand, textDecorationLine: 'underline' }}
+            style={{ color: colors.brandText, textDecorationLine: 'underline' }}
           >
-            <Inline spans={span.spans} colors={colors} onPressLink={onPressLink} />
+            <Inline spans={span.spans} colors={colors} fonts={fonts} onPressLink={onPressLink} />
           </Text>
         );
       })}
@@ -182,7 +208,7 @@ function Inline({ spans, colors, onPressLink }: RenderProps & { spans: MarkdownI
 //   - Block (below)
 // -----------------------------------------------------------
 
-function CodeBlock({ code, colors, gap }: { code: string; colors: AssistantColors; gap: number }) {
+function CodeBlock({ code, colors, fonts, gap }: { code: string; colors: AssistantColors; fonts: AssistantFonts; gap: number }) {
   return (
     <View
       testID="assistantuikit-markdown-code"
@@ -196,7 +222,7 @@ function CodeBlock({ code, colors, gap }: { code: string; colors: AssistantColor
         paddingVertical: 10,
       }}
     >
-      <Text style={{ fontFamily: MONO, fontSize: CODE_SIZE, lineHeight: CODE_LINE, color: colors.ink }}>{code}</Text>
+      <Text selectable style={{ fontFamily: monoFamily(fonts), fontSize: CODE_SIZE, lineHeight: CODE_LINE, color: colors.ink }}>{code}</Text>
     </View>
   );
 }
@@ -215,19 +241,21 @@ function CodeBlock({ code, colors, gap }: { code: string; colors: AssistantColor
 // gutter — a bullet, or the item's number counted up from the
 // list's start — and the item's spans beside it. An item's
 // nested list renders under its spans through this same
-// component; the parser guarantees nested items carry no list
-// of their own, so the recursion is one level deep.
+// component, and so does the `next` list a marker-kind switch
+// chained after it (the marker glyph always follows its OWN
+// list's kind); the parser guarantees nested items carry no
+// list of their own, so the recursion is one level deep.
 //
 // Used by:
 //   - Block (below), and itself for the nested level
 // -----------------------------------------------------------
 
-function ListBlock({ list, colors, onPressLink, gap }: RenderProps & { list: MarkdownList; gap: number }) {
+function ListBlock({ list, colors, fonts, onPressLink, gap }: RenderProps & { list: MarkdownList; gap: number }) {
   return (
     <View style={{ marginTop: gap }}>
       {list.items.map((item, index) => (
         <View key={index} style={{ flexDirection: 'row', marginTop: index === 0 ? 0 : ITEM_GAP }}>
-          <Text style={[body(colors), { color: colors.inkSoft, minWidth: list.ordered ? 26 : 18 }]}>
+          <Text style={[body(colors, fonts), { color: colors.inkSoft, minWidth: list.ordered ? 26 : 18 }]}>
             {list.ordered ? `${list.start + index}.` : '•'}
           </Text>
           {/* grow+shrink with basis AUTO, never flex:1 — a
@@ -236,13 +264,14 @@ function ListBlock({ list, colors, onPressLink, gap }: RenderProps & { list: Mar
               inside the intrinsic-width bubble (text painted
               over the action bar on device) */}
           <View style={{ flexGrow: 1, flexShrink: 1 }}>
-            <Text style={body(colors)}>
-              <Inline spans={item.spans} colors={colors} onPressLink={onPressLink} />
+            <Text style={body(colors, fonts)}>
+              <Inline spans={item.spans} colors={colors} fonts={fonts} onPressLink={onPressLink} />
             </Text>
-            {item.nested ? <ListBlock list={item.nested} colors={colors} onPressLink={onPressLink} gap={ITEM_GAP} /> : null}
+            {item.nested ? <ListBlock list={item.nested} colors={colors} fonts={fonts} onPressLink={onPressLink} gap={ITEM_GAP} /> : null}
           </View>
         </View>
       ))}
+      {list.next ? <ListBlock list={list.next} colors={colors} fonts={fonts} onPressLink={onPressLink} gap={ITEM_GAP} /> : null}
     </View>
   );
 }
@@ -270,14 +299,7 @@ function ListBlock({ list, colors, onPressLink, gap }: RenderProps & { list: Mar
 //   - Block (below) — the 'table' branch
 // -----------------------------------------------------------
 
-// Columns past this many scroll horizontally instead of
-// squeezing; each then gets this fixed width (fixed, not
-// flexed — a wrapping Text column with flex inside an
-// intrinsic-width row is the iOS Fabric measurement trap)
-const TABLE_SQUEEZE_MAX_COLUMNS = 3;
-const TABLE_SCROLL_COLUMN_WIDTH = 140;
-
-function TableBlock({ table, colors, onPressLink, gap }: RenderProps & {
+function TableBlock({ table, colors, fonts, onPressLink, gap }: RenderProps & {
   table: Extract<MarkdownBlock, { type: 'table' }>;
   gap: number;
 }) {
@@ -301,16 +323,16 @@ function TableBlock({ table, colors, onPressLink, gap }: RenderProps & {
     >
       <View style={{ flexDirection: 'row', backgroundColor: colors.surfaceSoft }}>
         {table.header.map((spans, column) => (
-          <Text key={column} style={[body(colors), { fontWeight: '700' }, cellStyle(column)]}>
-            <Inline spans={spans} colors={colors} onPressLink={onPressLink} />
+          <Text key={column} style={[body(colors, fonts), typeface(fonts, 'bold'), cellStyle(column)]}>
+            <Inline spans={spans} colors={colors} fonts={fonts} onPressLink={onPressLink} />
           </Text>
         ))}
       </View>
       {table.rows.map((row, rowIndex) => (
         <View key={rowIndex} style={{ flexDirection: 'row', borderTopWidth: 1, borderTopColor: colors.line }}>
           {row.map((spans, column) => (
-            <Text key={column} style={[body(colors), cellStyle(column)]}>
-              <Inline spans={spans} colors={colors} onPressLink={onPressLink} />
+            <Text key={column} style={[body(colors, fonts), cellStyle(column)]}>
+              <Inline spans={spans} colors={colors} fonts={fonts} onPressLink={onPressLink} />
             </Text>
           ))}
         </View>
@@ -348,12 +370,12 @@ function TableBlock({ table, colors, onPressLink, gap }: RenderProps & {
 //   - Block (below)
 // -----------------------------------------------------------
 
-function QuoteBlock({ blocks, colors, onPressLink, gap }: RenderProps & { blocks: MarkdownBlock[]; gap: number }) {
+function QuoteBlock({ blocks, colors, fonts, onPressLink, gap }: RenderProps & { blocks: MarkdownBlock[]; gap: number }) {
   const muted = { ...colors, ink: colors.inkSoft };
   return (
     <View style={{ marginTop: gap, borderLeftWidth: 3, borderLeftColor: colors.line, paddingLeft: 12 }}>
       {blocks.map((block, index) => (
-        <Block key={index} block={block} colors={muted} onPressLink={onPressLink} first={index === 0} />
+        <Block key={index} block={block} colors={muted} fonts={fonts} onPressLink={onPressLink} first={index === 0} />
       ))}
     </View>
   );
@@ -377,27 +399,27 @@ function QuoteBlock({ blocks, colors, onPressLink, gap }: RenderProps & { blocks
 //   - MarkdownText (below), QuoteBlock (above)
 // -----------------------------------------------------------
 
-function Block({ block, colors, onPressLink, first }: RenderProps & { block: MarkdownBlock; first: boolean }) {
+function Block({ block, colors, fonts, onPressLink, first }: RenderProps & { block: MarkdownBlock; first: boolean }) {
   const gap = first ? 0 : block.type === 'heading' ? HEADING_GAP : BLOCK_GAP;
 
   if (block.type === 'paragraph') {
     return (
-      <Text style={[body(colors), { marginTop: gap }]}>
-        <Inline spans={block.spans} colors={colors} onPressLink={onPressLink} />
+      <Text style={[body(colors, fonts), { marginTop: gap }]}>
+        <Inline spans={block.spans} colors={colors} fonts={fonts} onPressLink={onPressLink} />
       </Text>
     );
   }
   if (block.type === 'heading') {
     return (
-      <Text accessibilityRole="header" style={[HEADING_TYPE[block.level], { fontWeight: '700', color: colors.ink, marginTop: gap }]}>
-        <Inline spans={block.spans} colors={colors} onPressLink={onPressLink} />
+      <Text accessibilityRole="header" style={[HEADING_TYPE[block.level], typeface(fonts, 'bold'), { color: colors.ink, marginTop: gap }]}>
+        <Inline spans={block.spans} colors={colors} fonts={fonts} onPressLink={onPressLink} />
       </Text>
     );
   }
-  if (block.type === 'code') return <CodeBlock code={block.code} colors={colors} gap={gap} />;
-  if (block.type === 'list') return <ListBlock list={block} colors={colors} onPressLink={onPressLink} gap={gap} />;
-  if (block.type === 'quote') return <QuoteBlock blocks={block.blocks} colors={colors} onPressLink={onPressLink} gap={gap} />;
-  if (block.type === 'table') return <TableBlock table={block} colors={colors} onPressLink={onPressLink} gap={gap} />;
+  if (block.type === 'code') return <CodeBlock code={block.code} colors={colors} fonts={fonts} gap={gap} />;
+  if (block.type === 'list') return <ListBlock list={block} colors={colors} fonts={fonts} onPressLink={onPressLink} gap={gap} />;
+  if (block.type === 'quote') return <QuoteBlock blocks={block.blocks} colors={colors} fonts={fonts} onPressLink={onPressLink} gap={gap} />;
+  if (block.type === 'table') return <TableBlock table={block} colors={colors} fonts={fonts} onPressLink={onPressLink} gap={gap} />;
   return <View style={{ marginTop: gap, height: 1, backgroundColor: colors.line }} />;
 }
 
@@ -415,6 +437,7 @@ function Block({ block, colors, onPressLink, first }: RenderProps & { block: Mar
 //   <MarkdownText text={part.text} isStreaming />     — mutable
 //                                                       suffix plain
 //   <MarkdownText text={t} onPressLink={open} />      — links press
+//   <MarkdownText text={t} fonts={hostFonts} />       — host faces
 //
 // Used by:
 //   - AssistantMessage.tsx — the assistant bubble's Text part
@@ -423,11 +446,13 @@ function Block({ block, colors, onPressLink, first }: RenderProps & { block: Mar
 export default function MarkdownText({
   text,
   colors = defaultColors,
+  fonts = defaultFonts,
   onPressLink,
   isStreaming = false,
 }: {
   text: string;
   colors?: AssistantColors;
+  fonts?: AssistantFonts;
   // The host opens the destination — the kit never navigates
   onPressLink?: (url: string) => void;
   // true while the part is still arriving: the open line's
@@ -435,11 +460,18 @@ export default function MarkdownText({
   isStreaming?: boolean;
 }) {
 
+  // This part's incremental parser — made once per mounted
+  // text part, it keeps the blocks before the last safe
+  // boundary between deltas
+  const [parseStreaming] = useState(createStreamingParser);
+
+
   // Parsed once per text change — a colour swap never re-walks
-  // the string, and a streaming delta re-parses only the text
+  // the string, and a streaming delta re-parses only the block
+  // being written
   const { blocks, tail, tailGap } = useMemo(() => {
     const split = isStreaming ? splitStreamingTail(text) : { settled: text, tail: '' };
-    const parsed = parseMarkdown(split.settled);
+    const parsed = isStreaming ? parseStreaming(split.settled) : parseMarkdown(split.settled);
     // A settled half ending mid-line means the tail continues
     // the line being written — splice it into the last leaf so
     // the visual line keeps flowing after its settled marks
@@ -451,16 +483,16 @@ export default function MarkdownText({
     // already closed that block — then it is a block of its own
     const gap = parsed.length > 0 && split.settled.endsWith('\n\n') ? BLOCK_GAP : 0;
     return { blocks: parsed, tail: split.tail, tailGap: gap };
-  }, [text, isStreaming]);
+  }, [text, isStreaming, parseStreaming]);
 
 
   return (
     <View testID="assistantuikit-markdown">
       {blocks.map((block, index) => (
-        <Block key={index} block={block} colors={colors} onPressLink={onPressLink} first={index === 0} />
+        <Block key={index} block={block} colors={colors} fonts={fonts} onPressLink={onPressLink} first={index === 0} />
       ))}
       {tail === '' ? null : (
-        <Text testID="assistantuikit-markdown-tail" style={[body(colors), { marginTop: tailGap }]}>
+        <Text testID="assistantuikit-markdown-tail" style={[body(colors, fonts), { marginTop: tailGap }]}>
           {tail}
         </Text>
       )}

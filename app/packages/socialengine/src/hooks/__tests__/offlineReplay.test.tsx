@@ -8,7 +8,12 @@
 //  waiting, a definitive one (a 429 included) drops that task
 //  with one notice and the walk goes on, a persisted queue
 //  replays on the next signed-in mount, and an account switch
-//  throws the departing viewer's intents away.
+//  throws the departing viewer's intents away. The replay and
+//  the live taps are ONE writer per target (KNF-121): a tap
+//  during a replay queues behind it, a parked intent whose
+//  target has a live call running is dropped unsent, and an
+//  entry the live lane purged after the drain listed it is
+//  never replayed.
 // -----------------------------------------------------------
 
 import { act, fireEvent, render, renderHook } from '@testing-library/react-native';
@@ -21,8 +26,27 @@ import { SocialEngineProvider } from '../../provider';
 import { useLikeToggle } from '../useLikeToggle';
 
 
+// The signed-in viewer the engine runs as
 const VIEWER = { id: 'u1', displayName: 'Aš' };
+// The post every single-target case toggles: not liked, 4 likes
 const POST = { id: 'p1', likedByMe: false, likeCount: 4 };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// OFFLINE
+// -----------------------------------------------------------
+//
+// The healable failure: a status-0 network error, the shape
+// the KNF client throws when the phone has no connection.
+//
+// Used by:
+//   - scriptedTransport (below) — the 'offline' step
+// -----------------------------------------------------------
 
 const OFFLINE = () => Object.assign(new Error('offline'), { status: 0 });
 
@@ -31,6 +55,24 @@ const OFFLINE = () => Object.assign(new Error('offline'), { status: 0 });
 // 'refuse' rejects definitively, 'limited' is the backend's
 // 429 (definitive too), a LikeResult resolves
 type Script = 'offline' | 'refuse' | 'limited' | LikeResult;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// scriptedTransport
+// -----------------------------------------------------------
+//
+// A transport whose setLiked answers from the script, one
+// step per call, recording every call it was asked.
+//
+// Used by:
+//   - mount (below)
+//   - the tests below that build their own provider
+// -----------------------------------------------------------
 
 function scriptedTransport(script: Script[]) {
   const calls: { target: LikeTarget; liked: boolean }[] = [];
@@ -52,7 +94,23 @@ function scriptedTransport(script: Script[]) {
   return { transport, calls };
 }
 
-// The host's restore signal, fired by hand
+
+
+
+
+
+
+// -----------------------------------------------------------
+// restoreBus
+// -----------------------------------------------------------
+//
+// The host's network-restore signal, fired by hand.
+//
+// Used by:
+//   - mount, mountManual (below)
+//   - the tests below that build their own provider
+// -----------------------------------------------------------
+
 function restoreBus() {
   const listeners = new Set<() => void>();
   return {
@@ -64,10 +122,45 @@ function restoreBus() {
   };
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// flush
+// -----------------------------------------------------------
+//
+// Drains the microtask chains a replay settles through.
+//
+// Used by:
+//   - mount, mountManual (below)
+//   - the tests below
+// -----------------------------------------------------------
+
 const flush = () =>
   act(async () => {
     for (let i = 0; i < 40; i++) await Promise.resolve();
   });
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// mount
+// -----------------------------------------------------------
+//
+// useLikeToggle(POST) under a provider wired to a scripted
+// transport, a hand-fired restore bus and an inspectable
+// storage; notices are collected.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
 
 async function mount(script: Script[], options: { storage?: ReturnType<typeof memorySocialStorage> } = {}) {
   const t = scriptedTransport(script);
@@ -252,5 +345,205 @@ describe('offline replay', () => {
     await flush();
     expect(storage.dump()['social:tasks'] ?? '[]').toBe('[]');
     expect(t.calls).toHaveLength(1);
+  });
+});
+
+
+
+// Every setLiked hands back a promise the test settles by hand,
+// so the arrival order of answers is the test's to choose
+interface Deferred<T> {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (err: unknown) => void;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// deferred
+// -----------------------------------------------------------
+//
+// A promise the test settles by hand.
+//
+// Used by:
+//   - manualTransport (below)
+// -----------------------------------------------------------
+
+const deferred = <T,>(): Deferred<T> => {
+  let resolve!: (value: T) => void;
+  let reject!: (err: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+};
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// manualTransport
+// -----------------------------------------------------------
+//
+// A transport whose every setLiked hands back a deferred the
+// test settles by hand, so the arrival order of answers is the
+// test's to choose.
+//
+// Used by:
+//   - mountManual (below)
+// -----------------------------------------------------------
+
+function manualTransport() {
+  const calls: { target: LikeTarget; liked: boolean; settle: Deferred<LikeResult> }[] = [];
+  const transport: SocialTransport = {
+    setLiked(target, liked) {
+      const settle = deferred<LikeResult>();
+      calls.push({ target, liked, settle });
+      return settle.promise;
+    },
+    fetchPoll: async () => null,
+    vote: async () => {
+      throw new Error('not under test');
+    },
+  };
+  return { transport, calls };
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// mountManual
+// -----------------------------------------------------------
+//
+// One useLikeToggle per given post under a provider wired to
+// the manual transport and a hand-fired restore bus.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
+
+async function mountManual(posts: { id: string; likedByMe: boolean; likeCount: number }[]) {
+  const t = manualTransport();
+  const bus = restoreBus();
+  const storage = memorySocialStorage();
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <SocialEngineProvider transport={t.transport} currentUser={VIEWER} storage={storage} onNetworkRestore={bus.subscribe}>
+      {children}
+    </SocialEngineProvider>
+  );
+  // eslint-disable-next-line react-hooks/rules-of-hooks -- a fixed-length list: the same hooks run in the same order every render
+  const hook = await renderHook(() => posts.map((post) => useLikeToggle(post)), { wrapper });
+  await flush();
+  return { ...t, bus, storage, hook };
+}
+
+
+describe('one writer per target — the replay and the live lane', () => {
+  it("a tap during the replay queues BEHIND it, and the replay's late answer never lands over the newer tap", async () => {
+    const m = await mountManual([{ id: 'p1', likedByMe: true, likeCount: 1 }]);
+    const view = () => m.hook.result.current[0];
+
+    // In a tunnel: the unlike fails healable and is parked
+    await act(async () => view().toggle());
+    m.calls[0].settle.reject(OFFLINE());
+    await flush();
+    expect(view().liked).toBe(false);
+
+    // Signal returns: the replayed unlike goes on the wire…
+    await act(async () => m.bus.fire());
+    await flush();
+    expect(m.calls.map((c) => c.liked)).toEqual([false, false]);
+
+    // …and the reader changes their mind while it is in flight
+    await act(async () => view().toggle());
+    await flush();
+    expect(m.calls).toHaveLength(2);
+    expect(view().liked).toBe(true);
+
+    // The replay answers first — superseded, it leaves the view
+    // to the newer tap, which only now goes on the wire
+    m.calls[1].settle.resolve({ liked: false, likeCount: 0 });
+    await flush();
+    expect(m.calls.map((c) => c.liked)).toEqual([false, false, true]);
+    expect(view().liked).toBe(true);
+    expect(view().pending).toBe(true);
+
+    m.calls[2].settle.resolve({ liked: true, likeCount: 1 });
+    await flush();
+    expect(view()).toMatchObject({ liked: true, likeCount: 1, pending: false });
+    expect(m.storage.dump()['social:tasks']).toBe('[]');
+  });
+
+  it('a parked intent whose target already has a live call running is stale — dropped unsent', async () => {
+    const m = await mountManual([{ id: 'p1', likedByMe: false, likeCount: 4 }]);
+    const view = () => m.hook.result.current[0];
+
+    // A like parked offline, then an unlike tapped live
+    await act(async () => view().toggle());
+    m.calls[0].settle.reject(OFFLINE());
+    await flush();
+    await act(async () => view().toggle());
+    await flush();
+    expect(m.calls.map((c) => c.liked)).toEqual([true, false]);
+
+    // The restore signal fires while the live unlike is on the
+    // wire: the older parked like must never reach the server
+    await act(async () => m.bus.fire());
+    await flush();
+    expect(m.calls).toHaveLength(2);
+    expect(m.storage.dump()['social:tasks']).toBe('[]');
+
+    m.calls[1].settle.resolve({ liked: false, likeCount: 4 });
+    await flush();
+    expect(view()).toMatchObject({ liked: false, likeCount: 4, pending: false });
+  });
+
+  it('an entry the live lane purged after the drain listed it is skipped, never replayed stale', async () => {
+    const m = await mountManual([
+      { id: 'p1', likedByMe: false, likeCount: 0 },
+      { id: 'p2', likedByMe: false, likeCount: 0 },
+    ]);
+    const first = () => m.hook.result.current[0];
+    const second = () => m.hook.result.current[1];
+
+    // Both liked in the tunnel — two parked intents
+    await act(async () => first().toggle());
+    m.calls[0].settle.reject(OFFLINE());
+    await flush();
+    await act(async () => second().toggle());
+    m.calls[1].settle.reject(OFFLINE());
+    await flush();
+
+    // The drain starts on p1 (held on the wire)…
+    await act(async () => m.bus.fire());
+    await flush();
+    expect(m.calls.map((c) => c.target.id)).toEqual(['p1', 'p2', 'p1']);
+
+    // …while p2 is un-liked live and lands — purging its parked like
+    await act(async () => second().toggle());
+    await flush();
+    m.calls[3].settle.resolve({ liked: false, likeCount: 0 });
+    await flush();
+
+    // p1's replay settles; the walk reaches p2's stale entry
+    m.calls[2].settle.resolve({ liked: true, likeCount: 1 });
+    await flush();
+    expect(m.calls.map((c) => `${c.target.id}:${c.liked}`)).toEqual(['p1:true', 'p2:true', 'p1:true', 'p2:false']);
+    expect(second().liked).toBe(false);
+    expect(first().liked).toBe(true);
+    expect(m.storage.dump()['social:tasks']).toBe('[]');
   });
 });

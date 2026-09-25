@@ -10,8 +10,10 @@
 //  on the web platform, where the upstream field would send on
 //  Enter by default, the key inserts and nothing runs. The
 //  field grows with its text up to six lines and no further.
-//  The placeholder is the host's word. The markdown renderer
-//  is stubbed to a plain Text so this suite stands on its own.
+//  The field and both buttons stand at the 44pt touch floor
+//  (KNF-160: the button was ~37pt). The placeholder is the
+//  host's word. The markdown renderer is stubbed to a plain
+//  Text so this suite stands on its own.
 // -----------------------------------------------------------
 
 import { act, fireEvent, render } from '@testing-library/react-native';
@@ -28,6 +30,9 @@ const renderThread = (model: ReturnType<typeof createScriptedModel>) =>
       <AssistantThread labels={LABELS} />
     </ScriptedThread>,
   );
+
+const flat = (style: unknown): Record<string, unknown> =>
+  Object.assign({}, ...([style].flat(Infinity).filter(Boolean) as object[]));
 
 describe('AssistantComposer', () => {
   it('shows the host placeholder and disables Send on an empty field', async () => {
@@ -91,11 +96,32 @@ describe('AssistantComposer', () => {
 
   it('grows with its text to six lines and no further', async () => {
     const view = await renderThread(createScriptedModel([[{ text: 'Labas' }]]));
-    const style = view.getByTestId('assistantuikit-composer-input').props.style;
-    const flatStyle = Object.assign({}, ...([style].flat(Infinity).filter(Boolean) as object[]));
-    // One line of 20 plus the vertical padding, capped at six
-    expect(flatStyle.minHeight).toBe(20 + 10 * 2);
-    expect(flatStyle.maxHeight).toBe(20 * 6 + 10 * 2);
+    const flatStyle = flat(view.getByTestId('assistantuikit-composer-input').props.style);
+    // One line of 20 plus the vertical padding, capped at six —
+    // the padding is 12 (it was 10) so one line is the 44pt
+    // floor, level with the button beside it
+    expect(flatStyle.minHeight).toBe(20 + 12 * 2);
+    expect(flatStyle.minHeight).toBe(44);
+    expect(flatStyle.maxHeight).toBe(20 * 6 + 12 * 2);
+  });
+
+  it('Send and Cancel both stand at the 44pt touch floor, label centred', async () => {
+    const model = createScriptedModel([[{ text: 'Ieškau' }, { wait: true }, { text: '…' }]]);
+    const view = await renderThread(model);
+    const sendStyle = flat(view.getByTestId('assistantuikit-composer-send').props.style);
+    expect(sendStyle.minHeight).toBe(44);
+    expect(sendStyle.alignItems).toBe('center');
+    expect(sendStyle.justifyContent).toBe('center');
+
+    await send(view, 'Kas naujo?');
+    await running(view);
+    const cancelStyle = flat(view.getByTestId('assistantuikit-composer-cancel').props.style);
+    expect(cancelStyle.minHeight).toBe(44);
+    expect(cancelStyle.alignItems).toBe('center');
+    await act(async () => {
+      model.release();
+    });
+    await settled(view);
   });
 
   it('a second send is a second run with the whole history', async () => {

@@ -105,6 +105,8 @@ export default function NewPostsPill({ count, onPress }: { count: number; onPres
         accessibilityRole="button"
         accessibilityLabel={label}
         onPress={onPress}
+        // The 36dp capsule reaches the 44pt floor through its slop
+        hitSlop={{ top: 4, bottom: 4 }}
         style={{
           flexDirection: 'row',
           alignItems: 'center',

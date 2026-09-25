@@ -69,10 +69,17 @@ export interface MessagesPage {
 // -----------------------------------------------------------
 //
 // What changed since a cursor: rows edited or unsent while
-// this client was away, as full rows (an unsent one carries
-// deleted: true), and the new cursor. Rows the client never
-// loaded are harmless — the engine only applies changes to
-// rows it holds.
+// this client was away (an unsent one carries deleted: true),
+// shaped like history rows, and the new cursor. The engine
+// applies a change row as a PATCH (core/reducers.ts
+// applyChanges): only what an edit or unsend moves — text,
+// edit stamp, link card, pin, quote — while receipts,
+// reactions and status stay as held, since they travel on
+// their own live events. A backend may backdate its cursor
+// and re-deliver a change it already reported (applying one
+// twice is harmless). Rows the client never loaded are
+// harmless too — the engine only applies changes to rows it
+// holds.
 //
 // Used by:
 //   - ChatTransport (below) — fetchChanges' answer; consumers
@@ -362,6 +369,12 @@ export interface ChatTransport {
   fetchPins?(conversationId: string): Promise<ChatMessage[]>;
   // Optional: disappearing messages — 0/null switches off
   setMessageTtl?(conversationId: string, seconds: number | null): Promise<void>;
+  // Optional: removes a file THIS client uploaded for a send that
+  // will never happen (refused for good, or discarded) — so an
+  // abandoned upload does not sit on the account's storage quota.
+  // A backend keeps a file another message still shows; failures
+  // are the engine's to ignore (best effort)
+  deleteUpload?(url: string): Promise<void>;
   realtime: ChatRealtime;
 }
 

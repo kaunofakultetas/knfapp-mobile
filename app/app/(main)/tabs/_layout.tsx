@@ -1,12 +1,15 @@
 // -----------------------------------------------------------
 //  [*] Main — the bottom tab bar
 //
-//  The six tabs come from the shared roster in constants/tabs
+//  The seven tabs come from the shared roster in constants/tabs
 //  — one table for this layout, the drawer and the bar. News
-//  and messages are hard-pinned by AppContext; the other four
-//  obey the pinned-tab setting through expo-router's href —
-//  an unpinned tab gets href null, which disables linking to
-//  it until re-pinned (the bar reads pinnedTabs itself).
+//  and messages are hard-pinned by AppContext; the other five
+//  obey the pinned-tab setting. An unpinned (or shipped-off)
+//  tab gets href null, which only hides expo-router's DEFAULT
+//  tab button: the route stays registered and navigable — the
+//  drawer opens unpinned surfaces through it every day — and
+//  the custom bar decides visibility from pinnedTabs and the
+//  shipping flags itself.
 //
 //  The bar itself is components/navigation/TabBar — glyphs,
 //  the active pill, the unread badge and the safe-area
@@ -57,9 +60,9 @@ const renderTabBar = (props: BottomTabBarProps) => <TabBar {...props} />;
 //
 // Declares the roster's routes with translated titles and
 // computes each soft-pinned tab's href — null while unpinned,
-// which only disables LINKING; visibility is the bar's own
-// pinnedTabs read. Hard-pinned tabs never receive the href
-// override at all.
+// which only hides the router's default button (navigation
+// still works); visibility is the bar's own pinnedTabs read.
+// Hard-pinned tabs never receive the href override at all.
 //
 // Used by:
 //   - expo-router — layout of the (main)/tabs route group

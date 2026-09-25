@@ -14,7 +14,8 @@
 //    fetchMemesApi / pushMemeApi / deleteMemeApi — the calls
 //
 //  Used by:
-//    - app/(main)/chat-room/index.tsx — the composer's GIF tab
+//    - app/(main)/chat-room/index.tsx — MemeLibrary, the
+//      composer's meme panel (grid, push, own removal)
 // -----------------------------------------------------------
 
 import { Platform } from 'react-native';
@@ -36,7 +37,8 @@ import { ApiError, api, request } from '@/services/api/client';
 //
 // Used by:
 //   - MemesResponse, pushMemeApi (below)
-//   - app/(main)/chat-room/index.tsx — the GIF tab's grid
+//   - app/(main)/chat-room/index.tsx — MemeLibrary's grid
+//     (addedBy marks the viewer's own tiles)
 // -----------------------------------------------------------
 
 export interface ApiMeme {
@@ -81,23 +83,41 @@ export interface MemesResponse {
 
 
 // -----------------------------------------------------------
-// MAX_MEME_GIF_BYTES / MAX_MEME_IMAGE_BYTES
+// MAX_MEME_GIF_BYTES
 // -----------------------------------------------------------
 //
-// The backend's caps (memes/api/views.py: GIF_MAX_BYTES 8 MB
-// for an animation kept as sent, IMAGE_MAX_BYTES 5 MB for a
-// static picture), mirrored so an oversize pick is refused
-// before the bytes leave the phone. The GIF cap is held at
-// 6 MB for now: the ingress caps /api/memes bodies at 6 MB,
-// so a 6–8 MB GIF dies there with no machine code — the local
-// check must match what actually gets through. Lift it to
-// 8 MB once the ingress carries the backend's ceiling.
+// The animated cap, mirrored so an oversize pick is refused
+// before the bytes leave the phone. The backend allows 8 MB
+// (memes/api/views.py GIF_MAX_BYTES, an animation is kept as
+// sent), but this is held at 6 MB for now: the ingress caps
+// /api/memes bodies at 6 MB, so a 6–8 MB GIF dies there with
+// no machine code — the local check must match what actually
+// gets through. Lift it to 8 MB once the ingress carries the
+// backend's ceiling.
 //
 // Used by:
 //   - pushMemeApi (below) — the preflight
 // -----------------------------------------------------------
 
 export const MAX_MEME_GIF_BYTES = 6 * 1024 * 1024;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// MAX_MEME_IMAGE_BYTES
+// -----------------------------------------------------------
+//
+// The static-picture cap — the backend's IMAGE_MAX_BYTES
+// (5 MB) exactly, mirrored for the same preflight.
+//
+// Used by:
+//   - pushMemeApi (below) — the preflight
+// -----------------------------------------------------------
+
 export const MAX_MEME_IMAGE_BYTES = 5 * 1024 * 1024;
 
 
@@ -114,7 +134,8 @@ export const MAX_MEME_IMAGE_BYTES = 5 * 1024 * 1024;
 // origin; offset pages the grid.
 //
 // Used by:
-//   - app/(main)/chat-room/index.tsx — the GIF tab
+//   - app/(main)/chat-room/index.tsx — MemeLibrary's grid and
+//     search
 // -----------------------------------------------------------
 
 export const fetchMemesApi = (q: string, offset = 0) =>
@@ -138,7 +159,7 @@ export const fetchMemesApi = (q: string, offset = 0) =>
 // — so the screen's apiErrorKey branch words both alike.
 //
 // Used by:
-//   - app/(main)/chat-room/index.tsx — the GIF tab's add flow
+//   - app/(main)/chat-room/index.tsx — MemeLibrary's push flow
 // -----------------------------------------------------------
 
 export async function pushMemeApi(
@@ -189,10 +210,14 @@ export async function pushMemeApi(
 // deleteMemeApi
 // -----------------------------------------------------------
 //
-// Remove an own meme — the backend refuses someone else's.
+// Remove an own meme — the backend refuses someone else's
+// (403) and takes the file with the row, so messages that sent
+// it lose the picture.
 //
 // Used by:
-//   - app/(main)/chat-room/index.tsx — the GIF tab's delete
+//   - app/(main)/chat-room/index.tsx — MemeLibrary's removal
+//     of the viewer's own tile (long-press / accessibility
+//     action, confirmed first)
 // -----------------------------------------------------------
 
 export const deleteMemeApi = (memeId: string) => request(api.delete<{ ok: boolean }>(`/memes/${encodeURIComponent(memeId)}`));

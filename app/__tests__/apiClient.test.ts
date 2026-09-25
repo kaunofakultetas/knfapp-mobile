@@ -7,15 +7,29 @@
 // -----------------------------------------------------------
 
 jest.mock('@react-native-async-storage/async-storage', () =>
-  require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
+  jest.requireActual('@react-native-async-storage/async-storage/jest/async-storage-mock'),
 );
 
 import { AxiosError, type AxiosResponse, type InternalAxiosRequestConfig } from 'axios';
 
-import { api, ApiError, API_BASE_URL, getUploadUrl, request } from '@/services/api/client';
+import { api, ApiError, API_BASE_URL, getUploadThumbUrl, getUploadUrl, request } from '@/services/api/client';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// failure
+// -----------------------------------------------------------
+//
 // Resolves with the ApiError a request() call rejects with
+//
+// Used by:
+//   - the request tests below
+// -----------------------------------------------------------
+
 const failure = async (call: Promise<unknown>): Promise<ApiError> => {
   try {
     await call;
@@ -25,7 +39,22 @@ const failure = async (call: Promise<unknown>): Promise<ApiError> => {
   throw new Error('expected the request to reject');
 };
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// httpFailure
+// -----------------------------------------------------------
+//
 // Builds the AxiosError shape axios throws for an HTTP failure
+//
+// Used by:
+//   - the request and interceptor tests below
+// -----------------------------------------------------------
+
 const httpFailure = (status: number, data: unknown) =>
   new AxiosError('Request failed', 'ERR_BAD_REQUEST', undefined, undefined, {
     data,
@@ -35,9 +64,24 @@ const httpFailure = (status: number, data: unknown) =>
     config: {} as never,
   } as AxiosResponse);
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// answer
+// -----------------------------------------------------------
+//
 // A 200 answered by a stand-in adapter, so the instance's
 // whole interceptor chain runs over the body — the only place
 // a rewrite could hide
+//
+// Used by:
+//   - the pass-through tests below
+// -----------------------------------------------------------
+
 const answer = (data: unknown) => (config: InternalAxiosRequestConfig) =>
   Promise.resolve({ data, status: 200, statusText: 'OK', headers: {}, config } as AxiosResponse);
 
@@ -56,6 +100,23 @@ describe('getUploadUrl', () => {
 });
 
 
+describe('getUploadThumbUrl', () => {
+  const stored = '0123456789abcdef0123456789abcdef';
+
+  it('asks for the small derivative of a stored still photo (KNF-136)', () => {
+    expect(getUploadThumbUrl(`/api/uploads/${stored}.jpg`)).toBe(`${API_BASE_URL}/uploads/${stored}.jpg?s=thumb`);
+    expect(getUploadThumbUrl(`/api/uploads/${stored}.png`)).toBe(`${API_BASE_URL}/uploads/${stored}.png?s=thumb`);
+  });
+
+  it('resolves everything else exactly as getUploadUrl does', () => {
+    // An animation's first frame is no thumbnail of it
+    expect(getUploadThumbUrl(`/api/uploads/${stored}.gif`)).toBe(`${API_BASE_URL}/uploads/${stored}.gif`);
+    expect(getUploadThumbUrl('file:///tmp/picked.jpg')).toBe('file:///tmp/picked.jpg');
+    expect(getUploadThumbUrl('https://cdn.example/x.jpg')).toBeNull();
+  });
+});
+
+
 describe('request', () => {
   it('unwraps response data', async () => {
     await expect(request(Promise.resolve({ data: { ok: true } } as AxiosResponse))).resolves.toEqual({ ok: true });
@@ -70,6 +131,25 @@ describe('request', () => {
     expect(err.status).toBe(404);
     expect(err.message).toBe('Not &amp; found');
     expect(err.serverCode).toBe('not_found');
+  });
+
+  it('logs a 4xx as an expected outcome — never the dev LogBox red toast — and a 5xx as a fault', async () => {
+    const error = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const info = jest.spyOn(console, 'info').mockImplementation(() => {});
+    try {
+      for (const status of [400, 401, 403, 404, 409, 429]) {
+        await failure(request(Promise.reject(httpFailure(status, { error: 'Invalid credentials' }))));
+      }
+      expect(error).not.toHaveBeenCalled();
+      expect(info).toHaveBeenCalledTimes(6);
+
+      await failure(request(Promise.reject(httpFailure(500, { error: 'boom' }))));
+      await failure(request(Promise.reject(new AxiosError('n', 'ERR_NETWORK'))));
+      expect(error).toHaveBeenCalledTimes(2);
+    } finally {
+      error.mockRestore();
+      info.mockRestore();
+    }
   });
 
   it('maps timeouts and network failures to codes, not text', async () => {

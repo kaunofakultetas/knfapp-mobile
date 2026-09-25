@@ -4,12 +4,15 @@
 //  SocialTransport over the KNF backend's REST routes, through
 //  an injected HttpClient. What the mapping smooths over:
 //
-//    - the like endpoint is a TOGGLE (POST …/like flips), not
-//      a set-this-state call. The adapter fires the toggle and
-//      returns the server's authoritative answer untouched —
-//      when another device raced, the answered state may
-//      differ from `desired`, and the server's word is the one
-//      the engine's shadow reconciles to;
+//    - the like endpoint SETS the state it is sent (POST …/like
+//      with {liked}); without a body it would flip, and a flip
+//      is exactly what the engine must never send — the toggle
+//      queue coalesces a tap burst to "the call in flight + the
+//      final intent", which is only sound when every call
+//      carries its absolute target (an odd burst of flips
+//      would land the opposite state, KNF-110). The server's
+//      answer is returned untouched and is the word the
+//      engine's shadow reconciles to;
 //    - a poll lives under its post (pollId IS the post id) and
 //      takes exactly one option; a repeat vote for the SAME
 //      option answers 409, which the adapter absorbs by
@@ -26,10 +29,10 @@
 //      404 — the state the caller wanted already stands, so the
 //      adapter absorbs it and answers 'none';
 //    - the friend-request COOLDOWN (a declined pair re-asking
-//      too soon) answers 429, which the engine's judgement
-//      reads as retryable-shaped; the hook still reverts and
-//      notifies — no retry loop starts — so the blunt UX is a
-//      toast, not a stuck spinner;
+//      too soon) answers 429 friend_request_cooldown — a
+//      definitive refusal to the engine (every 4xx is); the
+//      hook reverts the face and surfaces its own 'cooldown'
+//      notice, and nothing queues it for a replay;
 //    - comment likes do not exist on this backend: comment
 //      targets refuse with a definitive 400 ('unsupported');
 //    - the activity list rides /social/activity with an opaque
@@ -167,9 +170,10 @@ export function createKnfSocialTransport(options: KnfSocialOptions): SocialTrans
 
 
   return {
-    async setLiked(target, _desired): Promise<LikeResult> {
+    async setLiked(target, desired): Promise<LikeResult> {
       if (target.type !== 'post') throw unsupported('liking a comment');
-      const resp = await http.post<ApiLikeResponse>(`/news/${enc(target.id)}/like`);
+      // The absolute target, never a bare flip — see the file banner
+      const resp = await http.post<ApiLikeResponse>(`/news/${enc(target.id)}/like`, { liked: desired });
       return { liked: resp.liked, likeCount: resp.likes };
     },
 

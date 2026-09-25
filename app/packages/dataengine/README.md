@@ -26,6 +26,7 @@ function NewsScreen() {
   // feed.items / loading / refreshing / loadingMore / error
   // feed.cachedAt   — non-null while showing the offline copy
   // feed.refresh('merge') / feed.loadMore() / feed.setItems(updater)
+  // feed.patchItems(updater) — a live socket echo, never voids a refresh
 }
 
 function ProfileScreen({ userId }) {
@@ -176,6 +177,10 @@ ship (`files` in package.json).
 - `setItems(updater)` mutates the list in place for optimistic updates;
   a silent refresh whose response predates the mutation drops itself
   rather than clobbering it.
+- `patchItems(updater)` is the same in-place write for live server truth
+  arriving out of band (a socket echo): it leaves that fence alone, so a
+  refresh in flight still lands. Push echoes through `setItems` and every
+  refresh they overlap is silently discarded.
 - The cache write is deferred past interactions (serializing a page
   mid-fling janks the list) and re-checks both fences on the far side;
   corrupt, expired and wrong-schema entries read as misses, and

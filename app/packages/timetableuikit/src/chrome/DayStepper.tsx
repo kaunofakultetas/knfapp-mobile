@@ -13,10 +13,21 @@
 //  announces "previous day". onToday adds a snap-back BUTTON
 //  (a filled pill carrying the labels.today string): a dated
 //  host passes it only while the cursor is away from today,
-//  so the button's presence itself marks displacement. Hit areas are 32×44
-//  plus hitSlop, clearing the 44pt target on both axes. The
-//  chevrons default to dependency-free text glyphs; a host
-//  with an icon set passes its own through prevIcon/nextIcon.
+//  so the button's presence itself marks displacement (a
+//  host whose header has no room for it uses TodayButton in
+//  its own row instead). The chevrons are 24 × 44 boxes with
+//  12 pt of slop — a 48 × 68 target — and the label keeps a
+//  2 pt margin: every point the stepper spends is taken from
+//  the header's title, which must stay whole on a 320 pt
+//  phone. The chevrons default to dependency-free text
+//  glyphs; a host with an icon set passes its own through
+//  prevIcon/nextIcon.
+//
+//  Every Pressable takes a PLAIN style and draws its visuals
+//  in the child render function's View: under the host app's
+//  css-interop runtime a style FUNCTION on a Pressable is
+//  dropped on device (see DayTabs) — the Today pill's ground
+//  with it, which would leave brand text on the brand bar.
 //
 //  Colors assume a BRAND-FILLED header bar (onBrand text) —
 //  pass tint to put the stepper on a plain surface instead.
@@ -107,26 +118,31 @@ export default function DayStepper({
           hitSlop={8}
           accessibilityRole="button"
           accessibilityLabel={labels.today}
-          style={({ pressed }) => ({
-            height: 28,
-            justifyContent: 'center',
-            paddingHorizontal: 10,
-            marginRight: 4,
-            borderRadius: 14,
-            backgroundColor: color,
-            opacity: pressed ? 0.75 : 1,
-          })}
+          style={{ marginRight: 4 }}
         >
-          <Text
-            numberOfLines={1}
-            style={{
-              color: tint ? colors.onBrand : colors.brand,
-              fontFamily: fonts.bold,
-              fontSize: 12,
-            }}
-          >
-            {labels.today}
-          </Text>
+          {({ pressed }) => (
+            <View
+              style={{
+                height: 28,
+                justifyContent: 'center',
+                paddingHorizontal: 10,
+                borderRadius: 14,
+                backgroundColor: color,
+                opacity: pressed ? 0.75 : 1,
+              }}
+            >
+              <Text
+                numberOfLines={1}
+                style={{
+                  color: tint ? colors.onBrand : colors.brand,
+                  fontFamily: fonts.bold,
+                  fontSize: 12,
+                }}
+              >
+                {labels.today}
+              </Text>
+            </View>
+          )}
         </Pressable>
       ) : null}
 
@@ -135,18 +151,15 @@ export default function DayStepper({
         hitSlop={12}
         accessibilityRole="button"
         accessibilityLabel={prevAccessibilityLabel ?? labels.prevDay}
-        style={({ pressed }) => ({
-          height: 44,
-          width: 32,
-          alignItems: 'center',
-          justifyContent: 'center',
-          opacity: pressed ? 0.7 : 1,
-        })}
       >
-        {prevIcon ?? <Text style={{ color, fontSize: 22, lineHeight: 24 }}>‹</Text>}
+        {({ pressed }) => (
+          <View style={{ height: 44, width: 24, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.7 : 1 }}>
+            {prevIcon ?? <Text style={{ color, fontSize: 22, lineHeight: 24 }}>‹</Text>}
+          </View>
+        )}
       </Pressable>
 
-      <View style={{ marginHorizontal: 4, flexShrink: 1, alignItems: 'center' }}>
+      <View style={{ marginHorizontal: 2, flexShrink: 1, alignItems: 'center' }}>
         <Text
           numberOfLines={1}
           style={{ color, fontFamily: fonts.bold, fontSize: 16 }}
@@ -166,15 +179,12 @@ export default function DayStepper({
         hitSlop={12}
         accessibilityRole="button"
         accessibilityLabel={nextAccessibilityLabel ?? labels.nextDay}
-        style={({ pressed }) => ({
-          height: 44,
-          width: 32,
-          alignItems: 'center',
-          justifyContent: 'center',
-          opacity: pressed ? 0.7 : 1,
-        })}
       >
-        {nextIcon ?? <Text style={{ color, fontSize: 22, lineHeight: 24 }}>›</Text>}
+        {({ pressed }) => (
+          <View style={{ height: 44, width: 24, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.7 : 1 }}>
+            {nextIcon ?? <Text style={{ color, fontSize: 22, lineHeight: 24 }}>›</Text>}
+          </View>
+        )}
       </Pressable>
 
     </View>

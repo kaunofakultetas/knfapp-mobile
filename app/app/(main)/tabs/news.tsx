@@ -33,9 +33,19 @@
 //  useLikeToggle over its feed item, so the optimistic flip,
 //  tap-spam coalescing, the guest → login route, the offline
 //  queue and the failure toast all happen there — this screen
-//  never patches like state itself. Its setItems door stays
-//  for what is NOT a like: the share tally bump, the comment
-//  count and the deletion of a post opened from here.
+//  never patches like state itself (it only adds the light
+//  iOS tap the app's other primary controls give). Its
+//  setItems door stays for what is NOT a like: the share
+//  tally bump, and the opened post's resync on the way back
+//  (components/news/openedPostResync — its counts, its poll,
+//  or its deletion).
+//
+//  Rows are cheap to keep still: FeedRow is memoised and
+//  every handler it gets is stable, so a list prop moving
+//  (the freshness pill, the paging spinner, a share bump on
+//  another row) re-renders nothing below the list (KNF-137).
+//  The list's own props (the empty state, the scroll view
+//  seam, the pull handler) are memoised for the same reason.
 //
 //  Only the unfiltered 'all' feed persists to the offline
 //  cache — a filtered or community page would poison the
@@ -53,7 +63,8 @@
 //    EmptyFeed        — the mode-aware "nothing here" body
 //    CreatePostFab    — the floating new-post button
 //    HeaderScrollView — the list's scroll view, header-aware
-//    FeedRow          — one post: engine like state + NewsCard
+//    FeedRowFace      — one post: engine like state + NewsCard
+//                       (memoised as FeedRow)
 //    NewsTab          — feed state + the FeedList (default export)
 // -----------------------------------------------------------
 
@@ -80,9 +91,7 @@ import { useTheme } from '@/hooks/useTheme';
 
 // Backend calls and the offline-cache contract
 import {
-  ApiError,
   fetchNewsFeed,
-  fetchNewsPost,
   fetchSocialFeed,
   sharePostApi,
   type SocialFeedPost,
@@ -91,8 +100,12 @@ import { cacheKeyNews, NEWS_CACHE_MAX_AGE } from '@/services/cacheKeys';
 // The shipping flags — a social-less build serves news READ-ONLY
 import { isFeatureEnabled } from '@/services/features';
 
-// Deep links for sharing app-native posts (no public web URL)
-import * as Linking from 'expo-linking';
+// The shared share sheet and the opened post's resync
+import { openShareSheet } from '@/components/news/sharePost';
+import { resyncOpenedPost } from '@/components/news/openedPostResync';
+
+// The light tap under a like
+import * as Haptics from 'expo-haptics';
 
 // Navigation and rendering
 import { useReturnHref } from '@/hooks/useReturnHref';
@@ -101,13 +114,12 @@ import { Ionicons } from '@expo/vector-icons';
 import type { BottomTabNavigationProp } from "expo-router/js-tabs";
 import { useIsFocused, type ParamListBase } from "expo-router/react-navigation";
 import { useFocusEffect, useNavigation, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useState, type Ref, type RefObject } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type Ref, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Pressable,
   ScrollView,
   type ScrollViewProps,
-  Share,
   Text,
   View,
   type ViewStyle,
@@ -250,10 +262,14 @@ function SourceChips({ filters, active, onSelect }: {
               accessibilityLabel={t(labelKey)}
               accessibilityState={{ selected }}
             >
+              {/* The selected label sits on a WHITE pill, so it
+                  takes the deep fill hue (text-brand-fill) —
+                  text-brand is the lighter brand-as-text pink,
+                  2.8:1 on white in dark mode */}
               <Text
                 className={
                   selected
-                    ? 'font-raleway-bold text-sm text-brand'
+                    ? 'font-raleway-bold text-sm text-brand-fill'
                     : 'font-raleway-bold text-sm text-on-brand opacity-80'
                 }
               >
@@ -279,7 +295,9 @@ function SourceChips({ filters, active, onSelect }: {
 //
 // The mode-aware "nothing here" body: a login prompt for the
 // logged-out community view, an invitation to post for an
-// empty community, a plain empty state for the news feed.
+// empty community, and for the news feed a calm empty state
+// whose hint names the two ways on (pull to refresh, another
+// source chip).
 //
 // Used by:
 //   - NewsTab (below) — FeedList ListEmptyComponent
@@ -319,7 +337,8 @@ function EmptyFeed({ mode, authenticated, onLogin, onCreatePost }: {
   }
 
 
-  return <EmptyState icon="newspaper-outline" title={t('news.empty')} />;
+  // The list under it still pulls to refresh — the hint says so
+  return <EmptyState icon="newspaper-outline" title={t('news.empty')} hint={t('news.emptyHint')} />;
 }
 
 
@@ -483,7 +502,7 @@ function HeaderScrollView({
 
 
 // -----------------------------------------------------------
-// FeedRow
+// FeedRowFace
 // -----------------------------------------------------------
 //
 // One post of either feed: the social engine's like state
@@ -491,15 +510,18 @@ function HeaderScrollView({
 // optimistic flip, the coalesced queue, the guest login
 // route and the offline replay are all the engine's) handed
 // to the presentational NewsCard together with the screen's
-// navigation callbacks. Scraped articles have no profile
-// behind their author line, so onOpenAuthor is withheld for
-// them here.
+// navigation callbacks, bound to this row's post. Scraped
+// articles have no profile behind their author line, so
+// onOpenAuthor is withheld for them here. A signed-in like
+// taps the light iOS haptic first (a guest's tap is the
+// login route, no tap). Memoised below: every prop it takes
+// is a row or a stable screen handler.
 //
 // Used by:
 //   - NewsTab (below) — FeedList renderItem
 // -----------------------------------------------------------
 
-function FeedRow({ post, showAvatar, onOpen, onOpenComments, onShare, onOpenAuthor }: {
+function FeedRowFace({ post, showAvatar, onOpen, onOpenComments, onShare, onOpenAuthor }: {
   post: FeedPost;
   showAvatar: boolean;
   onOpen: (post: FeedPost) => void;
@@ -515,6 +537,14 @@ function FeedRow({ post, showAvatar, onOpen, onOpenComments, onShare, onOpenAuth
     post.source !== 'knf.vu.lt' && post.source !== 'vu.lt' ? post.authorId : undefined;
 
 
+  const toggleLike = () => {
+    if (like.canLike && process.env.EXPO_OS === 'ios') {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    }
+    like.toggle();
+  };
+
+
   return (
     <NewsCard
       post={post}
@@ -523,13 +553,17 @@ function FeedRow({ post, showAvatar, onOpen, onOpenComments, onShare, onOpenAuth
       pendingLike={like.pending}
       showAvatar={showAvatar}
       onPress={() => onOpen(post)}
-      onToggleLike={like.toggle}
+      onToggleLike={toggleLike}
       onOpenComments={() => onOpenComments(post)}
       onShare={() => onShare(post)}
       onOpenAuthor={authorId ? () => onOpenAuthor(authorId) : undefined}
     />
   );
 }
+
+// Skips a row whose post and handlers did not move — the list
+// re-renders cells for reasons of its own all the time
+const FeedRow = memo(FeedRowFace);
 
 
 
@@ -693,20 +727,8 @@ function NewsTab() {
       const opened = lastOpenedRef.current;
       lastOpenedRef.current = null;
       void refreshRef.current().then(() => {
-        if (!opened) return;
-        fetchNewsPost(opened)
-          .then((fresh) => {
-            feedRef.current.setItems((items) =>
-              items.map((item) => (item.id === opened ? { ...item, ...fresh } : item)),
-            );
-          })
-          .catch((err: unknown) => {
-            // Gone while it was open (deleted from the article
-            // screen) — the row goes with it
-            if (err instanceof ApiError && err.status === 404) {
-              feedRef.current.setItems((items) => items.filter((item) => item.id !== opened));
-            }
-          });
+        // Its counts, its poll — or its deletion — at any depth
+        if (opened) void resyncOpenedPost(opened, feedRef.current.setItems);
       });
     }, []),
   );
@@ -725,55 +747,23 @@ function NewsTab() {
   );
 
 
-  // The native share sheet — NewsCard hides its share action
-  // on web builds without navigator.share, so this only runs
-  // where a sheet exists. Scraped articles share their web
-  // address; app-native posts have none, so a body excerpt
-  // plus the app deep link goes out instead — a bare (often
-  // backend-truncated) title alone helps no recipient. A
-  // completed share (not a dismissal) is recorded backend-side
-  // with an optimistic bump reconciled against the returned
-  // count; a dismissal rejects on some platforms (AbortError
-  // on web), so only other rejections toast.
+  // The native share sheet (components/news/sharePost — the
+  // same message the article screen shares) — NewsCard hides
+  // its share action on web builds without navigator.share,
+  // so this only runs where a sheet exists. A completed share
+  // (not a dismissal) is recorded backend-side with an
+  // optimistic bump reconciled against the returned count;
+  // only a real failure toasts
   const sharePost = useCallback(
     async (post: FeedPost) => {
       try {
-        // A backend-defaulted title is just the body's first 80
-        // chars — then the excerpt alone carries the text once
-        const titleIsExcerpt = !!post.content && post.content.startsWith(post.title);
-        const snippet = post.content
-          ? post.content.length > 200
-            ? `${post.content.slice(0, 200)}…`
-            : post.content
-          : '';
-        const result = await Share.share(
-          post.sourceUrl
-            ? {
-                title: post.title,
-                message: `${post.title}\n${post.sourceUrl}`,
-                url: post.sourceUrl,
-              }
-            : {
-                title: post.title,
-                message: [
-                  titleIsExcerpt ? '' : post.title,
-                  snippet,
-                  Linking.createURL('/news-post', { queryParams: { postId: post.id } }),
-                ]
-                  .filter(Boolean)
-                  .join('\n'),
-              },
-        );
-        if (result.action === Share.dismissedAction) return;
-
+        if ((await openShareSheet(post)) === 'dismissed') return;
         patchPost(post.id, { shares: post.shares + 1 });
         sharePostApi(post.id)
           .then((resp) => patchPost(post.id, { shares: resp.shares }))
           .catch(() => patchPost(post.id, { shares: post.shares }));
-      } catch (err) {
-        if ((err as { name?: string } | null)?.name !== 'AbortError') {
-          showToast('error', t('common.error'));
-        }
+      } catch {
+        showToast('error', t('common.error'));
       }
     },
     [patchPost, t],
@@ -790,10 +780,12 @@ function NewsTab() {
     [router],
   );
 
+  // The author rides along: the thread lets the post's author
+  // delete any comment under it
   const openComments = useCallback(
     (post: FeedPost) => {
       lastOpenedRef.current = post.id;
-      router.push({ pathname: '/(main)/news-comments', params: { postId: post.id } });
+      router.push({ pathname: '/(main)/news-comments', params: { postId: post.id, authorId: post.authorId ?? '' } });
     },
     [router],
   );
@@ -815,17 +807,22 @@ function NewsTab() {
 
   // The pill: reload the ranked head with the waiting posts
   // on it and bring the header back with them
-  const showNewPosts = () => {
-    void feed.refresh();
-    freshness.clear();
+  const { clear: clearFreshness } = freshness;
+  const showNewPosts = useCallback(() => {
+    void refreshRef.current();
+    clearFreshness();
     scrollRef.current?.scrollTo({ y: 0, animated: true });
-    header.reveal();
-  };
+    revealHeader();
+  }, [clearFreshness, revealHeader]);
 
 
-  // Stable render function so the kit's list doesn't hand
-  // every row a fresh renderItem per feed render (NewsCard
-  // itself is memoized on its side)
+  // The pull gesture's handler, stable for the list
+  const onPullRefresh = useCallback(() => void handlePullRefresh(), [handlePullRefresh]);
+
+
+  // Stable render function over stable handlers, so the kit's
+  // memoised row seam and the memoised FeedRow both skip a row
+  // that did not move
   const renderPost = useCallback(
     (item: FeedPost) => (
       <FeedRow
@@ -833,7 +830,7 @@ function NewsTab() {
         showAvatar={feedMode === 'community'}
         onOpen={openPost}
         onOpenComments={openComments}
-        onShare={(post) => void sharePost(post)}
+        onShare={sharePost}
         onOpenAuthor={openAuthor}
       />
     ),
@@ -864,6 +861,30 @@ function NewsTab() {
       />
     ),
     [scrollHandler, barHeight],
+  );
+
+
+  // The list's empty body and FlatList extras, memoised so the
+  // list does not see fresh objects on every screen render
+  const openLogin = useCallback(
+    () => router.push({ pathname: '/login', params: { returnTo: returnHref } }),
+    [router, returnHref],
+  );
+  const openCreatePost = useCallback(() => router.push('/(main)/create-post'), [router]);
+  const listEmpty = useMemo(
+    () => <EmptyFeed mode={feedMode} authenticated={isAuthenticated} onLogin={openLogin} onCreatePost={openCreatePost} />,
+    [feedMode, isAuthenticated, openLogin, openCreatePost],
+  );
+  const flatListProps = useMemo(
+    () => ({
+      renderScrollComponent,
+      scrollEventThrottle: 16,
+      // A refresh may re-rank rows above the reader: keep the
+      // first visible row anchored so the viewport never moves
+      // under them
+      maintainVisibleContentPosition: { minIndexForVisible: 0 },
+    }),
+    [renderScrollComponent],
   );
 
 
@@ -920,31 +941,15 @@ function NewsTab() {
           hasMore={feed.cachedAt === null}
           loadingMore={feed.loadingMore}
           refreshing={pullRefreshing}
-          onRefresh={() => void handlePullRefresh()}
+          onRefresh={onPullRefresh}
           newCount={freshness.newCount}
           onPressNew={showNewPosts}
           gapAfterKey={feed.gapAfterId}
           onFillGap={feed.loadMore}
           fillingGap={feed.loadingMore}
           contentContainerStyle={{ flexGrow: 1, paddingTop: header.contentPaddingTop + 8, paddingBottom: 96 }}
-          ListEmptyComponent={
-            <EmptyFeed
-              mode={feedMode}
-              authenticated={isAuthenticated}
-              onLogin={() =>
-                router.push({ pathname: '/login', params: { returnTo: returnHref } })
-              }
-              onCreatePost={() => router.push('/(main)/create-post')}
-            />
-          }
-          flatListProps={{
-            renderScrollComponent,
-            scrollEventThrottle: 16,
-            // A refresh may re-rank rows above the reader: keep
-            // the first visible row anchored so the viewport
-            // never moves under them
-            maintainVisibleContentPosition: { minIndexForVisible: 0 },
-          }}
+          ListEmptyComponent={listEmpty}
+          flatListProps={flatListProps}
         />
       )}
 
@@ -963,7 +968,7 @@ function NewsTab() {
       </View>
 
       {isAuthenticated && isFeatureEnabled('social') ? (
-        <CreatePostFab onPress={() => router.push('/(main)/create-post')} />
+        <CreatePostFab onPress={openCreatePost} />
       ) : null}
 
     </Screen>

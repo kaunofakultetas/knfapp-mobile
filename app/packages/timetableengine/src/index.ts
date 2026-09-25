@@ -17,8 +17,8 @@ export { DAY_MS, buildWeek, dayIndexOf, isoWeekNumber, materializeWeek, mondayOf
 export { annotateConflicts, conflictIds } from './core/conflicts';
 export { nowState } from './core/now';
 export { forGroup, forTeacher, listTeachers } from './core/perspective';
-export { formatMinutes, newestSemester, newestSemesterKey, posToSlot, semesterRank } from './core/utils';
-export { normalizeKnf, toTimetableEntry } from './adapters/knf';
+export { formatMinutes, newestSemester, newestSemesterKey, posToSlot, semesterRank, termKeyOf } from './core/utils';
+export { knfKind, normalizeKnf, toTimetableEntry } from './adapters/knf';
 
 export type {
   EntryLayout,

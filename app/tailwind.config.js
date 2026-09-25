@@ -73,6 +73,29 @@ module.exports = {
         'menu-surface': 'var(--menu-surface)',
         'on-brand-wash': 'var(--on-brand-wash)',
       },
+      // Where one hex cannot serve as both text and fill (see
+      // constants/theme.ts), the TEXT and BACKGROUND utilities
+      // part ways here, so no call site has to know:
+      //   - text-brand is brand-AS-TEXT — the AA-checked
+      //     brandText (the fill pink read 3.1–3.9:1 as text on
+      //     every dark surface); bg-/border-brand keep the fill;
+      //   - text-brand-fill is the fill hue AS text, for labels
+      //     on a white bg-on-brand pill, where the lighter
+      //     brandText would drop to 2.8:1 in dark mode;
+      //   - bg-danger is dangerFill, the red a white label can
+      //     sit on; text-/border-danger keep the text red.
+      // Both light values are unchanged by the split.
+      textColor: {
+        brand: {
+          DEFAULT: 'var(--brand-text)',
+          fill: 'var(--brand)',
+        },
+      },
+      backgroundColor: {
+        danger: {
+          DEFAULT: 'var(--danger-fill)',
+        },
+      },
       fontFamily: {
         raleway: ['Raleway-Regular'],
         'raleway-medium': ['Raleway-Medium'],

@@ -14,9 +14,22 @@
 //  module registry, so the hook that owns the list
 //  (useConversation) replays what the others enqueued.
 //
+//  The replay and the live paths act on the SAME messages, so
+//  they are ordered per message (KNF-121's chat twin): every
+//  call for one message runs after the previous one settled
+//  (serializeByTarget — the newest intent reaches the server
+//  last), a live action bumps the message's epoch so a late
+//  replay answer never overwrites a newer optimistic state
+//  (bumpTargetEpoch / targetEpoch), and a replayed entry
+//  leaves the queue only if it is still the entry that ran
+//  (removeIfCurrent — an intent queued during the call stays).
+//
 //  Split into:
 //
 //    PendingTask      — the entry shapes
+//    targetKey        — one message's ordering key
+//    serializeByTarget — per-message call ordering
+//    bumpTargetEpoch / targetEpoch — per-message staleness
 //    TaskQueue        — one room's queue, persisted
 //    getTaskQueue     — the per-room registry
 // -----------------------------------------------------------
@@ -29,6 +42,14 @@ import type { KeyValueStorage } from '../provider/storage';
 // here only as an erased type argument, so the class hoisting
 // below costs nothing at init
 const registry = new WeakMap<KeyValueStorage, Map<string, TaskQueue>>();
+
+// The in-flight call chain per message — a settled chain is
+// dropped, so the map holds only messages with work pending
+const chains = new Map<string, Promise<unknown>>();
+
+// The newest action's number per message — bumped by every
+// live action, read by the replay before it applies an answer
+const epochs = new Map<string, number>();
 
 
 
@@ -51,6 +72,105 @@ export type PendingTask =
   | { type: 'edit'; messageId: string; text: string; previousText: string; at: string }
   | { type: 'delete'; messageId: string; at: string }
   | { type: 'reaction'; messageId: string; emoji: string | null; at: string };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// targetKey
+// -----------------------------------------------------------
+//
+// One message's ordering key — room-qualified, since message
+// ids are only unique inside their room.
+//
+// Used by:
+//   - hooks/useConversation.ts (replay, unsend),
+//     hooks/useReactions.ts, hooks/useComposer.ts (edit)
+// -----------------------------------------------------------
+
+export const targetKey = (conversationId: string, messageId: string) => `${conversationId}:${messageId}`;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// serializeByTarget
+// -----------------------------------------------------------
+//
+//   serializeByTarget(key, () => transport.setReaction(…))
+//
+// Runs `run` after every earlier call for the same message has
+// settled (success or failure) and answers its own promise.
+// The live path and the replay both go through it, so a
+// replayed old intent can never reach the server AFTER the
+// newer live one and win.
+//
+// Used by:
+//   - the same hooks as targetKey
+// -----------------------------------------------------------
+
+export function serializeByTarget<T>(key: string, run: () => Promise<T>): Promise<T> {
+  const previous = chains.get(key) ?? Promise.resolve();
+  const next = previous.catch(() => undefined).then(run);
+  chains.set(key, next);
+  const settle = () => {
+    if (chains.get(key) === next) chains.delete(key);
+  };
+  next.then(settle, settle);
+  return next;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// bumpTargetEpoch
+// -----------------------------------------------------------
+//
+// A new live action on a message: answers its epoch, which
+// makes every answer started under an older epoch stale.
+//
+// Used by:
+//   - hooks/useReactions.ts, hooks/useComposer.ts,
+//     hooks/useConversation.ts (unsend)
+// -----------------------------------------------------------
+
+export function bumpTargetEpoch(key: string): number {
+  const next = (epochs.get(key) ?? 0) + 1;
+  epochs.set(key, next);
+  return next;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// targetEpoch
+// -----------------------------------------------------------
+//
+// The message's current epoch — the replay reads it before a
+// call and applies the answer only if it has not moved.
+//
+// Used by:
+//   - hooks/useConversation.ts — replayTasks
+//   - hooks/useReactions.ts — its own answers' staleness
+// -----------------------------------------------------------
+
+export function targetEpoch(key: string): number {
+  return epochs.get(key) ?? 0;
+}
 
 
 
@@ -102,7 +222,8 @@ export const tasksStorageKey = (conversationId: string) => `tasks:${conversation
 //
 // One room's queue, persisted on every change and rehydrated
 // once via load(). add() replaces an entry of the same
-// message + kind; subscribe() feeds the hooks' re-renders.
+// message + kind; removeIfCurrent() leaves such a replacement
+// alone; subscribe() feeds the hooks' re-renders.
 //
 // Used by:
 //   - getTaskQueue (below) — the only constructor call site
@@ -165,6 +286,18 @@ export class TaskQueue {
     if (!this.tasks.delete(taskKey(task))) return;
     this.persist();
     this.emit();
+  }
+
+  // Whether `task` is still the queued entry for its key — a
+  // later add() for the same message replaced it otherwise
+  isCurrent(task: PendingTask): boolean {
+    return this.tasks.get(taskKey(task)) === task;
+  }
+
+  // The replay's removal: only the entry that actually ran
+  // leaves; an intent queued while it was in flight stays
+  removeIfCurrent(task: PendingTask): void {
+    if (this.isCurrent(task)) this.remove(task);
   }
 
   clear(): void {

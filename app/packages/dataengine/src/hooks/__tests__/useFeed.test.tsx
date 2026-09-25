@@ -23,13 +23,42 @@ import { useFeed, type FeedPage } from '../useFeed';
 
 type Row = { id: string; likes: number };
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// row
+// -----------------------------------------------------------
+//
 // Rows compare by value everywhere except the merge test,
 // which also pins reference identity for untouched deep rows
+//
+// Used by:
+//   - every test below
+// -----------------------------------------------------------
+
 const row = (id: string, likes = 0): Row => ({ id, likes });
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// deferredFetch
+// -----------------------------------------------------------
+//
 // Deferred fetchPage: every call parks its resolvers so tests
 // can land responses out of order, the way real races do
+//
+// Used by:
+//   - the race, fence and abort tests below
+// -----------------------------------------------------------
+
 function deferredFetch() {
   const calls: {
     page: number;
@@ -45,8 +74,22 @@ function deferredFetch() {
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// harness
+// -----------------------------------------------------------
+//
 // Every hook mounts inside a provider over a dump()-able memory
 // storage, so the offline copy is assertable from the outside
+//
+// Used by:
+//   - every test below
+// -----------------------------------------------------------
+
 function harness() {
   const storage = memoryStorage();
   const network = manualNetwork();
@@ -59,17 +102,45 @@ function harness() {
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// flush
+// -----------------------------------------------------------
+//
 // Settle pending microtask chains inside act — deep enough for
 // the fetch → state → effect cascades under test
+//
+// Used by:
+//   - every test below
+// -----------------------------------------------------------
+
 const flush = () =>
   act(async () => {
     for (let i = 0; i < 40; i++) await Promise.resolve();
   });
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// flushInteractions
+// -----------------------------------------------------------
+//
 // The offline-copy write is deferred behind InteractionManager,
 // whose batch runs on a real setImmediate — hop one macrotask
 // turn, then settle the storage write behind it
+//
+// Used by:
+//   - the offline-copy tests below
+// -----------------------------------------------------------
+
 const flushInteractions = () =>
   act(async () => {
     await new Promise<void>((resolveTurn) => setImmediate(() => resolveTurn()));
@@ -581,5 +652,109 @@ describe('useFeed', () => {
     });
     await flush();
     expect(result.current.items.map((item) => item.id)).toEqual(['a', 'c', 'd', 'e', 'f', 'g']);
+  });
+
+  it('a live patchItems echo never voids the refresh in flight — the row it exists to discover lands (KNF-120)', async () => {
+    const { calls, fetchPage } = deferredFetch();
+    const { wrapper } = harness();
+    const { result } = await renderHook(() => useFeed<Row>(fetchPage), { wrapper });
+    await flush();
+    await act(async () => {
+      calls[0].resolve({ items: [row('a', 1)], hasMore: false });
+    });
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+
+    // The debounced "unknown conversation" refetch takes off...
+    let settled = false;
+    await act(async () => {
+      void result.current.refresh().then(() => {
+        settled = true;
+      });
+    });
+    await waitFor(() => expect(calls).toHaveLength(2));
+
+    // ...and a socket echo for a KNOWN row lands mid-flight
+    await act(async () => {
+      result.current.patchItems((items) =>
+        items.map((item) => (item.id === 'a' ? { ...item, likes: item.likes + 1 } : item)),
+      );
+    });
+    expect(result.current.items).toEqual([row('a', 2)]);
+
+    // The refetch answers with the brand-new row — it lands
+    await act(async () => {
+      calls[1].resolve({ items: [row('b'), row('a', 2)], hasMore: false });
+    });
+    await flush();
+    expect(result.current.items.map((item) => item.id)).toEqual(['b', 'a']);
+    expect(settled).toBe(true);
+    expect(result.current.refreshing).toBe(false);
+    expect(result.current.error).toBe(false);
+  });
+
+  it('control: the same mid-flight write through setItems still drops the stale refresh', async () => {
+    const { calls, fetchPage } = deferredFetch();
+    const { wrapper } = harness();
+    const { result } = await renderHook(() => useFeed<Row>(fetchPage), { wrapper });
+    await flush();
+    await act(async () => {
+      calls[0].resolve({ items: [row('a', 1)], hasMore: false });
+    });
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+
+    await act(async () => {
+      void result.current.refresh();
+    });
+    await waitFor(() => expect(calls).toHaveLength(2));
+    await act(async () => {
+      result.current.setItems((items) => items.map((item) => ({ ...item, likes: 5 })));
+    });
+    await act(async () => {
+      calls[1].resolve({ items: [row('b'), row('a', 1)], hasMore: false });
+    });
+    await flush();
+
+    // The fence kept its promise to optimistic mutations
+    expect(result.current.items).toEqual([row('a', 5)]);
+  });
+
+  it('a hole-filling page lands right under the marker even when a same-batch delete shifted the rows above it', async () => {
+    const { calls, fetchPage } = deferredFetch();
+    const { wrapper } = harness();
+    const { result } = await renderHook(() => useFeed<Row>(fetchPage), { wrapper });
+    await flush();
+    await act(async () => {
+      calls[0].resolve({ items: [row('c'), row('d')], hasMore: true });
+    });
+    await waitFor(() => expect(result.current.items).toHaveLength(2));
+
+    // A merge refresh sharing nothing with the held rows opens
+    // the hole under 'y'
+    await act(async () => {
+      void result.current.refresh('merge');
+    });
+    await waitFor(() => expect(calls).toHaveLength(2));
+    await act(async () => {
+      calls[1].resolve({ items: [row('x'), row('y')], hasMore: true });
+    });
+    await flush();
+    expect(result.current.items.map((item) => item.id)).toEqual(['x', 'y', 'c', 'd']);
+    expect(result.current.gapAfterId).toBe('y');
+
+    // Page 2 of the fresh chain lands in the very batch that
+    // deletes 'x' — ABOVE the marker, so every index shifts
+    await act(async () => {
+      result.current.loadMore();
+    });
+    await waitFor(() => expect(calls).toHaveLength(3));
+    await act(async () => {
+      result.current.setItems((items) => items.filter((item) => item.id !== 'x'));
+      calls[2].resolve({ items: [row('z')], hasMore: true });
+    });
+    await flush();
+
+    // 'z' sits under the marker row, not a row inside the old section
+    expect(result.current.items.map((item) => item.id)).toEqual(['y', 'z', 'c', 'd']);
+    expect(result.current.gapAfterId).toBe('z');
   });
 });

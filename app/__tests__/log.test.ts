@@ -4,19 +4,23 @@
 //  The one error sink: entries keep scope and context, the
 //  buffer is bounded at 50 (oldest dropped), readers get a
 //  copy, and logging itself never throws — the guarantee that
-//  lets every swallow-with-log catch stay safe.
+//  lets every swallow-with-log catch stay safe. Expected,
+//  UI-handled outcomes go through logExpected: marked in the
+//  trail, and never console.error (the dev LogBox's red toast).
 // -----------------------------------------------------------
 
-import { getErrorLog, logError } from '@/services/log';
+import { getErrorLog, logError, logExpected } from '@/services/log';
 
 
-// __DEV__ is true under jest-expo, so logError mirrors to
-// console.error — silence it without losing the assertions
+// __DEV__ is true under jest-expo, so both sinks mirror to the
+// console — silence it without losing the assertions
 beforeEach(() => {
   jest.spyOn(console, 'error').mockImplementation(() => {});
+  jest.spyOn(console, 'info').mockImplementation(() => {});
 });
 afterEach(() => {
   (console.error as jest.Mock).mockRestore();
+  (console.info as jest.Mock).mockRestore();
 });
 
 
@@ -56,5 +60,33 @@ describe('logError', () => {
       },
     };
     expect(() => logError('evil', evil)).not.toThrow();
+  });
+});
+
+
+describe('logExpected', () => {
+  it('keeps a handled outcome in the trail, marked, and off console.error', () => {
+    logExpected('api', new Error('Invalid credentials'), '/auth/login');
+    const last = getErrorLog().at(-1)!;
+    expect(last).toContain('[api] (expected)');
+    expect(last).toContain('Invalid credentials');
+    expect(last).toContain('/auth/login');
+    expect(console.error).not.toHaveBeenCalled();
+    expect(console.info).toHaveBeenCalledWith('[api] Error: Invalid credentials', '/auth/login');
+  });
+
+  it('a fault still goes to console.error, unmarked', () => {
+    logError('api', new Error('HTTP 500'));
+    expect(getErrorLog().at(-1)).not.toContain('(expected)');
+    expect(console.error).toHaveBeenCalled();
+  });
+
+  it('never throws either', () => {
+    const evil = {
+      toString() {
+        throw new Error('no string for you');
+      },
+    };
+    expect(() => logExpected('evil', evil)).not.toThrow();
   });
 });

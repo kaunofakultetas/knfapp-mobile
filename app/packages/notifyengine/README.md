@@ -78,8 +78,13 @@ buffered and flushed in order. A launch tap can reach the warm
 listener before the launch consumer asks — so while no resolver is
 installed, `consumeInitial()` adopts the oldest buffered intent as
 the cold start (`coldStart: true`) and the later device read of that
-same response answers null. The engine never navigates — the app
-registers one resolver and owns the single type→screen map.
+same response answers null. A tap an ingest has claimed but is still
+parking (two storage round-trips) counts as parked: `consumeInitial()`
+waits for ingests already under way — bounded, a second at most — and
+a device read naming a claimed identifier adopts exactly that tap,
+so it can never be flushed to the warm resolver over the landing
+screen. The engine never navigates — the app registers one resolver
+and owns the single type→screen map.
 
 **Preferences** — the master switch is client truth in storage
 (absent means enabled), seeded into the snapshot by `init()` so a
@@ -89,8 +94,12 @@ flight stands; channel opt-outs are server truth with optimistic
 flips debounced into one merged PUT and a three-way-merge revert on
 failure; the chat-preview privacy flag is optimistic-with-revert,
 and `setChatPreview(on)` resolves `true` when the wire confirmed the
-requested value, `false` when the flag snapped back. Unknown channel
-keys are rejected by name before any write.
+requested value, `false` when the flag snapped back. Every wire
+operation — flush, preview write, refresh — takes one lock, so a
+refresh's older body can never land over a write the server already
+committed; only the newest of several quick preview writes paints,
+and a failed one snaps back to server truth. Unknown channel keys
+are rejected by name before any write.
 
 **Foreground policy** — one data-driven handler: rules keyed by the
 payload's `type`, a `suppress` predicate for "this room is on

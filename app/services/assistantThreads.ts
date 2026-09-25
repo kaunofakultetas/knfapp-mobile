@@ -17,15 +17,26 @@
 //  attaches exactly like every other API call and the
 //  session-expiry interceptor stays one place.
 //
+//  A thread nobody ever wrote into (its first send failed
+//  before the container stored a word — a rate limit, the
+//  network) carries neither title nor preview; the listing
+//  hides it rather than parading a row of "untitled" husks,
+//  while the guest registry keeps its id (the answer may yet
+//  land). A successful delete is announced to subscribers, so
+//  the chat tab can drop a conversation that is on screen.
+//
 //  Split into:
 //
 //    AssistantThreadSummary  — one thread list row
 //    readRegistry / writeRegistry — the AsyncStorage list
 //    rememberGuestThread     — registry add
 //    createThread            — POST, registry-aware
+//    hasContent              — a row worth listing
 //    listThreads             — signed-in list OR guest lookup
 //    fetchThreadMessages     — the stored transcript
+//    onThreadDeleted         — subscribe to deletes
 //    deleteThread            — soft delete + registry drop
+//    clearGuestThreadRegistry — logout hygiene
 //    claimGuestThreads       — login adopts the registry
 // -----------------------------------------------------------
 
@@ -42,6 +53,10 @@ const REGISTRY_KEY = 'assistant-guest-threads-v1';
 // The most ids the registry keeps (and the lookup cap the
 // backend mirrors) — oldest fall off first
 const REGISTRY_MAX = 100;
+
+// Who hears about a successful delete — the chat tab, so a
+// conversation deleted from the history is not left on screen
+const deleteListeners = new Set<(threadId: string) => void>();
 
 
 
@@ -218,6 +233,29 @@ export async function createThread(
 
 
 // -----------------------------------------------------------
+// hasContent
+// -----------------------------------------------------------
+//
+// A row worth listing: one the container ever wrote into. The
+// title comes from the first stored question and the preview
+// from the newest answer, so a thread with neither is one
+// whose first send died before a word was stored.
+//
+// Used by:
+//   - listThreads (below)
+// -----------------------------------------------------------
+
+function hasContent(thread: AssistantThreadSummary): boolean {
+  return Boolean(thread.title || thread.preview);
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // listThreads
 // -----------------------------------------------------------
 //
@@ -227,7 +265,9 @@ export async function createThread(
 // The guest path also PRUNES: ids the server no longer
 // answers (pruned by retention, deleted elsewhere, claimed
 // into some account) drop out of the registry, so the list
-// and the registry converge on every open.
+// and the registry converge on every open. Both paths hide
+// the empty husks (hasContent) — the registry still keeps a
+// husk's id, since the server answered it.
 //
 // Used by:
 //   - app/(main)/assistant-threads — the screen's load
@@ -238,7 +278,7 @@ export async function listThreads({ signedIn }: { signedIn: boolean }): Promise<
     const answer = await request<{ threads: AssistantThreadSummary[] }>(
       api.get('/assistant/threads'),
     );
-    return answer.threads;
+    return answer.threads.filter(hasContent);
   }
 
   const ids = await readRegistry();
@@ -248,7 +288,7 @@ export async function listThreads({ signedIn }: { signedIn: boolean }): Promise<
   );
   const alive = new Set(answer.threads.map((thread) => thread.id));
   await writeRegistry(ids.filter((one) => alive.has(one)));
-  return answer.threads;
+  return answer.threads.filter(hasContent);
 }
 
 
@@ -282,21 +322,58 @@ export async function fetchThreadMessages(threadId: string): Promise<AssistantSt
 
 
 // -----------------------------------------------------------
+// onThreadDeleted
+// -----------------------------------------------------------
+//
+//   const stop = onThreadDeleted((id) => …)  — until stop()
+//
+// Hears every SUCCESSFUL delete, after the server confirmed
+// it. The chat tab listens: a conversation deleted from the
+// history while it is still mounted must leave the screen,
+// not linger with a dead thread id behind its next send.
+//
+// Used by:
+//   - app/(main)/tabs/assistant.tsx — resets the mounted chat
+// -----------------------------------------------------------
+
+export function onThreadDeleted(listener: (threadId: string) => void): () => void {
+  deleteListeners.add(listener);
+  return () => {
+    deleteListeners.delete(listener);
+  };
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // deleteThread
 // -----------------------------------------------------------
 //
 // Soft-deletes server-side and drops the id from the
 // registry in the same breath — the list the screen reloads
-// afterwards agrees with both stores.
+// afterwards agrees with both stores — then tells the
+// onThreadDeleted subscribers. A throwing listener never
+// fails the delete that already happened.
 //
 // Used by:
-//   - app/(main)/assistant-threads — swipe-to-delete
+//   - app/(main)/assistant-threads — the row's trash button
 // -----------------------------------------------------------
 
 export async function deleteThread(threadId: string): Promise<void> {
   await request(api.post(`/assistant/threads/${threadId}/delete`, {}));
   const ids = await readRegistry();
   await writeRegistry(ids.filter((one) => one !== threadId));
+  deleteListeners.forEach((listener) => {
+    try {
+      listener(threadId);
+    } catch {
+      // A subscriber's failure is its own
+    }
+  });
 }
 
 
@@ -323,6 +400,11 @@ export async function deleteThread(threadId: string): Promise<void> {
 export async function clearGuestThreadRegistry(): Promise<void> {
   await writeRegistry([]);
 }
+
+
+
+
+
 
 
 // -----------------------------------------------------------

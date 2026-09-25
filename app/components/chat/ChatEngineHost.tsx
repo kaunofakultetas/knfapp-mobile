@@ -64,7 +64,9 @@ const limits = {
 // -----------------------------------------------------------
 //
 // The NOTICE_KEYS lookup, with the two codes whose catalog
-// string depends on the notice's detail resolved first.
+// string depends on the notice's detail resolved first — an
+// upload failure names what failed (a voice note once toasted
+// "couldn't upload the photo").
 //
 // Used by:
 //   - ChatEngineHost (below) — the notify callback
@@ -72,7 +74,10 @@ const limits = {
 
 function noticeKey(notice: EngineNotice): string {
   if (notice.code === 'upload_failed') {
-    return notice.detail === 'video' ? 'chat.videoUploadError' : notice.detail === 'file' ? 'chat.fileUploadError' : 'chat.imageUploadError';
+    if (notice.detail === 'video') return 'chat.videoUploadError';
+    if (notice.detail === 'file') return 'chat.fileUploadError';
+    if (notice.detail === 'audio') return 'chat.voiceUploadError';
+    return 'chat.imageUploadError';
   }
   if (notice.code === 'upload_too_large' && notice.detail === 'video_duration') return 'chat.videoTooLong';
   return NOTICE_KEYS[notice.code];

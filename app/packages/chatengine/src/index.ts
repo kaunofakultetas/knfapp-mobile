@@ -14,6 +14,7 @@ export type {
   ChatMessageStatus,
   ChatReaction,
   ChatReplyRef,
+  ChatSystemEvent,
   ChatUser,
   ChatVideo,
   ConversationMeta,
@@ -55,7 +56,7 @@ export {
   validateIngest,
   withSelfReaction,
 } from './core/reducers';
-export { draftKey, draftReplyKey, outboxKey, readOutbox, readOutboxTemps, writeOutbox, type OutboxEntry, type PickedAsset } from './core/outbox';
+export { draftKey, draftReplyKey, outboxKey, readOutbox, readOutboxTemps, writeOutbox, type OutboxEntry, type PickedAsset, type StoredUpload } from './core/outbox';
 export { normalizeAssetName } from './core/assets';
 export { forwardPayload, type ForwardSource } from './core/forward';
 export { TaskQueue, getTaskQueue, taskKey, tasksStorageKey, type PendingTask } from './core/tasks';

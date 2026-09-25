@@ -56,7 +56,7 @@ export default function LoadingSpinner({
   overlay = false,
 }: LoadingSpinnerProps) {
 
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { colors } = useTheme();
 
 
@@ -74,6 +74,7 @@ export default function LoadingSpinner({
     accessible: true,
     accessibilityRole: 'progressbar' as const,
     accessibilityLabel: text ?? t('common.loading'),
+    accessibilityLanguage: i18n?.language,
   };
 
 

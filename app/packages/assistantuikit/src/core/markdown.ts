@@ -35,7 +35,15 @@
 //      and combining marks count as word characters, so NFD
 //      Lithuanian parses like NFC;
 //    - emphasis steps over complete links, so a _ or * inside
-//      a URL never closes the construct around it.
+//      a URL never closes the construct around it;
+//    - a bare http(s) URL (also "<…>"-wrapped) and a bare
+//      e-mail address are links on their own — atomic, so a
+//      _ inside one never opens emphasis, and the sentence's
+//      closing punctuation stays outside — except inside a
+//      link's own label (no link in a link) and inside code;
+//    - a nested list that switches marker kind under one item
+//      ("  1. …" then "  - …") becomes a SECOND nested list
+//      (`next`), never bullets numbered as steps (KNF-161).
 //
 //  splitStreamingTail is the streaming seam: the settled
 //  prefix — whole lines, closed fences, and on the line still
@@ -48,9 +56,18 @@
 //  tail back onto the tree's last leaf so the visual line
 //  never breaks in two.
 //
+//  Streaming cost is kept LINEAR in the answer (KNF-088): a
+//  growing answer re-parses only what follows its last SAFE
+//  block boundary (createStreamingParser — the blocks before
+//  it are cached, and a boundary is only a blank line no
+//  construct can reach across), and an emphasis opener gives
+//  up at once when no run after it could ever close — a
+//  paragraph of "*.pdf, *.docx" globs used to cost a scan to
+//  the paragraph's end per star.
+//
 //  Used by:
-//    - MarkdownText.tsx — parseMarkdown, splitStreamingTail,
-//      appendStreamTail
+//    - MarkdownText.tsx — parseMarkdown, createStreamingParser,
+//      splitStreamingTail, appendStreamTail
 // -----------------------------------------------------------
 
 
@@ -114,7 +131,8 @@ export interface MarkdownListItem {
 // -----------------------------------------------------------
 //
 // A whole list block — its kind, its start number and its
-// items.
+// items; a nested one may chain the list of the other kind
+// that follows it under the same item.
 //
 // Used by:
 //   - MarkdownBlock (below) — the list variant
@@ -127,6 +145,10 @@ export interface MarkdownList {
   // The first item's number for an ordered list, 1 otherwise
   start: number;
   items: MarkdownListItem[];
+  // A NESTED list only: the list that follows it under the
+  // same parent item after the marker kind switched ("  1."
+  // then "  - ") — absent everywhere else
+  next?: MarkdownList;
 }
 
 
@@ -208,6 +230,18 @@ const ESCAPABLE_RE = /[!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]/;
 // Letters, digits and combining marks — a decomposed ž (z +
 // caron) must flank _ the way the precomposed one does
 const WORD_CHAR_RE = /[\p{L}\p{M}\p{N}]/u;
+
+// A bare web address at a position: the scheme, then
+// everything up to whitespace or a character no URL carries
+// bare (quotes, angle brackets, a backtick)
+const BARE_URL_RE = /^https?:\/\/[^\s<>"'„“”`]+/i;
+
+// A bare e-mail address anywhere in a text run
+const BARE_EMAIL_RE = /[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)*\.\p{L}{2,}/gu;
+
+// Sentence punctuation that trails a bare address without
+// belonging to it
+const TRAILING_PUNCT_RE = /[.,;:!?'"»“”‘’)\]}]$/;
 
 // How deep quotes and marks may nest before the rest is read
 // as characters — a matched construct parses its inside
@@ -350,6 +384,115 @@ const isWordChar = (ch: string): boolean => WORD_CHAR_RE.test(ch);
 
 export function parseMarkdown(text: string): MarkdownBlock[] {
   return parseBlocks(toLines(text), 0);
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// createStreamingParser
+// -----------------------------------------------------------
+//
+//   const parse = createStreamingParser();
+//   parse('# A\n\nB')        → the same tree parseMarkdown gives
+//   parse('# A\n\nB and C')  → '# A' reused, only 'B and C'
+//                              parsed again
+//
+// A parser for ONE growing text (a streaming answer). It
+// remembers the blocks before the text's last SAFE boundary
+// (safeBoundaryAfter) and, while the next text still starts
+// with that prefix, re-parses only what follows it — the
+// answer stops re-walking its own history on every delta. A
+// text that is not an extension (an edit, a different answer)
+// drops the cache and parses whole. The result always equals
+// parseMarkdown's; its LAST block is always freshly parsed
+// (the part after a boundary is never empty), so
+// appendStreamTail may mutate it without touching the cache.
+//
+// Used by:
+//   - MarkdownText.tsx — one per streaming text part
+// -----------------------------------------------------------
+
+export function createStreamingParser(): (text: string) => MarkdownBlock[] {
+  let cachedSource = '';
+  let cachedBlocks: MarkdownBlock[] = [];
+
+  return (text: string) => {
+    const src = text.replace(/\r\n?/g, '\n');
+    if (cachedSource === '' || !src.startsWith(cachedSource)) {
+      cachedSource = '';
+      cachedBlocks = [];
+    }
+
+    // Everything between the cached prefix and the newest
+    // boundary joins the cache; the rest parses fresh
+    const boundary = safeBoundaryAfter(src, cachedSource.length);
+    if (boundary > cachedSource.length) {
+      cachedBlocks = [...cachedBlocks, ...parseBlocks(toLines(src.slice(cachedSource.length, boundary)), 0)];
+      cachedSource = src.slice(0, boundary);
+    }
+    return [...cachedBlocks, ...parseBlocks(toLines(src.slice(cachedSource.length)), 0)];
+  };
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// safeBoundaryAfter
+// -----------------------------------------------------------
+//
+//   safeBoundaryAfter('A\n\nB', 0)     → 3   (B's line start)
+//   safeBoundaryAfter('- a\n\n- b', 0) → 0   (a loose list goes on)
+//
+// The offset of the LAST line start, at or after `from`,
+// where parsing may begin afresh without changing the tree:
+// the line before it is blank, the line itself is not blank,
+// no fence is open across it, and it is no list marker (a
+// blank line between same-kind markers keeps ONE list, so a
+// marker line may belong to the list above it). Every block
+// ends at a blank line except an open fence and a loose list,
+// which is why exactly these two are excluded — and a
+// boundary, once found, stays one as the text grows, because
+// nothing before it or at its line's start can change. `from`
+// must itself be 0 or such a boundary (fences closed there);
+// answers `from` when there is none after it.
+//
+// Used by:
+//   - createStreamingParser (above)
+// -----------------------------------------------------------
+
+function safeBoundaryAfter(src: string, from: number): number {
+  let boundary = from;
+  let fenceLength = 0;
+  let previousBlank = false;
+  let offset = from;
+  while (offset < src.length) {
+    const newline = src.indexOf('\n', offset);
+    const end = newline === -1 ? src.length : newline;
+    const line = src.slice(offset, end).replace(/[ \t]+$/, '');
+
+    if (fenceLength > 0) {
+      // Inside a fence nothing is a boundary — only a closer at
+      // least as long as the opener ends it
+      const close = FENCE_CLOSE_RE.exec(line);
+      if (close && close[1].length >= fenceLength) fenceLength = 0;
+    } else {
+      if (line !== '' && previousBlank && readItem(line) === null) boundary = offset;
+      const open = FENCE_OPEN_RE.exec(line);
+      if (open) fenceLength = open[1].length;
+    }
+    previousBlank = line === '';
+    if (newline === -1) break;
+    offset = newline + 1;
+  }
+  return boundary;
 }
 
 
@@ -561,13 +704,16 @@ function hasOpenConstruct(slice: string): boolean {
 // The plain tail spliced back into the tree when the settled
 // half ends mid-line: pushed as a text span onto the last
 // inline-bearing leaf — a paragraph's or heading's spans, the
-// last item of a list (its nested item when one is open), the
-// last leaf inside a quote — so the line being written keeps
-// flowing after its settled constructs instead of dropping to
-// a line of its own. Mutates the tree in place (the caller
-// parses fresh per render). True when a leaf took the tail;
-// false on an empty tree or a block that cannot end mid-line,
-// and the caller shows the tail on its own then.
+// last item of a list (its nested item when one is open — the
+// LAST of a `next` chain), the last leaf inside a quote — so
+// the line being written keeps flowing after its settled
+// constructs instead of dropping to a line of its own.
+// Mutates the tree in place: the caller hands it a tree whose
+// LAST block is freshly parsed (the streaming parser caches
+// only blocks before a boundary, never the last one). True
+// when a leaf took the tail; false on an empty tree or a
+// block that cannot end mid-line, and the caller shows the
+// tail on its own then.
 //
 // Used by:
 //   - MarkdownText.tsx — while isStreaming, when the settled
@@ -584,7 +730,9 @@ export function appendStreamTail(blocks: MarkdownBlock[], tail: string): boolean
   if (last.type === 'list') {
     const item = last.items[last.items.length - 1];
     if (!item) return false;
-    const leaf = item.nested ? (item.nested.items[item.nested.items.length - 1] ?? item) : item;
+    let nested = item.nested;
+    while (nested?.next) nested = nested.next;
+    const leaf = nested ? (nested.items[nested.items.length - 1] ?? item) : item;
     leaf.spans.push({ type: 'text', text: tail });
     return true;
   }
@@ -914,10 +1062,13 @@ function readItem(line: string): ItemLine | null {
 //
 // One list from its first marker line. Markers indented two or
 // more past the first item's indent nest under the item above
-// them — one level, so anything deeper lands in that same
-// nested list, and the nested list takes its kind from its own
-// first marker. An indented plain line continues the innermost
-// item on a line break. Blank lines stay inside the list when
+// them — one level, so anything deeper lands in the same
+// nested level. The nested level keeps each marker's KIND: a
+// run of one kind is one nested list, and a marker of the
+// other kind closes it and opens the next (chained as `next`)
+// — the top level's own rule, one level down, so a bullet is
+// never numbered as a step. An indented plain line continues
+// the innermost item on a line break. Blank lines stay inside the list when
 // the next non-blank line is a top-level marker of the same
 // kind (a loose list — models blank-separate items and number
 // each one "1."); otherwise a blank line, a rule, a marker of
@@ -931,9 +1082,17 @@ function readItem(line: string): ItemLine | null {
 //   - parseBlocks (above)
 // -----------------------------------------------------------
 
+// One run of same-kind markers at the nested level
+interface NestedRun {
+  ordered: boolean;
+  start: number;
+  texts: string[];
+}
+
 interface ItemDraft {
   text: string;
-  nested: { ordered: boolean; start: number; texts: string[] } | null;
+  // The nested level's runs, in order — empty when none opened
+  nested: NestedRun[];
 }
 
 function parseList(
@@ -965,10 +1124,12 @@ function parseList(
     const last = drafts[drafts.length - 1];
     if (item) {
       if (last && item.indent >= base + 2) {
-        if (!last.nested) last.nested = { ordered: item.ordered, start: item.start, texts: [] };
-        last.nested.texts.push(item.content);
+        // A marker of the other kind opens a run of its own
+        const run = last.nested[last.nested.length - 1];
+        if (run && run.ordered === item.ordered) run.texts.push(item.content);
+        else last.nested.push({ ordered: item.ordered, start: item.start, texts: [item.content] });
       } else if (item.ordered === head.ordered) {
-        drafts.push({ text: item.content, nested: null });
+        drafts.push({ text: item.content, nested: [] });
       } else {
         // The other kind of marker starts a list of its own
         break;
@@ -979,8 +1140,9 @@ function parseList(
 
     if (!last || !/^[ \t]/.test(line) || startsBlock(line)) break;
     // Continuation prose joins the innermost open item
-    if (last.nested && last.nested.texts.length > 0) {
-      last.nested.texts[last.nested.texts.length - 1] += `\n${line.trim()}`;
+    const run = last.nested[last.nested.length - 1];
+    if (run && run.texts.length > 0) {
+      run.texts[run.texts.length - 1] += `\n${line.trim()}`;
     } else {
       last.text += `\n${line.trim()}`;
     }
@@ -993,17 +1155,44 @@ function parseList(
     start: head.start,
     items: drafts.map((draft) => ({
       spans: parseInline(draft.text, depth),
-      nested: draft.nested
-        ? {
-            type: 'list',
-            ordered: draft.nested.ordered,
-            start: draft.nested.start,
-            items: draft.nested.texts.map((text) => ({ spans: parseInline(text, depth), nested: null })),
-          }
-        : null,
+      nested: nestedChain(draft.nested, depth),
     })),
   };
   return { list, next: i };
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// nestedChain
+// -----------------------------------------------------------
+//
+// An item's nested runs as the list the renderer walks: the
+// first run is `nested`, each later run hangs off the one
+// before as `next`. null when no nested marker ever opened.
+//
+// Used by:
+//   - parseList (above)
+// -----------------------------------------------------------
+
+function nestedChain(runs: readonly NestedRun[], depth: number): MarkdownList | null {
+  let chain: MarkdownList | null = null;
+  for (let index = runs.length - 1; index >= 0; index -= 1) {
+    const run = runs[index];
+    const list: MarkdownList = {
+      type: 'list',
+      ordered: run.ordered,
+      start: run.start,
+      items: run.texts.map((text) => ({ spans: parseInline(text, depth), nested: null })),
+    };
+    if (chain) list.next = chain;
+    chain = list;
+  }
+  return chain;
 }
 
 
@@ -1025,22 +1214,34 @@ function parseList(
 // its own characters — that is the streaming tolerance — and
 // adjacent characters merge into one text span. `depth` counts
 // the constructs this text sits inside; past the cap it is one
-// text span, escapes included.
+// text span, escapes included. The last position where a *
+// and a _ run COULD close is found once per call
+// (lastCloserIndex), so every opener after it fails at once
+// instead of scanning to the end of the paragraph. With
+// `autolink` (everywhere but a link's own label) a bare URL
+// is read whole the moment it starts (readBareUrl) and the
+// text runs split out their e-mail addresses (autolinkEmails).
 //
 // Used by:
 //   - parseBlocks / parseList (above) — headings, paragraphs,
 //     items; readLink / readEmphasis (below) — their insides
 // -----------------------------------------------------------
 
-function parseInline(src: string, depth: number): MarkdownInline[] {
+function parseInline(src: string, depth: number, autolink = true): MarkdownInline[] {
   if (depth > NEST_CAP) return src === '' ? [] : [{ type: 'text', text: src }];
   const spans: MarkdownInline[] = [];
   let text = '';
   const flush = () => {
     if (text === '') return;
-    spans.push({ type: 'text', text });
+    if (autolink) spans.push(...autolinkEmails(text));
+    else spans.push({ type: 'text', text });
     text = '';
   };
+
+  // The last run of each marker that could close anything —
+  // computed on first need, -1 when there is none
+  const closers: Record<string, number | undefined> = {};
+  const lastCloser = (marker: string) => (closers[marker] ??= lastCloserIndex(src, marker));
 
   let i = 0;
   while (i < src.length) {
@@ -1067,7 +1268,11 @@ function parseInline(src: string, depth: number): MarkdownInline[] {
       continue;
     }
 
-    const hit = ch === '[' ? readLink(src, i, depth) : ch === '*' || ch === '_' ? readEmphasis(src, i, depth) : null;
+    const hit =
+      ch === '[' ? readLink(src, i, depth)
+      : ch === '*' || ch === '_' ? readEmphasis(src, i, depth, lastCloser(ch), autolink)
+      : autolink && (ch === 'h' || ch === 'H' || ch === '<') ? readBareUrl(src, i)
+      : null;
     if (hit) {
       flush();
       spans.push(hit.span);
@@ -1079,6 +1284,90 @@ function parseInline(src: string, depth: number): MarkdownInline[] {
     i += 1;
   }
   flush();
+  return spans;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// readBareUrl
+// -----------------------------------------------------------
+//
+//   'žr. https://knf.vu.lt/studentams.' → link to
+//       https://knf.vu.lt/studentams, the period left outside
+//   '<https://vu.lt>'                   → link, brackets gone
+//
+// A bare web address as a link span, read whole: it must
+// start a word (not "xhttps://"), it ends at whitespace or a
+// character no bare URL carries, and trailing sentence
+// punctuation is handed back to the text — a closing paren
+// only when the URL holds no matching opener (Wikipedia's
+// "…_(miestas)" keeps its own). Wrapped in <…>, both brackets
+// are consumed. A scheme with nothing behind it is text.
+//
+// Used by:
+//   - parseInline (above)
+// -----------------------------------------------------------
+
+function readBareUrl(src: string, at: number): InlineHit | null {
+  const bracketed = src.charAt(at) === '<';
+  const start = bracketed ? at + 1 : at;
+  if (!bracketed && isWordChar(src.charAt(at - 1))) return null;
+  const match = BARE_URL_RE.exec(src.slice(start));
+  if (!match) return null;
+
+  let url = match[0];
+  while (TRAILING_PUNCT_RE.test(url)) {
+    const last = url.charAt(url.length - 1);
+    if (last === ')' && (url.match(/\(/g)?.length ?? 0) >= (url.match(/\)/g)?.length ?? 0)) break;
+    url = url.slice(0, -1);
+  }
+  if (!/^https?:\/\/[^/]/i.test(url)) return null;
+
+  const closesBracket = bracketed && src.charAt(start + url.length) === '>';
+  if (bracketed && !closesBracket) return null;
+  return {
+    span: { type: 'link', url, title: null, spans: [{ type: 'text', text: url }] },
+    end: start + url.length + (closesBracket ? 1 : 0),
+  };
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// autolinkEmails
+// -----------------------------------------------------------
+//
+//   autolinkEmails('rašykite knf@knf.vu.lt.')
+//     → [text 'rašykite ', link mailto:knf@knf.vu.lt, text '.']
+//
+// A plain text run with its bare e-mail addresses turned into
+// mailto links — the rest of the run stays one text span per
+// stretch. An address ends at its last letter, so a sentence's
+// period stays text.
+//
+// Used by:
+//   - parseInline (above) — every flushed text run
+// -----------------------------------------------------------
+
+function autolinkEmails(value: string): MarkdownInline[] {
+  const spans: MarkdownInline[] = [];
+  let last = 0;
+  for (const match of value.matchAll(BARE_EMAIL_RE)) {
+    const at = match.index ?? 0;
+    if (at > last) spans.push({ type: 'text', text: value.slice(last, at) });
+    spans.push({ type: 'link', url: `mailto:${match[0]}`, title: null, spans: [{ type: 'text', text: match[0] }] });
+    last = at + match[0].length;
+  }
+  if (last < value.length) spans.push({ type: 'text', text: value.slice(last) });
   return spans;
 }
 
@@ -1140,21 +1429,23 @@ function readCodeSpan(src: string, at: number, run: number): InlineHit | null {
 // italic; when no closer of that length exists the shorter
 // constructs are tried at the same position, and a run that
 // closes nothing at all is text. The inside is parsed again, so
-// bold may hold italic, code and links.
+// bold may hold italic, code and links. `limit` is the last
+// position a closer could sit at — an opener at or past it is
+// text without a scan.
 //
 // Used by:
 //   - parseInline (above)
 // -----------------------------------------------------------
 
-function readEmphasis(src: string, at: number, depth: number): InlineHit | null {
+function readEmphasis(src: string, at: number, depth: number, limit: number, autolink: boolean): InlineHit | null {
   const marker = src.charAt(at);
   const run = runLength(src, at, marker);
-  if (run > 3 || !canOpen(src, at, run, marker)) return null;
+  if (run > 3 || at >= limit || !canOpen(src, at, run, marker)) return null;
 
   for (let count = run; count >= 1; count -= 1) {
-    const close = findEmphasisClose(src, at + count, marker, count);
+    const close = findEmphasisClose(src, at + count, marker, count, limit);
     if (close === -1) continue;
-    const inner = parseInline(src.slice(at + count, close), depth + 1);
+    const inner = parseInline(src.slice(at + count, close), depth + 1, autolink);
     const span: MarkdownInline =
       count === 3
         ? { type: 'bold', spans: [{ type: 'italic', spans: inner }] }
@@ -1230,16 +1521,18 @@ function canClose(src: string, at: number, run: number, marker: string): boolean
 // pays off first (nearest open one first), so in "*a *b* c*"
 // the star after b closes b and the last star closes ours. A
 // run over three long never opens — readEmphasis reads it as
-// text — but it still pays and closes.
+// text — but it still pays and closes. `limit` (default: the
+// end) is the last position any closer can sit at: past it the
+// answer is -1 without walking further.
 //
 // Used by:
 //   - settledEndOfLine, readEmphasis (above)
 // -----------------------------------------------------------
 
-function findEmphasisClose(src: string, from: number, marker: string, count: number): number {
+function findEmphasisClose(src: string, from: number, marker: string, count: number, limit: number = src.length): number {
   const pending: number[] = [];
   let j = from;
-  while (j < src.length) {
+  while (j < src.length && j <= limit) {
     const ch = src.charAt(j);
     if (ch === '\\') {
       j += 2;
@@ -1289,6 +1582,37 @@ function findEmphasisClose(src: string, from: number, marker: string, count: num
 
 
 // -----------------------------------------------------------
+// lastCloserIndex
+// -----------------------------------------------------------
+//
+//   lastCloserIndex('a *b* c', '*')     → 4
+//   lastCloserIndex('*.pdf *.doc', '*') → -1  (every star
+//                                             follows a space)
+//
+// The last position holding `marker` where a run could close
+// (canClose there), or -1. A SUPERSET of the closers
+// findEmphasisClose can accept — it checks every marker
+// character, escaped and in-code ones too — so an opener at
+// or after it provably closes nothing, and a scan stops there.
+//
+// Used by:
+//   - parseInline (above) — once per marker per call
+// -----------------------------------------------------------
+
+function lastCloserIndex(src: string, marker: string): number {
+  for (let p = src.length - 1; p >= 0; p -= 1) {
+    if (src.charAt(p) === marker && canClose(src, p, runLength(src, p, marker), marker)) return p;
+  }
+  return -1;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // readLink
 // -----------------------------------------------------------
 //
@@ -1320,7 +1644,8 @@ function readLink(src: string, at: number, depth: number): InlineHit | null {
   const shape = readLinkShape(src, at);
   if (!shape) return null;
   return {
-    span: { type: 'link', url: shape.url, title: shape.title, spans: parseInline(src.slice(at + 1, shape.labelEnd), depth + 1) },
+    // No link inside a link: the label never autolinks
+    span: { type: 'link', url: shape.url, title: shape.title, spans: parseInline(src.slice(at + 1, shape.labelEnd), depth + 1, false) },
     end: shape.end,
   };
 }

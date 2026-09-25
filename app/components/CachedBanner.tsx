@@ -8,6 +8,12 @@
 //  time, so without the tick the label would freeze on a
 //  screen left open; returning from background bumps it too,
 //  so the label never shows the pre-background age.
+//
+//  A screen reader hears the strip ONCE per stale-data episode
+//  (a new cachedAt), announced on arrival. It used to be a live
+//  region / alert — and every minute tick changed its text, so
+//  TalkBack re-read the whole strip each minute for as long as
+//  it stayed up.
 // -----------------------------------------------------------
 
 // Relative-time phrase in the active language
@@ -20,7 +26,7 @@ import { useTheme } from '@/hooks/useTheme';
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AppState, Text, View } from 'react-native';
+import { AccessibilityInfo, AppState, Text, View } from 'react-native';
 
 
 
@@ -32,10 +38,11 @@ import { AppState, Text, View } from 'react-native';
 // CachedBanner (default export)
 // -----------------------------------------------------------
 //
-// Owns nothing but the re-render tick: a minute interval plus
-// an AppState listener bump a throwaway counter so the "ago"
-// label keeps aging; the strip itself is a single polite
-// alert element with the icon hidden from assistive tech.
+// Owns the re-render tick — a minute interval plus an AppState
+// listener bump a throwaway counter so the "ago" label keeps
+// aging — and the one announcement per cachedAt. The strip is
+// a single accessibility element whose label is the visible
+// text, the icon hidden from assistive tech.
 //
 // Used by:
 //   - app/(main)/info/index.tsx
@@ -67,13 +74,23 @@ export default function CachedBanner({ cachedAt }: { cachedAt: number }) {
   }, []);
 
 
-  // One polite alert element — screen readers hear the banner
-  // when it appears; the icon is decorative and stays hidden
+  const label = `${t('network.cachedData')} · ${t('network.cachedAgo', { time: formatRelativeAgo(cachedAt) })}`;
+
+
+  // Announced once when the stale data arrives — deliberately
+  // NOT per label change (see the file header)
+  useEffect(() => {
+    AccessibilityInfo.announceForAccessibility(label);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one announcement per cachedAt; the aging label must stay silent
+  }, [cachedAt]);
+
+
+  // One accessibility element whose label is the visible text;
+  // the icon is decorative and stays hidden
   return (
     <View
       accessible
-      accessibilityRole="alert"
-      accessibilityLiveRegion="polite"
+      accessibilityLabel={label}
       className="flex-row items-center justify-center bg-warning-soft px-3 py-1.5 gap-1.5"
     >
       <Ionicons
@@ -83,9 +100,7 @@ export default function CachedBanner({ cachedAt }: { cachedAt: number }) {
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
       />
-      <Text className="text-xs text-warning font-raleway-medium">
-        {t('network.cachedData')} · {t('network.cachedAgo', { time: formatRelativeAgo(cachedAt) })}
-      </Text>
+      <Text className="text-xs text-warning font-raleway-medium">{label}</Text>
     </View>
   );
 }

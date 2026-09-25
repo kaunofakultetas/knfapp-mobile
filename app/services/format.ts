@@ -5,7 +5,9 @@
 //  locale follows the active i18n language (lt-LT / en-GB),
 //  never a hardcoded one, and every function returns its input
 //  unchanged when the value doesn't parse — a bad timestamp
-//  renders as-is instead of crashing a list row.
+//  renders as-is instead of crashing a list row, and a value
+//  that is not a string at all (a null the API sent for a
+//  field typed as a string) renders as nothing.
 //
 //  Backend timestamps are naive UTC (datetime.utcnow()
 //  .isoformat(), no 'Z') — new Date() would read those as
@@ -80,21 +82,21 @@ function cachedFormatter(
 // parseIso
 // -----------------------------------------------------------
 //
-// null instead of Invalid Date, so callers can fall back to
-// returning the raw input. Two normalizations happen before
-// the delegate: SQLite's space-separated stamps become 'T'
-// form — parseStamp's zoneless-UTC rule only recognizes that
-// shape, and a space form would otherwise parse as LOCAL time
-// — and fractional seconds are cut to milliseconds, all that
-// Hermes' Date reliably digests.
+// null instead of Invalid Date (and for a non-string input),
+// so callers can fall back to returning the raw input. The
+// one zoneless-UTC rule lives in the chat kit's parseStamp
+// (normalizeStamp: SQLite's space form to 'T', a zoneless
+// stamp read as UTC, microseconds cut to milliseconds) — this
+// only adds the non-string guard, so the app and the chat
+// packages can never disagree about a stamp again.
 //
 // Used by:
 //   - the formatters below
 // -----------------------------------------------------------
 
 export function parseIso(iso: string): Date | null {
-  const t = iso.includes('T') ? iso : iso.replace(' ', 'T');
-  return parseStamp(t.replace(/(\.\d{3})\d+/, '$1'));
+  if (typeof iso !== 'string') return null;
+  return parseStamp(iso);
 }
 
 
@@ -139,7 +141,7 @@ export function activeLocale(): string {
 
 export function formatDate(iso: string): string {
   const date = parseIso(iso);
-  if (!date) return iso;
+  if (!date) return typeof iso === 'string' ? iso : '';
 
   return cachedFormatter(activeLocale(), {
     year: 'numeric',
@@ -168,7 +170,7 @@ export function formatDate(iso: string): string {
 
 export function formatTime(iso: string): string {
   const date = parseIso(iso);
-  if (!date) return iso;
+  if (!date) return typeof iso === 'string' ? iso : '';
 
   return cachedFormatter(activeLocale(), {
     hour: '2-digit',
@@ -197,7 +199,7 @@ export function formatTime(iso: string): string {
 
 export function formatDateTime(iso: string): string {
   const date = parseIso(iso);
-  if (!date) return iso;
+  if (!date) return typeof iso === 'string' ? iso : '';
 
   return cachedFormatter(activeLocale(), {
     year: 'numeric',

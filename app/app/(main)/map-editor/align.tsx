@@ -12,19 +12,22 @@
 //  it. A fine-tune stepper under the confirm nudges the
 //  result ±10° for a doorway the crosshair cannot quite pin.
 //
-//  The write is the same editor-less wiring the capture
-//  screen uses: the NodeSheet passes the node's whole JSON,
-//  its base revision, and the neighbour list (name + plan
-//  bearing, computed over the draft with the engine's
-//  bearingDeg) as route params; Confirm enqueues ONE node
-//  upsert — the node's data with panoYaw and panoHeading
-//  { source: 'aligned' } — through this screen's own outbox
-//  (storage prefix 'wayfind-align', so its drains never race
-//  the editor's provider), then AWAITS the drain: a conflict
-//  (another editor bumped the node past the params' base) is
-//  surfaced right here as a confirm dialog — overwrite or
-//  discard — because no other screen ever shows this outbox.
-//  Only a clean answer toasts success and goes back.
+//  The write goes the way the capture screen's does: the
+//  NodeSheet passes the node's whole JSON, its base revision
+//  and the neighbour list (name + plan bearing, computed over
+//  the draft with the engine's bearingDeg) as route params,
+//  and Confirm hands panoYaw and panoHeading
+//  { source: 'aligned' } BACK to the map editor underneath
+//  (services/wayfind/editorHandoff) — applied to its live node
+//  as an ordinary edit, but only while that node still carries
+//  the photo aligned here (a facing measured on one photo is
+//  meaningless on another; a changed node is reported, never
+//  written around). With no editor mounted (a deep link) the
+//  screen writes on its own: ONE node upsert through this
+//  screen's own outbox (storage prefix 'wayfind-align', so
+//  its drains never race the editor's provider), the drain
+//  AWAITED — a conflict is a confirm dialog right here, and a
+//  server out of reach is said while the op stays queued.
 //
 //  Split into (root component last):
 //
@@ -46,17 +49,18 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 
+import { WayfindKitHost } from '@/components/map/WayfindHost';
 import { Button, EmptyState, LoadingSpinner, Screen, confirmAction } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { showToast } from '@/context/NetworkContext';
 import { useRouteParam } from '@/hooks/useRouteParam';
 import { useTheme } from '@/hooks/useTheme';
-import { getUploadUrl } from '@/services/api';
+import { deliverNodeEdit } from '@/services/wayfind/editorHandoff';
 import { BUNDLED_PANOS, KNF_BUILDING_ID } from '@/services/wayfind/seed';
 import { wayfindTransport } from '@/services/wayfindTransport';
 import { useDataEngine } from '@knf/dataengine';
 import { WayfindSyncProvider, useWayfindSync, type DrainReport, type SyncEnv } from '@knf/wayfindsync';
-import { PanoramaStage, WayfindUiKitProvider, type KitPanoGeometry } from '@knf/wayfinduikit';
+import { PanoramaStage, type KitPanoGeometry } from '@knf/wayfinduikit';
 
 
 
@@ -183,9 +187,11 @@ export function fold360(deg: number): number {
 // not reach the server leaves the op queued for a later
 // mount's drain → 'queued'; a keep-mine the server still
 // refuses (bad data, not a stale base) is dropped → 'refused'.
+// Only the no-editor fallback runs it — with the editor mounted
+// the write is the editor's (see the header).
 //
 // Used by:
-//   - AlignBody (below) — the confirm write
+//   - AlignBody (below) — the confirm write's fallback
 //   - app/(main)/map-editor/capture.tsx keeps its own copy for
 //     the assign write (separate route, separate outbox)
 // -----------------------------------------------------------
@@ -226,7 +232,8 @@ async function settleUpsert(sync: SyncEnv, opId: string, labels: { title: string
 // The ±10° adjuster: two steppers around the current offset.
 // Steppers rather than a drag track — the app carries no
 // slider control, and a 1° step is exactly the precision the
-// crosshair cannot deliver by eye.
+// crosshair cannot deliver by eye. Each glyph button carries
+// its spoken name.
 //
 // Used by:
 //   - AlignBody (below)
@@ -244,11 +251,11 @@ function FineTune({ value, onChange }: { value: number; onChange: (next: number)
   return (
     <View className="mt-sm flex-row items-center justify-center" testID="align-fine">
       <Text className="mr-md font-raleway text-sm text-ink-soft">{t('mapEditor.align.fine')}</Text>
-      <Pressable onPress={() => nudge(-1)} accessibilityRole="button" hitSlop={8} testID="align-fine-minus" style={{ padding: 8 }}>
+      <Pressable onPress={() => nudge(-1)} accessibilityRole="button" accessibilityLabel={t('mapEditor.align.fineMinus')} hitSlop={8} testID="align-fine-minus" style={{ padding: 8 }}>
         <Ionicons name="remove-circle-outline" size={24} color={colors.brand} />
       </Pressable>
       <Text className="mx-sm font-raleway-medium text-sm text-ink" testID="align-fine-value">{`${value > 0 ? '+' : ''}${value}°`}</Text>
-      <Pressable onPress={() => nudge(1)} accessibilityRole="button" hitSlop={8} testID="align-fine-plus" style={{ padding: 8 }}>
+      <Pressable onPress={() => nudge(1)} accessibilityRole="button" accessibilityLabel={t('mapEditor.align.finePlus')} hitSlop={8} testID="align-fine-plus" style={{ padding: 8 }}>
         <Ionicons name="add-circle-outline" size={24} color={colors.brand} />
       </Pressable>
     </View>
@@ -308,23 +315,41 @@ function AlignBody({
   const neighbour = neighbours[picked] ?? null;
 
 
-  // Enqueue the one upsert, then await its verdict: applied or
-  // queued-offline toasts and leaves, a conflict runs the
-  // dialog (overwrite drains again, discard drops and stays),
-  // a refused overwrite stays with an error
+  // The facing goes to the editor underneath when there is one
+  // — refused there when its node's photo is not the one aligned
+  // here — and otherwise through this screen's outbox with the
+  // verdict awaited: applied toasts and leaves, a server out of
+  // reach says so and stays (the op drains on the restore), a
+  // conflict runs the dialog (overwrite drains again, discard
+  // drops and stays), a refused overwrite stays with an error
   const confirmingRef = useRef(false);
   const confirm = useCallback(async () => {
     if (!neighbour || confirmingRef.current) return;
     confirmingRef.current = true;
+    const facing = { panoYaw: fold360(neighbour.bearingDeg - viewYaw + fine), panoHeading: { source: 'aligned' } };
+
+
+    const handed = deliverNodeEdit(nodeId, (node) => (node.pano === pano ? facing : null));
+    if (handed !== 'absent') {
+      confirmingRef.current = false;
+      if (handed === 'declined') {
+        showToast('error', t('mapEditor.nodeChanged'));
+        return;
+      }
+      showToast('success', t('mapEditor.align.saved'));
+      router.back();
+      return;
+    }
+
+
     const opId = mintId('op');
-    const panoYaw = fold360(neighbour.bearingDeg - viewYaw + fine);
     sync.enqueueOps([
       {
         id: opId,
         type: 'upsert',
         kind: 'node',
         entityId: nodeId,
-        data: { ...nodeData, panoYaw, panoHeading: { source: 'aligned' } },
+        data: { ...nodeData, ...facing },
         ...(baseRevision != null ? { baseRevision } : {}),
       },
     ]);
@@ -340,9 +365,13 @@ function AlignBody({
       return;
     }
     if (settled === 'dropped') return;
+    if (settled === 'queued') {
+      showToast('info', t('mapEditor.savedOffline'));
+      return;
+    }
     showToast('success', t('mapEditor.align.saved'));
     router.back();
-  }, [neighbour, viewYaw, fine, sync, nodeId, nodeData, baseRevision, t, router]);
+  }, [neighbour, viewYaw, fine, pano, sync, nodeId, nodeData, baseRevision, t, router]);
 
 
   if (neighbours.length === 0) {
@@ -370,6 +399,8 @@ function AlignBody({
             onPress={() => setPicked(index)}
             accessibilityRole="button"
             accessibilityState={{ selected: index === picked }}
+            // A ~30 pt pill; the slop reaches the 44 pt touch floor
+            hitSlop={7}
             testID={`align-neighbour-${item.nodeId}`}
             style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: index === picked ? colors.brand : colors.surfaceSoft, marginRight: 6 }}
           >
@@ -405,7 +436,8 @@ function AlignBody({
 // minted: nodeId, the node's JSON (pano, panoGeometry and
 // the rest of its data ride inside it), its base revision,
 // and the neighbour list with plan bearings. A node without
-// a panorama has nothing to align.
+// a panorama has nothing to align. The kit host resolves the
+// served photo's url and themes the stage from the app.
 //
 // Used by:
 //   - expo-router — the (main)/map-editor/align route
@@ -436,10 +468,6 @@ function AlignScreen() {
   }, [node]);
   const baseRevision = baseParam != null && baseParam !== '' && Number.isFinite(Number(baseParam)) ? Number(baseParam) : null;
 
-  // The kit needs served references made absolute, like the
-  // map tab's host does it
-  const env = useMemo(() => ({ resolveImageUrl: (url: string) => getUploadUrl(url) ?? url }), []);
-
 
   if (!hydrated) {
     return (
@@ -466,11 +494,11 @@ function AlignScreen() {
 
   return (
     <Screen>
-      <WayfindUiKitProvider env={env}>
+      <WayfindKitHost>
         <WayfindSyncProvider buildingId={KNF_BUILDING_ID} storage={AsyncStorage} transport={wayfindTransport} onRestore={onRestore} keyPrefix="wayfind-align">
           <AlignBody nodeId={nodeId} nodeData={nodeData} baseRevision={baseRevision} pano={node.pano} geometry={node.panoGeometry ?? null} neighbours={neighbours} />
         </WayfindSyncProvider>
-      </WayfindUiKitProvider>
+      </WayfindKitHost>
     </Screen>
   );
 }

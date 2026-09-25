@@ -42,7 +42,11 @@ export interface TimetableLesson {
   groupKey?: string;
   // A merged teacher-view card lists every group it serves
   groupKeys?: string[];
+  // The subgroups the lesson is for — absent/[] = the group
+  subgroupKeys?: string[];
   termKey?: string;
+  // The engine's canonical kind ('lecture', 'exam', …) — the
+  // badge kinds (core/kinds) are marked on the cell
   kind?: string;
   // Drawn behind the lessons, full width, muted
   isBlock?: boolean;

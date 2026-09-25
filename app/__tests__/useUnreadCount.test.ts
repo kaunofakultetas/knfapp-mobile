@@ -6,8 +6,9 @@
 //  another sender's message except in the room being read
 //  (which reconciles on a slower clock instead, past the
 //  room's mark-read window — a reader scrolled up never marks
-//  it read), never for own echoes, and a debounced server
-//  reconcile after socket traffic.
+//  it read), never for own echoes or system lines, a
+//  debounced server reconcile after socket traffic, and an
+//  immediate re-count when a screen removed a whole room.
 // -----------------------------------------------------------
 
 const mockAuth = { isAuthenticated: true, user: { id: 'me' } as { id: string } | null };
@@ -60,7 +61,7 @@ import {
   getActiveConversation,
   setActiveConversation,
 } from '@/hooks/chat/activeConversation';
-import { useUnreadCount } from '@/hooks/useUnreadCount';
+import { requestUnreadRecount, useUnreadCount } from '@/hooks/useUnreadCount';
 
 
 beforeEach(() => {
@@ -137,6 +138,31 @@ describe('useUnreadCount', () => {
       mockSocket.newMessage?.({ senderId: 'me', conversationId: 'conv-9' });
     });
     expect(result.current.count).toBe(0);
+  });
+
+  it('ignores system lines — the server never counts them', async () => {
+    const { result } = await renderHook(() => useUnreadCount());
+    await waitFor(() => expect(mockFetchCount).toHaveBeenCalled());
+    await settle();
+
+    await act(async () => {
+      mockSocket.newMessage?.({ senderId: 'friend', conversationId: 'conv-9', kind: 'system' });
+    });
+    expect(result.current.count).toBe(0);
+  });
+
+  it('re-counts at once when a screen asks (a room was deleted or left)', async () => {
+    mockFetchCount.mockResolvedValue({ unreadCount: 5 });
+    const { result } = await renderHook(() => useUnreadCount());
+    await waitFor(() => expect(result.current.count).toBe(5));
+    const calls = mockFetchCount.mock.calls.length;
+
+    mockFetchCount.mockResolvedValue({ unreadCount: 2 });
+    await act(async () => {
+      requestUnreadRecount();
+    });
+    await waitFor(() => expect(result.current.count).toBe(2));
+    expect(mockFetchCount.mock.calls.length).toBe(calls + 1);
   });
 
   it('ignores messages for the room being read', async () => {
@@ -241,6 +267,53 @@ describe('useUnreadCount', () => {
       // Past it, the server's number lands
       await act(async () => {
         jest.advanceTimersByTime(500);
+      });
+      expect(mockFetchCount).toHaveBeenCalledTimes(1);
+      await act(async () => {});
+      expect(result.current.count).toBe(1);
+      clearActiveConversation('conv-open');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("another room's message during the open room's window never pulls the re-count IN — no flash of the open room's message", async () => {
+    jest.useFakeTimers();
+    try {
+      const { result } = await renderHook(() => useUnreadCount());
+      await settle();
+      mockFetchCount.mockClear();
+
+      setActiveConversation('conv-open');
+      // The open room's message is on its way to being marked
+      // read: the server counts it until the room's mark-read
+      // lands (inside the 2 s window), and never after
+      let roomMarkedRead = false;
+      mockFetchCount.mockImplementation(async () => ({ unreadCount: roomMarkedRead ? 1 : 2 }));
+
+      await act(async () => {
+        mockSocket.newMessage?.({ senderId: 'friend', conversationId: 'conv-open' });
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(100);
+      });
+      // A message for a BACKGROUND room: bumped at once...
+      await act(async () => {
+        mockSocket.newMessage?.({ senderId: 'friend', conversationId: 'conv-other' });
+      });
+      expect(result.current.count).toBe(1);
+
+      // ...but its fast 500 ms re-count may not fire at 600 ms —
+      // the server would still count the open room's message
+      await act(async () => {
+        jest.advanceTimersByTime(1_000);
+      });
+      expect(mockFetchCount).not.toHaveBeenCalled();
+      roomMarkedRead = true;
+
+      // The one re-count lands on the slow clock, after the read
+      await act(async () => {
+        jest.advanceTimersByTime(900);
       });
       expect(mockFetchCount).toHaveBeenCalledTimes(1);
       await act(async () => {});

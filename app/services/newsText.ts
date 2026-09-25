@@ -15,6 +15,12 @@
 //  verbatim — and even a scraped body is only stripped when
 //  the leading lines contain positive chrome evidence (a
 //  title, author or date repeat), never on short lines alone.
+//
+//  Also the one rule for an untitled post: the backend gives
+//  it a title derived from its body's head (the first line,
+//  or a word-boundary cut ending in "…"), and titleRepeatsBody
+//  recognises that — a card then prints the words once and
+//  the article shows the body alone.
 // -----------------------------------------------------------
 
 import type { NewsPost } from '@/types';
@@ -183,4 +189,38 @@ export function stripScrapedPreamble(
   // post) — keep the original body
   if (!sawChrome || start >= lines.length) return content.trim();
   return lines.slice(start).join('\n').trim();
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// titleRepeatsBody
+// -----------------------------------------------------------
+//
+//   titleRepeatsBody(post.title, post.content) — true when the
+//                                                 title is just
+//                                                 the body's head
+//
+// A derived title is the body's first words — whole, or cut
+// at a word with a trailing ellipsis (older rows: a bare
+// 80-character prefix). Either way the body starts with it
+// once the ellipsis is dropped. Blank either side is false.
+//
+// Used by:
+//   - components/news/NewsCard.tsx — no teaser that repeats
+//     the title
+//   - app/(main)/news-post/index.tsx — no title over a body
+//     that starts with it
+//   - app/(main)/profile/index.tsx — the post cards, likewise
+//   - components/news/sharePost.ts — the title said once
+// -----------------------------------------------------------
+
+export function titleRepeatsBody(title: string | null | undefined, body: string | null | undefined): boolean {
+  const head = (title ?? '').replace(/(…|\.\.\.)\s*$/, '').trim();
+  if (!head || !body) return false;
+  return body.trimStart().startsWith(head);
 }

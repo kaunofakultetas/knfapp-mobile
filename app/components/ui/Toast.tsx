@@ -27,6 +27,7 @@ import { useTheme } from '@/hooks/useTheme';
 // Card chrome + the library's config typing
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Text, View } from 'react-native';
 import { type ToastConfig } from 'react-native-toast-message';
 
@@ -104,6 +105,7 @@ function ToastCard({
   text2?: string;
 }) {
   const { colors } = useTheme();
+  const { i18n } = useTranslation();
   const accent = ACCENTS[kind];
 
 
@@ -115,6 +117,7 @@ function ToastCard({
       accessible
       accessibilityRole="alert"
       accessibilityLiveRegion={kind === 'error' ? 'assertive' : 'polite'}
+      accessibilityLanguage={i18n?.language}
       className="flex-row items-center overflow-hidden rounded-lg bg-surface"
       style={{
         width: '92%',

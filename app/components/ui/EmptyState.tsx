@@ -11,9 +11,10 @@
 // JS-side icon color
 import { useTheme } from '@/hooks/useTheme';
 
-// Layout + the action button
+// Layout + the action button; copy read in the app's language
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Text, View } from 'react-native';
 import { Button } from './Button';
 
@@ -50,6 +51,7 @@ interface EmptyStateProps {
 
 export default function EmptyState({ icon, title, hint, action }: EmptyStateProps) {
   const { colors } = useTheme();
+  const { i18n } = useTranslation();
 
 
   return (
@@ -65,11 +67,17 @@ export default function EmptyState({ icon, title, hint, action }: EmptyStateProp
         <Ionicons name={icon} size={32} color={colors.inkSoft} />
       </View>
 
-      <Text className="text-center font-raleway-semibold text-lg text-ink">
+      <Text
+        className="text-center font-raleway-semibold text-lg text-ink"
+        accessibilityLanguage={i18n?.language}
+      >
         {title}
       </Text>
       {hint ? (
-        <Text className="mt-sm text-center font-raleway text-sm text-ink-soft">
+        <Text
+          className="mt-sm text-center font-raleway text-sm text-ink-soft"
+          accessibilityLanguage={i18n?.language}
+        >
           {hint}
         </Text>
       ) : null}

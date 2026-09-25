@@ -58,6 +58,11 @@ import { notifyTransport } from '@/services/notifyTransport';
 // The register gate — only a signed-in session may claim a token
 import { getStoredToken } from '@/services/session';
 
+// The chat room on screen — its own pushes need no banner. The
+// one-file subpath, not the engine's barrel: this module loads
+// at the root, before any chat screen does
+import { getActiveConversation } from '@knf/chatengine/core/activeConversation';
+
 import {
   ChannelImportance,
   createExpoDevice,
@@ -126,10 +131,13 @@ export const NOTIFY_CHANNELS: readonly ChannelSpec[] = [
 // -----------------------------------------------------------
 //
 // Every push shows in the foreground — banner, list, sound and
-// badge — matching the shipped handler. No suppress predicate
-// yet: silencing the chat room that is already on screen needs
-// the active-conversation signal wired into this module, and
-// until then a visible duplicate beats a lost notification.
+// badge — matching the shipped handler, with ONE exception:
+// a chat push (message or mention) for the room the reader has
+// open. That message lands in front of them; a banner and a
+// sound on top of it would be noise. The engine keeps the
+// badge for a suppressed push and falls back to SHOWING if the
+// predicate throws, so a broken check can only ever mean one
+// extra banner, never a lost one.
 //
 // Used by:
 //   - notifyEngine (below) — the engine's foreground handler
@@ -138,6 +146,10 @@ export const NOTIFY_CHANNELS: readonly ChannelSpec[] = [
 export const NOTIFY_PRESENTATION: PresentationPolicy = {
   rules: {},
   default: { banner: true, list: true, sound: true, badge: true },
+  suppress: (type, data) =>
+    (type === 'chat_message' || type === 'chat_mention') &&
+    !!data.conversationId &&
+    data.conversationId === getActiveConversation(),
 };
 
 

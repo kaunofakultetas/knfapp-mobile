@@ -4,7 +4,11 @@
 //  A guest sees the login prompt and never asks the wire; a
 //  signed-in viewer sees grouped rows from the transport,
 //  landing marks everything read, and a tap opens what the
-//  row is about.
+//  row is about. A return to the screen re-reads the list
+//  SILENTLY — the rows stay on screen (never the full-screen
+//  spinner) and what arrived meanwhile lands marked read; the
+//  focus callback once closed over the mount's loading flag
+//  and never refetched at all.
 // -----------------------------------------------------------
 
 import { act, fireEvent, render } from '@testing-library/react-native';
@@ -53,11 +57,15 @@ jest.mock('@/hooks/useReturnHref', () => ({ useReturnHref: () => '/activity' }))
 jest.mock('@/hooks/useTheme', () => ({
   useTheme: () => ({ colors: { inkSoft: '#666', inkFaint: '#999', brand: '#7B003F', surfaceSoft: '#eee' }, scheme: 'light' }),
 }));
+// Every router push — a row tap lands here
 const mockPush = jest.fn();
+// The focus callback is captured so a test can replay a return
+let mockFocus: (() => void) | null = null;
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: (...args: unknown[]) => mockPush(...args) }),
   useFocusEffect: (effect: () => void) => {
     const { useEffect } = require('react');
+    mockFocus = effect;
     useEffect(() => {
       effect();
     }, [effect]);
@@ -68,8 +76,27 @@ jest.mock('@/context/AuthContext', () => ({ useAuth: () => ({ isAuthenticated: m
 jest.mock('@/context/NetworkContext', () => ({ useNetwork: () => ({ isConnected: true }) }));
 
 
+// The signed-in viewer the engine runs as
 const VIEWER = { id: 'me', displayName: 'Aš' };
+// The actor every fixture row names
 const ONA = { id: 'u-ona', displayName: 'Ona' };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// row
+// -----------------------------------------------------------
+//
+// One activity row from Ona (a like on post-1), overridable.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
+
 const row = (id: string, over: Partial<SocialNotification> = {}): SocialNotification => ({
   id,
   kind: 'like',
@@ -81,10 +108,44 @@ const row = (id: string, over: Partial<SocialNotification> = {}): SocialNotifica
   ...over,
 });
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// flush
+// -----------------------------------------------------------
+//
+// Drains the microtask chains a list load settles through.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
+
 const flush = () =>
   act(async () => {
     for (let i = 0; i < 40; i++) await Promise.resolve();
   });
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// wrap
+// -----------------------------------------------------------
+//
+// The screen under the real social engine and kit providers,
+// signed in (or not). RNTL 14 renders asynchronously — callers
+// await it.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
 
 const wrap = (ui: ReactElement, transport: ReturnType<typeof fakeSocialTransport>, signedIn = true) =>
   render(
@@ -130,5 +191,31 @@ describe('ActivityScreen', () => {
     const r = await wrap(<ActivityScreen />, fakeSocialTransport());
     await flush();
     expect(r.getByText('activity.empty')).toBeTruthy();
+  });
+
+  it('a return to the screen refetches silently — rows stay, new ones land marked read', async () => {
+    const transport = fakeSocialTransport({ notifications: [row('n1')] });
+    const r = await wrap(<ActivityScreen />, transport);
+    await flush();
+    expect(r.getAllByTestId(/socialuikit-notification-row/)).toHaveLength(1);
+    const fetchesBefore = transport.calls.filter((c) => c.method === 'fetchNotifications').length;
+
+    // Something new happened while the viewer was elsewhere
+    transport.seedNotification({ kind: 'comment', actor: { id: 'u-jonas', displayName: 'Jonas' }, createdAt: '2026-08-31T12:00:00Z', read: false, subjectId: 'post-3', subjectPreview: 'Puiku' });
+    const release = transport.stall('fetchNotifications');
+    await act(async () => {
+      mockFocus?.();
+    });
+    await flush();
+
+    // The refetch is on the wire — the old row stays on screen
+    expect(transport.calls.filter((c) => c.method === 'fetchNotifications').length).toBe(fetchesBefore + 1);
+    expect(r.queryByText('loading')).toBeNull();
+    expect(r.getAllByTestId(/socialuikit-notification-row/)).toHaveLength(1);
+
+    await act(async () => release());
+    await flush();
+    expect(r.getAllByTestId(/socialuikit-notification-row/)).toHaveLength(2);
+    expect(await transport.fetchUnreadCount()).toBe(0);
   });
 });

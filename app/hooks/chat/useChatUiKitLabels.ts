@@ -8,14 +8,68 @@
 //  t(). Adding a string to the kit means adding a key here and
 //  in both catalogs — the labels test walks every field.
 //
+//  Also home to systemEventText — the room-event wording both
+//  the kit's system rows and the conversation list's preview
+//  read, so the two can never word one event two ways.
+//
 //  Used by:
 //    - components/chat/ChatUiKitHost.tsx
+//    - components/chat/ConversationRow.tsx (systemEventText)
 // -----------------------------------------------------------
 
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import type { KitLabels } from '@knf/chatuikit';
+import type { KitLabels, KitSystemEvent } from '@knf/chatuikit';
+
+
+// The translate function as systemEventText takes it —
+// i18next's own signature is far wider than what it calls
+type Translate = (key: string, opts?: Record<string, unknown>) => string;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// systemEventText
+// -----------------------------------------------------------
+//
+//   systemEventText(t, { event: 'ttl_on', seconds: 3600 }, 'Ona')
+//     → 'Ona įjungė nykstančias žinutes (1 valanda)'
+//
+// A 'system' row's event worded through the chat.system*
+// keys, the row's sender as the actor — or null for an event
+// this build does not know (and a group event without its
+// title), so the caller shows the backend's stored prose
+// instead. The disappearing window reads in the largest unit
+// that divides it exactly (7 days, 24 hours, 90 minutes),
+// counted through the catalog's plural forms.
+//
+// Used by:
+//   - useChatUiKitLabels (below) — the kit's systemMessage
+//   - components/chat/ConversationRow.tsx — a system preview
+// -----------------------------------------------------------
+
+export function systemEventText(t: Translate, event: KitSystemEvent | null | undefined, name: string): string | null {
+  if (!event) return null;
+  if (event.event === 'group_created') return event.title ? t('chat.systemGroupCreated', { name, title: event.title }) : null;
+  if (event.event === 'left') return t('chat.systemLeft', { name });
+  if (event.event === 'ttl_off') return t('chat.systemTtlOff', { name });
+  if (event.event === 'ttl_on' && typeof event.seconds === 'number' && event.seconds > 0) {
+    const s = event.seconds;
+    const window =
+      s % 86_400 === 0
+        ? t('chat.ttlDays', { count: s / 86_400 })
+        : s % 3600 === 0
+          ? t('chat.ttlHours', { count: s / 3600 })
+          : t('chat.ttlMinutes', { count: Math.max(1, Math.round(s / 60)) });
+    return t('chat.systemTtlOn', { name, window });
+  }
+  return null;
+}
 
 
 
@@ -84,10 +138,18 @@ export default function useChatUiKitLabels(): KitLabels {
       pinnedMessage: t('chat.pinnedMessage'),
       forwarded: t('chat.forwardedMark'),
       attachCamera: t('chat.attachCamera'),
+      openAttachments: t('chat.openAttachments'),
+      trayGallery: t('chat.trayGallery'),
+      trayCamera: t('chat.trayCamera'),
+      trayFile: t('chat.trayFile'),
+      trayMemes: t('chat.trayMemes'),
       openMemes: t('chat.openMemes'),
       searchMemes: t('chat.searchMemes'),
       addMeme: t('chat.addMeme'),
       emptyMemes: t('chat.emptyMemes'),
+      noMemeResults: t('chat.noMemeResults'),
+      memesLoadError: t('chat.memesLoadError'),
+      removeMeme: t('chat.removeMeme'),
       conversationStart: t('chat.conversationStart'),
       inputPlaceholder: t('chat.inputPlaceholder'),
       send: t('chat.send'),
@@ -114,6 +176,7 @@ export default function useChatUiKitLabels(): KitLabels {
       unsupportedMessage: t('chat.unsupportedMessage'),
       openProfile: t('chat.openProfile'),
       linkPreview: t('chat.linkPreview'),
+      systemMessage: (event, name) => systemEventText(t, event, name),
     }),
     [t],
   );

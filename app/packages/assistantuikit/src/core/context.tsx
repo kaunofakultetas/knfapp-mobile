@@ -5,7 +5,7 @@
 //  component types (the upstream list mounts them by index),
 //  and the part renderers inside a bubble — text, thinking,
 //  tool card, typing dots — are component types too. Labels,
-//  colours, the tool registry and the two host callbacks
+//  colours, fonts, the tool registry and the host callbacks
 //  therefore travel by context: AssistantThread provides it
 //  once, and every row and part reads it. Hosts composing the
 //  bubbles into a list of their own wrap them in
@@ -20,7 +20,14 @@
 
 import { createContext, useContext, useMemo, type ReactNode } from 'react';
 
-import { defaultColors, type AssistantColors, type AssistantLabels, type ToolCardRenderer } from './types';
+import {
+  defaultColors,
+  defaultFonts,
+  type AssistantColors,
+  type AssistantFonts,
+  type AssistantLabels,
+  type ToolCardRenderer,
+} from './types';
 
 
 
@@ -32,8 +39,9 @@ import { defaultColors, type AssistantColors, type AssistantLabels, type ToolCar
 // AssistantKitValue
 // -----------------------------------------------------------
 //
-// What travels by context: the labels, the colours, the tool
-// registry and the two host callbacks.
+// What travels by context: the labels, the colours, the
+// host's font families, the tool registry and the host
+// callbacks.
 //
 // Used by:
 //   - AssistantKitProvider / useAssistantKit (below)
@@ -44,6 +52,7 @@ import { defaultColors, type AssistantColors, type AssistantLabels, type ToolCar
 export interface AssistantKitValue {
   labels: AssistantLabels;
   colors: AssistantColors;
+  fonts: AssistantFonts;
   tools: Record<string, ToolCardRenderer>;
   copyToClipboard?: (text: string) => Promise<void> | void;
   onPressLink?: (url: string) => void;
@@ -76,7 +85,7 @@ const NO_TOOLS: Record<string, ToolCardRenderer> = Object.freeze({});
 // AssistantKitProvider
 // -----------------------------------------------------------
 //
-// The value is memoized on its five inputs, so a host that
+// The value is memoized on its inputs, so a host that
 // re-renders with the same objects does not re-render every
 // bubble; one that builds a fresh labels object each render
 // re-renders them in place — never remounts, the component
@@ -90,6 +99,7 @@ const NO_TOOLS: Record<string, ToolCardRenderer> = Object.freeze({});
 export function AssistantKitProvider({
   labels,
   colors = defaultColors,
+  fonts = defaultFonts,
   tools = NO_TOOLS,
   copyToClipboard,
   onPressLink,
@@ -100,6 +110,7 @@ export function AssistantKitProvider({
 }: {
   labels: AssistantLabels;
   colors?: AssistantColors;
+  fonts?: AssistantFonts;
   tools?: Record<string, ToolCardRenderer>;
   copyToClipboard?: (text: string) => Promise<void> | void;
   onPressLink?: (url: string) => void;
@@ -109,8 +120,8 @@ export function AssistantKitProvider({
   children: ReactNode;
 }) {
   const value = useMemo<AssistantKitValue>(
-    () => ({ labels, colors, tools, copyToClipboard, onPressLink, onFeedback, onComposerSend, onAnswerSettled }),
-    [labels, colors, tools, copyToClipboard, onPressLink, onFeedback, onComposerSend, onAnswerSettled],
+    () => ({ labels, colors, fonts, tools, copyToClipboard, onPressLink, onFeedback, onComposerSend, onAnswerSettled }),
+    [labels, colors, fonts, tools, copyToClipboard, onPressLink, onFeedback, onComposerSend, onAnswerSettled],
   );
   return <AssistantKitContext.Provider value={value}>{children}</AssistantKitContext.Provider>;
 }
@@ -126,7 +137,7 @@ export function AssistantKitProvider({
 // -----------------------------------------------------------
 //
 // Resolves the nearest provider's value — labels, colours,
-// tool registry and the host callbacks. No provider-less
+// fonts, tool registry and the host callbacks. No provider-less
 // fallback: outside AssistantThread or AssistantKitProvider
 // it throws a named error instead of painting defaults.
 //

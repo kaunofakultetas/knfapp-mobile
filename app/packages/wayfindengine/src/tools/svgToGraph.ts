@@ -32,15 +32,22 @@
 //        several), else the nearest to its boundary
 //
 //  Everything else in the drawing — the walls, the labels, a
-//  circle without an 'n-' id — is ignored, and so is any
-//  transform attribute: shapes are read in plan coordinates
-//  as written. Parsing is a pair of regexes, not an XML
-//  parser: comments are stripped first, attributes are read
-//  in either quote style with their entities decoded (the
-//  five named ones and numeric references — a name with an
-//  '&' is written &amp; by every editor), an unparsable
-//  number is reported ('bad_attribute') and the shape
-//  skipped. The <svg viewBox>
+//  circle without an 'n-' id — is ignored. Transforms are NOT
+//  applied: shapes are read in plan coordinates as written,
+//  so a marked-up shape that sits under a transform (its own,
+//  or an enclosing <g>'s — every editor writes one the moment
+//  a layer is nudged) is reported 'unsupported_transform' at
+//  error severity instead of being filed silently where it
+//  was not drawn; the shape is still read as written, so one
+//  moved layer is one error, not a cascade. Parsing is a
+//  handful of regexes, not an XML parser: comments are
+//  stripped first, tags are read quote-aware (a '>' inside a
+//  quoted value is part of the value, as XML allows),
+//  attributes in either quote style with their entities
+//  decoded (the five named ones and numeric references — a
+//  name with an '&' is written &amp; by every editor), an
+//  unparsable number is reported ('bad_attribute') and the
+//  shape skipped. The <svg viewBox>
 //  becomes the level's viewBox, falling back to width/height
 //  and then to the bounding box of what was parsed
 //  ('missing_viewbox').
@@ -115,6 +122,7 @@ export type SvgIssueCode =
   | 'unsnapped_edge'
   | 'self_edge'
   | 'unsupported_path'
+  | 'unsupported_transform'
   | 'unknown_node_ref'
   | 'room_without_node'
   | 'duplicate_id';
@@ -191,11 +199,26 @@ const NODE_KINDS: ReadonlySet<string> = new Set<NodeKind>(['corridor', 'door', '
 // Same guard for data-edge kinds
 const EDGE_KINDS: ReadonlySet<string> = new Set<EdgeKind>(['hallway', 'door', 'stairs', 'elevator', 'ramp']);
 
+// One tag's attribute run, quote-aware: a quoted value is
+// consumed whole, so a '>' inside it (legal XML — only '<' and
+// '&' must be escaped there) never ends the tag early
+const ATTRIBUTE_RUN = String.raw`((?:"[^"]*"|'[^']*'|[^>"'])*?)`;
+
+// Every tag of the document, open or close, in order — the
+// walk shapes() tracks enclosing transforms with
+const TAG_RE = new RegExp(String.raw`<(\/?)([A-Za-z][\w:.-]*)` + ATTRIBUTE_RUN + String.raw`(\/?)>`, 'g');
+
+// The marked-up shapes the tool reads
+const SHAPE_TAGS: ReadonlySet<string> = new Set(['circle', 'line', 'path', 'rect', 'polygon']);
+
 type Attributes = Record<string, string>;
 
+// transformed: the shape, or an element around it, carries a
+// transform the parse does not apply
 interface Shape {
   tag: string;
   attrs: Attributes;
+  transformed: boolean;
 }
 
 
@@ -209,9 +232,12 @@ interface Shape {
 // -----------------------------------------------------------
 //
 // Every element of the tags we read, in document order, with
-// its attributes. Comments go first so a shape commented out
-// stays out; the attribute regex takes either quote style and
-// ignores bare words.
+// its attributes and whether a transform applies to it.
+// Comments go first so a shape commented out stays out; the
+// walk keeps a stack of the open elements (a close tag pops
+// back to its match, so a stray one cannot unbalance the
+// rest) and marks a shape transformed when it, or anything
+// open around it, carries a transform attribute.
 //
 // Used by:
 //   - svgToGraph (below) — the parse's first pass
@@ -220,8 +246,21 @@ interface Shape {
 const shapes = (svg: string): Shape[] => {
   const clean = svg.replace(/<!--[\s\S]*?-->/g, '');
   const out: Shape[] = [];
-  const tagRe = /<(circle|line|path|rect|polygon)\b([^>]*?)\/?>/gi;
-  for (let m = tagRe.exec(clean); m; m = tagRe.exec(clean)) out.push({ tag: m[1].toLowerCase(), attrs: attributes(m[2]) });
+  const open: { tag: string; transformed: boolean }[] = [];
+  TAG_RE.lastIndex = 0;
+  for (let m = TAG_RE.exec(clean); m; m = TAG_RE.exec(clean)) {
+    const [, closing, name, raw, selfClosing] = m;
+    const tag = name.toLowerCase();
+    if (closing) {
+      const at = open.map((entry) => entry.tag).lastIndexOf(tag);
+      if (at >= 0) open.length = at;
+      continue;
+    }
+    const attrs = attributes(raw);
+    const transformed = (open.length > 0 && open[open.length - 1].transformed) || attrs.transform != null;
+    if (SHAPE_TAGS.has(tag)) out.push({ tag, attrs, transformed });
+    if (!selfClosing) open.push({ tag, transformed });
+  }
   return out;
 };
 
@@ -365,6 +404,17 @@ export function svgToGraph(svg: string, options: SvgToGraphOptions): SvgToGraphR
   const all = shapes(svg);
   const error = (code: SvgIssueCode, ref: string, message: string) => issues.push({ severity: 'error', code, message, ref });
   const warning = (code: SvgIssueCode, ref: string, message: string) => issues.push({ severity: 'warning', code, message, ref });
+
+
+  // A marked-up shape under a transform is read where it was
+  // WRITTEN, not where it is drawn — said loudly, once per shape
+  for (const { tag, attrs, transformed } of all) {
+    const id = attrs.id ?? '';
+    const marked = (tag === 'circle' && id.startsWith('n-')) || (tag === 'line' && id.startsWith('e-')) || (tag !== 'circle' && tag !== 'line' && id.startsWith('r-'));
+    if (marked && transformed) {
+      error('unsupported_transform', id, `'${id}' sits under a transform, which the tool does not apply — its coordinates are read as written; apply the transform in the editor (e.g. ungroup / flatten the layer) first`);
+    }
+  }
 
 
   // Nodes first: edges and rooms both resolve against them
@@ -553,7 +603,7 @@ const nearestNode = (nodes: GraphNode[], x: number, y: number, snap: number): Gr
 // -----------------------------------------------------------
 
 const viewBoxOf = (svg: string, nodes: GraphNode[], rooms: Room[], missing: (message: string) => void): Level['viewBox'] => {
-  const root = /<svg\b([^>]*)>/i.exec(svg);
+  const root = new RegExp(String.raw`<svg\b` + ATTRIBUTE_RUN + '>', 'i').exec(svg.replace(/<!--[\s\S]*?-->/g, ''));
   const attrs = root ? attributes(root[1]) : {};
   const parts = (attrs.viewBox ?? '').trim().split(/[\s,]+/).map(Number);
   if (parts.length === 4 && parts.every((n) => Number.isFinite(n))) return [parts[0], parts[1], parts[2], parts[3]];

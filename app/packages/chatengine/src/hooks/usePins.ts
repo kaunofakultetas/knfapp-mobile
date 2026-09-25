@@ -64,6 +64,30 @@ export interface UsePinsResult {
 
 
 // -----------------------------------------------------------
+// deadlineOf
+// -----------------------------------------------------------
+//
+// A pinned row's expiry as epoch ms, or null when it has none
+// or its stamp cannot be parsed (such a row always lives).
+// Stamps parse through parseStamp, so the backend's bare UTC
+// form and a zoned one compare alike.
+//
+// Used by:
+//   - livePins (below)
+// -----------------------------------------------------------
+
+function deadlineOf(row: ChatMessage): number | null {
+  const stamp = parseStamp(row.expiresAt);
+  return stamp ? stamp.getTime() : null;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // livePins
 // -----------------------------------------------------------
 //
@@ -79,11 +103,6 @@ export interface UsePinsResult {
 // Used by:
 //   - usePins (below) — the fetch and the deadline timer
 // -----------------------------------------------------------
-
-function deadlineOf(row: ChatMessage): number | null {
-  const stamp = parseStamp(row.expiresAt);
-  return stamp ? stamp.getTime() : null;
-}
 
 function livePins(rows: ChatMessage[], nowMs: number): ChatMessage[] {
   return rows.filter((row) => {

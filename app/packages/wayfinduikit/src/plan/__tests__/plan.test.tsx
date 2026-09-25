@@ -3,7 +3,9 @@
 //
 //  The plan viewer's promises: the route path is the segment's
 //  points verbatim in plan units (and nothing for another
-//  level's segment), pins and the walker's dot appear only
+//  level's segment) — every stretch of a route that returns
+//  to the floor, as one path of subpaths (KNF-113) — pins
+//  and the walker's dot appear only
 //  when given and only on their own floor (a point naming no
 //  level is on the shown one), room and node taps answer with
 //  their ids, the host's drawing is the one named image
@@ -44,9 +46,29 @@ import FloorSwitcher from '../FloorSwitcher';
 // unit is one pixel at scale 1, so every expected camera value
 // below can be worked out by hand
 const level: KitLevel = { id: 'l1', label: '1', viewBox: [0, 0, 400, 200], ordinal: 1 };
+
+
+// The viewport that drawing fills exactly
 const FRAME = { width: 400, height: 200 };
 
+// A three-point stretch of route on that level
 const segment: KitRouteSegment = { level: 'l1', points: [[10, 20], [50, 20], [50, 80]] };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// wrap
+// -----------------------------------------------------------
+//
+// Render under the English catalog.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
 
 const wrap = (ui: ReactElement) => render(<WayfindUiKitProvider locale="en">{ui}</WayfindUiKitProvider>);
 
@@ -55,17 +77,67 @@ const wrap = (ui: ReactElement) => render(<WayfindUiKitProvider locale="en">{ui}
 type Instance = { props: Record<string, unknown> };
 type Handler = (e: unknown) => unknown;
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// layout
+// -----------------------------------------------------------
+//
+// Lay the viewport out at the given frame — the plan draws
+// nothing until it knows its size.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
+
 const layout = async (vp: Instance, frame = FRAME) => {
   await act(async () => {
     (vp.props.onLayout as Handler)({ nativeEvent: { layout: { x: 0, y: 0, ...frame } } });
   });
 };
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// mount
+// -----------------------------------------------------------
+//
+// Render and lay the viewport out in one go.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
+
 const mount = async (ui: ReactElement) => {
   const r = await wrap(ui);
   await layout(r.getByTestId('wayfinduikit-plan'));
   return r;
 };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// transformOf
+// -----------------------------------------------------------
+//
+// The content layer's camera as the specs read it:
+// translateX, translateY and scale.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
 
 const transformOf = (r: { getByTestId: (id: string) => { props: { style?: unknown } } }) => {
   const flat = StyleSheet.flatten(r.getByTestId('wayfinduikit-plan-content').props.style) as { transform: Record<string, number>[] };
@@ -81,6 +153,25 @@ interface Finger {
   x: number;
   y: number;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// gesture
+// -----------------------------------------------------------
+//
+// A touch event as the responder system hands it over:
+// the touch list on nativeEvent, and the history the
+// gesture state is computed from — where each finger is
+// now and where it was on the previous event.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
 
 const gesture = (now: Finger[], before: Finger[], t: number) => ({
   nativeEvent: { touches: now.map((f) => ({ pageX: f.x, pageY: f.y })), timestamp: t },
@@ -105,6 +196,22 @@ const gesture = (now: Finger[], before: Finger[], t: number) => ({
 
 type Viewport = { props: Record<string, Handler> };
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// press
+// -----------------------------------------------------------
+//
+// Fingers down: the capture probe, then the grant.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
+
 const press = async (vp: Viewport, fingers: Finger[], t: number) => {
   await act(async () => {
     vp.props.onStartShouldSetResponderCapture(gesture(fingers, fingers, t));
@@ -112,11 +219,43 @@ const press = async (vp: Viewport, fingers: Finger[], t: number) => {
   });
 };
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// drag
+// -----------------------------------------------------------
+//
+// One move of the held fingers.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
+
 const drag = async (vp: Viewport, from: Finger[], to: Finger[], t: number) => {
   await act(async () => {
     vp.props.onResponderMove(gesture(to, from, t));
   });
 };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// lift
+// -----------------------------------------------------------
+//
+// Every finger up — the release.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
 
 const lift = async (vp: Viewport, t: number) => {
   await act(async () => {
@@ -129,6 +268,24 @@ const lift = async (vp: Viewport, t: number) => {
 // screen-reader element, named by testID / label so a failure
 // says who
 type Node = { type?: unknown; parent: Node | null; props: Record<string, unknown> };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// accessibleAncestorsOf
+// -----------------------------------------------------------
+//
+// Every host ancestor of a node that would swallow it into
+// one screen-reader element, named by testID / label so a
+// failure says who.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
 
 const accessibleAncestorsOf = (node: Node): string[] => {
   const found: string[] = [];
@@ -154,6 +311,24 @@ describe('routePath', () => {
     expect(routePath({ level: 'l1', points: [[10, 20]] }, 'l1')).toBe('');
     expect(routePath(null, 'l1')).toBe('');
     expect(routePath(undefined, 'l1')).toBe('');
+  });
+
+
+  it('draws every stretch of a route that comes back to the floor, one subpath each', async () => {
+    // KNF-113: two ground-floor wings joined only upstairs —
+    // L1 → L2 → L1. The second L1 stretch is where the
+    // destination is; it once went undrawn
+    const floors: KitRouteSegment[] = [
+      { level: 'l1', points: [[100, 300], [400, 300]] },
+      { level: 'l2', points: [[400, 300], [700, 300]] },
+      { level: 'l1', points: [[700, 300], [900, 300]] },
+    ];
+    expect(routePath(floors, 'l1')).toBe('M100 300 L400 300 M700 300 L900 300');
+    expect(routePath(floors, 'l2')).toBe('M400 300 L700 300');
+    // A floor the route only touches at a connector, and an empty
+    // list, still draw nothing
+    expect(routePath([...floors, { level: 'l3', points: [[5, 5]] }], 'l3')).toBe('');
+    expect(routePath([], 'l1')).toBe('');
   });
 });
 
@@ -209,6 +384,21 @@ describe('FloorPlan drawing', () => {
     const svg = r.getByTestId('wayfinduikit-plan-content').children[1] as unknown as { props: { vbWidth: number; vbHeight: number } };
     expect(svg.props.vbWidth).toBe(400);
     expect(svg.props.vbHeight).toBe(200);
+  });
+
+
+  it("hands the whole route's stretches to the path, so the line reaches the destination pin", async () => {
+    const floors: KitRouteSegment[] = [
+      { level: 'l1', points: [[10, 20], [50, 20]] },
+      { level: 'l2', points: [[50, 20], [300, 20]] },
+      { level: 'l1', points: [[300, 20], [390, 180]] },
+    ];
+    const r = await mount(<FloorPlan level={level} route={floors} end={{ level: 'l1', x: 390, y: 180 }} />);
+    const d = r.getByTestId('wayfinduikit-plan-route').props.d as string;
+    expect(d).toBe('M10 20 L50 20 M300 20 L390 180');
+    // The line's last vertex IS the pin's point
+    expect(d.endsWith('390 180')).toBe(true);
+    expect(r.getByTestId('wayfinduikit-plan-end')).toBeTruthy();
   });
 
 

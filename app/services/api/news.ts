@@ -13,6 +13,11 @@
 //  MUST format it locally via services/format.ts before
 //  display.
 //
+//  The feed asks for list-page bodies (?truncate=1): a card
+//  renders the summary, never the body, and the article
+//  screen fetches the post whole — so ~85% of every page
+//  (and of its offline copy) stops travelling (KNF-132).
+//
 //  Split into:
 //
 //    NewsFeedResponse     — one feed page
@@ -26,6 +31,7 @@
 //    sharePostApi         — record a completed share
 //    fetchComments        — paged comments of a post
 //    addCommentApi        — append a comment
+//    deleteCommentApi     — remove one comment
 //    createPost           — publish a user post
 //    createPollApi        — attach a poll to an own post
 // -----------------------------------------------------------
@@ -34,7 +40,7 @@
 import { api, request } from './client';
 
 // Domain types
-import type { NewsPost } from '@/types';
+import type { NewsPoll, NewsPost } from '@/types';
 
 
 
@@ -151,26 +157,17 @@ export interface ShareResponse {
 // PollResponse
 // -----------------------------------------------------------
 //
-// totalVotes is recomputed from the vote rows at response
-// time, never stored. userVote is the voted option's id, or
-// null for guests and non-voters; endDate null means the poll
-// never closes.
+// The poll routes' answer — the same shape the feed ships
+// inline on a poll card (types NewsPoll, the one statement of
+// it). totalVotes is recomputed from the vote rows at
+// response time, never stored.
 //
 // Used by:
 //   - createPollApi (below)
 //   - app/(main)/create-post/index.tsx — poll creation result
 // -----------------------------------------------------------
 
-export interface PollResponse {
-  id: string;
-  postId: string;
-  title: string;
-  endDate: string | null;
-  totalVotes: number;
-  createdAt: string;
-  userVote: string | null;
-  options: { id: string; text: string; votes: number }[];
-}
+export type PollResponse = NewsPoll;
 
 
 
@@ -208,13 +205,17 @@ export interface NewsPostDetail extends NewsPost {
 //   fetchNewsFeed()                — first page, all sources
 //   fetchNewsFeed(2, 20, 'vu.lt')  — page 2, one source only
 //
-// The optional signal aborts the request in flight — useFeed
+// Bodies arrive cut to the summary length with `truncated`
+// set (see the file header) — nothing on a feed card reads
+// more, and the article screen fetches the whole post. The
+// optional signal aborts the request in flight — useFeed
 // passes one so a superseded filter switch stops downloading
 // instead of finishing a page nobody will render (a canceled
 // request rejects with ApiError code 'canceled').
 //
 // Used by:
-//   - app/(main)/tabs/news.tsx — the feed
+//   - app/(main)/tabs/news.tsx — the feed and its freshness
+//     peek
 // -----------------------------------------------------------
 
 export const fetchNewsFeed = (
@@ -225,7 +226,7 @@ export const fetchNewsFeed = (
 ) =>
   request(
     api.get<NewsFeedResponse>('/news', {
-      params: { page, per_page: perPage, ...(source ? { source } : {}) },
+      params: { page, per_page: perPage, truncate: 1, ...(source ? { source } : {}) },
       signal,
     }),
   );
@@ -240,11 +241,15 @@ export const fetchNewsFeed = (
 // fetchNewsPost
 // -----------------------------------------------------------
 //
-// The response carries the viewer's `liked` flag (false for
-// guests) — the detail screen initialises its heart from it.
+// The whole post: the full body, the viewer's `liked` flag
+// (false for guests — the detail screen initialises its heart
+// from it) and, on a poll post, the poll inline.
 //
 // Used by:
 //   - app/(main)/news-post/index.tsx — post detail
+//   - app/(main)/create-post/index.tsx — the edit prefill
+//   - components/news/openedPostResync.ts — the row re-read
+//     after a return from the article screen
 // -----------------------------------------------------------
 
 export const fetchNewsPost = (postId: string) =>
@@ -318,6 +323,33 @@ export const fetchComments = (postId: string, page = 1, perPage = 20) =>
 
 export const addCommentApi = (postId: string, text: string) =>
   request(api.post<CommentResponse>(`/news/${encodeURIComponent(postId)}/comments`, { text }));
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// deleteCommentApi
+// -----------------------------------------------------------
+//
+// Removes one comment of a post — allowed for the comment's
+// author, the post's author and an admin (403 otherwise, 404
+// when the post is hidden or the comment is not under it).
+// Answers the post's recounted comment total.
+//
+// Used by:
+//   - components/news/commentActions.ts — the long-press
+//     delete on the article screen and the full thread
+// -----------------------------------------------------------
+
+export const deleteCommentApi = (postId: string, commentId: string) =>
+  request(
+    api.delete<{ status: string; comments: number }>(
+      `/news/${encodeURIComponent(postId)}/comments/${encodeURIComponent(commentId)}`,
+    ),
+  );
 
 
 

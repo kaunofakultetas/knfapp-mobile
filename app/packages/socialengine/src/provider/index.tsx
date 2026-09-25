@@ -8,9 +8,21 @@
 //  requireAuth() instead of the transport (auth adds features,
 //  never gates reading).
 //
-//  The shadow stores are wiped whenever the signed-in account
-//  CHANGES (including to/from guest): one account's optimistic
-//  intents must never bleed into the next one's rows.
+//  The shadow stores — and the poll store, whose polls carry
+//  the viewer's own vote — are wiped whenever the signed-in
+//  account CHANGES (including to/from guest): one account's
+//  optimistic intents must never bleed into the next one's
+//  rows.
+//
+//  The offline drain replays every parked intent through the
+//  SAME per-target toggle queue the live hooks use, so a
+//  target has exactly one serialising writer: a tap made
+//  while a replay is on the wire queues behind it (and the
+//  replay's late answer can no longer overwrite the newer
+//  tap's settled state), and a parked intent whose target
+//  already has a live call running is stale — the live lane
+//  parks only its own final failure — and is dropped unsent
+//  (KNF-121).
 //
 //  now() exists so poll expiry is testable — hosts never pass
 //  it, tests freeze it.
@@ -21,11 +33,21 @@
 
 import { createContext, useContext, useEffect, useMemo, useRef, type ReactNode } from 'react';
 
+import { createUnreadSignal, type UnreadSignal } from '../core/notifications';
+import type { PollEntry } from '../core/poll';
 import { createShadowStore, type PostShadow, type ShadowStore, type UserShadow } from '../core/shadow';
 import { memorySocialStorage, type SocialStorage } from '../core/storage';
-import { createSocialTaskQueue, type SocialTaskQueue } from '../core/tasks';
-import { isAuthError, isRetryableError, relationshipFailureCode, type SocialNotice, type SocialTransport } from '../core/transport';
-import type { SocialUser } from '../core/types';
+import { createSocialTaskQueue, type PendingSocialTask, type SocialTaskQueue } from '../core/tasks';
+import { getToggleQueue } from '../core/toggleQueue';
+import {
+  isAuthError,
+  isRetryableError,
+  relationshipFailureCode,
+  type RelationshipAction,
+  type SocialNotice,
+  type SocialTransport,
+} from '../core/transport';
+import type { RelationshipState, SocialUser } from '../core/types';
 
 
 
@@ -58,6 +80,11 @@ export interface SocialEngineEnv {
   now: () => Date;
   postShadows: ShadowStore<PostShadow>;
   userShadows: ShadowStore<UserShadow>;
+  // Every poll's newest known state, keyed by poll id — shared
+  // by all usePoll instances (see core/poll.ts PollEntry)
+  polls: ShadowStore<PollEntry>;
+  // The activity list's word to the badge (mark-all-read)
+  unread: UnreadSignal;
   // Where the offline task queue persists (default: memory —
   // in-session replay only)
   storage: SocialStorage;
@@ -84,10 +111,11 @@ const SocialEngineContext = createContext<SocialEngineEnv | null>(null);
 // SocialEngineProvider
 // -----------------------------------------------------------
 //
-// Shadow stores and the task queue live in refs — one set per
-// mount, surviving re-renders; an account change wipes them
-// all. The queue drains on mount when signed in and on every
-// network-restore signal, one drain at a time.
+// Shadow stores, the poll store, the unread signal and the
+// task queue live in refs — one set per mount, surviving
+// re-renders; an account change wipes them all. The queue
+// drains on mount when signed in and on every network-restore
+// signal, one drain at a time.
 //
 // Used by:
 //   - the host app's root layout
@@ -122,6 +150,10 @@ export function SocialEngineProvider({
   if (postShadows.current === null) postShadows.current = createShadowStore<PostShadow>();
   const userShadows = useRef<ShadowStore<UserShadow> | null>(null);
   if (userShadows.current === null) userShadows.current = createShadowStore<UserShadow>();
+  const pollStore = useRef<ShadowStore<PollEntry> | null>(null);
+  if (pollStore.current === null) pollStore.current = createShadowStore<PollEntry>();
+  const unreadSignal = useRef<UnreadSignal | null>(null);
+  if (unreadSignal.current === null) unreadSignal.current = createUnreadSignal();
   const storageRef = useRef<SocialStorage | null>(null);
   if (storageRef.current === null) storageRef.current = storage ?? memorySocialStorage();
   const taskQueueRef = useRef<SocialTaskQueue | null>(null);
@@ -151,16 +183,137 @@ export function SocialEngineProvider({
     };
 
 
+    // One parked like, replayed through the live lane's own
+    // per-target toggle queue (see the file banner). The settle
+    // mirrors useLikeToggle's: a newer tap queued behind the
+    // replay (ctx.willContinue) leaves the shadow to it, else the
+    // server's word lands. The outcome travels out in a holder —
+    // the queue's promise only says the task finished
+    const replayLike = async (task: Extract<PendingSocialTask, { type: 'like' }>, epoch: number): Promise<'next' | 'stop'> => {
+      const id = task.target.id;
+      const toggles = getToggleQueue<boolean>(transport, `like:${task.target.type}:${id}`);
+      if (toggles.busy()) {
+        queue.removeIfCurrent(task);
+        return 'next';
+      }
+
+      const outcome: { failure: { err: unknown; superseded: boolean } | null } = { failure: null };
+      await toggles
+        .run(task.desired, async (desired, ctx) => {
+          try {
+            const result = await transport.setLiked(task.target, desired);
+            if (posts.epoch() === epoch) {
+              if (ctx.willContinue()) posts.patch(id, { confirmedLiked: result.liked, pending: true });
+              else posts.patch(id, { liked: result.liked, confirmedLiked: result.liked, pending: false });
+            }
+            return result.liked;
+          } catch (err) {
+            outcome.failure = { err, superseded: ctx.willContinue() };
+            throw err;
+          }
+        })
+        .catch(() => {});
+      if (posts.epoch() !== epoch) return 'stop';
+
+      const failure = outcome.failure;
+      if (!failure) {
+        queue.removeIfCurrent(task);
+        return 'next';
+      }
+      // A live tap that shared this call (same intent, deduped)
+      // must not keep its pending flag up once it is settled here
+      if (isAuthError(failure.err)) {
+        if (!failure.superseded) posts.patch(id, { pending: false });
+        requireAuth();
+        return 'stop';
+      }
+      if (isRetryableError(failure.err)) {
+        if (!failure.superseded) posts.patch(id, { pending: false });
+        return 'stop';
+      }
+      // Definitive: this intent alone dies; a newer tap queued
+      // behind it tells its own truth, so only the last word
+      // reverts and notifies
+      queue.removeIfCurrent(task);
+      if (!failure.superseded) {
+        posts.patch(id, { liked: posts.get(id)?.confirmedLiked, pending: false });
+        notifyOut({ level: 'error', code: 'like_failed' });
+      }
+      return 'next';
+    };
+
+
+    // The relationship twin of replayLike, over the per-user
+    // queue useRelationship runs its taps through
+    const replayRelationship = async (
+      task: Extract<PendingSocialTask, { type: 'relationship' }>,
+      epoch: number,
+    ): Promise<'next' | 'stop'> => {
+      const setRelationship = transport.setRelationship?.bind(transport);
+      if (!setRelationship) {
+        queue.removeIfCurrent(task);
+        return 'next';
+      }
+      const toggles = getToggleQueue<RelationshipAction | RelationshipState>(transport, `rel:${task.userId}`);
+      if (toggles.busy()) {
+        queue.removeIfCurrent(task);
+        return 'next';
+      }
+
+      const outcome: { failure: { err: unknown; superseded: boolean } | null } = { failure: null };
+      await toggles
+        .run(task.action, async (action, ctx) => {
+          try {
+            const confirmed = await setRelationship(task.userId, action as RelationshipAction);
+            if (posts.epoch() === epoch) {
+              if (ctx.willContinue()) users.patch(task.userId, { confirmedRelationship: confirmed, pending: true });
+              else users.patch(task.userId, { relationship: confirmed, confirmedRelationship: confirmed, pending: false });
+            }
+            return confirmed;
+          } catch (err) {
+            outcome.failure = { err, superseded: ctx.willContinue() };
+            throw err;
+          }
+        })
+        .catch(() => {});
+      if (posts.epoch() !== epoch) return 'stop';
+
+      const failure = outcome.failure;
+      if (!failure) {
+        queue.removeIfCurrent(task);
+        return 'next';
+      }
+      if (isAuthError(failure.err)) {
+        if (!failure.superseded) users.patch(task.userId, { pending: false });
+        requireAuth();
+        return 'stop';
+      }
+      if (isRetryableError(failure.err)) {
+        if (!failure.superseded) users.patch(task.userId, { pending: false });
+        return 'stop';
+      }
+      queue.removeIfCurrent(task);
+      if (!failure.superseded) {
+        users.patch(task.userId, { relationship: users.get(task.userId)?.confirmedRelationship, pending: false });
+        notifyOut({ level: 'error', code: relationshipFailureCode(failure.err) });
+      }
+      return 'next';
+    };
+
+
     // The drain: the viewer's FINAL intent per target, in the
-    // order the intents were made. A healable failure (the
-    // transport, a 5xx) stops the walk and keeps the rest for
-    // the next signal; an auth refusal stops it through the
-    // login flow; a definitive refusal (every 4xx, 429 included)
-    // drops THAT one task, reverts its shadow to the confirmed
-    // anchor, says so once and walks on — one poisoned intent
-    // must never hold the rest hostage. An account switch mid-
-    // drain (the store epochs move, the queue is cleared) ends
-    // the walk without touching the fresh stores
+    // order the intents were made, each through its target's
+    // one serialising queue. A healable failure (the transport,
+    // a 5xx) stops the walk and keeps the rest for the next
+    // signal; an auth refusal stops it through the login flow; a
+    // definitive refusal (every 4xx, 429 included) drops THAT
+    // one task, reverts its shadow to the confirmed anchor, says
+    // so once and walks on — one poisoned intent must never hold
+    // the rest hostage. The walk runs over a snapshot, so an
+    // entry the live lane purged or replaced since is skipped,
+    // never replayed stale. An account switch mid-drain (the
+    // store epochs move, the queue is cleared) ends the walk
+    // without touching the fresh stores
     const replayTasks = async (): Promise<void> => {
       if (replayingRef.current) return;
       replayingRef.current = true;
@@ -169,39 +322,9 @@ export function SocialEngineProvider({
         const epoch = posts.epoch();
         for (const task of queue.list()) {
           if (posts.epoch() !== epoch) return;
-          try {
-            if (task.type === 'like') {
-              const result = await transport.setLiked(task.target, task.desired);
-              if (posts.epoch() !== epoch) return;
-              posts.patch(task.target.id, { liked: result.liked, confirmedLiked: result.liked, pending: false });
-            } else {
-              const setRelationship = transport.setRelationship;
-              if (!setRelationship) {
-                queue.remove(task);
-                continue;
-              }
-              const confirmed = await setRelationship(task.userId, task.action);
-              if (posts.epoch() !== epoch) return;
-              users.patch(task.userId, { relationship: confirmed, confirmedRelationship: confirmed, pending: false });
-            }
-            queue.remove(task);
-          } catch (err) {
-            if (posts.epoch() !== epoch) return;
-            if (isAuthError(err)) {
-              requireAuth();
-              return;
-            }
-            if (isRetryableError(err)) return;
-            // Definitive: this task alone dies; the loop goes on
-            queue.remove(task);
-            if (task.type === 'like') {
-              posts.patch(task.target.id, { liked: posts.get(task.target.id)?.confirmedLiked, pending: false });
-              notifyOut({ level: 'error', code: 'like_failed' });
-            } else {
-              users.patch(task.userId, { relationship: users.get(task.userId)?.confirmedRelationship, pending: false });
-              notifyOut({ level: 'error', code: relationshipFailureCode(err) });
-            }
-          }
+          if (!queue.isCurrent(task)) continue;
+          const step = task.type === 'like' ? await replayLike(task, epoch) : await replayRelationship(task, epoch);
+          if (step === 'stop') return;
         }
       } finally {
         replayingRef.current = false;
@@ -217,6 +340,8 @@ export function SocialEngineProvider({
       now: now ?? (() => new Date()),
       postShadows: posts,
       userShadows: users,
+      polls: pollStore.current as ShadowStore<PollEntry>,
+      unread: unreadSignal.current as UnreadSignal,
       storage: storageRef.current as SocialStorage,
       taskQueue: queue,
       replayTasks,
@@ -233,6 +358,8 @@ export function SocialEngineProvider({
     if (previousAccountRef.current !== undefined && previousAccountRef.current !== account) {
       env.postShadows.clearAll();
       env.userShadows.clearAll();
+      // A held poll carries the departing viewer's own vote
+      env.polls.clearAll();
       env.taskQueue.clear();
     }
     previousAccountRef.current = account;

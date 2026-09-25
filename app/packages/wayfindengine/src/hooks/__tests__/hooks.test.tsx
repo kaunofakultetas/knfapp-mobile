@@ -7,7 +7,9 @@
 //  options as defaults under the call's (walkingSpeeds merging
 //  one level deeper), and one Route object held across
 //  renders of the same inputs (an inline literal spelt in
-//  another field order included). useNavigation: every move
+//  another field order included), and `at` carried through
+//  the key so a shut edge is judged at the caller's instant
+//  (KNF-114). useNavigation: every move
 //  re-renders the state, an off-route snap changes nothing,
 //  steps become metres through the provider's stride, a new
 //  route resets the cursor and a null route is inert.
@@ -34,6 +36,9 @@ import { useRoomSearch } from '../useRoomSearch';
 import { useRoute } from '../useRoute';
 
 
+
+
+// The two-level building the header draws
 const graph: BuildingGraph = {
   version: 1,
   building: 'test',
@@ -63,10 +68,27 @@ const graph: BuildingGraph = {
   entranceNodeId: 'a',
 };
 
+// Indexed once, for the router's own expectations
 const index = indexGraph(graph);
 
-// The island is a deliberate validation warning; it must not
-// reach the console
+
+
+
+
+
+
+// -----------------------------------------------------------
+// makeWrapper
+// -----------------------------------------------------------
+//
+// A provider over the building with the given defaults —
+// the island is a deliberate validation warning, so the
+// reporter swallows it instead of the console.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
+
 const makeWrapper = (routing?: RoutingOptions, strideM?: number) => {
   return function Wrapper({ children }: { children: ReactNode }) {
     return (
@@ -76,6 +98,22 @@ const makeWrapper = (routing?: RoutingOptions, strideM?: number) => {
     );
   };
 };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// visited
+// -----------------------------------------------------------
+//
+// A route as the node ids it walks.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
 
 const visited = (route: Route | null): string[] => (route ? route.points.map((p) => p.nodeId) : []);
 
@@ -165,6 +203,50 @@ describe('useRoute', () => {
     await h.rerender({ options: { walkingSpeeds: { stairs: 1 } } });
     expect(h.result.current.route).not.toBe(first);
     expect(h.result.current.route?.etaSeconds).not.toBe(first?.etaSeconds);
+  });
+
+  it("carries `at` through the key, so closedUntil is judged at the caller's instant", async () => {
+    // KNF-114: the key once dropped `at`, both consumers rebuilt
+    // the options from the key, and the shut-edge check always
+    // ran on the wall clock. n1 → n2 is 100 m but shut until
+    // t = 5000; the detour through n3 is 812 m
+    const shut: BuildingGraph = {
+      version: 1,
+      building: 'shut',
+      levels: [{ id: 'L1', label: '1', viewBox: [0, 0, 1000, 1000], metersPerPixel: 1, ordinal: 1 }],
+      nodes: [
+        { id: 'n1', level: 'L1', x: 0, y: 0, kind: 'corridor' },
+        { id: 'n2', level: 'L1', x: 100, y: 0, kind: 'corridor' },
+        { id: 'n3', level: 'L1', x: 50, y: 400, kind: 'corridor' },
+      ],
+      edges: [
+        { a: 'n1', b: 'n2', kind: 'hallway', closedUntil: 5000 },
+        { a: 'n1', b: 'n3', kind: 'hallway', lengthM: 406 },
+        { a: 'n3', b: 'n2', kind: 'hallway', lengthM: 406 },
+      ],
+      rooms: [],
+    };
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <WayfindProvider graph={shut} onGraphIssues={() => {}}>
+        {children}
+      </WayfindProvider>
+    );
+    const h = await renderHook(({ at }: { at: number }) => useRoute('n1', 'n2', { at }), { wrapper, initialProps: { at: 0 } });
+    expect(visited(h.result.current.route)).toEqual(['n1', 'n3', 'n2']);
+
+    // The same options at a later instant are a different key —
+    // the edge has reopened and the search runs again
+    await h.rerender({ at: 10_000 });
+    expect(visited(h.result.current.route)).toEqual(['n1', 'n2']);
+
+    // ...and the provider's own defaults keep it too
+    const atDefault = ({ children }: { children: ReactNode }) => (
+      <WayfindProvider graph={shut} routing={{ at: 0 }} onGraphIssues={() => {}}>
+        {children}
+      </WayfindProvider>
+    );
+    const p = await renderHook(() => useRoute('n1', 'n2'), { wrapper: atDefault });
+    expect(visited(p.result.current.route)).toEqual(['n1', 'n3', 'n2']);
   });
 });
 

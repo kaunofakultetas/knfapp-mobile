@@ -12,14 +12,14 @@ jest.mock('expo-haptics', () => ({ impactAsync: jest.fn(async () => {}), selecti
 
 
 import { fireEvent, render } from '@testing-library/react-native';
-import { Platform } from 'react-native';
+import { Platform, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import Composer from '../Composer';
 import { ChatUiKitProvider } from '../../provider';
 
 
-const noop = () => {};
+// The composer's required props, all inert
 const base = {
   onChangeText: noop,
   onSend: noop,
@@ -32,8 +32,46 @@ const base = {
   replyTo: null,
   onCancelReply: noop,
 };
+// Safe-area metrics of a notched 390pt phone
 const METRICS = { insets: { top: 0, bottom: 34, left: 0, right: 0 }, frame: { x: 0, y: 0, width: 390, height: 800 } };
-const wrap = (ui: React.ReactElement) => render(<SafeAreaProvider initialMetrics={METRICS}><ChatUiKitProvider locale="en">{ui}</ChatUiKitProvider></SafeAreaProvider>);
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// noop
+// -----------------------------------------------------------
+//
+// The inert handler every required callback gets.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
+
+function noop() {}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// wrap
+// -----------------------------------------------------------
+//
+// Renders under the safe-area and kit providers, English.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
+
+function wrap(ui: React.ReactElement) {
+  return render(<SafeAreaProvider initialMetrics={METRICS}><ChatUiKitProvider locale="en">{ui}</ChatUiKitProvider></SafeAreaProvider>);
+}
 
 
 describe('Composer', () => {
@@ -49,9 +87,13 @@ describe('Composer', () => {
     const editing = await wrap(<Composer {...base} value="" editing={{ id: 'm1', text: 'old' }} onSend={onSend} />);
     expect(editing.getByText('Editing message')).toBeTruthy();
     expect(editing.getByText('old')).toBeTruthy();
-    // An emptied edit cannot be saved
+    // An emptied edit cannot be saved — and LOOKS it: the dim
+    // once sat under the morph's animated opacity and never showed
     await fireEvent.press(editing.getByRole('button', { name: 'Save changes' }));
     expect(onSend).toHaveBeenCalledTimes(1);
+    expect(StyleSheet.flatten(editing.getByTestId('chatuikit-send-face').props.style).opacity).toBe(0.4);
+    const saveable = await wrap(<Composer {...base} value="naujas" editing={{ id: 'm1', text: 'old' }} onSend={onSend} />);
+    expect(StyleSheet.flatten(saveable.getByTestId('chatuikit-send-face').props.style).opacity).toBe(1);
   });
 
   it('renders the reply strip with the quoted kind and cancels it', async () => {
@@ -68,22 +110,26 @@ describe('Composer', () => {
   it('a guest gets a locked field, inert buttons and the sign-in strip', async () => {
     const onSend = jest.fn();
     const onAttachMedia = jest.fn();
-    const { getByTestId, getByText, getByRole } = await wrap(<Composer {...base} value="x" canSend={false} onSend={onSend} onAttachMedia={onAttachMedia} />);
+    const { getByTestId, getByText, queryByTestId } = await wrap(<Composer {...base} value="x" canSend={false} onSend={onSend} onAttachMedia={onAttachMedia} />);
     expect(getByText('Sign in to send messages')).toBeTruthy();
     expect(getByTestId('chatuikit-composer-input').props.editable).toBe(false);
     await fireEvent.press(getByTestId('chatuikit-send'));
-    await fireEvent.press(getByRole('button', { name: 'Attach a photo or video' }));
+    // The "+" stays inert: no tray, no attachment
+    await fireEvent.press(getByTestId('chatuikit-attach-toggle'));
+    expect(queryByTestId('chatuikit-attach-tray')).toBeNull();
     expect(onSend).not.toHaveBeenCalled();
     expect(onAttachMedia).not.toHaveBeenCalled();
   });
 
-  it('attach buttons show their busy state and step aside while editing', async () => {
+  it('the tray shows each attachment\'s busy state, and the "+" steps aside while editing', async () => {
     const busy = await wrap(<Composer {...base} value="" uploadingMedia uploadingFile />);
+    await fireEvent.press(busy.getByTestId('chatuikit-attach-toggle'));
     expect(busy.getByRole('button', { name: 'Uploading…' })).toBeTruthy();
     expect(busy.getByRole('button', { name: 'Uploading file…' })).toBeTruthy();
     const onAttachFile = jest.fn();
     const editing = await wrap(<Composer {...base} value="t" editing={{ id: 'm', text: 't' }} onAttachFile={onAttachFile} />);
-    await fireEvent.press(editing.getByRole('button', { name: 'Attach a file' }));
+    await fireEvent.press(editing.getByTestId('chatuikit-attach-toggle'));
+    expect(editing.queryByTestId('chatuikit-attach-tray')).toBeNull();
     expect(onAttachFile).not.toHaveBeenCalled();
   });
 

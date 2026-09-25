@@ -20,7 +20,7 @@ describe('HourAxis', () => {
     expect(view.queryByTestId('timetableuikit-axis-22')).toBeNull();
 
     const nine = view.getByTestId('timetableuikit-axis-9');
-    expect(nine.props.children).toBe('9:00');
+    expect(nine.props.children).toBe('09:00');
     expect(flat(nine.props.style).top).toBe(53); // (540-480)/780 * 780 - 7
   });
 

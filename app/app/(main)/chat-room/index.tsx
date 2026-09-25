@@ -18,10 +18,11 @@
 //  useChatReactions the context-menu target and reaction
 //  toggles, useTypingIndicator the typers. This file owns
 //  only screen concerns, each in its own small unit below:
-//  the header, keyboard avoidance (iOS pads by the bare
-//  keyboard height — no header offset, the frame reaches the
-//  window bottom; Android leans on the window's own
-//  adjustResize), the timeline built from the messages,
+//  the header, keyboard avoidance (the kit's avoiding view at
+//  the screen root — no header offset, the frame reaches the
+//  window bottom; iOS pads by the bare keyboard height, and
+//  Android pads itself when edge-to-edge keeps the window from
+//  resizing), the timeline built from the messages,
 //  jump-to-quoted with its highlight, presence polling, the
 //  long-press menu's open/close cycle, and which overlay is
 //  open. Reaction-viewer rows and the image-viewer dataset
@@ -51,7 +52,6 @@
 //    typingText        — the typers → "X rašo…" line
 //    useMenuActions    — the long-press menu's host rows
 //    usePresence       — the other party's online poll
-//    useImageViewer    — the fullscreen photo gallery
 //    useForward        — the forward-to-room sheet
 //    ChatRoom          — the room itself (hooks + feed)
 //    ChatRoomScreen    — the auth / param gate (default export)
@@ -66,10 +66,11 @@ import { useChatComposer, type UseChatComposerResult } from '@/hooks/chat/useCha
 import { useVoiceRecorder } from '@/hooks/chat/useVoiceRecorder';
 import { TEMP_ID_PREFIX, useChatMessages, type ParticipantProfile, type UseChatMessagesResult } from '@/hooks/chat/useChatMessages';
 import { useChatReactions } from '@/hooks/chat/useChatReactions';
+import { useImageViewer } from '@/hooks/chat/useImageViewer';
 import { useTypingIndicator, type TypingUser } from '@/hooks/chat/useTypingIndicator';
 
 // The messaging kit
-import { forwardPayload, isTempId, usePins, useRealtimeStatus, type UsePinsResult } from '@knf/chatengine';
+import { forwardPayload, isTempId, sendFailureCode, useChatEngine, usePins, useRealtimeStatus, type UsePinsResult } from '@knf/chatengine';
 import * as ImagePicker from 'expo-image-picker';
 
 import {
@@ -94,7 +95,7 @@ import {
 } from '@knf/chatuikit';
 
 // Sheets outside the kit's scope
-import ImageViewerModal, { type ViewerImage } from '@/components/chat/ImageViewerModal';
+import ImageViewerModal from '@/components/chat/ImageViewerModal';
 import MemePushSheet, { type PendingMeme } from '@/components/chat/MemePushSheet';
 import OptionSheet, { type OptionRow } from '@/components/chat/OptionSheet';
 import ReactionsViewer from '@/components/chat/ReactionsViewer';
@@ -104,16 +105,17 @@ import { confirmAction, EmptyState, ErrorState, LoadingSpinner } from '@/compone
 import { showToast, useNetwork } from '@/context/NetworkContext';
 
 // Search + presence endpoints and render-time helpers
-import { apiErrorKey, fetchConversations, fetchMemesApi, fetchOnlineStatus, getUploadUrl, pushMemeApi, reactToMessageApi, removeReactionApi, reportTarget, searchMessagesApi, type ApiMeme, type MessageSearchResult } from '@/services/api';
+import { apiErrorKey, deleteMemeApi, fetchConversations, fetchMemesApi, fetchOnlineStatus, getUploadUrl, pushMemeApi, reportTarget, searchMessagesApi, type ApiMeme, type MessageSearchResult } from '@/services/api';
 import { chatTransport } from '@/services/chatTransport';
 import { activeLocale, formatDateTime, formatRelativeAgo } from '@/services/format';
 
 // Session, theme and navigation
 import { useAuth } from '@/context/AuthContext';
 import { useReturnHref } from '@/hooks/useReturnHref';
+import { useRouteParam } from '@/hooks/useRouteParam';
 import { useTheme } from '@/hooks/useTheme';
 import { useIsFocused } from "expo-router/react-navigation";
-import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
+import { useFocusEffect, useNavigation, useRouter } from 'expo-router';
 
 // Primitives
 import { Ionicons } from '@expo/vector-icons';
@@ -370,7 +372,7 @@ function MessageSearch({
           <Pressable
             onPress={() => onSelect(item.id)}
             accessibilityRole="button"
-            accessibilityLabel={`${item.senderName}, ${item.text}`}
+            accessibilityLabel={`${item.senderName}, ${formatDateTime(item.createdAt)}, ${item.text}`}
             className={
               item.isOwn
                 ? 'mx-sm my-xs rounded-xl bg-brand-soft p-sm'
@@ -408,7 +410,11 @@ function MessageSearch({
 // it in MemePushSheet, since the pusher's title and tags are
 // what make a meme findable later. A picked tile closes the
 // panel and sends the stored picture through the composer's
-// no-upload path.
+// no-upload path. A failed first page shows the grid's error
+// line with a retry (never a false "no memes yet"), and a
+// meme the viewer pushed can be taken back — confirmed first,
+// since the file leaves the library and every message that
+// sent it (the backend refuses anyone else's).
 //
 // Always mounted: the grid draws only while `open`, but the
 // push sheet (a Modal) and the loaded page survive the panel
@@ -430,25 +436,38 @@ function MemeLibrary({
 }) {
 
   const { t } = useTranslation();
+  const { user } = useAuth();
 
 
-  // The grid: the query, the loaded page and the newest-request
-  // sequence — only the latest response may write state
+  // The grid: the query, the loaded page, whether the first page
+  // failed, and the newest-request sequence — only the latest
+  // response may write state
   const [query, setQuery] = useState('');
   const [items, setItems] = useState<ApiMeme[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
   const seqRef = useRef(0);
   const load = useCallback((q: string, offset: number) => {
     const seq = ++seqRef.current;
     setLoading(true);
+    if (!offset) setFailed(false);
     fetchMemesApi(q, offset)
       .then((resp) => {
         if (seq !== seqRef.current) return;
         setItems((prev) => (offset ? [...prev, ...resp.memes.filter((g) => !prev.some((p) => p.id === g.id))] : resp.memes));
         setHasMore(resp.hasMore);
       })
-      .catch(() => {})
+      .catch(() => {
+        // A failed first page says so; a failed next page keeps
+        // the grid and simply stops paging for now
+        if (seq !== seqRef.current) return;
+        if (!offset) {
+          setItems([]);
+          setFailed(true);
+        }
+        setHasMore(false);
+      })
       .finally(() => {
         if (seq === seqRef.current) setLoading(false);
       });
@@ -502,11 +521,35 @@ function MemeLibrary({
   );
 
 
+  // Taking back an own meme — asked first, then deleted and
+  // dropped from the grid; the backend refuses anyone else's
+  const remove = useCallback(
+    async (item: { id: string }) => {
+      const confirmed = await confirmAction({
+        title: t('chat.removeMemeTitle'),
+        message: t('chat.removeMemeConfirm'),
+        confirmLabel: t('chat.removeMeme'),
+        cancelLabel: t('common.cancel'),
+        destructive: true,
+      });
+      if (!confirmed) return;
+      try {
+        await deleteMemeApi(item.id);
+        setItems((prev) => prev.filter((g) => g.id !== item.id));
+        showToast('success', t('chat.memeRemoved'));
+      } catch (err) {
+        showToast('error', t(apiErrorKey(err)));
+      }
+    },
+    [t],
+  );
+
+
   return (
     <>
       {open && (
         <MemePicker
-          items={items.map((g) => ({ id: g.id, url: g.url, title: g.title, width: g.width, height: g.height, preview: g.preview }))}
+          items={items.map((g) => ({ id: g.id, url: g.url, title: g.title, width: g.width, height: g.height, preview: g.preview, own: !!user && g.addedBy === user.id }))}
           query={query}
           onQueryChange={setQuery}
           onPick={(item) => {
@@ -519,6 +562,9 @@ function MemeLibrary({
           onEndReached={() => {
             if (hasMore && !loading) load(query, items.length);
           }}
+          error={failed}
+          onRetry={() => load(query, 0)}
+          onRemove={(item) => void remove(item)}
         />
       )}
 
@@ -811,8 +857,10 @@ function SeenBySheet({
 //
 // Disappearing messages: the room's window, one of four rows
 // (off, 1 h, 24 h, 7 d), the current one marked. A pick closes
-// the sheet first and then asks the transport; a refusal is
-// only a toast — the room's meta stays the truth.
+// the sheet first and then asks the transport — unless it is
+// the window the room already has (the backend would answer
+// with a no-op anyway); a refusal is only a toast — the room's
+// meta stays the truth.
 //
 // Used by:
 //   - ChatRoom (below)
@@ -849,9 +897,10 @@ function DisappearingSheet({
     (id: string) => {
       onClose();
       const seconds = Number(id) || null;
+      if ((current ?? 0) === (seconds ?? 0)) return;
       void chatTransport.setMessageTtl?.(convId, seconds)?.catch(() => showToast('error', t('common.error')));
     },
-    [convId, onClose, t],
+    [convId, current, onClose, t],
   );
 
 
@@ -1101,80 +1150,6 @@ function usePresence(counterpartId: string | undefined): { online: boolean; last
 
 
 // -----------------------------------------------------------
-// useImageViewer
-// -----------------------------------------------------------
-//
-//   const viewer = useImageViewer(chat.messages)
-//   <MessageList onPressImage={viewer.openImage} onPressGalleryImage={viewer.openGalleryImage} … />
-//   <ImageViewerModal visible={viewer.visible} images={viewer.images} initialIndex={Math.max(0, viewer.index)} onClose={viewer.close} />
-//
-// The fullscreen gallery's dataset and cursor. The images are
-// chronological (list state is newest-first), resolved with
-// getUploadUrl at render time and opened by MESSAGE id so
-// duplicate URLs land on the right entry — `clientId ?? id`
-// keeps an own send's entry stable across the temp → server
-// id swap, and a refused foreign-origin URL (getUploadUrl →
-// null) simply never enters. A gallery message contributes
-// one entry per tile, keyed <rowKey>#<index>; local uris of a
-// still-uploading send resolve to null and stay out (the kit
-// disables those taps).
-//
-// The viewed photo can vanish under the open viewer (unsent):
-// the viewer closes with a toast instead of silently jumping
-// to the oldest photo.
-//
-// Used by:
-//   - ChatRoom (below)
-// -----------------------------------------------------------
-
-function useImageViewer(messages: KitMessage[]) {
-
-  const { t } = useTranslation();
-  const [openId, setOpenId] = useState<string | null>(null);
-
-
-  const images = useMemo<ViewerImage[]>(() => {
-    const rows: ViewerImage[] = [];
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i];
-      if (m.imageUrl && !m.deleted) {
-        const uri = getUploadUrl(m.imageUrl);
-        if (uri) rows.push({ id: m.clientId ?? m.id, uri });
-      }
-      if (m.gallery && !m.deleted) {
-        m.gallery.forEach((item, index) => {
-          const uri = getUploadUrl(item.url);
-          if (uri) rows.push({ id: `${m.clientId ?? m.id}#${index}`, uri });
-        });
-      }
-    }
-    return rows;
-  }, [messages]);
-  const index = images.findIndex((img) => img.id === openId);
-  useEffect(() => {
-    if (openId !== null && index < 0) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- the unsend that removed the photo is the event; the close rides it together with the toast
-      setOpenId(null);
-      showToast('info', t('chat.imageRemoved'));
-    }
-  }, [openId, index, t]);
-
-
-  const openImage = useCallback((m: KitMessage) => setOpenId(m.clientId ?? m.id), []);
-  const openGalleryImage = useCallback((m: KitMessage, tile: number) => setOpenId(`${m.clientId ?? m.id}#${tile}`), []);
-  const close = useCallback(() => setOpenId(null), []);
-
-
-  return { images, index, visible: openId !== null, openImage, openGalleryImage, close };
-}
-
-
-
-
-
-
-
-// -----------------------------------------------------------
 // useForward
 // -----------------------------------------------------------
 //
@@ -1185,9 +1160,16 @@ function useImageViewer(messages: KitMessage[]) {
 // Forward-to-room: the picker fetches the room list on open
 // (fresh — rooms come and go) and the pick re-sends the
 // content with the forwarded mark under a fresh nonce; the
-// source room is left out of its own list. The rows start
-// empty on every open, so the sheet shows its loading label
-// rather than the previous list.
+// source room is left out of its own list. `rooms` is null
+// while the list loads (the sheet says "loading"), and an
+// empty list then says there is nowhere to forward to — it
+// once said "loading" forever. A failed fetch closes the
+// sheet with a toast; a list that answers after the sheet
+// was closed or reopened is dropped (sequence guard). A room
+// with no title (a direct chat whose other side left) is
+// listed under the same fallback name its row shows, and a
+// refused send is worded by the engine's own triage (a
+// blocked pair, a lost session…) through the host's notices.
 //
 // Used by:
 //   - ChatRoom (below)
@@ -1196,37 +1178,49 @@ function useImageViewer(messages: KitMessage[]) {
 function useForward(convId: string) {
 
   const { t } = useTranslation();
+  const { notify } = useChatEngine();
   const [target, setTarget] = useState<KitMessage | null>(null);
-  const [rooms, setRooms] = useState<OptionRow[]>([]);
+  const [rooms, setRooms] = useState<OptionRow[] | null>(null);
+  const openSeqRef = useRef(0);
 
 
   const open = useCallback((m: KitMessage) => {
+    const seq = ++openSeqRef.current;
     setTarget(m);
-    setRooms([]);
+    setRooms(null);
     void fetchConversations()
       .then((resp) => {
+        if (seq !== openSeqRef.current) return;
         setRooms(
           resp.conversations
             .filter((c) => c.id !== convId)
-            .map((c) => ({ id: c.id, label: c.title, detail: c.type === 'group' ? t('chat.groupChat') : undefined })),
+            .map((c) => ({ id: c.id, label: c.title || t('messages.conversationFallback'), detail: c.type === 'group' ? t('chat.groupChat') : undefined })),
         );
       })
-      .catch(() => showToast('error', t('common.error')));
+      .catch(() => {
+        if (seq !== openSeqRef.current) return;
+        setTarget(null);
+        showToast('error', t('common.error'));
+      });
   }, [convId, t]);
   const pick = useCallback(
     (roomId: string) => {
       const message = target;
+      openSeqRef.current += 1;
       setTarget(null);
       if (!message) return;
       const nonce = `fwd-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
       void chatTransport
         .sendMessage(roomId, forwardPayload(message, nonce))
         .then(() => showToast('success', t('chat.forwardSent')))
-        .catch(() => showToast('error', t('common.error')));
+        .catch((err: unknown) => notify({ level: 'error', code: sendFailureCode(err) }));
     },
-    [target, t],
+    [target, t, notify],
   );
-  const close = useCallback(() => setTarget(null), []);
+  const close = useCallback(() => {
+    openSeqRef.current += 1;
+    setTarget(null);
+  }, []);
 
 
   return { target, rooms, open, pick, close };
@@ -1248,7 +1242,7 @@ function useForward(convId: string) {
 // poll for a guest. Wires the units above together and keeps
 // only what is truly the screen's: which overlay or sheet is
 // open, the header, the intro card, the typing line, and the
-// menu's built-in deeds (copy, unsend, the direct react).
+// menu's built-in deeds (copy, unsend, the one-tap react).
 //
 // Used by:
 //   - ChatRoomScreen (below)
@@ -1452,21 +1446,16 @@ function ChatRoom({ convId, type, unreadCount }: { convId: string; type?: string
     },
     [closeMenu, t],
   );
-  // The bubble's accessibility react goes straight to the deed
-  // as a direct toggle — the reaction_update echo reconciles
-  // the UI
-  const reactDirect = useCallback(
-    (message: KitMessage, emoji: string) => {
-      if (message.id.startsWith(TEMP_ID_PREFIX) || message.deleted) return;
-      const live = chat.messages.find((m) => m.id === message.id);
-      const own = live?.reactions.find((r) => r.bySelf);
-      if (own?.emoji === emoji) {
-        removeReactionApi(convId, message.id).catch(() => showToast('error', t('chat.reactionRemoveError')));
-      } else {
-        reactToMessageApi(convId, message.id, emoji).catch(() => showToast('error', t('chat.reactionAddError')));
-      }
-    },
-    [chat.messages, convId, t],
+  // The bubble's accessibility React is a one-tap toggle through
+  // the ENGINE — optimistic, parked offline and rolled back on a
+  // refusal exactly like the long-press picker (it once called
+  // the REST routes directly, so a screen-reader user offline
+  // saw nothing and lost the reaction). Stable identity: it
+  // reaches every memoised bubble as the React action
+  const { toggleReaction } = reactions;
+  const reactFromAction = useCallback(
+    (message: KitMessage, emoji: string) => toggleReaction(message.id, emoji),
+    [toggleReaction],
   );
   // A failed temp is discarded outright; a server row asks first
   const unsend = async (message: KitMessage) => {
@@ -1606,7 +1595,7 @@ function ChatRoom({ convId, type, unreadCount }: { convId: string; type?: string
             unread={unreadMarker}
             // Direct accessibility actions — no menu detour
             onCopy={copyText}
-            onReact={reactDirect}
+            onReact={reactFromAction}
           />
         )}
 
@@ -1705,8 +1694,8 @@ function ChatRoom({ convId, type, unreadCount }: { convId: string; type?: string
       <OptionSheet
         visible={forward.target !== null}
         title={t('chat.forwardTitle')}
-        rows={forward.rooms}
-        emptyLabel={t('common.loading')}
+        rows={forward.rooms ?? []}
+        emptyLabel={forward.rooms === null ? t('common.loading') : t('chat.forwardNoRooms')}
         onPick={forward.pick}
         onClose={forward.close}
       />
@@ -1722,6 +1711,7 @@ function ChatRoom({ convId, type, unreadCount }: { convId: string; type?: string
         visible={viewer.visible}
         images={viewer.images}
         initialIndex={Math.max(0, viewer.index)}
+        onViewChange={viewer.view}
         onClose={viewer.close}
       />
 
@@ -1761,12 +1751,13 @@ function ChatRoom({ convId, type, unreadCount }: { convId: string; type?: string
 
 function ChatRoomScreen() {
 
-  const { conversationId, type, unread } = useLocalSearchParams<{
-    conversationId: string;
-    type?: string;
-    unread?: string;
-  }>();
-  const convId = conversationId ?? '';
+  // Every param through useRouteParam: a repeated ?conversationId
+  // arrives as an ARRAY, which the old type cast let through as
+  // "aaa,bbb" into cache keys, the socket room and request paths,
+  // skipping the designed no-conversation state below
+  const convId = useRouteParam('conversationId') ?? '';
+  const type = useRouteParam('type');
+  const unread = useRouteParam('unread');
 
   const { t } = useTranslation();
   const { isAuthenticated, hydrated } = useAuth();

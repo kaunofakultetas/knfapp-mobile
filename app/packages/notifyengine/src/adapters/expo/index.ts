@@ -196,7 +196,10 @@ export function createExpoDevice(options: { projectId?: string } = {}): DeviceAd
       return response ? toResponse(response) : null;
     },
     clearLastResponse: () => {
-      void ExpoNotifications.clearLastNotificationResponseAsync();
+      // Fire-and-forget, but never an unhandled rejection: the
+      // routing hub's persisted ring already covers a copy the
+      // platform failed to clear
+      ExpoNotifications.clearLastNotificationResponseAsync().catch(() => undefined);
     },
 
     setForegroundHandler: (handler) => {

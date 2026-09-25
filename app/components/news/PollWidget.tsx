@@ -11,9 +11,16 @@
 //  for a failed load.
 //
 //  The KNF adapter addresses a poll BY ITS POST ID, so
-//  usePoll(postId) is the call. `missing` (the post has no
-//  poll) renders nothing, as does loading; a rejected load
-//  shows the retry row wired to refresh().
+//  usePoll(postId) is the call. The feed page and the
+//  single-post answer already carry the poll inline — handed
+//  in as `poll`, it is mapped once (knfToPoll) and seeds the
+//  hook, so the block renders on the card's first frame with
+//  no request of its own and no pop-in on a scroll-back; the
+//  engine's poll store keeps the viewer's vote across
+//  remounts and across the feed and the article screen
+//  (KNF-172). `missing` (the post has no poll) renders
+//  nothing, as does loading; a rejected load shows the retry
+//  row wired to refresh().
 //
 //  Nothing here fetches, caches, keys on auth or toasts: the
 //  engine notifies through SocialEngineHost, its provider
@@ -42,12 +49,15 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/hooks/useTheme';
 
 // Primitives
+import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Platform, Pressable, Text, View } from 'react-native';
 
-// The poll's live state and its complete face
-import { usePoll } from '@knf/socialengine';
+// The poll's live state, the wire → engine mapping and the
+// complete face
+import { knfToPoll, usePoll } from '@knf/socialengine';
 import { PollBlock } from '@knf/socialuikit';
+import type { NewsPoll } from '@/types';
 
 
 // A tap inside the block must not also open the post: native's
@@ -110,18 +120,21 @@ function PollLoadError({ onRetry }: { onRetry: () => void }) {
 // rejected with NOTHING held — once a poll is in hand a
 // background refresh error never tears the block down; loading
 // and missing both render null. The rest is a straight
-// hook-state → PollBlock prop mapping.
+// hook-state → PollBlock prop mapping. The inline poll is
+// mapped under useMemo, so a re-render hands the hook the
+// same seed object.
 //
 // Used by:
 //   - components/news/NewsCard.tsx — poll posts in the feed
 //   - app/(main)/news-post/index.tsx — the post detail screen
 // -----------------------------------------------------------
 
-export default function PollWidget({ postId }: { postId: string }) {
+export default function PollWidget({ postId, poll: inline }: { postId: string; poll?: NewsPoll | null }) {
 
   const { isAuthenticated } = useAuth();
   const returnTo = useReturnHref();
-  const poll = usePoll(postId);
+  const seed = useMemo(() => (inline ? knfToPoll(inline) : null), [inline]);
+  const poll = usePoll(postId, { initial: seed });
 
 
   if (poll.error && !poll.poll) {

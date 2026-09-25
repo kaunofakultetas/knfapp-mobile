@@ -44,7 +44,8 @@ export interface KitColors {
   inkSoft: string;     // secondary text (handles, snippets)
   inkFaint: string;    // tertiary text, timestamps, counters
   line: string;        // hairlines between rows and cards
-  brand: string;       // primary actions, active states
+  brand: string;       // primary actions, active states — a FILL
+  brandText: string;   // brand-coloured TEXT on surfaces (AA in both schemes)
   onBrand: string;     // text and icons on brand fills
   brandSoft: string;   // brand-tinted washes (own poll bar, pressed chips)
   like: string;        // the filled heart and its count
@@ -188,6 +189,8 @@ export const defaultTheme: KitTheme = {
     inkFaint: '#9CA3AF',
     line: '#E5E7EB',
     brand: '#7B003F',
+    // The fill already clears AA as text on the light surfaces
+    brandText: '#7B003F',
     onBrand: '#FFFFFF',
     brandSoft: '#F6E3ED',
     like: '#E0245E',
@@ -224,7 +227,9 @@ export const defaultTheme: KitTheme = {
 //
 // The burgundy and the heart are lightened so they hold their
 // contrast on the dark ground; washes flip from tint-of-white
-// to tint-of-black.
+// to tint-of-black. Brand-as-TEXT gets its own lighter pink:
+// the fill burgundy reads ~3.5:1 on a dark card, under AA, and
+// lightening the fill instead would sink white-on-brand.
 //
 // Used by:
 //   - provider/index.tsx — the base when scheme is 'dark'
@@ -242,6 +247,7 @@ export const darkTheme: KitTheme = {
     inkFaint: '#6B7280',
     line: '#273244',
     brand: '#C9558A',
+    brandText: '#E07AA6',
     onBrand: '#FFFFFF',
     brandSoft: '#3B1229',
     like: '#F2688C',

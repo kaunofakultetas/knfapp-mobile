@@ -15,10 +15,23 @@
 //  splitStreamingTail's cut points — a construct already
 //  closed on the open line settles, the mutable suffix waits —
 //  and appendStreamTail's splice into the last leaf close the
-//  table.
+//  table. A nested marker-kind switch chains a second nested
+//  list instead of numbering bullets (KNF-161). The streaming
+//  parser equals parseMarkdown on EVERY prefix of realistic
+//  replies while reusing the blocks before its last safe
+//  boundary, and an emphasis opener with no possible closer
+//  after it costs nothing — a paragraph of unclosed stars is
+//  linear, not quadratic (KNF-088).
 // -----------------------------------------------------------
 
-import { appendStreamTail, parseMarkdown, splitStreamingTail, type MarkdownBlock, type MarkdownInline } from '../markdown';
+import {
+  appendStreamTail,
+  createStreamingParser,
+  parseMarkdown,
+  splitStreamingTail,
+  type MarkdownBlock,
+  type MarkdownInline,
+} from '../markdown';
 
 const text = (value: string): MarkdownInline => ({ type: 'text', text: value });
 const paragraph = (...spans: MarkdownInline[]): MarkdownBlock => ({ type: 'paragraph', spans });
@@ -453,7 +466,15 @@ describe('streaming partials — open markers are text until closed', () => {
   });
 
   it('a half-typed link is prose until its paren closes', () => {
-    expect(parseMarkdown('Žr. [VU](https://knf.vu')).toEqual([plain('Žr. [VU](https://knf.vu')]);
+    // The [label]( construct stays prose; the bare address after
+    // it is a link on its own, like any bare URL (this pinned the
+    // whole line as one text span before bare URLs autolinked —
+    // mid-stream the open line is still all plain tail)
+    const label = 'Žr. [VU](';
+    expect(parseMarkdown(`${label}https://knf.vu`)).toEqual([
+      paragraph(text(label), { type: 'link', url: 'https://knf.vu', title: null, spans: [text('https://knf.vu')] }),
+    ]);
+    expect(splitStreamingTail(`${label}https://knf.vu`)).toEqual({ settled: '', tail: `${label}https://knf.vu` });
     expect(parseMarkdown('Žr. [VU](https://knf.vu.lt)')).toEqual([
       paragraph(text('Žr. '), { type: 'link', url: 'https://knf.vu.lt', title: null, spans: [text('VU')] }),
     ]);
@@ -667,5 +688,180 @@ describe('appendStreamTail — the mid-line tail joins the last leaf', () => {
     const code = parseMarkdown('```\na\n```');
     expect(appendStreamTail(code, 'x')).toBe(false);
     expect(code).toEqual([{ type: 'code', language: null, code: 'a' }]);
+  });
+});
+
+
+describe('KNF-161 — a nested list that switches marker kind', () => {
+  it('bullets after a numbered run are a list of their own, never steps 2 and 3', () => {
+    expect(parseMarkdown('- Dokumentai:\n  1. prašymas\n  - pažyma apie studijas\n  - asmens dokumentas')).toEqual([
+      {
+        type: 'list',
+        ordered: false,
+        start: 1,
+        items: [
+          {
+            spans: [text('Dokumentai:')],
+            nested: {
+              type: 'list',
+              ordered: true,
+              start: 1,
+              items: [{ spans: [text('prašymas')], nested: null }],
+              next: {
+                type: 'list',
+                ordered: false,
+                start: 1,
+                items: [
+                  { spans: [text('pažyma apie studijas')], nested: null },
+                  { spans: [text('asmens dokumentas')], nested: null },
+                ],
+              },
+            },
+          },
+        ],
+      },
+    ]);
+  });
+
+  it('numbered steps after a bullet keep their numbers — counted from their own start', () => {
+    const [list] = parseMarkdown('1. Žingsniai:\n  - vienas\n  2. du\n  3. trys') as [Extract<MarkdownBlock, { type: 'list' }>];
+    const nested = list.items[0].nested!;
+    expect(nested.ordered).toBe(false);
+    expect(nested.items.map((item) => item.spans)).toEqual([[text('vienas')]]);
+    expect(nested.next).toMatchObject({ ordered: true, start: 2 });
+    expect(nested.next!.items.map((item) => item.spans)).toEqual([[text('du')], [text('trys')]]);
+    expect(nested.next!.next).toBeUndefined();
+  });
+
+  it('a single-kind nested list carries no `next` at all', () => {
+    const [list] = parseMarkdown('- a\n  - x\n  - y') as [Extract<MarkdownBlock, { type: 'list' }>];
+    expect(list.items[0].nested).not.toHaveProperty('next');
+  });
+
+  it('continuation prose and the streaming tail join the LAST list of the chain', () => {
+    const blocks = parseMarkdown('- a\n  1. x\n  - y\n    tęsinys');
+    const nested = (blocks[0] as Extract<MarkdownBlock, { type: 'list' }>).items[0].nested!;
+    expect(nested.next!.items[0].spans).toEqual([text('y\ntęsinys')]);
+    expect(appendStreamTail(blocks, ' ir z')).toBe(true);
+    expect(nested.next!.items[0].spans).toEqual([text('y\ntęsinys'), text(' ir z')]);
+  });
+});
+
+
+// Realistic replies, streamed character by character through
+// the same seam MarkdownText uses
+const REPLIES = [
+  '# Stipendijos\n\nStipendija skiriama pagal **vidurkį**.\n\n1. Pateikite prašymą.\n\n1. Laukite sprendimo.\n\n- pastaba\n  1. vienas\n  - du\n\nDaugiau: [VU](https://vu.lt).',
+  'Failai: *.pdf, *.docx arba *.xlsx.\n\n```js\nconst a = "*x*";\n\nlet b;\n```\n\n> Citata\n> - su sąrašu\n\n| Diena | Laikas |\n|---|---:|\n| Pirmadienis | 9:00 |\n\nPabaiga su `kodu`.',
+  'Eilutė viena\r\nEilutė dvi\r\n\r\n---\r\n\r\n- a\r\n\r\n- b\r\n\r\nTekstas po sąrašo.',
+  'Daugiau: https://knf.vu.lt/studentams_(info). Rašykite knf@knf.vu.lt arba <https://vu.lt>.\n\n- **Svarbu:** https://x.lt/a_b_',
+];
+
+describe('createStreamingParser — KNF-088', () => {
+  it.each(REPLIES.map((reply, index) => [index, reply]))('equals parseMarkdown on every prefix of reply %i', (_index, reply) => {
+    const parse = createStreamingParser();
+    for (let end = 1; end <= reply.length; end += 1) {
+      const settled = splitStreamingTail(reply.slice(0, end)).settled;
+      expect(parse(settled)).toEqual(parseMarkdown(settled));
+    }
+  });
+
+  it('reuses the blocks before its last boundary — the history is not re-parsed', () => {
+    const parse = createStreamingParser();
+    const first = parse('# Antraštė\n\nPirma pastraipa.\n\nAntra');
+    const second = parse('# Antraštė\n\nPirma pastraipa.\n\nAntra pastraipa auga');
+    expect(second[0]).toBe(first[0]);
+    expect(second[1]).toBe(first[1]);
+    expect(second[2]).toEqual(plain('Antra pastraipa auga'));
+  });
+
+  it('a text that is not an extension drops the cache and parses whole', () => {
+    const parse = createStreamingParser();
+    parse('Pirma.\n\nAntra.');
+    expect(parse('Kita.\n\nVisai.')).toEqual(parseMarkdown('Kita.\n\nVisai.'));
+  });
+
+  it('the tail splice on its result never leaks into the cache', () => {
+    const parse = createStreamingParser();
+    const source = 'Pirma.\n\nAntra';
+    expect(appendStreamTail(parse(source), ' LIKUTIS')).toBe(true);
+    expect(parse(source)).toEqual(parseMarkdown(source));
+  });
+
+  it('a loose list is never cut at its blank lines — the numbering counts on', () => {
+    const parse = createStreamingParser();
+    const reply = '1. vienas\n\n1. du\n\n1. trys';
+    parse('1. vienas\n\n1. du');
+    expect(parse(reply)).toEqual(parseMarkdown(reply));
+    expect(parse(reply)).toHaveLength(1);
+  });
+});
+
+
+describe('KNF-088 — an opener with no possible closer is text at once', () => {
+  it('a paragraph of unclosed stars parses in linear time', () => {
+    const hostile = '*a '.repeat(4000);
+    const started = Date.now();
+    const blocks = parseMarkdown(hostile);
+    // Quadratic, this was ~0.5 s on a server CPU (4x per doubling);
+    // bounded, it is a few ms — the ceiling only catches a
+    // regression, never a slow CI box
+    expect(Date.now() - started).toBeLessThan(250);
+    expect(blocks).toEqual([plain(hostile.trim())]);
+  });
+
+  it('file globs stay literal, and real emphasis around them still parses', () => {
+    expect(parseMarkdown('Failai *.pdf, *.docx arba *.xlsx formatu')).toEqual([plain('Failai *.pdf, *.docx arba *.xlsx formatu')]);
+    expect(parseMarkdown('*.pdf ir *svarbu* ir *.doc')).toEqual([
+      paragraph(text('*.pdf ir '), { type: 'italic', spans: [text('svarbu')] }, text(' ir *.doc')),
+    ]);
+  });
+
+  it('a star inside a code span or escaped still closes nothing', () => {
+    expect(parseMarkdown('*a `b*` c')).toEqual([paragraph(text('*a '), { type: 'code', text: 'b*' }, text(' c'))]);
+    expect(parseMarkdown('*a \\* c')).toEqual([plain('*a * c')]);
+  });
+});
+
+
+describe('bare addresses are links of their own', () => {
+  const link = (url: string, shown = url): MarkdownInline => ({ type: 'link', url, title: null, spans: [text(shown)] });
+
+  it('a bare URL links whole, the sentence punctuation stays outside', () => {
+    expect(parseMarkdown('Daugiau: https://knf.vu.lt/studentams.')).toEqual([
+      paragraph(text('Daugiau: '), link('https://knf.vu.lt/studentams'), text('.')),
+    ]);
+    expect(parseMarkdown('(žr. https://vu.lt), ir „https://knf.vu.lt“')).toEqual([
+      paragraph(text('(žr. '), link('https://vu.lt'), text('), ir „'), link('https://knf.vu.lt'), text('“')),
+    ]);
+  });
+
+  it('a URL keeps its own balanced parens and underscores — no emphasis inside it', () => {
+    expect(parseMarkdown('https://lt.wikipedia.org/wiki/Kaunas_(miestas) ir _x_')).toEqual([
+      paragraph(link('https://lt.wikipedia.org/wiki/Kaunas_(miestas)'), text(' ir '), { type: 'italic', spans: [text('x')] }),
+    ]);
+    expect(parseMarkdown('https://x.lt/_a_b_')).toEqual([paragraph(link('https://x.lt/_a_b_'))]);
+  });
+
+  it('<…> wraps drop their brackets; a scheme alone, or glued to a word, is text', () => {
+    expect(parseMarkdown('Nuoroda <https://vu.lt/a?b=1>')).toEqual([paragraph(text('Nuoroda '), link('https://vu.lt/a?b=1'))]);
+    expect(parseMarkdown('https:// ir xhttps://vu.lt')).toEqual([plain('https:// ir xhttps://vu.lt')]);
+  });
+
+  it('an e-mail address is a mailto link; the period after it is text', () => {
+    expect(parseMarkdown('Rašykite knf@knf.vu.lt arba studijos@knf.vu.lt.')).toEqual([
+      paragraph(text('Rašykite '), link('mailto:knf@knf.vu.lt', 'knf@knf.vu.lt'), text(' arba '),
+                link('mailto:studijos@knf.vu.lt', 'studijos@knf.vu.lt'), text('.')),
+    ]);
+  });
+
+  it('no link inside a link label, none inside code — and bold keeps its links', () => {
+    expect(parseMarkdown('[https://vu.lt](https://vu.lt)')).toEqual([
+      paragraph({ type: 'link', url: 'https://vu.lt', title: null, spans: [text('https://vu.lt')] }),
+    ]);
+    expect(parseMarkdown('`https://vu.lt` ir `a@b.lt`')).toEqual([
+      paragraph({ type: 'code', text: 'https://vu.lt' }, text(' ir '), { type: 'code', text: 'a@b.lt' }),
+    ]);
+    expect(parseMarkdown('**https://vu.lt**')).toEqual([paragraph({ type: 'bold', spans: [link('https://vu.lt')] })]);
   });
 });

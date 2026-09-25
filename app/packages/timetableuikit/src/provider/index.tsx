@@ -6,7 +6,7 @@
 //  wall-clock minute becomes a printed time. Mount
 //  TimetableProvider above any kit component; with none
 //  mounted the hooks answer neutral defaults (defaultTheme,
-//  English labels, a plain H:mm formatter), so tests and demos
+//  English labels, a plain HH:mm formatter), so tests and demos
 //  need no ceremony.
 //
 //  Split into:
@@ -24,7 +24,7 @@ import { defaultTheme, resolveTheme, type TimetableResolvedTheme, type Timetable
 
 
 // What the hooks answer with NO provider mounted — neutral
-// theme, English labels, plain H:mm times. Reads
+// theme, English labels, plain HH:mm times. Reads
 // fallbackFormatTime below at module init, which is a hoisted
 // function declaration for exactly that reason
 const defaultEnv: TimetableEnv = {
@@ -76,10 +76,14 @@ export interface TimetableEnv {
 // fallbackFormatTime
 // -----------------------------------------------------------
 //
-// 545 → "9:05" — the provider-less fallback. A hoisted
-// `function` declaration ON PURPOSE: defaultEnv at the top of
-// the file reads it at module evaluation, and a const arrow
-// there would throw before the module finished loading.
+// 545 → "09:05" — the provider-less fallback, zero-padded
+// like every "HH:MM" string a timetable feed carries (a
+// host's list cards print those verbatim; an unpadded grid
+// beside them read "9:45" against "09:45", KNF-184). A
+// hoisted `function` declaration ON PURPOSE: defaultEnv at
+// the top of the file reads it at module evaluation, and a
+// const arrow there would throw before the module finished
+// loading.
 //
 // Used by:
 //   - defaultEnv (above)
@@ -87,7 +91,8 @@ export interface TimetableEnv {
 
 function fallbackFormatTime(minutes: number): string {
   const clamped = Math.max(0, Math.min(24 * 60, Math.floor(minutes)));
-  return `${Math.floor(clamped / 60)}:${String(clamped % 60).padStart(2, '0')}`;
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${pad(Math.floor(clamped / 60))}:${pad(clamped % 60)}`;
 }
 
 
@@ -199,7 +204,7 @@ export function useTimetableLabels(): TimetableLabels {
 //
 // The full env in one read — theme, labels, locale and
 // formatTime; provider-less callers get defaultEnv (neutral
-// theme, English labels, plain H:mm times).
+// theme, English labels, plain HH:mm times).
 //
 // Used by:
 //   - components needing the locale or formatTime alongside

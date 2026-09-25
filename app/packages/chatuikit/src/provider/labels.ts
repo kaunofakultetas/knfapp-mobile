@@ -17,6 +17,61 @@
 //      — the KitLabels type
 // -----------------------------------------------------------
 
+import type { KitSystemEvent } from '../core/types';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// EN_SYSTEM
+// -----------------------------------------------------------
+//
+// The English room-event wording.
+//
+// Used by:
+//   - defaultLabels.en.systemMessage (below)
+// -----------------------------------------------------------
+
+const EN_SYSTEM: SystemPhrases = {
+  groupCreated: (name, title) => `${name} created the group “${title}”`,
+  left: (name) => `${name} left the conversation`,
+  ttlOn: (name, window) => `${name} turned on disappearing messages (${window})`,
+  ttlOff: (name) => `${name} turned off disappearing messages`,
+  minutes: (count) => (count === 1 ? '1 minute' : `${count} minutes`),
+  hours: (count) => (count === 1 ? '1 hour' : `${count} hours`),
+  days: (count) => (count === 1 ? '1 day' : `${count} days`),
+};
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// LT_SYSTEM
+// -----------------------------------------------------------
+//
+// The Lithuanian room-event wording — the same sentences the
+// backend stores as the fallback prose, units counted.
+//
+// Used by:
+//   - defaultLabels.lt.systemMessage (below)
+// -----------------------------------------------------------
+
+const LT_SYSTEM: SystemPhrases = {
+  groupCreated: (name, title) => `${name} sukūrė grupę „${title}“`,
+  left: (name) => `${name} paliko pokalbį`,
+  ttlOn: (name, window) => `${name} įjungė nykstančias žinutes (${window})`,
+  ttlOff: (name) => `${name} išjungė nykstančias žinutes`,
+  minutes: (count) => ltPlural(count, `${count} minutė`, `${count} minutės`, `${count} minučių`),
+  hours: (count) => ltPlural(count, `${count} valanda`, `${count} valandos`, `${count} valandų`),
+  days: (count) => ltPlural(count, `${count} diena`, `${count} dienos`, `${count} dienų`),
+};
+
 
 
 
@@ -125,12 +180,29 @@ export interface KitLabels {
   forwarded: string;
   // The composer's camera button
   attachCamera: string;
+  // The composer's "+" that opens the attachment tray, and the
+  // tray's four short captions (each tile's spoken name is the
+  // longer attach* / openMemes label)
+  openAttachments: string;
+  trayGallery: string;
+  trayCamera: string;
+  trayFile: string;
+  trayMemes: string;
   // The meme library: the toggle, the search field, the push
   // tile, the empty grid
   openMemes: string;
   searchMemes: string;
   addMeme: string;
   emptyMemes: string;
+  // A search that matched nothing, a grid that failed to load,
+  // and an own tile's removal action
+  noMemeResults: string;
+  memesLoadError: string;
+  removeMeme: string;
+  // A 'system' row's caption worded from its event, the row's
+  // sender as the actor — null for an event the host does not
+  // know, and the row's own text shows instead
+  systemMessage: (event: KitSystemEvent, actorName: string) => string | null;
 }
 
 
@@ -184,7 +256,7 @@ export const defaultLabels: { en: KitLabels; lt: KitLabels } = {
     loadNewer: 'Newer messages',
     gallery: (count) => `Album, ${count} photos`,
     conversationStart: 'Start of the conversation',
-    inputPlaceholder: 'Type a message…',
+    inputPlaceholder: 'Message…',
     send: 'Send message',
     quickLike: 'Like',
     attachPhoto: 'Attach a photo',
@@ -221,10 +293,19 @@ export const defaultLabels: { en: KitLabels; lt: KitLabels } = {
     pinnedMessage: 'Pinned message',
     forwarded: 'Forwarded',
     attachCamera: 'Take a photo',
+    openAttachments: 'Add an attachment',
+    trayGallery: 'Gallery',
+    trayCamera: 'Camera',
+    trayFile: 'File',
+    trayMemes: 'Memes',
     openMemes: 'Meme library',
     searchMemes: 'Search memes…',
     addMeme: 'Add a meme',
     emptyMemes: 'No memes yet — add the first one!',
+    noMemeResults: 'No memes match',
+    memesLoadError: "Couldn't load the memes",
+    removeMeme: 'Remove meme',
+    systemMessage: (event, name) => systemLine(event, name, EN_SYSTEM),
   },
   lt: {
     today: 'Šiandien',
@@ -259,7 +340,7 @@ export const defaultLabels: { en: KitLabels; lt: KitLabels } = {
     gallery: (count) =>
       ltPlural(count, `Albumas, ${count} nuotrauka`, `Albumas, ${count} nuotraukos`, `Albumas, ${count} nuotraukų`),
     conversationStart: 'Pokalbio pradžia',
-    inputPlaceholder: 'Įrašykite žinutę…',
+    inputPlaceholder: 'Žinutė…',
     send: 'Siųsti žinutę',
     quickLike: 'Patinka',
     attachPhoto: 'Pridėti nuotrauką',
@@ -296,10 +377,19 @@ export const defaultLabels: { en: KitLabels; lt: KitLabels } = {
     pinnedMessage: 'Prisegta žinutė',
     forwarded: 'Persiųsta',
     attachCamera: 'Fotografuoti',
+    openAttachments: 'Pridėti priedą',
+    trayGallery: 'Galerija',
+    trayCamera: 'Kamera',
+    trayFile: 'Failas',
+    trayMemes: 'Memai',
     openMemes: 'Memų biblioteka',
     searchMemes: 'Ieškoti memų…',
     addMeme: 'Pridėti memą',
-    emptyMemes: 'Memų dar nėra — pridėk pirmą!',
+    emptyMemes: 'Memų dar nėra — pridėkite pirmą!',
+    noMemeResults: 'Tokių memų nerasta',
+    memesLoadError: 'Memų įkelti nepavyko',
+    removeMeme: 'Pašalinti memą',
+    systemMessage: (event, name) => systemLine(event, name, LT_SYSTEM),
   },
 };
 
@@ -327,4 +417,67 @@ const ltPlural = (count: number, one: string, few: string, other: string): strin
   if (mod10 >= 2 && mod10 <= 9 && !(mod100 >= 11 && mod100 <= 19)) return few;
   return other;
 };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// SystemPhrases
+// -----------------------------------------------------------
+//
+// One language's wording of the room events, for the default
+// label sets' systemMessage — the event lines and the three
+// window units (counted).
+//
+// Used by:
+//   - EN_SYSTEM / LT_SYSTEM / systemLine (below)
+// -----------------------------------------------------------
+
+interface SystemPhrases {
+  groupCreated: (name: string, title: string) => string;
+  left: (name: string) => string;
+  ttlOn: (name: string, window: string) => string;
+  ttlOff: (name: string) => string;
+  minutes: (count: number) => string;
+  hours: (count: number) => string;
+  days: (count: number) => string;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// systemLine
+// -----------------------------------------------------------
+//
+//   systemLine({ event: 'ttl_on', seconds: 86400 }, 'Ona', LT_SYSTEM)
+//     → 'Ona įjungė nykstančias žinutes (1 diena)'
+//
+// A room event in one language, or null for an event this
+// build does not know (the row's own text shows instead). The
+// window reads in the largest unit that divides it exactly —
+// 7 days, 24 hours, 90 minutes — so no value is ever rounded
+// into a wrong promise.
+//
+// Used by:
+//   - defaultLabels (above) — both sets' systemMessage
+// -----------------------------------------------------------
+
+function systemLine(event: KitSystemEvent, name: string, phrases: SystemPhrases): string | null {
+  if (event.event === 'group_created') return event.title ? phrases.groupCreated(name, event.title) : null;
+  if (event.event === 'left') return phrases.left(name);
+  if (event.event === 'ttl_off') return phrases.ttlOff(name);
+  if (event.event === 'ttl_on' && typeof event.seconds === 'number' && event.seconds > 0) {
+    const s = event.seconds;
+    const window = s % 86_400 === 0 ? phrases.days(s / 86_400) : s % 3600 === 0 ? phrases.hours(s / 3600) : phrases.minutes(Math.max(1, Math.round(s / 60)));
+    return phrases.ttlOn(name, window);
+  }
+  return null;
+}
 

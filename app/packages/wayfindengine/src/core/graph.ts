@@ -9,18 +9,22 @@
 //  immutable graph; the index is memoised on identity).
 //
 //  validateGraph is the authoring safety net: an edge whose
-//  endpoint does not exist, a node on an unknown level, a
-//  cross-level edge that is not a connector kind, a connector
-//  between floors without a length, an edge kind outside the
-//  vocabulary, a lengthM that is not a finite non-negative
-//  number, a room pointing at a missing node, a duplicate id —
-//  every one of these is a silent routing failure later (a
-//  free teleport between floors, a NaN cost, a route walked
-//  backwards), so the check runs at build time and in the
-//  plan-to-graph tool. A node kind outside the vocabulary and
-//  a same-level length below its chord are warnings: neither
-//  breaks the router's arithmetic. Issues are reported, never
-//  thrown: an authoring tool shows them all at once.
+//  endpoint does not exist, a node on an unknown level, a node
+//  whose x / y is not a finite number, a cross-level edge that
+//  is not a connector kind, a connector between floors without
+//  a length, an edge kind outside the vocabulary, a lengthM
+//  that is not a finite non-negative number, a room pointing
+//  at a missing node, a duplicate id — every one of these is a
+//  silent routing failure later (a free teleport between
+//  floors, a NaN cost that answers 'no_path' on a connected
+//  map, a route walked backwards), so the check runs at build
+//  time and in the plan-to-graph tool. A node kind outside the
+//  vocabulary, a same-level length below its chord and a point
+//  drawn outside its level's viewBox are warnings: none breaks
+//  the router's arithmetic. Issues are reported, never thrown:
+//  an authoring tool shows them all at once. The server's
+//  validate_document (django wayfind/graph.py) is the twin of
+//  the ERROR half, code for code.
 //
 //  Split into:
 //
@@ -67,7 +71,9 @@ export interface GraphIssue {
     | 'room_without_node'
     | 'unreachable_node'
     | 'missing_entrance'
-    | 'zero_length_edge';
+    | 'zero_length_edge'
+    | 'bad_coordinate'
+    | 'outside_plan';
   message: string;
   // The offending id (node, edge "a-b", room, level)
   ref: string;
@@ -141,6 +147,53 @@ const isGoodLength = (lengthM: number): boolean => Number.isFinite(lengthM) && l
 
 
 // -----------------------------------------------------------
+// isCoordinate
+// -----------------------------------------------------------
+//
+// A plan coordinate the router can do arithmetic with: a
+// finite NUMBER — the graph is plain JSON, so "12" or null
+// arrive typed as numbers and would turn every length NaN.
+//
+// Used by:
+//   - validateGraph (below) — bad_coordinate and the plan
+//     bounds check
+// -----------------------------------------------------------
+
+const isCoordinate = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// insidePlan
+// -----------------------------------------------------------
+//
+// Whether a point lies on its level's drawing (the viewBox,
+// edges included). A level whose viewBox is not four finite
+// numbers bounds nothing — that is the plan viewer's problem
+// to show, not a reason to flag every point on it.
+//
+// Used by:
+//   - validateGraph (below) — the outside_plan warnings
+// -----------------------------------------------------------
+
+const insidePlan = (level: Level | undefined, x: number, y: number): boolean => {
+  const box = level?.viewBox;
+  if (!box || box.length !== 4 || !box.every((v) => Number.isFinite(v))) return true;
+  const [minX, minY, width, height] = box;
+  return x >= minX && y >= minY && x <= minX + width && y <= minY + height;
+};
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // validateGraph
 // -----------------------------------------------------------
 //
@@ -177,6 +230,14 @@ export function validateGraph(graph: BuildingGraph): GraphIssue[] {
     }
     if (!NODE_KINDS.has(node.kind)) {
       issues.push({ severity: 'warning', code: 'unknown_kind', message: `node '${node.id}' has unknown kind '${node.kind}'`, ref: node.id });
+    }
+    // A string or null coordinate makes every length through
+    // this node NaN — the router then answers no_path on a map
+    // that is fully connected
+    if (!isCoordinate(node.x) || !isCoordinate(node.y)) {
+      issues.push({ severity: 'error', code: 'bad_coordinate', message: `node '${node.id}' has coordinates (${String(node.x)}, ${String(node.y)})`, ref: node.id });
+    } else if (!insidePlan(levels.get(node.level), node.x, node.y)) {
+      issues.push({ severity: 'warning', code: 'outside_plan', message: `node '${node.id}' at (${node.x}, ${node.y}) lies outside its level's drawing`, ref: node.id });
     }
   }
 
@@ -239,8 +300,12 @@ export function validateGraph(graph: BuildingGraph): GraphIssue[] {
     if (g && !(g.hfovDeg > 0 && g.hfovDeg <= 360 && g.vfovDeg > 0 && g.vfovDeg <= 180)) {
       issues.push({ severity: 'warning', code: 'bad_pano_geometry', message: `node '${node.id}' has a panorama geometry of ${g.hfovDeg}° × ${g.vfovDeg}°`, ref: node.id });
     }
-    for (const link of node.panoLinks ?? []) {
-      if (!nodes.has(link.targetNodeId) || link.targetNodeId === node.id) {
+    // Plain JSON again: a panoLinks that is not a list (or a link
+    // that is not an object) is skipped, never iterated into a throw
+    const links: unknown[] = Array.isArray(node.panoLinks) ? node.panoLinks : [];
+    for (const link of links as { targetNodeId?: unknown }[]) {
+      if (!link || typeof link !== 'object') continue;
+      if (typeof link.targetNodeId !== 'string' || !nodes.has(link.targetNodeId) || link.targetNodeId === node.id) {
         issues.push({ severity: 'warning', code: 'pano_link_unknown', message: `node '${node.id}' links its panorama to '${link.targetNodeId}'`, ref: node.id });
       }
     }
@@ -256,6 +321,15 @@ export function validateGraph(graph: BuildingGraph): GraphIssue[] {
     }
     if (!levels.has(room.level)) {
       issues.push({ severity: 'error', code: 'unknown_level', message: `room '${room.id}' sits on unknown level '${room.level}'`, ref: room.id });
+    }
+    // One warning per room, naming the first corner off the
+    // drawing — a moved layer puts them all there at once. The
+    // outline is plain JSON too: anything that is not a list of
+    // pairs is skipped here, never thrown on
+    const corners: unknown[] = Array.isArray(room.polygon) ? room.polygon : [];
+    const off = corners.find((corner): corner is [number, number] => Array.isArray(corner) && isCoordinate(corner[0]) && isCoordinate(corner[1]) && !insidePlan(levels.get(room.level), corner[0], corner[1]));
+    if (off) {
+      issues.push({ severity: 'warning', code: 'outside_plan', message: `room '${room.id}' has a corner at (${off[0]}, ${off[1]}) outside its level's drawing`, ref: room.id });
     }
   }
 

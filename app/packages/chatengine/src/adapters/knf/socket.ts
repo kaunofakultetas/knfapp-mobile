@@ -29,15 +29,26 @@
 //  lands on 'unauthorized' like any dead token, a live one is
 //  simply back.
 //
-//  A handshake the server REFUSED carries its reason: 'busy'
-//  (the process-wide socket cap) and 'error' (the post-auth
-//  room work threw) mean "try again" and are retried here on
-//  a jittered exponential backoff, without the signed-out
-//  latch — the instance is retired and rebuilt on the next
-//  attempt. 'unauthorized' is the one verdict on the session
-//  itself (and any unknown reason reads the same, since legacy
-//  servers refuse bad tokens with the stock message): that one
-//  tears down for good and lands on 'unauthorized'.
+//  A handshake the server REFUSED carries its reason, and
+//  'unauthorized' is the ONE verdict on the session itself
+//  (the backend's contract, chat/events.py): that one tears
+//  down for good and lands on 'unauthorized'. Every other
+//  refusal means "try again" — 'busy' (the process-wide socket
+//  cap), 'error' (the post-auth room work threw), and the
+//  reasons the server library itself sends, such as the bare
+//  "Unable to connect" answering a second CONNECT on one
+//  session (an empty message on the client) — and is retried
+//  here on a jittered exponential backoff, without the
+//  signed-out latch: the instance is retired and rebuilt on
+//  the next attempt. Reading an unknown refusal as an expired
+//  session once killed realtime until the next foreground.
+//
+//  connect() on a live instance re-opens it only when it is
+//  not ACTIVE (socket.io-client's own flag: false once a
+//  suspend, a server cut or a client disconnect retired it).
+//  `disconnected` is no guide — it is true for the whole of
+//  the first handshake too, and a second connect() then put a
+//  duplicate CONNECT on the wire, which the server refuses.
 //
 //  Listeners live in a registry, not on the socket instance:
 //  a single dispatcher per event is bound to each new io()
@@ -135,19 +146,23 @@ const SERVER_CUT_RECONNECT_MS = 1_000;
 // which it will not reconnect on its own
 const SERVER_CUT_REASON = 'io server disconnect';
 
-// The handshake refusals the server means as "try again" —
-// 'busy' past its process-wide socket cap, 'error' when the
-// post-auth room work threw — as opposed to 'unauthorized',
-// the one verdict on the session itself
-const TRANSIENT_REFUSALS: ReadonlySet<string> = new Set(['busy', 'error']);
+// The ONE handshake refusal that is a verdict on the session
+// itself — every other reason ('busy', 'error', the server
+// library's own "Unable to connect", an empty one) means
+// "try again" and rides the backoff below
+const SESSION_REFUSAL = 'unauthorized';
 
 // A transient refusal is retried on a jittered exponential
-// backoff: the first pause doubles per consecutive refusal up
-// to the cap, each shortened by up to a quarter so the clients
-// a saturated process refused together do not all knock again
-// in the same instant
+// backoff: the first pause (ms) doubles per consecutive
+// refusal up to the cap...
 const REFUSAL_RETRY_BASE_MS = 1_000;
+
+// ...which no pause ever exceeds (ms)...
 const REFUSAL_RETRY_MAX_MS = 30_000;
+
+// ...and each pause is shortened by up to this share, so the
+// clients a saturated process refused together do not all
+// knock again in the same instant
 const REFUSAL_RETRY_JITTER = 0.25;
 
 
@@ -240,13 +255,14 @@ const isServerRejection = (err: Error) => 'data' in err;
 // -----------------------------------------------------------
 //
 // One live instance per token: connect() coalesces concurrent
-// callers, rebuilds when the token changed, and re-checks the
-// token after the async build. A server-refused handshake
-// stops the reconnection loop and lands on 'unauthorized' —
-// unless the refusal reason says 'busy' or 'error' (capacity /
-// transient), which read as plain 'disconnected' so the UI
-// never claims a live session expired, and are retried by the
-// adapter itself on a backoff (see REFUSAL_RETRY_BASE_MS).
+// callers, rebuilds when the token changed, re-checks the
+// token after the async build, and never re-opens an instance
+// whose handshake or reconnection is still under way. A
+// handshake refused as 'unauthorized' stops the reconnection
+// loop and lands on 'unauthorized'; any other refusal reads as
+// plain 'disconnected' — the UI never claims a live session
+// expired — and is retried by the adapter itself on a backoff
+// (see REFUSAL_RETRY_BASE_MS).
 //
 // Used by:
 //   - adapters/knf/index.ts — the realtime half
@@ -390,17 +406,16 @@ export function createKnfSocket(options: KnfSocketOptions): KnfSocketClient {
     instance.on('connect_error', (err: Error) => {
       log('socket', err);
       if (isServerRejection(err)) {
-        // The refusal reason rides err.message. 'busy' (process
-        // capacity) and 'error' (a transient handshake failure
-        // server-side) are not session verdicts: the instance is
+        // The refusal reason rides err.message. Only
+        // 'unauthorized' is a session verdict; 'busy', 'error'
+        // and every reason the server library sends on its own
+        // (an empty message included) are not: the instance is
         // retired WITHOUT the signed-out latch, the retryable
         // 'disconnected' face shows meanwhile, and the adapter
         // knocks again on a backoff — a host trigger (focus,
         // foreground, network restore) or a logout landing first
-        // supersedes the pending knock. Anything else is the
-        // session verdict, 'unauthorized': legacy servers refuse
-        // bad tokens with the stock message.
-        if (TRANSIENT_REFUSALS.has(err.message)) {
+        // supersedes the pending knock.
+        if (err.message !== SESSION_REFUSAL) {
           const attempt = refusals;
           refusals += 1;
           retireInstance();
@@ -427,7 +442,17 @@ export function createKnfSocket(options: KnfSocketOptions): KnfSocketClient {
     if (signedOut || generation !== gen) return null;
 
     if (socket && currentToken === token) {
-      if (socket.disconnected) {
+      // Re-open an instance only when nothing of its own is under
+      // way: it is not ACTIVE (a suspend, a server cut or a
+      // client disconnect retired it), or its status says
+      // 'disconnected' (the manager gave up after its attempts,
+      // or is between them — where connect() is a no-op). While
+      // a handshake or a reconnection is in flight ('connecting',
+      // 'reconnecting', or the manager's premature 'connected')
+      // `disconnected` reads true as well, and a connect() then
+      // put a SECOND CONNECT on the same session — refused by the
+      // server, which destroys the live one (file header)
+      if (!socket.active || status === 'disconnected') {
         setStatus('connecting');
         socket.connect();
       }

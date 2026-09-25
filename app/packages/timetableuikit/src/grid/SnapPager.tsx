@@ -12,9 +12,16 @@
 //  invisibly, in the same frame. The host owns ALL data
 //  movement; this component owns the gesture and recentring.
 //
-//  Self-measuring: pages take the container's laid-out width,
-//  and nothing renders until that width is known — a pager
-//  guessing at widths would land between pages.
+//  Self-measuring: pages take the container's laid-out width
+//  AND height, and nothing renders until the width is known —
+//  a pager guessing at widths would land between pages. The
+//  height is not decoration: react-native-web does not stretch
+//  a horizontal ScrollView's pages to its height, so a day
+//  timeline page grew to its whole 900 px content inside a
+//  566 px frame — its own vertical scroll never engaged, the
+//  evening lectures sat below reach and the open-at-the-first-
+//  lecture scroll had nothing to move. Native stretched them
+//  already; an explicit height is the same number there.
 //
 //  Used by:
 //    - components/schedule/TimetableView.tsx — around the
@@ -72,11 +79,13 @@ export default function SnapPager({
 }) {
 
   const [width, setWidth] = useState(0);
+  const [height, setHeight] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
 
 
   const onLayout = (event: LayoutChangeEvent) => {
     setWidth(event.nativeEvent.layout.width);
+    setHeight(event.nativeEvent.layout.height);
   };
 
   // Rest on the middle page — on first layout and after every
@@ -111,7 +120,7 @@ export default function SnapPager({
           testID="timetableuikit-snappager"
         >
           {OFFSETS.map((offset) => (
-            <View key={offset} style={{ width }}>
+            <View key={offset} testID={`timetableuikit-snappage-${offset}`} style={{ width, height: height > 0 ? height : undefined }}>
               {renderPage(offset)}
             </View>
           ))}

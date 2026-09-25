@@ -10,7 +10,9 @@
 //  Nothing is cropped — the old square crop is what made every
 //  photo square. Pick failures toast here; size and duration
 //  caps are the engine's (composer.attach refuses with a
-//  notice).
+//  notice). The re-entry guard covers the PICKER only — the
+//  upload that follows can take minutes, and the attach tiles
+//  must work again the moment the picker closes.
 //
 //  Used by:
 //    - hooks/chat/useChatComposer.ts
@@ -48,6 +50,34 @@ const MAX_VIDEO_SECONDS = 180;
 
 
 // -----------------------------------------------------------
+// handOff
+// -----------------------------------------------------------
+//
+// Runs the engine's attach for picks the picker already
+// returned. The engine reports its own upload failures as
+// notices; anything that still throws gets the generic send
+// toast instead of an unhandled rejection — never the "could
+// not pick" wording, since the pick itself succeeded.
+//
+// Used by:
+//   - useAttachmentPicker (below) — all three pickers
+// -----------------------------------------------------------
+
+async function handOff(run: () => Promise<void>, failure: string) {
+  try {
+    await run();
+  } catch {
+    showToast('error', failure);
+  }
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // useAttachmentPicker
 // -----------------------------------------------------------
 //
@@ -64,13 +94,15 @@ export function useAttachmentPicker(onPicked: (asset: PickedAsset) => Promise<vo
 
   const { t } = useTranslation();
   // Re-entry guard set synchronously — a double tap must not
-  // open two pickers
+  // open two pickers. Released when the picker closes, before
+  // the upload starts
   const pickingRef = useRef(false);
 
 
   const pickMedia = useCallback(async () => {
     if (pickingRef.current) return;
     pickingRef.current = true;
+    let picked: PickedAsset[];
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images', 'videos'],
@@ -86,7 +118,7 @@ export function useAttachmentPicker(onPicked: (asset: PickedAsset) => Promise<vo
         preferredAssetRepresentationMode: ImagePicker.UIImagePickerPreferredAssetRepresentationMode?.Compatible,
       });
       if (result.canceled || !result.assets?.length) return;
-      const picked: PickedAsset[] = result.assets.map((asset) => ({
+      picked = result.assets.map((asset) => ({
         uri: asset.uri,
         name: asset.fileName || undefined,
         mimeType: asset.mimeType || undefined,
@@ -96,41 +128,48 @@ export function useAttachmentPicker(onPicked: (asset: PickedAsset) => Promise<vo
         height: asset.height || undefined,
         duration: typeof asset.duration === 'number' && asset.duration > 0 ? asset.duration / 1000 : undefined,
       }));
-      if (picked.length > 1 && onPickedMany) await onPickedMany(picked);
-      else for (const asset of picked) await onPicked(asset);
     } catch {
       showToast('error', t('chat.mediaPickError'));
+      return;
     } finally {
       pickingRef.current = false;
     }
+    await handOff(async () => {
+      if (picked.length > 1 && onPickedMany) await onPickedMany(picked);
+      else for (const asset of picked) await onPicked(asset);
+    }, t('chat.sendError'));
   }, [onPicked, onPickedMany, t]);
 
 
   const pickFile = useCallback(async () => {
     if (pickingRef.current) return;
     pickingRef.current = true;
+    let picked: PickedAsset;
     try {
       const result = await DocumentPicker.getDocumentAsync({ type: DOCUMENT_TYPES, copyToCacheDirectory: true, multiple: false });
       if (result.canceled || !result.assets?.[0]) return;
       const asset = result.assets[0];
-      await onPicked({
+      picked = {
         uri: asset.uri,
         name: asset.name,
         mimeType: asset.mimeType || undefined,
         size: asset.size ?? undefined,
         kind: 'file',
-      });
+      };
     } catch {
       showToast('error', t('chat.filePickError'));
+      return;
     } finally {
       pickingRef.current = false;
     }
+    await handOff(() => onPicked(picked), t('chat.sendError'));
   }, [onPicked, t]);
 
 
   const pickCamera = useCallback(async () => {
     if (pickingRef.current) return;
     pickingRef.current = true;
+    let picked: PickedAsset;
     try {
       const permission = await ImagePicker.requestCameraPermissionsAsync();
       if (!permission.granted) {
@@ -140,7 +179,7 @@ export function useAttachmentPicker(onPicked: (asset: PickedAsset) => Promise<vo
       const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], allowsEditing: false, quality: 0.8 });
       if (result.canceled || !result.assets?.[0]) return;
       const asset = result.assets[0];
-      await onPicked({
+      picked = {
         uri: asset.uri,
         name: asset.fileName || undefined,
         mimeType: asset.mimeType || undefined,
@@ -148,12 +187,14 @@ export function useAttachmentPicker(onPicked: (asset: PickedAsset) => Promise<vo
         kind: 'image',
         width: asset.width || undefined,
         height: asset.height || undefined,
-      });
+      };
     } catch {
       showToast('error', t('chat.mediaPickError'));
+      return;
     } finally {
       pickingRef.current = false;
     }
+    await handOff(() => onPicked(picked), t('chat.sendError'));
   }, [onPicked, t]);
 
 

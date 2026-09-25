@@ -2,6 +2,7 @@
 //  [*] assistantuikit — types
 //
 //  What a host hands the surfaces: a colour palette, the
+//  font families it loaded (the kit ships none), the
 //  complete set of labels (the kit owns NO strings — every
 //  word on screen arrives here, Lithuanian first in the host),
 //  the tool-card renderer contract, and a suggestion chip.
@@ -29,6 +30,11 @@ import type { ReactNode } from 'react';
 // Neutral by default; a host maps its own tokens on. onBrand
 // is the ink that sits ON the brand colour (the user bubble),
 // surfaceSoft the recessed fill behind code and tool details.
+// brand is a FILL (bubbles, buttons, dots); brand-coloured
+// TEXT on a surface — links, the details toggle — takes
+// brandText, a hue a host keeps readable (AA) in both schemes:
+// a deep brand fill that works as a button can be illegible
+// as text on a dark surface.
 //
 // Used by:
 //   - every surface in the package — all take `colors`, with
@@ -41,6 +47,7 @@ export interface AssistantColors {
   inkSoft: string;
   line: string;
   brand: string;
+  brandText: string;
   onBrand: string;
   surface: string;
   surfaceSoft: string;
@@ -73,11 +80,69 @@ export const defaultColors: AssistantColors = {
   inkSoft: '#4B5563',
   line: '#E5E7EB',
   brand: '#2F6FED',
+  brandText: '#2F6FED',
   onBrand: '#FFFFFF',
   surface: '#FFFFFF',
   surfaceSoft: '#F3F4F6',
   danger: '#B91C1C',
 };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// AssistantFonts
+// -----------------------------------------------------------
+//
+// The host's LOADED font families, one per weight the kit
+// draws, plus the face for code. Every slot is optional: an
+// unset weight keeps the platform's system face at that
+// weight, a set one is used AS the weight — the family name
+// alone, never a fontWeight on top of it (Android fakes a
+// second bold over a bold file, or drops to the system face
+// for a weight the file does not carry). An unset mono keeps
+// the platform's monospace family. The kit ships no font
+// files; it only names what the host loaded.
+//
+// Used by:
+//   - core/typography.ts — typeface / monoFamily read it
+//   - every text-drawing surface's `fonts`, with defaultFonts
+//     (below) as the default, and the kit context
+//   - app/(main)/tabs/assistant.tsx — the host's Raleway map
+// -----------------------------------------------------------
+
+export interface AssistantFonts {
+  regular?: string;
+  medium?: string;
+  semibold?: string;
+  bold?: string;
+  mono?: string;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// defaultFonts
+// -----------------------------------------------------------
+//
+// No families at all — the system face at every weight and
+// the platform monospace for code: what a host that loads no
+// fonts of its own gets.
+//
+// Used by:
+//   - every text-drawing surface's `fonts` default — the
+//     thread, composer, banner, markdown, tool-card shell and
+//     the kit context provider
+// -----------------------------------------------------------
+
+export const defaultFonts: AssistantFonts = {};
 
 
 

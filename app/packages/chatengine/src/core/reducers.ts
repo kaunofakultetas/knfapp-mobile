@@ -712,11 +712,19 @@ export function applyReceipt(
 // applyChanges
 // -----------------------------------------------------------
 //
-// A change feed's rows applied to the rows the client HOLDS:
-// a known row takes the server's version (an unsent one is
-// blanked through markDeleted so quotes follow), an unknown
-// row is ignored — it lives outside the loaded window and will
-// arrive with its page. Identity is kept where nothing changed.
+// A change feed's rows applied to the rows the client HOLDS,
+// as a PATCH: a feed row reports an edit or an unsend, so it
+// may move only what those change — the text and edit stamp
+// (followed into every quote of the row, as a live edit is),
+// the link card, the pin and the quote the row itself carries.
+// Receipts, reactions and the delivery status stay as held:
+// they travel on their own live events, and a feed row read a
+// moment earlier must never paint an older (or, from a
+// backend that fills them with placeholders, a false) state
+// over them. An unsent row is blanked through markDeleted so
+// quotes follow; an unknown row is ignored — it lives outside
+// the loaded window and will arrive with its page. Identity
+// is kept where nothing changed.
 //
 // Used by:
 //   - hooks/useConversation.ts — resync, after the newest page
@@ -727,6 +735,7 @@ export function applyChanges(prev: readonly ChatMessage[], changes: readonly Cha
   const byId = new Map(changes.map((row) => [row.id, row] as const));
   let next: ChatMessage[] | null = null;
   const deletedIds: string[] = [];
+  const edits: ChatMessage[] = [];
   prev.forEach((m, index) => {
     const change = byId.get(m.id);
     if (!change) return;
@@ -734,12 +743,29 @@ export function applyChanges(prev: readonly ChatMessage[], changes: readonly Cha
       deletedIds.push(m.id);
       return;
     }
-    const merged = { ...change, clientId: m.clientId, localImageUri: m.localImageUri };
-    if (sameRow(m, merged)) return;
+    if (m.deleted) return;
+    const patched: ChatMessage = {
+      ...m,
+      text: change.text,
+      editedAt: change.editedAt ?? m.editedAt,
+      linkPreview: change.linkPreview ?? null,
+      pinnedAt: change.pinnedAt ?? null,
+      pinnedBy: change.pinnedBy ?? null,
+      replyTo: change.replyTo ?? m.replyTo,
+    };
+    if (patched.text !== m.text) edits.push(change);
+    if (sameRow(m, patched) && (m.pinnedBy ?? null) === (patched.pinnedBy ?? null) && (m.replyTo?.imageUrl ?? null) === (patched.replyTo?.imageUrl ?? null)) return;
     if (!next) next = prev.slice();
-    next[index] = merged;
+    next[index] = patched;
   });
   let list = next ?? (prev as ChatMessage[]);
+  // An edit follows into the quotes of it, exactly as the live
+  // 'edited' event does (markEdited leaves the row itself as is
+  // when it already carries the text)
+  for (const edit of edits) {
+    const stamp = edit.editedAt ?? '';
+    list = list.map((m) => (m.replyTo?.id === edit.id ? markEdited(m, edit.id, edit.text, stamp) : m));
+  }
   for (const id of deletedIds) list = list.map((m) => markDeleted(m, id));
   return list;
 }

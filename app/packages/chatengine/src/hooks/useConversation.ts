@@ -38,7 +38,8 @@ import { AppState } from 'react-native';
 import { clearActiveConversation, setActiveConversation } from '../core/activeConversation';
 import { isRetryable, toTransportError } from '../core/errors';
 import { readOutboxTemps } from '../core/outbox';
-import { getTaskQueue } from '../core/tasks';
+import { bumpTargetEpoch, getTaskQueue, serializeByTarget, targetEpoch, targetKey } from '../core/tasks';
+import { stampMs } from '../core/time';
 import {
   adoptTemp,
   appendOlderPage,
@@ -68,6 +69,11 @@ const OLDER_RETRY_BACKOFF_MS = 4000;
 
 // A burst of arrivals collapses into one read acknowledgement
 const READ_DEBOUNCE_MS = 1500;
+
+// The longest the expiry timer sleeps before it re-arms — a
+// deadline weeks away must never overflow the timer's 32-bit
+// millisecond range into an immediate fire
+const MAX_TIMER_MS = 24 * 60 * 60 * 1000;
 
 
 
@@ -255,10 +261,15 @@ export function useConversation(conversationId: string, options: { focused?: boo
     });
   }, []);
 
-  const applyPage = useCallback((resp: MessagesPage) => {
+  // The members and the room meta a page carries, and — when the
+  // page is what the held rows are now as fresh as — its change
+  // cursor. A resync whose change feed ran keeps the FEED's
+  // cursor (newer); one whose feed failed keeps the old cursor,
+  // so the next resync asks again for what this one missed
+  const applyPage = useCallback((resp: MessagesPage, takeCursor = true) => {
     setProfiles(resp.participants);
     setConversation(resp.conversation);
-    if (resp.cursor) changesCursorRef.current = resp.cursor;
+    if (takeCursor && resp.cursor) changesCursorRef.current = resp.cursor;
   }, []);
 
 
@@ -509,8 +520,11 @@ export function useConversation(conversationId: string, options: { focused?: boo
       mergeParticipants(page);
 
       // Edits and unsends further up than the newest page: the
-      // change feed since the last cursor, applied to held rows
+      // change feed since the last cursor, applied to held rows.
+      // Its cursor is the one that moves on; without a feed the
+      // page's cursor does (see applyPage)
       const since = changesCursorRef.current;
+      applyPage(resp, !(transport.fetchChanges && since));
       if (transport.fetchChanges && since) {
         try {
           const changes = await transport.fetchChanges(conversationId, since);
@@ -519,10 +533,10 @@ export function useConversation(conversationId: string, options: { focused?: boo
           setMessages((prev) => applyChanges(prev, rows));
           changesCursorRef.current = changes.cursor;
         } catch {
-          // The feed is best effort; the page cursor stands
+          // The feed is best effort; the old cursor stands, so the
+          // next resync asks again for everything since it
         }
       }
-      applyPage(resp);
       scheduleMarkRead();
     } catch {
       // Silent: the live feed keeps working and the next reconnect retries
@@ -534,7 +548,12 @@ export function useConversation(conversationId: string, options: { focused?: boo
   // Replay the offline tasks, oldest first, one at a time: a task
   // that succeeds leaves the queue, a definitive refusal drops it
   // (the optimistic state is reverted where the server's answer
-  // says so), a transport failure keeps it for the next restore
+  // says so), a transport failure keeps it for the next restore.
+  // Live actions on the same message are ordered against it
+  // (core/tasks.ts): a task a live action superseded is skipped,
+  // each call waits for the message's earlier ones, an answer
+  // lands only if no live action moved the message's epoch since
+  // the call began, and only the entry that ran leaves the queue
   const replayingRef = useRef(false);
   const replayTasks = useCallback(async () => {
     if (replayingRef.current) return;
@@ -543,21 +562,28 @@ export function useConversation(conversationId: string, options: { focused?: boo
       await taskQueue.load();
       for (const task of taskQueue.list()) {
         if (!mountedRef.current || conversationId !== conversationIdRef.current) return;
+        if (!taskQueue.isCurrent(task)) continue;
+        const key = targetKey(conversationId, task.messageId);
+        const startEpoch = targetEpoch(key);
+        const fresh = () => targetEpoch(key) === startEpoch;
         try {
           if (task.type === 'edit') {
-            const saved = await transport.editMessage(conversationId, task.messageId, task.text);
-            setMessages((prev) => prev.map((m) => markEdited(m, task.messageId, saved.text, saved.editedAt)));
+            const saved = await serializeByTarget(key, () => transport.editMessage(conversationId, task.messageId, task.text));
+            if (fresh()) setMessages((prev) => prev.map((m) => markEdited(m, task.messageId, saved.text, saved.editedAt)));
           } else if (task.type === 'delete') {
-            await transport.deleteMessage(conversationId, task.messageId);
+            await serializeByTarget(key, () => transport.deleteMessage(conversationId, task.messageId));
           } else {
-            const groups = task.emoji ? await transport.setReaction(conversationId, task.messageId, task.emoji) : await transport.removeReaction(conversationId, task.messageId);
+            const groups = await serializeByTarget(key, () => (task.emoji ? transport.setReaction(conversationId, task.messageId, task.emoji) : transport.removeReaction(conversationId, task.messageId)));
             const viewerId = selfIdRef.current;
-            setMessages((prev) => prev.map((m) => (m.id === task.messageId ? { ...m, reactions: reactionsForViewer(groups, viewerId) } : m)));
+            if (fresh()) setMessages((prev) => prev.map((m) => (m.id === task.messageId ? { ...m, reactions: reactionsForViewer(groups, viewerId) } : m)));
           }
-          taskQueue.remove(task);
+          taskQueue.removeIfCurrent(task);
         } catch (err) {
           if (isRetryable(err)) return;
-          taskQueue.remove(task);
+          taskQueue.removeIfCurrent(task);
+          // A newer live action owns the message's state now —
+          // its own answer reconciles it; no revert, no notice
+          if (!fresh()) continue;
           if (task.type === 'edit') {
             setMessages((prev) => prev.map((m) => (m.id === task.messageId ? { ...m, text: task.previousText } : m)));
             notify({ level: 'error', code: 'edit_failed' });
@@ -692,7 +718,9 @@ export function useConversation(conversationId: string, options: { focused?: boo
       const page = resp.messages.map((m) => normalizeForViewer(m, selfId)).reverse();
       setMessages((prev) => prependNewerPage(prev, page));
       mergeParticipants(page);
-      if (resp.cursor) changesCursorRef.current = resp.cursor;
+      // No cursor move: the rows held from the jump are only as
+      // fresh as the jump's cursor — advancing it past them here
+      // would skip the edits they missed since
       if (!resp.hasNewer) {
         setDetached(false);
         void resyncRef.current();
@@ -729,17 +757,34 @@ export function useConversation(conversationId: string, options: { focused?: boo
       notify({ level: 'error', code: 'load_older_failed' });
     }
   }, [conversationId, transport, mergeParticipants, applyPage, scheduleMarkRead, notify, setDetached]);
-  // Disappearing messages: every half minute the rows whose
-  // expires_at has passed leave the screen (the server hard-
-  // deletes on its own clock; this one only keeps the list honest
-  // between fetches). The identity check keeps quiet ticks free
+  // Disappearing messages: ONE timer for the soonest deadline
+  // among the held rows, re-armed whenever the list changes, drops
+  // every row whose expires_at has passed — on the second, not up
+  // to half a minute late (the server hard-deletes on its own
+  // clock; this keeps the SCREEN honest between fetches). Stamps
+  // parse through stampMs, so the backend's bare naive-UTC form
+  // compares like a zoned one; an unreadable stamp keeps its row.
+  // A capped far deadline wakes, finds nothing lapsed and bumps
+  // the sweep counter, which re-arms the timer
+  const [expirySweep, setExpirySweep] = useState(0);
   useEffect(() => {
-    const timer = setInterval(() => {
-      const nowIso = new Date().toISOString();
-      setMessages((prev) => (prev.some((m) => m.expiresAt && m.expiresAt <= nowIso) ? prev.filter((m) => !(m.expiresAt && m.expiresAt <= nowIso)) : prev));
-    }, 30_000);
-    return () => clearInterval(timer);
-  }, [setMessages]);
+    let soonest = Number.POSITIVE_INFINITY;
+    for (const m of messages) {
+      const deadline = m.expiresAt ? stampMs(m.expiresAt) : 0;
+      if (deadline > 0 && deadline < soonest) soonest = deadline;
+    }
+    if (soonest === Number.POSITIVE_INFINITY) return undefined;
+    const timer = setTimeout(() => {
+      const nowMs = Date.now();
+      const lapsed = (m: ChatMessage) => {
+        const deadline = m.expiresAt ? stampMs(m.expiresAt) : 0;
+        return deadline > 0 && deadline <= nowMs;
+      };
+      setMessages((prev) => (prev.some(lapsed) ? prev.filter((m) => !lapsed(m)) : prev));
+      setExpirySweep((n) => n + 1);
+    }, Math.max(0, Math.min(soonest - Date.now(), MAX_TIMER_MS)));
+    return () => clearTimeout(timer);
+  }, [messages, expirySweep]);
 
   const retry = useCallback(() => setReloadKey((k) => k + 1), []);
   const deleteMessage = useCallback(
@@ -748,7 +793,15 @@ export function useConversation(conversationId: string, options: { focused?: boo
       if (!target || target.deleted) return;
       const snapshot = messagesRef.current;
       setMessages((prev) => prev.map((m) => markDeleted(m, messageId)));
-      transport.deleteMessage(conversationId, messageId).catch((err: unknown) => {
+      // The unsend supersedes whatever this message still had
+      // queued (an offline edit or reaction would only 404 on
+      // replay and report a false failure) and stales any
+      // replay answer in flight for it
+      const key = targetKey(conversationId, messageId);
+      bumpTargetEpoch(key);
+      taskQueue.remove({ type: 'edit', messageId });
+      taskQueue.remove({ type: 'reaction', messageId });
+      serializeByTarget(key, () => transport.deleteMessage(conversationId, messageId)).catch((err: unknown) => {
         if (!mountedRef.current) return;
         // Offline: the placeholder stays and the unsend replays on
         // restore; a refusal puts the message back

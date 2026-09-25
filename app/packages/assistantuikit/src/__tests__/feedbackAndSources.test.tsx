@@ -4,9 +4,10 @@
 //  The two answer-surface additions, over the real scripted
 //  runtime: an answer whose searchHandbook call returned
 //  entries grows the numbered sources footer inside the
-//  bubble (tool order = citation order, section appended
-//  when present), an answer without such a call shows no
-//  footer; the thumbs render only when the host handed an
+//  bubble (tool order = citation order, the TITLE only — the
+//  wire's section is a retrieval label like "faq", never shown
+//  (KNF-150) — each row a 44pt target), an answer without
+//  such a call shows no footer; the thumbs render only when the host handed an
 //  onFeedback callback, report (messageId, 1 / -1) on a
 //  tap, clear with (messageId, 0) on the same thumb again,
 //  and carry the selected state for the screen reader.
@@ -27,8 +28,6 @@ const ENTRIES = {
   ],
 };
 
-type View = Awaited<ReturnType<typeof render>>;
-
 const renderThread = (model: ReturnType<typeof createScriptedModel>, onFeedback?: (id: string, rating: 1 | -1 | 0) => void) =>
   render(
     <ScriptedThread model={model}>
@@ -38,7 +37,7 @@ const renderThread = (model: ReturnType<typeof createScriptedModel>, onFeedback?
 
 
 describe('the sources footer', () => {
-  it('numbers searchHandbook entries in tool order, section appended when present', async () => {
+  it('numbers searchHandbook entries in tool order, the title alone — never the raw section key', async () => {
     const model = createScriptedModel([[
       { tool: { name: 'searchHandbook', input: { query: 'wifi' }, output: ENTRIES } },
       { text: 'Junkitės prie eduroam [1].' },
@@ -49,8 +48,12 @@ describe('the sources footer', () => {
 
     expect(view.getByTestId('assistantuikit-sources')).toBeTruthy();
     expect(view.getByText(LABELS.sourcesTitle)).toBeTruthy();
-    expect(view.getByText(/\[1\] Kaip prisijungti prie VU Wi-Fi\? — faq/)).toBeTruthy();
-    expect(view.getByText(/\[2\] Kontaktai/)).toBeTruthy();
+    // This test used to pin " — faq" appended to the title: the
+    // raw retrieval key printed as a document name (KNF-150)
+    expect(view.getByText(/\[1\] Kaip prisijungti prie VU Wi-Fi\?$/)).toBeTruthy();
+    expect(view.queryByText(/— faq/)).toBeNull();
+    expect(view.getByText(/\[2\] Kontaktai$/)).toBeTruthy();
+    expect(Object.assign({}, ...[view.getByTestId('assistantuikit-source-0').props.style].flat()).minHeight).toBe(44);
 
     // A tap expands the entry's excerpt in place; tapping the
     // other entry closes the first (one open at a time)

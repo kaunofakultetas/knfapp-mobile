@@ -20,7 +20,12 @@
 //  mid-swipe. Without neighbours (a host with no dated window
 //  — the schedule screen always hands them over now) the
 //  static single views render, day swipes paging through the
-//  timeline's own pan exactly as before.
+//  timeline's own pan exactly as before. An empty page says
+//  so over the top of its grid; the page ON SCREEN says it in
+//  the host's words (emptyLabel — "no timetable published for
+//  this week yet"), a side page in the kit's plain "no
+//  lectures", since the host only knows WHY the shown week
+//  is empty.
 //
 //  Used by:
 //    - app/(main)/tabs/schedule.tsx — 'day' and 'week' modes
@@ -79,6 +84,7 @@ export default function TimetableView({
   day,
   currentWeek = true,
   weeks,
+  emptyLabel,
   onChangeDay,
   onChangeWeek,
   onPressLesson,
@@ -98,6 +104,9 @@ export default function TimetableView({
   // The neighbour weeks' entries — their presence turns both
   // modes into the scrolling pager (week pages, day pages)
   weeks?: { prev: TimetableEntry<KnfLesson>[]; next: TimetableEntry<KnfLesson>[] };
+  // What the SHOWN page says when it is empty, instead of the
+  // kit's "no lectures" — undefined keeps the kit's copy
+  emptyLabel?: string;
   onChangeDay: (direction: 1 | -1) => void;
   // A settled week swipe pages the dated window ±1 week —
   // absent, week mode neither pans nor pages
@@ -141,13 +150,16 @@ export default function TimetableView({
       // ONE vertical scroll for all three pages, the day-name
       // header pinned outside it: every week rides the same
       // offset, so the neighbour appears at the level you are
-      // reading and a settled swipe has nothing to snap to
+      // reading and a settled swipe has nothing to snap to. The
+      // first hour label hangs 7 px above the grid's top line,
+      // so the top air sits INSIDE each page — outside it, the
+      // pager's own scroller clipped that label in half
       const gridHeight = ((window.endMin - window.startMin) / 60) * DEFAULT_HOUR_HEIGHT;
       return (
         <View style={{ flex: 1 }}>
           <WeekDaysHeader visibleDays={weekDays} now={now} skippedCount={skipped} />
           <ScrollView
-            contentContainerStyle={{ paddingTop: 12, paddingBottom: 12 }}
+            contentContainerStyle={{ paddingBottom: 12 }}
             showsVerticalScrollIndicator={false}
             testID="timetable-week-scroll"
           >
@@ -157,15 +169,18 @@ export default function TimetableView({
               // Side pages are never "now" — whatever week they
               // hold, it is not the one on screen when they settle
               renderPage={(offset) => (
-                <WeekGrid
-                  days={offset === 0 ? days : offset < 0 ? neighbourDays.prev : neighbourDays.next}
-                  window={window}
-                  visibleDays={weekDays}
-                  now={offset === 0 ? now : null}
-                  showHeader={false}
-                  scrollEnabled={false}
-                  onPressLesson={onPressLesson}
-                />
+                <View style={{ paddingTop: 12 }}>
+                  <WeekGrid
+                    days={offset === 0 ? days : offset < 0 ? neighbourDays.prev : neighbourDays.next}
+                    window={window}
+                    visibleDays={weekDays}
+                    now={offset === 0 ? now : null}
+                    showHeader={false}
+                    scrollEnabled={false}
+                    emptyLabel={offset === 0 ? emptyLabel : undefined}
+                    onPressLesson={onPressLesson}
+                  />
+                </View>
               )}
             />
           </ScrollView>
@@ -179,6 +194,7 @@ export default function TimetableView({
         visibleDays={weekDays}
         skippedCount={skipped}
         now={now}
+        emptyLabel={emptyLabel}
         onPressLesson={onPressLesson}
       />
     );
@@ -204,6 +220,7 @@ export default function TimetableView({
               day={pageDay}
               skippedCount={skipped}
               now={rawDay >= 0 && rawDay <= 6 ? now : null}
+              emptyLabel={offset === 0 ? emptyLabel : undefined}
               onPressLesson={onPressLesson}
             />
           );
@@ -219,6 +236,7 @@ export default function TimetableView({
       day={day}
       skippedCount={skipped}
       now={now}
+      emptyLabel={emptyLabel}
       onChangeDay={onChangeDay}
       onPressLesson={onPressLesson}
     />

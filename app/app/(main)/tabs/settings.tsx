@@ -4,8 +4,22 @@
 //  Device-local preferences plus the account section. The
 //  whole screen works logged out: guests get every preference
 //  and a friendly login card; an account adds the logout
-//  button, the backend notification-channel switches and the
-//  admin link (admin/curator roles only).
+//  button, the "download my data" row (the GDPR access right,
+//  beside the erasure path below), the backend notification-
+//  channel switches and the admin link (admin/curator only).
+//
+//  The data export fetches GET /api/auth/me/export and hands
+//  the JSON to the person the way each platform saves files:
+//  iOS writes it to the cache and opens the share sheet (Save
+//  to Files, AirDrop, Mail), Android asks for a folder through
+//  the system picker and writes it there, web downloads it. A
+//  cancelled picker or sheet is silent; the row locks while an
+//  export runs, so a double tap can never fire two.
+//
+//  The footer names the app version for everyone; the backend
+//  address beside it is for dev builds and staff only — it
+//  tells a misconfigured build from being offline, and means
+//  nothing to a student.
 //
 //  The notification block is the kit's: PermissionGate decides
 //  whether the OS lets us deliver at all (prompt card, open-
@@ -43,8 +57,12 @@
 //
 //  Split into (root component last):
 //
+//    exportFileName    — the export's dated file name
+//    isPickerCancel    — a folder picker the person closed
+//    deliverExport     — the export JSON → the platform's save path
 //    SegmentedControl  — theme / language option pills
 //    LinkRow           — chevron navigation row
+//    DataExportRow     — "download my data", with its busy state
 //    ChannelsRetryRow  — the failed-load row with Try again
 //    UserCard          — avatar + identity + logout
 //    GuestCard         — login prompt for guests
@@ -62,8 +80,13 @@ import { useAuth } from '@/context/AuthContext';
 import { showToast } from '@/context/NetworkContext';
 
 // The resolved base URL renders in the footer so a
-// misconfigured build is distinguishable from being offline
-import { API_BASE_URL } from '@/services/api';
+// misconfigured build is distinguishable from being offline;
+// the GDPR export and the error → copy map its failures use
+import { API_BASE_URL, apiErrorKey, exportMyDataApi } from '@/services/api';
+
+// The export's way onto the device, and the app version line
+import Constants from 'expo-constants';
+import { Directory, File, Paths } from 'expo-file-system';
 
 // The one engine: permission, master switch and server truth
 // all read from its stores; readyNotifyEngine gates the first
@@ -84,15 +107,18 @@ import {
 import { TAB_BAR_CLEARANCE, useTabBarScroll } from '@/components/navigation/tabBarCollapse';
 import { useTheme } from '@/hooks/useTheme';
 
+// The Raleway family names the notify kit sets its text in
+import { fonts } from '@/constants/theme';
+
 // Param-preserving current href for the login returnTo
 import { useReturnHref } from '@/hooks/useReturnHref';
 
 // Icons, navigation, i18n and primitives
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Linking, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Linking, Platform, Pressable, ScrollView, Share, Text, View } from 'react-native';
 
 // The session user shown on the account card
 import type { User } from '@/types';
@@ -102,6 +128,7 @@ import {
   PermissionGate,
   useStoreValue,
   type NotifyColors,
+  type NotifyFonts,
   type NotifySettingsIcons,
   type NotifySettingsLabels,
   type PermissionGateLabels,
@@ -135,6 +162,119 @@ interface ChannelsLatch {
   loaded: boolean;
 }
 
+// How an export ended: handed to the share sheet, written to a
+// file by the app itself, or closed by the person before either
+type ExportOutcome = 'shared' | 'saved' | 'cancelled';
+
+// The export's media type — the file the person saves is JSON
+const EXPORT_MIME = 'application/json';
+
+// The notify kit's typography — the screen's own Raleway faces
+const KIT_FONTS: NotifyFonts = { regular: fonts.regular, medium: fonts.medium, bold: fonts.bold };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// exportFileName
+// -----------------------------------------------------------
+//
+// knfapp-data-YYYY-MM-DD.json in the DEVICE's local date — the
+// day the person pressed the button, which is the day they
+// will look for in their files.
+//
+// Used by:
+//   - SettingsScreen (below) — handleExport
+// -----------------------------------------------------------
+
+function exportFileName(now: Date): string {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `knfapp-data-${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}.json`;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// isPickerCancel
+// -----------------------------------------------------------
+//
+// The system folder picker rejects when the person backs out
+// of it — a choice, not a failure: its coded error names the
+// cancellation (ERR_PICKER_CANCELLED on Android).
+//
+// Used by:
+//   - deliverExport (below) — the Android branch
+// -----------------------------------------------------------
+
+function isPickerCancel(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === 'string' && /CANCEL/i.test(code);
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// deliverExport
+// -----------------------------------------------------------
+//
+//   await deliverExport(json, 'knfapp-data-….json', title)
+//     → 'shared' | 'saved' | 'cancelled'
+//
+// Puts the export where each platform keeps files: web
+// downloads it from an object URL; Android asks for a folder
+// through the system picker (no share intent can carry a
+// multi-megabyte text safely) and writes the file there; iOS
+// writes it to the cache and opens the share sheet on the
+// file. A picker or sheet the person closed is 'cancelled';
+// anything else that fails throws for the caller's toast.
+//
+// Used by:
+//   - SettingsScreen (below) — handleExport
+// -----------------------------------------------------------
+
+async function deliverExport(json: string, name: string, title: string): Promise<ExportOutcome> {
+  if (Platform.OS === 'web') {
+    const href = URL.createObjectURL(new Blob([json], { type: EXPORT_MIME }));
+    const anchor = document.createElement('a');
+    anchor.href = href;
+    anchor.download = name;
+    anchor.click();
+    // The download holds its own copy by now — the URL is
+    // released a beat later rather than under the click
+    setTimeout(() => URL.revokeObjectURL(href), 30_000);
+    return 'saved';
+  }
+
+  if (Platform.OS === 'android') {
+    let directory: Directory;
+    try {
+      directory = await Directory.pickDirectoryAsync();
+    } catch (error) {
+      if (isPickerCancel(error)) return 'cancelled';
+      throw error;
+    }
+    directory.createFile(name, EXPORT_MIME).write(json);
+    return 'saved';
+  }
+
+  const file = new File(Paths.cache, name);
+  file.create({ overwrite: true });
+  file.write(json);
+  const result = await Share.share({ url: file.uri }, { subject: title });
+  return result.action === Share.dismissedAction ? 'cancelled' : 'shared';
+}
+
 
 
 
@@ -149,18 +289,22 @@ interface ChannelsLatch {
 // pill fills brand. `fullWidth` stretches the pills evenly
 // (the three-way theme row); without it the control hugs its
 // content (the LT/EN pair). Pills are 36pt tall — hitSlop
-// restores the 44pt target.
+// restores the 44pt target. A screen reader meets it as what
+// it is — a radio group named by `label`, one choice checked —
+// the same semantics as the drawer's quick switches.
 //
 // Used by:
 //   - SettingsScreen (below) — theme and language rows
 // -----------------------------------------------------------
 
 function SegmentedControl<T extends string>({
+  label,
   options,
   value,
   onChange,
   fullWidth = false,
 }: {
+  label: string;
   options: SegmentedOption<T>[];
   value: T;
   onChange: (next: T) => void;
@@ -174,6 +318,8 @@ function SegmentedControl<T extends string>({
           ? 'flex-row rounded-md bg-surface-soft p-xs'
           : 'flex-row self-start rounded-md bg-surface-soft p-xs'
       }
+      accessibilityRole="radiogroup"
+      accessibilityLabel={label}
     >
       {options.map((option) => {
         // Re-selecting the active pill is a no-op upstream —
@@ -192,9 +338,9 @@ function SegmentedControl<T extends string>({
             ].join(' ')}
             hitSlop={6}
             onPress={() => onChange(option.value)}
-            accessibilityRole="button"
+            accessibilityRole="radio"
             accessibilityLabel={option.a11yLabel ?? option.label}
-            accessibilityState={{ selected }}
+            accessibilityState={{ selected, checked: selected }}
           >
             <Text
               className={
@@ -248,6 +394,56 @@ function LinkRow({ icon, label, onPress, divider = false }: LinkRowProps) {
       <Ionicons name={icon} size={20} color={colors.brand} />
       <Text className="flex-1 font-raleway-medium text-base text-ink">{label}</Text>
       <Ionicons name="chevron-forward" size={18} color={colors.inkFaint} />
+    </Pressable>
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// DataExportRow
+// -----------------------------------------------------------
+//
+// "Download my data" with what it contains underneath. While
+// an export runs the chevron becomes a spinner and the row
+// is disabled and announced busy — the lock that makes a
+// double tap harmless.
+//
+// Used by:
+//   - SettingsScreen (below) — the account section, signed in
+// -----------------------------------------------------------
+
+function DataExportRow({ busy, onPress }: { busy: boolean; onPress: () => void }) {
+
+  const { t } = useTranslation();
+  const { colors } = useTheme();
+
+
+  return (
+    <Pressable
+      testID="settings-export-data"
+      className="flex-row items-center gap-sm px-md py-md active:bg-surface-soft"
+      onPress={onPress}
+      disabled={busy}
+      accessibilityRole="button"
+      accessibilityLabel={t('settings.exportData')}
+      accessibilityHint={t('settings.exportDataDesc')}
+      accessibilityState={{ busy, disabled: busy }}
+    >
+      <Ionicons name="download-outline" size={20} color={colors.brand} />
+      <View className="flex-1">
+        <Text className="font-raleway-medium text-base text-ink">{t('settings.exportData')}</Text>
+        <Text className="mt-xs font-raleway text-sm text-ink-soft">{t('settings.exportDataDesc')}</Text>
+      </View>
+      {busy ? (
+        <ActivityIndicator size="small" color={colors.brand} />
+      ) : (
+        <Ionicons name="chevron-forward" size={18} color={colors.inkFaint} />
+      )}
     </Pressable>
   );
 }
@@ -553,12 +749,15 @@ export default function SettingsScreen() {
 
   // The kit paints from tokens, not classNames — hand it the
   // active palette so the rows follow the theme like the rest
+  // (onBrand is the gate button's label ink: surface-on-brand
+  // misses AA in the dark scheme)
   const kitColors: NotifyColors = {
     ink: colors.ink,
     inkSoft: colors.inkSoft,
     line: colors.line,
     brand: colors.brand,
     surface: colors.surface,
+    onBrand: colors.onBrand,
   };
 
   const gateLabels: PermissionGateLabels = {
@@ -689,6 +888,40 @@ export default function SettingsScreen() {
   };
 
 
+  // The GDPR export. The ref is the double-tap lock (the state
+  // only drives the row, a frame late); a failed fetch speaks
+  // through the shared API error copy (429 included — the
+  // server allows a handful an hour), a failed save through the
+  // export's own line, and a closed picker or sheet says
+  // nothing at all
+  const [exporting, setExporting] = useState(false);
+  const exportingRef = useRef(false);
+
+  const handleExport = async () => {
+    if (exportingRef.current) return;
+    exportingRef.current = true;
+    setExporting(true);
+    try {
+      let json: string;
+      try {
+        json = JSON.stringify(await exportMyDataApi(), null, 2);
+      } catch (err) {
+        showToast('error', t(apiErrorKey(err)));
+        return;
+      }
+      try {
+        const outcome = await deliverExport(json, exportFileName(new Date()), t('settings.exportDataShareTitle'));
+        if (outcome === 'saved') showToast('success', t('settings.exportDataSaved'));
+      } catch {
+        showToast('error', t('settings.exportDataSaveError'));
+      }
+    } finally {
+      exportingRef.current = false;
+      setExporting(false);
+    }
+  };
+
+
   // Pull-to-refresh re-reads the backend switches; for guests
   // there is no server state, so the pull just retracts. A read
   // that fails is a failed READ, so it gets the generic toast,
@@ -726,6 +959,12 @@ export default function SettingsScreen() {
     isAuthenticated && (user?.role === 'admin' || user?.role === 'curator');
 
 
+  // The footer: the version for everyone, the backend address
+  // only where it can mean something (file header)
+  const version = Constants.expoConfig?.version ?? '1.0.0';
+  const showServer = __DEV__ || isAdminOrCurator;
+
+
   return (
     <Screen>
       <Header title={t('settings.title')} />
@@ -757,7 +996,12 @@ export default function SettingsScreen() {
               <SectionTitle>{t('settings.account')}</SectionTitle>
             </View>
             {isAuthenticated && user ? (
-              <UserCard user={user} loggingOut={loggingOut} onLogout={handleLogout} />
+              <>
+                <UserCard user={user} loggingOut={loggingOut} onLogout={handleLogout} />
+                <Card padding="none" className="mt-sm">
+                  <DataExportRow busy={exporting} onPress={() => void handleExport()} />
+                </Card>
+              </>
             ) : (
               <GuestCard />
             )}
@@ -778,6 +1022,7 @@ export default function SettingsScreen() {
               </Text>
             </View>
             <SegmentedControl
+              label={t('settings.theme')}
               options={[
                 { value: 'light', label: t('settings.light') },
                 { value: 'dark', label: t('settings.dark') },
@@ -795,13 +1040,16 @@ export default function SettingsScreen() {
               {t('settings.language')}
             </Text>
             {/* LT / EN are locale codes, identical in both
-                languages; screen readers get the full names.
-                The engine host re-registers the token in the
-                new language — nothing to do here */}
+                languages; screen readers get the full names
+                (each language's own, from the catalog — the
+                drawer's switch reads the same keys). The engine
+                host re-registers the token in the new language
+                — nothing to do here */}
             <SegmentedControl
+              label={t('settings.language')}
               options={[
-                { value: 'lt', label: 'LT', a11yLabel: 'Lietuvių' },
-                { value: 'en', label: 'EN', a11yLabel: 'English' },
+                { value: 'lt', label: 'LT', a11yLabel: t('settings.languageLithuanian') },
+                { value: 'en', label: 'EN', a11yLabel: t('settings.languageEnglish') },
               ]}
               value={language}
               onChange={setLanguage}
@@ -823,6 +1071,7 @@ export default function SettingsScreen() {
           labels={gateLabels}
           onOpenSettings={() => Linking.openSettings()}
           colors={kitColors}
+          fonts={KIT_FONTS}
         >
           <Card padding="none">
             {channels.failed ? <ChannelsRetryRow onRetry={() => void channels.read()} /> : null}
@@ -831,6 +1080,7 @@ export default function SettingsScreen() {
                 engine={panelEngine}
                 labels={panelLabels}
                 colors={kitColors}
+                fonts={KIT_FONTS}
                 showChannels={isAuthenticated}
                 channelsLocked={isAuthenticated && !channels.loaded}
                 channelHints={channelHints}
@@ -878,12 +1128,19 @@ export default function SettingsScreen() {
           />
         </View>
 
-        {/* The resolved backend address — a misconfigured build
-            (e.g. EXPO_PUBLIC_API_URL unset) is otherwise
-            indistinguishable from being offline */}
+        {/* The version, for anyone reporting a problem; the
+            resolved backend address for dev builds and staff —
+            a misconfigured build (e.g. EXPO_PUBLIC_API_URL
+            unset) is otherwise indistinguishable from being
+            offline */}
         <Text className="mt-md text-center font-raleway text-xs text-ink-faint">
-          {t('settings.serverAddress', { url: API_BASE_URL })}
+          VU KNF · {t('menu.version', { version })}
         </Text>
+        {showServer ? (
+          <Text className="mt-xs text-center font-raleway text-xs text-ink-faint">
+            {t('settings.serverAddress', { url: API_BASE_URL })}
+          </Text>
+        ) : null}
       </ScrollView>
     </Screen>
   );

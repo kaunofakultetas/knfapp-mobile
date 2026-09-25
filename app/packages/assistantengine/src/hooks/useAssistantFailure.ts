@@ -16,8 +16,8 @@
 //    - testing/index.tsx — the probe's reader publishes this
 //      value after every commit
 //    - hooks/__tests__/useAssistantFailure.test.ts
-//    - the app's assistant screen, once it lands: the error
-//      banner's copy and its retry policy — no app import yet
+//    - app/(main)/tabs/assistant.tsx — the error banner's copy
+//      is chosen from the CURRENT thread's failure
 // -----------------------------------------------------------
 
 import { useAISDKError } from '@assistant-ui/ai-sdk';

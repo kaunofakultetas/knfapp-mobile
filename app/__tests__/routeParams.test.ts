@@ -46,6 +46,14 @@ describe('useRouteParam', () => {
     const { result } = await renderHook(() => useRouteParam('postId'));
     expect(result.current).toBeUndefined();
   });
+
+  it('a blank param is no id either — undefined, never a request for "/news/"', async () => {
+    for (const blank of ['', '   ', ['', 'p2']]) {
+      mockRoute.params = { postId: blank };
+      const { result } = await renderHook(() => useRouteParam('postId'));
+      expect(result.current).toBeUndefined();
+    }
+  });
 });
 
 

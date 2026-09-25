@@ -12,6 +12,20 @@
 //  escapeValue is off: React escapes on its own, and backend
 //  strings arrive as raw JSON — nothing is escaped on output
 //  and the API client decodes nothing on the way in.
+//
+//  The active language is also DECLARED to assistive tech on
+//  the web build: <html lang> follows every language change
+//  (app.json's web.lang is only the static shell's default
+//  until the bundle runs), so a screen reader never reads the
+//  Lithuanian UI with English rules (WCAG 3.1.1, KNF-129).
+//  Native has no document — its screen-reader voice follows
+//  the declared app localizations, plus accessibilityLanguage
+//  on the elements that need it.
+//
+//  Split into:
+//
+//    deviceLanguage          — the first-launch language
+//    declareDocumentLanguage — <html lang> on the web build
 // -----------------------------------------------------------
 
 // Intl.PluralRules polyfill — Hermes builds may ship without
@@ -59,6 +73,35 @@ import en from './en.json';
 
 export const deviceLanguage = getLocales()[0]?.languageCode === 'lt' ? 'lt' : 'en';
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// declareDocumentLanguage
+// -----------------------------------------------------------
+//
+// Web only — a no-op wherever there is no document (native,
+// tests): sets <html lang> to the app language, the one hint
+// a browser screen reader takes its reading rules from. Runs
+// once at start and on every languageChanged event below.
+//
+// Used by:
+//   - the i18next languageChanged hook below
+//   - __tests__/i18nDocumentLanguage.test.ts
+// -----------------------------------------------------------
+
+export function declareDocumentLanguage(language: string | undefined): void {
+  if (!language || typeof document === 'undefined' || !document.documentElement) return;
+  document.documentElement.lang = language;
+}
+
+
+// i18next's own `use` method, not the package's named export —
+// the lint rule cannot tell the two apart
+// eslint-disable-next-line import/no-named-as-default-member
 i18n.use(initReactI18next).init({
   resources: {
     lt: { translation: lt },
@@ -71,5 +114,9 @@ i18n.use(initReactI18next).init({
     escapeValue: false,
   },
 });
+
+// The page's declared language follows the app's from the start
+i18n.on('languageChanged', declareDocumentLanguage);
+declareDocumentLanguage(i18n.language);
 
 export default i18n;

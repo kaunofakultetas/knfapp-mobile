@@ -15,14 +15,23 @@
 //  on onEndReached (the old screen hardcoded page 1/50 and
 //  posts with more comments silently truncated), pull-to-
 //  refresh reloads page 1, and a failed load renders
-//  ErrorState with retry instead of posing as "no comments".
-//  A freshly sent comment is prepended server-confirmed; a
-//  failed send toasts and the composer keeps the text.
+//  ErrorState with retry instead of posing as "no comments" —
+//  while a 404 (the post was deleted or is hidden now) says
+//  so. A freshly sent comment is prepended server-confirmed;
+//  a failed send toasts and the composer keeps the text.
+//
+//  A long-press on a comment is the viewer's one action on it
+//  — delete or report (components/news/commentActions) — and
+//  a tap on a commenter opens their profile. Whether the
+//  viewer owns the POST (which lets them delete any comment
+//  under it) arrives as the optional ?authorId= param from
+//  the feed and the article; without it the owner simply gets
+//  "report" on other people's comments — the server enforces
+//  the rule either way.
 //
 //  Split into (root component last):
 //
 //    COMMENTS_PER_PAGE  — backend page size
-//    toKitComment       — backend comment → the kit's row shape
 //    CommentsBody       — spinner / error / list by feed state
 //    NewsCommentsScreen — the screen itself (default export)
 // -----------------------------------------------------------
@@ -33,14 +42,17 @@
 // module renders or shows the not-ready screen
 import withFeature from '@/components/FeatureGate';
 
-import { CommentComposer, CommentRow, type KitComment } from '@knf/socialuikit';
+import { CommentComposer, CommentRow } from '@knf/socialuikit';
+
+// The rows' mapping, their long-press action and author link
+import { toKitComment, useCommentActions, useOpenCommentAuthor } from '@/components/news/commentActions';
 
 // UI kit and theming
 import { EmptyState, ErrorState, LoadingSpinner, RefreshSpinner, Screen } from '@/components/ui';
 
 // Paginated feed engine and the backend contract
 import { useFeed, type UseFeedResult } from '@knf/dataengine';
-import { addCommentApi, fetchComments, type CommentResponse } from '@/services/api';
+import { ApiError, addCommentApi, fetchComments, type CommentResponse } from '@/services/api';
 
 // Auth gates the composer and marks the viewer's own rows;
 // app-wide error toasts
@@ -79,47 +91,27 @@ const COMMENTS_PER_PAGE = 20;
 
 
 // -----------------------------------------------------------
-// toKitComment
-// -----------------------------------------------------------
-//
-// The backend comment row in the kit's vocabulary. `time` is
-// the raw created_at stamp (naive UTC) — the kit's RelativeTime
-// reads a zone-less stamp as UTC, so no reformatting here.
-// isOwn paints the viewer's own comments with the brand wash;
-// the backend has no comment deletion, so `deleted` never sets.
-//
-// Used by:
-//   - NewsCommentsScreen (below) — renderComment's row mapping
-// -----------------------------------------------------------
-
-const toKitComment = (comment: CommentResponse, viewerId: string | null): KitComment => ({
-  id: comment.id,
-  author: { id: comment.userId, displayName: comment.userName, avatarUrl: comment.userAvatar },
-  text: comment.text,
-  createdAt: comment.time,
-  isOwn: viewerId !== null && comment.userId === viewerId,
-});
-
-
-
-
-
-
-
-// -----------------------------------------------------------
 // CommentsBody
 // -----------------------------------------------------------
 //
 // The three states of the thread area: the full spinner for
 // the first load AND for a retry after an error (refresh
 // during error would otherwise flash the empty state), the
-// ErrorState with retry, or the paginated list itself.
+// ErrorState with retry, or the paginated list itself, its
+// rows carrying the viewer's long-press action and the
+// author link.
 //
 // Used by:
 //   - NewsCommentsScreen (below)
 // -----------------------------------------------------------
 
-function CommentsBody({ feed }: { feed: UseFeedResult<CommentResponse> }) {
+function CommentsBody({
+  feed,
+  onLongPress,
+}: {
+  feed: UseFeedResult<CommentResponse>;
+  onLongPress: ReturnType<typeof useCommentActions>;
+}) {
 
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
@@ -203,11 +195,12 @@ function CommentsBody({ feed }: { feed: UseFeedResult<CommentResponse> }) {
   // renderItem closure on every feed-state render — only a
   // viewer change (own-row wash) is worth a new one
   const viewerId = user?.id ?? null;
+  const openAuthor = useOpenCommentAuthor();
   const renderComment = useCallback(
     ({ item }: ListRenderItemInfo<CommentResponse>) => (
-      <CommentRow comment={toKitComment(item, viewerId)} />
+      <CommentRow comment={toKitComment(item, viewerId)} onLongPress={onLongPress} onPressAuthor={openAuthor} />
     ),
-    [viewerId],
+    [viewerId, onLongPress, openAuthor],
   );
 
 
@@ -270,10 +263,11 @@ function CommentsBody({ feed }: { feed: UseFeedResult<CommentResponse> }) {
 // NewsCommentsScreen (default export)
 // -----------------------------------------------------------
 //
-// Owns the paginated feed keyed on postId and the
-// server-confirmed prepend (the composer keeps its text on a
-// failed send); the KeyboardAvoidingView offsets by the stack
-// header's height, and a missing postId short-circuits to the
+// Owns the paginated feed keyed on postId, the gone flag a
+// 404 raises, the server-confirmed prepend (the composer
+// keeps its text on a failed send) and the comment actions;
+// the KeyboardAvoidingView offsets by the stack header's
+// height, and a missing postId short-circuits to the
 // not-found state before anything loads.
 //
 // Used by:
@@ -284,6 +278,7 @@ function CommentsBody({ feed }: { feed: UseFeedResult<CommentResponse> }) {
 function NewsCommentsScreen() {
 
   const postId = useRouteParam('postId');
+  const postAuthorId = useRouteParam('authorId');
   const { isAuthenticated } = useAuth();
   const { t } = useTranslation();
   const headerHeight = useHeaderHeight();
@@ -291,17 +286,39 @@ function NewsCommentsScreen() {
   const returnTo = useReturnHref();
 
 
+  // A 404 means the post itself is gone (deleted, or hidden
+  // since) — that is "not found", not a load error with retry
+  const [gone, setGone] = useState(false);
+
   const feed = useFeed<CommentResponse>(
     async (page) => {
       if (!postId) return { items: [], hasMore: false };
-      const response = await fetchComments(postId, page, COMMENTS_PER_PAGE);
-      return {
-        items: response.comments,
-        hasMore: page * response.perPage < response.total,
-      };
+      try {
+        const response = await fetchComments(postId, page, COMMENTS_PER_PAGE);
+        setGone(false);
+        return {
+          items: response.comments,
+          hasMore: page * response.perPage < response.total,
+        };
+      } catch (err) {
+        if (err instanceof ApiError && err.code === 'http' && err.status === 404) {
+          setGone(true);
+          return { items: [], hasMore: false };
+        }
+        throw err;
+      }
     },
     { deps: [postId] },
   );
+
+
+  // A confirmed delete: the row leaves the thread
+  const { setItems } = feed;
+  const handleDeleted = useCallback(
+    (commentId: string) => setItems((items) => items.filter((item) => item.id !== commentId)),
+    [setItems],
+  );
+  const commentActions = useCommentActions({ postId, postAuthorId, onDeleted: handleDeleted });
 
 
   // Server-confirmed prepend; the composer keeps the text on
@@ -327,9 +344,10 @@ function NewsCommentsScreen() {
   }, [returnTo, router]);
 
 
-  // No postId means the route was reached without a post —
-  // nothing to load, nothing to comment on
-  if (!postId) {
+  // No postId means the route was reached without a post, and
+  // a 404 means it is gone — nothing to show, nothing to
+  // comment on
+  if (!postId || gone) {
     return (
       <Screen>
         <EmptyState icon="chatbubbles-outline" title={t('newsPost.notFound')} />
@@ -345,7 +363,7 @@ function NewsCommentsScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={headerHeight}
       >
-        <CommentsBody feed={feed} />
+        <CommentsBody feed={feed} onLongPress={commentActions} />
         {/* Guests see the kit's sign-in prompt instead of the
             field — auth adds the comment, never gates reading */}
         <CommentComposer

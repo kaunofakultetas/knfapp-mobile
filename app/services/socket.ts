@@ -9,10 +9,13 @@
 //  disconnectSocket / suspendSocket, the status accessors, the
 //  emitters and the on* helpers.
 //
-//  Several of those helpers have no app-side caller today (the
-//  chat engine drives the room-level traffic through
-//  socketClient itself); they are kept as the module's stable
-//  surface and each banner says so honestly.
+//  The chat engine drives the room-level traffic (typing,
+//  reactions, edits) through socketClient itself, so the
+//  subscriptions kept here are the three the app-level badge
+//  and the messages list really use — the reaction / typing /
+//  edit twins that nothing ever called were retired (KNF-192).
+//  Four emitters still have no app-side caller; they stay as
+//  the module's stable surface and their banners say so.
 //
 //  Split into:
 //
@@ -21,7 +24,7 @@
 //    lifecycle     — connect / disconnect / suspend
 //    status        — getSocketStatus / onSocketStatusChange
 //    emitters      — join / leave / typing / mark_read
-//    on* helpers   — registry-backed subscriptions
+//    on* helpers   — new message / read / deleted subscriptions
 // -----------------------------------------------------------
 
 // Socket.IO is served on the API host, above the /api prefix
@@ -37,11 +40,7 @@ import { createKnfSocket } from '@knf/chatengine/adapters/knf';
 import type {
   ApiMessage,
   ApiMessageDeletedEvent,
-  ApiMessageEditedEvent,
   ApiMessagesReadEvent,
-  ApiReactionUpdate,
-  ApiStopTypingEvent,
-  ApiTypingEvent,
 } from '@knf/chatengine/adapters/knf';
 import type { RealtimeStatus } from '@knf/chatengine';
 
@@ -112,86 +111,6 @@ export type SocketMessage = ApiMessage;
 // -----------------------------------------------------------
 
 export type MessageDeletedEvent = ApiMessageDeletedEvent;
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// MessageEditedEvent
-// -----------------------------------------------------------
-//
-// { conversationId, messageId, text, editedAt } — `text` is
-// the full replacement body, not a diff, and `editedAt` is the
-// server's stamp; broadcast room-wide, sender echo included.
-//
-// Used by:
-//   - onMessageEdited (below) — the listener payload
-// -----------------------------------------------------------
-
-export type MessageEditedEvent = ApiMessageEditedEvent;
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// ReactionUpdate
-// -----------------------------------------------------------
-//
-// The row's FULL reaction state after any add/remove —
-// `reactions` replaces what the client holds, never merges as
-// a delta — so a missed event self-heals on the next one.
-//
-// Used by:
-//   - onReactionUpdate (below) — the listener payload
-// -----------------------------------------------------------
-
-export type ReactionUpdate = ApiReactionUpdate;
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// TypingEvent
-// -----------------------------------------------------------
-//
-// { conversationId, userId, displayName } — displayName is
-// resolved server-side, ready for the indicator; the typist's
-// own sockets are skipped, so a device never sees itself type.
-//
-// Used by:
-//   - onTyping (below) — the listener payload
-// -----------------------------------------------------------
-
-export type TypingEvent = ApiTypingEvent;
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// StopTypingEvent
-// -----------------------------------------------------------
-//
-// TypingEvent's closing half, without displayName — the
-// { conversationId, userId } pair is enough to clear the
-// indicator; the sender's own sockets are skipped here too.
-//
-// Used by:
-//   - onStopTyping (below) — the listener payload
-// -----------------------------------------------------------
-
-export type StopTypingEvent = ApiStopTypingEvent;
 
 
 
@@ -475,68 +394,6 @@ export const onNewMessage = (listener: (data: SocketMessage) => void) => socketC
 
 
 // -----------------------------------------------------------
-// onReactionUpdate
-// -----------------------------------------------------------
-//
-// Registry-backed subscription; the payload carries the row's
-// whole reaction state, meant to replace — not merge into —
-// whatever the listener holds. Returns the unsubscribe.
-//
-// Used by:
-//   - nothing calls this at the moment — the chat engine
-//     subscribes through the transport instead
-// -----------------------------------------------------------
-
-export const onReactionUpdate = (listener: (data: ReactionUpdate) => void) => socketClient.on('reaction_update', listener);
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// onTyping
-// -----------------------------------------------------------
-//
-// Registry-backed subscription to user_typing; never fires
-// for this device's own typing — the server skips the
-// sender's sid. Returns the unsubscribe.
-//
-// Used by:
-//   - nothing calls this at the moment — see onReactionUpdate
-// -----------------------------------------------------------
-
-export const onTyping = (listener: (data: TypingEvent) => void) => socketClient.on('user_typing', listener);
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// onStopTyping
-// -----------------------------------------------------------
-//
-// The clearing half of onTyping, with the same own-sid skip;
-// a listener must also expire indicators on a timer — the
-// stop emit is volatile and can be lost. Returns the
-// unsubscribe.
-//
-// Used by:
-//   - nothing calls this at the moment — see onReactionUpdate
-// -----------------------------------------------------------
-
-export const onStopTyping = (listener: (data: StopTypingEvent) => void) => socketClient.on('user_stop_typing', listener);
-
-
-
-
-
-
-
-// -----------------------------------------------------------
 // onMessagesRead
 // -----------------------------------------------------------
 //
@@ -571,25 +428,3 @@ export const onMessagesRead = (listener: (data: MessagesReadEvent) => void) => s
 // -----------------------------------------------------------
 
 export const onMessageDeleted = (listener: (data: MessageDeletedEvent) => void) => socketClient.on('message_deleted', listener);
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// onMessageEdited
-// -----------------------------------------------------------
-//
-// Registry-backed subscription; the payload's text replaces
-// the row's body in place and editedAt is the server's stamp.
-// Returns the unsubscribe.
-//
-// Used by:
-//   - nothing calls this at the moment — the open room's edits
-//     arrive through the chat engine; kept for parity with the
-//     other subscriptions
-// -----------------------------------------------------------
-
-export const onMessageEdited = (listener: (data: MessageEditedEvent) => void) => socketClient.on('message_edited', listener);

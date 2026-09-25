@@ -168,7 +168,10 @@ export interface NotifyEngineLike {
 // -----------------------------------------------------------
 //
 // The color tokens both components paint with — neutral by
-// default; a host maps its own tokens on.
+// default; a host maps its own tokens on. `onBrand` is the ink
+// ON a brand fill (the gate's button label) — optional, white
+// when absent: `surface` is no stand-in, since a dark scheme's
+// surface on its lifted brand pink misses AA contrast.
 //
 // Used by:
 //   - defaultColors (below) — the fallback palette
@@ -182,6 +185,37 @@ export interface NotifyColors {
   line: string;
   brand: string;
   surface: string;
+  onBrand?: string;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// NotifyFonts
+// -----------------------------------------------------------
+//
+// The font families the components set their text in, by
+// role: regular for hints and bodies, medium for row labels,
+// bold for titles and the gate's button. Every family is
+// optional — an absent one keeps the platform font (with a
+// weight where the role calls for one), so a host with no
+// custom typography passes nothing. A given family is used
+// WITHOUT a fontWeight: Android resolves a custom family plus
+// a weight to a fallback face on some devices.
+//
+// Used by:
+//   - PermissionGate.tsx / NotifySettingsPanel.tsx — the
+//     `fonts` prop
+// -----------------------------------------------------------
+
+export interface NotifyFonts {
+  regular?: string;
+  medium?: string;
+  bold?: string;
 }
 
 
@@ -208,4 +242,5 @@ export const defaultColors: NotifyColors = {
   line: '#E5E7EB',
   brand: '#2F6FED',
   surface: '#FFFFFF',
+  onBrand: '#FFFFFF',
 };

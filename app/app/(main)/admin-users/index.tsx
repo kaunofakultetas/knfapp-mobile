@@ -334,8 +334,11 @@ const UserCard = memo(function UserCard({
         </View>
       </View>
 
+      {/* The three actions need ~325pt in either language — more
+          than a 375pt phone's card has inside its margins — so
+          the row wraps instead of running out of the card */}
       {!isSelf && (
-        <View className="mt-md flex-row gap-sm border-t border-line pt-md">
+        <View className="mt-md flex-row flex-wrap gap-sm border-t border-line pt-md">
 
           <Pressable
             onPress={() => onChangeRole(item)}

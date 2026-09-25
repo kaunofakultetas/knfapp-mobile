@@ -354,6 +354,38 @@ export interface KitMessage {
   // ISO timestamp of the sender's last edit — the bubble adds
   // an "edited" mark to its time line
   editedAt?: string | null;
+  // A 'system' row's event (see KitSystemEvent) — the caption is
+  // worded from it through labels.systemMessage, `text` is the
+  // fallback for rows without one
+  system?: KitSystemEvent | null;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// KitSystemEvent
+// -----------------------------------------------------------
+//
+// What a 'system' row narrates as a code plus parameters —
+// structurally the engine's ChatSystemEvent: 'group_created'
+// {title}, 'left', 'ttl_on' {seconds}, 'ttl_off'. The kit
+// never interprets a code itself; the host's
+// labels.systemMessage words it (null → the row's text).
+//
+// Used by:
+//   - KitMessage (above) — the `system` field
+//   - provider/labels.ts — labels.systemMessage's argument
+//   - message/SystemMessage.tsx — the caption
+// -----------------------------------------------------------
+
+export interface KitSystemEvent {
+  event: string;
+  title?: string;
+  seconds?: number;
 }
 
 
@@ -405,6 +437,9 @@ export interface KitMemeItem {
   height?: number | null;
   // The ~14px micro copy blurring the tile
   preview?: string | null;
+  // Pushed by the viewer — the tile offers its removal (a
+  // long-press, and a named accessibility action)
+  own?: boolean;
 }
 
 

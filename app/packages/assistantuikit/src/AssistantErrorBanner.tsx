@@ -11,7 +11,9 @@
 //  in and render nothing while it carries no error, so the
 //  banner needs no state of its own and must sit under a
 //  message provider (the thread places it under the LAST
-//  message's).
+//  message's). The strip is an ALERT to assistive tech — it
+//  appears without the reader asking — and every line is
+//  drawn in the host's families.
 //
 //  Used by:
 //    - AssistantThread.tsx — above the composer, last message scope
@@ -21,7 +23,8 @@
 import { Pressable, Text, View } from 'react-native';
 import { ErrorPrimitive } from '@assistant-ui/react-native';
 
-import { defaultColors, type AssistantColors, type AssistantLabels } from './core/types';
+import { typeface } from './core/typography';
+import { defaultColors, defaultFonts, type AssistantColors, type AssistantFonts, type AssistantLabels } from './core/types';
 
 
 
@@ -47,15 +50,21 @@ import { defaultColors, type AssistantColors, type AssistantLabels } from './cor
 export default function AssistantErrorBanner({
   labels,
   colors = defaultColors,
+  fonts = defaultFonts,
   onRetry,
 }: {
   labels: AssistantLabels;
   colors?: AssistantColors;
+  fonts?: AssistantFonts;
   onRetry: () => void;
 }) {
   return (
     <ErrorPrimitive.Root
       testID="assistantuikit-error"
+      // Announced when it appears — VoiceOver reads an alert,
+      // TalkBack a polite live region
+      accessibilityRole="alert"
+      accessibilityLiveRegion="polite"
       style={{
         marginHorizontal: 12,
         marginBottom: 8,
@@ -66,9 +75,15 @@ export default function AssistantErrorBanner({
         backgroundColor: colors.surface,
       }}
     >
-      <Text style={{ fontSize: 14, fontWeight: '600', color: colors.danger, marginBottom: 2 }}>{labels.errorTitle}</Text>
-      <Text style={{ fontSize: 13, lineHeight: 18, color: colors.ink }}>{labels.errorBody}</Text>
-      <ErrorPrimitive.Message style={{ fontSize: 12, lineHeight: 16, color: colors.inkSoft, marginTop: 4 }} />
+      <Text style={{ fontSize: 14, ...typeface(fonts, 'semibold'), color: colors.danger, marginBottom: 2 }}>{labels.errorTitle}</Text>
+      <Text style={{ fontSize: 13, lineHeight: 18, ...typeface(fonts, 'regular'), color: colors.ink }}>{labels.errorBody}</Text>
+      {/* The runtime's own words — the code and status of the
+          failure, kept visible and selectable on purpose:
+          students report problems by screenshot */}
+      <ErrorPrimitive.Message
+        selectable
+        style={{ fontSize: 12, lineHeight: 16, ...typeface(fonts, 'regular'), color: colors.inkSoft, marginTop: 4 }}
+      />
       <View style={{ flexDirection: 'row', marginTop: 10 }}>
         <Pressable
           accessibilityRole="button"
@@ -85,7 +100,7 @@ export default function AssistantErrorBanner({
             justifyContent: 'center',
           }}
         >
-          <Text style={{ fontSize: 13, fontWeight: '600', color: colors.onBrand }}>{labels.retry}</Text>
+          <Text style={{ fontSize: 13, ...typeface(fonts, 'semibold'), color: colors.onBrand }}>{labels.retry}</Text>
         </Pressable>
       </View>
     </ErrorPrimitive.Root>

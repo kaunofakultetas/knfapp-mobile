@@ -96,10 +96,16 @@ export function normalizeEntries<T = object>(rows: readonly (TimetableEntry<T> |
       continue;
     }
     // Shape too, not just times: a non-string title or a bare
-    // string where a name ARRAY belongs would crash the sort
-    // and the conflict scan far from here — the gate is the
-    // one door, so it checks everything downstream leans on
-    if (typeof row.title !== 'string' || !stringArrayOrAbsent(row.people) || !stringArrayOrAbsent(row.location)) {
+    // string where a name (or subgroup) ARRAY belongs would
+    // crash the sort and the conflict scan far from here — the
+    // gate is the one door, so it checks everything downstream
+    // leans on
+    if (
+      typeof row.title !== 'string' ||
+      !stringArrayOrAbsent(row.people) ||
+      !stringArrayOrAbsent(row.location) ||
+      !stringArrayOrAbsent(row.subgroupKeys)
+    ) {
       skipped += 1;
       continue;
     }

@@ -19,12 +19,21 @@
 //    - identity — avatar, name and role for a signed-in
 //      user (tap → own profile), or a guest card with a
 //      sign-in button;
-//    - sections — the six app surfaces with the active one
-//      washed in brand; pins decide which appear in the bottom
-//      tab bar (news and messages are always pinned);
+//    - sections — the app surfaces this build ships (the
+//      roster in constants/tabs, filtered by features.json)
+//      with the active one washed in brand; pins decide which
+//      appear in the bottom tab bar (news and messages are
+//      always pinned);
 //    - more — faculty info, friends, admin for the roles that
 //      have it;
 //    - footer — theme and language quick switches, version.
+//
+//  The two SafeAreaViews (identity, footer) carry ONLY their
+//  inset edge: horizontal padding lives on an inner View,
+//  because SafeAreaView rewrites its left/right padding from
+//  the insets and reads only the physical keys — NativeWind's
+//  px-* arrives as start/end padding, which the web build then
+//  drops (the footer once sat flush against both edges).
 //
 //  Split into (root component last):
 //
@@ -193,15 +202,17 @@ function IdentityCard({ onNavigate }: { onNavigate: (route: Href) => void }) {
         {/* A white pill on the burgundy card — the kit's variants
             are all designed for surfaces, not for brand
             backgrounds. An accounts-less build has no door for
-            the pill to open, so it does not render one */}
+            the pill to open, so it does not render one. The pill
+            is 40pt tall; hitSlop makes the target 44+ */}
         {isFeatureEnabled('accounts') && (
           <Pressable
             className="mt-sm h-10 self-start justify-center rounded-full bg-on-brand px-lg active:opacity-85"
+            hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
             onPress={() => onNavigate({ pathname: '/login', params: { returnTo: returnHref } } as Href)}
             accessibilityRole="button"
             accessibilityLabel={t('settings.login')}
           >
-            <Text className="font-raleway-bold text-sm text-brand">{t('settings.login')}</Text>
+            <Text className="font-raleway-bold text-sm text-brand-fill">{t('settings.login')}</Text>
           </Pressable>
         )}
         </View>
@@ -321,8 +332,13 @@ function SectionRow({
           soft neutral circle + faint outline pin, always-pinned =
           the pinned badge dimmed (same family, not a toggle) */}
       {locked ? (
+        // Its own accessibility element — a label on a plain
+        // View is never announced, and the toggles beside it
+        // on the other rows are reachable too
         <View
           className="h-7 w-7 items-center justify-center rounded-full bg-brand opacity-50"
+          accessible
+          accessibilityRole="image"
           accessibilityLabel={t('menu.alwaysPinned')}
         >
           <Ionicons name="pin" size={15} color={colors.onBrand} />
@@ -435,10 +451,16 @@ function QuickSwitches() {
 
 
   // SafeAreaView for the same reason as the identity card: the
-  // hook reported 0 inside this absolute layer on one device
+  // hook reported 0 inside this absolute layer on one device.
+  // It carries the border and the bottom inset only — the
+  // padding sits on the inner View (file header). The two pill
+  // groups need 244pt side by side, more than a 320pt phone's
+  // drawer has inside its padding, so they wrap onto two lines
+  // there instead of running off the panel
   return (
-    <SafeAreaView edges={['bottom']} className="border-t border-line px-lg pt-md pb-4">
-      <View className="flex-row items-center justify-between">
+    <SafeAreaView edges={['bottom']} className="border-t border-line">
+    <View testID="sidebar-footer" className="px-lg pt-md pb-4">
+      <View className="flex-row flex-wrap items-center justify-between gap-sm">
 
         {/* Theme — icon segments */}
         <View
@@ -501,6 +523,7 @@ function QuickSwitches() {
       <Text className="mt-md font-raleway text-xs text-ink-faint">
         VU KNF · {t('menu.version', { version })}
       </Text>
+    </View>
     </SafeAreaView>
   );
 }
@@ -557,8 +580,9 @@ export default function Sidebar() {
 
   // Navigation this drawer did not start (deep links, pushed
   // notifications) must not leave it hanging open: any pathname
-  // change closes it. close's identity changes with isOpen, so
-  // it rides a ref and pathname stays the only dependency.
+  // change closes it. close is stable today (DrawerContext
+  // memoizes it), but it rides a ref anyway so pathname stays
+  // the only dependency whatever the provider hands out.
   const closeRef = useRef(close);
   useEffect(() => {
     closeRef.current = close;

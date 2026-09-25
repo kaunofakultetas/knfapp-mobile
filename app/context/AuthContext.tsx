@@ -70,6 +70,7 @@
 //  Split into:
 //
 //    AuthAction / initialState — reducer plumbing
+//    sameProfile               — unchanged-profile check
 //    authReducer               — pure session transitions
 //    AuthProvider              — hydration, actions, teardown
 //    useAuth                   — the consumer hook
@@ -286,6 +287,35 @@ const promptForPermission = (engine: NotifyEngine, result: RegisterResult): void
 
 
 // -----------------------------------------------------------
+// sameProfile
+// -----------------------------------------------------------
+//
+// Field-by-field equality of two user records (the backend's
+// serializer emits one fixed key order, and the stored record
+// is written from that same shape) — what lets SET_USER keep
+// the current object for an unchanged profile.
+//
+// Used by:
+//   - authReducer (below) — SET_USER
+// -----------------------------------------------------------
+
+const sameProfile = (a: User | null, b: User): boolean => {
+  if (a === b) return true;
+  if (!a) return false;
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const key of keys) {
+    if (JSON.stringify(a[key as keyof User]) !== JSON.stringify(b[key as keyof User])) return false;
+  }
+  return true;
+};
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // authReducer
 // -----------------------------------------------------------
 //
@@ -317,8 +347,13 @@ export function authReducer(state: AuthState, action: AuthAction): AuthState {
       return { ...initialState };
     case 'SET_USER':
       // Meaningful only on a live session — a late /me response
-      // landing after logout must not resurrect the user
-      return state.isAuthenticated ? { ...state, user: action.payload } : state;
+      // landing after logout must not resurrect the user. An
+      // IDENTICAL profile keeps the current object: every
+      // foreground runs /me, and a fresh-but-equal user used to
+      // rebuild everything memoized on it (the engine hosts'
+      // envs) on each app switch
+      if (!state.isAuthenticated) return state;
+      return sameProfile(state.user, action.payload) ? state : { ...state, user: action.payload };
     default:
       return state;
   }

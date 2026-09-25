@@ -31,19 +31,75 @@ import MessageBubble from '../message/MessageBubble';
 import { ChatUiKitProvider } from '../provider';
 import { defaultLabels } from '../provider/labels';
 
-const labels = defaultLabels.en;
-const noop = () => {};
-const METRICS = { insets: { top: 0, bottom: 34, left: 0, right: 0 }, frame: { x: 0, y: 0, width: 390, height: 800 } };
-const wrap = (ui: React.ReactElement, components?: Record<string, unknown>) =>
-  render(<SafeAreaProvider initialMetrics={METRICS}><ChatUiKitProvider locale="en" components={components as never}>{ui}</ChatUiKitProvider></SafeAreaProvider>);
 
-const message = (over: Partial<KitMessage> = {}): KitMessage => ({
-  id: 'm1', senderId: 'u2', senderName: 'Ona', text: 'labas', createdAt: '2026-08-27T10:00:00Z', isOwn: false, status: 'read', reactions: [], ...over,
-});
+// The kit's own English wording
+const labels = defaultLabels.en;
+// Safe-area metrics of a notched 390pt phone
+const METRICS = { insets: { top: 0, bottom: 34, left: 0, right: 0 }, frame: { x: 0, y: 0, width: 390, height: 800 } };
+// The bubble's required props, all inert
 const bubbleProps = {
   position: 'single' as const, showSender: false, avatarSlot: 'none' as const, timeRevealed: false, showStatus: false, highlighted: false, animateIn: false, hidden: false,
   canAct: true, canReply: true, labels, onPress: noop, onLongPress: noop, onSwipeReply: noop, onPressQuote: noop, onPressImage: noop, onPressReactions: noop, onRetry: noop, onPressLink: noop,
 };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// noop
+// -----------------------------------------------------------
+//
+// The inert handler every required callback gets.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
+
+function noop() {}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// wrap
+// -----------------------------------------------------------
+//
+// Renders under the safe-area and kit providers, English,
+// with optional slot components.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
+
+function wrap(ui: React.ReactElement, components?: Record<string, unknown>) {
+  return render(<SafeAreaProvider initialMetrics={METRICS}><ChatUiKitProvider locale="en" components={components as never}>{ui}</ChatUiKitProvider></SafeAreaProvider>);
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// message
+// -----------------------------------------------------------
+//
+// A foreign row with overrides.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
+
+function message(over: Partial<KitMessage> = {}): KitMessage {
+  return { id: 'm1', senderId: 'u2', senderName: 'Ona', text: 'labas', createdAt: '2026-08-27T10:00:00Z', isOwn: false, status: 'read', reactions: [], ...over };
+}
 
 describe('ConnectionBanner', () => {
   it('draws each state and nothing for null', async () => {
@@ -101,18 +157,52 @@ describe('Bubble marks', () => {
   });
 });
 
-describe('Composer camera shortcut', () => {
+describe('Composer attachment tray', () => {
   const base = {
     onChangeText: noop, onSend: noop, onQuickLike: noop, onAttachMedia: noop, onAttachFile: noop,
     onToggleEmoji: noop, emojiOpen: false, uploadingMedia: false, replyTo: null, onCancelReply: noop,
   };
 
-  it('fires while the field is empty and steps aside once text arrives', async () => {
+  it('the camera lives in the tray — reachable with or without a draft — and a pick closes the tray', async () => {
     const onAttachCamera = jest.fn();
-    const empty = await wrap(<Composer {...base} value="" onAttachCamera={onAttachCamera} />);
-    await fireEvent.press(empty.getByTestId('chatuikit-camera'));
-    expect(onAttachCamera).toHaveBeenCalledTimes(1);
-    const typed = await wrap(<Composer {...base} value="labas" onAttachCamera={onAttachCamera} />);
-    expect(typed.queryByTestId('chatuikit-camera')).toBeNull();
+    for (const value of ['', 'labas']) {
+      const view = await wrap(<Composer {...base} value={value} onAttachCamera={onAttachCamera} />);
+      expect(view.queryByTestId('chatuikit-camera')).toBeNull();
+      await fireEvent.press(view.getByTestId('chatuikit-attach-toggle'));
+      await fireEvent.press(view.getByTestId('chatuikit-camera'));
+      expect(view.queryByTestId('chatuikit-attach-tray')).toBeNull();
+    }
+    expect(onAttachCamera).toHaveBeenCalledTimes(2);
+  });
+
+  it('offers exactly what the host wires, and speaks the long labels', async () => {
+    const onToggleMemes = jest.fn();
+    const view = await wrap(<Composer {...base} value="" onAttachFile={undefined} onToggleMemes={onToggleMemes} memesOpen={false} />);
+    await fireEvent.press(view.getByTestId('chatuikit-attach-toggle'));
+    expect(view.getByRole('button', { name: 'Attach a photo or video' })).toBeTruthy();
+    expect(view.queryByTestId('chatuikit-attach-file')).toBeNull();
+    expect(view.queryByTestId('chatuikit-camera')).toBeNull();
+    await fireEvent.press(view.getByRole('button', { name: 'Meme library' }));
+    expect(onToggleMemes).toHaveBeenCalledTimes(1);
+  });
+
+  it('the mic shows only while nothing is typed; the field keeps the emoji toggle alone', async () => {
+    const withMic = { ...base, onStartRecording: noop, onStopRecording: noop, onCancelRecording: noop };
+    const empty = await wrap(<Composer {...withMic} value="" onToggleMemes={noop} onAttachCamera={noop} />);
+    expect(empty.getByRole('button', { name: 'Record a voice message' })).toBeTruthy();
+    // The in-field camera and meme badge are gone — the tray has them
+    expect(empty.queryByTestId('chatuikit-memes-toggle')).toBeNull();
+    const typed = await wrap(<Composer {...withMic} value="labas" />);
+    expect(typed.queryByRole('button', { name: 'Record a voice message' })).toBeNull();
+  });
+
+  it('opening the tray closes the emoji row and the meme panel', async () => {
+    const onToggleEmoji = jest.fn();
+    const onToggleMemes = jest.fn();
+    const view = await wrap(<Composer {...base} value="" emojiOpen onToggleEmoji={onToggleEmoji} onToggleMemes={onToggleMemes} memesOpen />);
+    await fireEvent.press(view.getByTestId('chatuikit-attach-toggle'));
+    expect(onToggleEmoji).toHaveBeenCalledTimes(1);
+    expect(onToggleMemes).toHaveBeenCalledTimes(1);
+    expect(view.getByTestId('chatuikit-attach-tray')).toBeTruthy();
   });
 });

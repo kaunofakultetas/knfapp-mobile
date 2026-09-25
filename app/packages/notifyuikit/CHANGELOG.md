@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased — 2026-09-25
+
+Typography and contrast reach the kit — both additions optional, and
+a host passing neither renders the 1.1 tree apart from the fixes:
+
+- **`fonts`** on both components (`NotifyFonts`: `regular`, `medium`,
+  `bold`, each optional). Row labels set in `medium`, hints and the
+  gate's body and unsupported note in `regular`, the gate's title and
+  button in `bold`; a given family replaces the fontWeight (Android
+  can fall back to a system face for a custom family plus a weight).
+  The unsupported note used to set in the system font beside a
+  Raleway screen.
+- **`colors.onBrand`** (optional, white when absent) is the gate
+  button's label ink. The label used `surface`, which on a dark
+  scheme's lifted brand fill reads at 3.6:1 — under AA.
+- The gate's button is a 44pt touch target at least (`minHeight`).
+- A row's hint is also its switch's `accessibilityHint`, so a screen
+  reader hears what the switch is for, not just its name.
+
 ## 1.1.1 — 2026-09-05
 
 The engine's host gate reaches the mirror:

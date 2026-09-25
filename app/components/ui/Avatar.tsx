@@ -15,6 +15,14 @@
 //  The optional online dot sits on the bottom-right edge with
 //  a surface ring, so it separates cleanly from any photo
 //  underneath in both schemes.
+//
+//  Bytes and memory: a portrait small enough for the server's
+//  320 px derivative requests it (?s=thumb) instead of the
+//  2048 px original (KNF-136), and decoded images stay in
+//  expo-image's MEMORY cache as well as on disk — the disk-
+//  only default re-decoded every row a recycling list brought
+//  back into view (KNF-189, the policy the rest of the tree
+//  already used).
 // -----------------------------------------------------------
 
 // Cached remote image rendering
@@ -22,10 +30,10 @@ import { Image } from 'expo-image';
 
 // Fallback disc and online dot primitives
 import { useState } from 'react';
-import { Text, View } from 'react-native';
+import { PixelRatio, Text, View } from 'react-native';
 
 // Resolves relative backend upload paths to absolute URLs
-import { getUploadUrl } from '@/services/api';
+import { getUploadThumbUrl, getUploadUrl } from '@/services/api';
 
 // The presence dot's spoken name
 import { useTranslation } from 'react-i18next';
@@ -38,6 +46,11 @@ interface AvatarProps {
   online?: boolean;
 }
 
+// The server's derivative edge (uploads/storage.py THUMB_EDGE)
+// — a disc drawn wider than this in device pixels keeps the
+// original
+const THUMB_EDGE_PX = 320;
+
 
 
 
@@ -48,10 +61,14 @@ interface AvatarProps {
 // Avatar (default export)
 // -----------------------------------------------------------
 //
-// Renders the photo only when getUploadUrl resolves the uri
-// AND no load failure is recorded for it — the failed flag is
-// re-keyed to the uri during render, so a changed photo gets
-// a fresh attempt without any effect plumbing.
+// Renders the photo only when the uri resolves AND no load
+// failure is recorded for it — the failed flag is re-keyed to
+// the uri during render, so a changed photo gets a fresh
+// attempt without any effect plumbing. The initial is
+// decorative (the name always sits beside the portrait), so
+// it is hidden from screen readers and does not scale with
+// the system text size — the disc cannot grow with it, and a
+// scaled letter overflowed it at the largest settings.
 //
 // Used by:
 //   - components/chat/ConversationRow.tsx — list portraits
@@ -71,8 +88,8 @@ export default function Avatar({ uri, name, size = 40, online = false }: AvatarP
   // spread takes a whole code POINT, so an emoji or other
   // non-BMP first character stays one glyph instead of half a
   // surrogate pair; '?' covers blank names from incomplete
-  // registrations
-  const initial = [...name.trim()][0]?.toUpperCase() ?? '?';
+  // registrations (and a payload that omitted the name)
+  const initial = [...(name ?? '').trim()][0]?.toUpperCase() ?? '?';
 
 
   // Dot scales with the avatar but never below a visible 10px
@@ -91,8 +108,10 @@ export default function Avatar({ uri, name, size = 40, online = false }: AvatarP
 
   // null for a foreign-origin http(s) URL — defence in depth
   // on top of the backend's avatar_url validation, rendering
-  // the initial disc instead of a tracking beacon
-  const resolvedUri = uri ? getUploadUrl(uri) : null;
+  // the initial disc instead of a tracking beacon. A disc the
+  // derivative covers at this screen's density asks for it
+  const thumbFits = size * PixelRatio.get() <= THUMB_EDGE_PX;
+  const resolvedUri = uri ? (thumbFits ? getUploadThumbUrl(uri) : getUploadUrl(uri)) : null;
 
 
   return (
@@ -105,6 +124,7 @@ export default function Avatar({ uri, name, size = 40, online = false }: AvatarP
           source={{ uri: resolvedUri }}
           style={{ width: size, height: size, borderRadius: size / 2 }}
           contentFit="cover"
+          cachePolicy="memory-disk"
           recyclingKey={uri}
           transition={100}
           onError={() => setFailed(true)}
@@ -113,8 +133,14 @@ export default function Avatar({ uri, name, size = 40, online = false }: AvatarP
         <View
           className="items-center justify-center rounded-full bg-brand-soft"
           style={{ width: size, height: size }}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
         >
-          <Text className="font-raleway-bold text-brand" style={{ fontSize: size * 0.4 }}>
+          <Text
+            className="font-raleway-bold text-brand"
+            style={{ fontSize: size * 0.4 }}
+            allowFontScaling={false}
+          >
             {initial}
           </Text>
         </View>

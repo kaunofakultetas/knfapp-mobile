@@ -140,7 +140,7 @@ function CardAvatar({ user, size }: { user: KitUser; size: number }) {
         backgroundColor: colors.brandSoft,
       }}
     >
-      <Text style={{ fontFamily: fonts.bold, fontSize: size * 0.42, color: colors.brand }}>{initial}</Text>
+      <Text style={{ fontFamily: fonts.bold, fontSize: size * 0.42, color: colors.brandText }}>{initial}</Text>
     </View>
   );
 }
@@ -284,7 +284,7 @@ function PostCard({
         <View style={{ paddingHorizontal: 12, paddingTop: 10 }}>
           <Text style={{ fontFamily: fonts.regular, fontSize: 15, lineHeight: 21, color: colors.ink }}>{body}</Text>
           {folded ? (
-            <Text style={{ marginTop: 4, fontFamily: fonts.medium, fontSize: 13, color: colors.brand }}>
+            <Text style={{ marginTop: 4, fontFamily: fonts.medium, fontSize: 13, color: colors.brandText }}>
               {labels.readMore}
             </Text>
           ) : null}

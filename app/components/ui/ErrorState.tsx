@@ -6,7 +6,10 @@
 //  icon on a danger wash) and `offline` (cloud icon on a
 //  neutral wash) — the default message follows the flavor
 //  when the caller passes none. The retry button is not
-//  optional: a failure is never a dead end.
+//  optional: a failure is never a dead end. The message is
+//  announced when it appears (a screen reader would otherwise
+//  sit on a vanished spinner in silence) and read in the
+//  app's language.
 // -----------------------------------------------------------
 
 // JS-side icon color
@@ -14,9 +17,9 @@ import { useTheme } from '@/hooks/useTheme';
 
 // Layout + the retry button
 import { Ionicons } from '@expo/vector-icons';
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Text, View } from 'react-native';
+import { AccessibilityInfo, Text, View } from 'react-native';
 import { Button } from './Button';
 
 
@@ -56,13 +59,20 @@ export default function ErrorState({
   retrying = false,
   onRetry,
 }: ErrorStateProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { colors } = useTheme();
 
 
   // Offline reads as circumstance (neutral), failure as danger
   const icon = offline ? 'cloud-offline-outline' : 'alert-circle-outline';
   const text = message ?? (offline ? t('error.offline') : t('error.unexpected'));
+
+
+  // The failure is a status change the screen reader must hear —
+  // once per message, not on every re-render
+  useEffect(() => {
+    AccessibilityInfo.announceForAccessibility(text);
+  }, [text]);
 
 
   return (
@@ -86,7 +96,10 @@ export default function ErrorState({
         />
       </View>
 
-      <Text className="text-center font-raleway-semibold text-lg text-ink">
+      <Text
+        className="text-center font-raleway-semibold text-lg text-ink"
+        accessibilityLanguage={i18n?.language}
+      >
         {text}
       </Text>
 

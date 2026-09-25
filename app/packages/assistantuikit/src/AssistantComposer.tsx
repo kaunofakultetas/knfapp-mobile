@@ -9,7 +9,10 @@
 //  disabled on an empty field, the field clears when a send
 //  lands); this file only lays them out and colours them.
 //  Submit is the button alone: the keyboard's return key
-//  inserts a newline, on the web too.
+//  inserts a newline, on the web too. Both the field and the
+//  button stand at least 44pt tall — the touch floor for the
+//  one control every turn goes through — and every text is
+//  drawn in the host's families (AssistantFonts).
 //
 //  Split into (root component last):
 //
@@ -24,26 +27,33 @@
 import { Text } from 'react-native';
 import { ComposerPrimitive, useAuiState } from '@assistant-ui/react-native';
 
-import { defaultColors, type AssistantColors, type AssistantLabels } from './core/types';
+import { typeface } from './core/typography';
+import { defaultColors, defaultFonts, type AssistantColors, type AssistantFonts, type AssistantLabels } from './core/types';
 
 
 // The input grows with its text between one line and
 // INPUT_MAX_LINES, then scrolls — min/max height are derived
-// from these, so the three must agree (all in dp)
+// from these, so the three must agree (all in dp). One line
+// plus the padding is exactly the 44pt touch floor, the same
+// height as the button beside it
 const INPUT_LINE_HEIGHT = 20;
 // Vertical padding inside the field, counted into both bounds
-const INPUT_PADDING_V = 10;
+const INPUT_PADDING_V = 12;
 // The tallest the field gets before it scrolls instead
 const INPUT_MAX_LINES = 6;
 
 // Static objects on purpose: a style FUNCTION on a Pressable is
 // dropped under the host's JSX runtime, so the pressed look is
-// left to the platform ripple/highlight
+// left to the platform ripple/highlight. minHeight is the 44pt
+// touch floor (padding + a 14pt label alone came to ~37pt);
+// the label stays small, the PRESSABLE does not
 const BUTTON_STYLE = {
   marginLeft: 8,
   paddingHorizontal: 16,
   paddingVertical: 10,
-  borderRadius: 20,
+  minHeight: 44,
+  borderRadius: 22,
+  alignItems: 'center' as const,
   justifyContent: 'center' as const,
 };
 
@@ -58,14 +68,15 @@ const BUTTON_STYLE = {
 // -----------------------------------------------------------
 //
 // The one 14-point semibold text both buttons share; the
-// caller picks the colour — onBrand on Send, ink on Cancel.
+// caller picks the colour — onBrand on Send, ink on Cancel —
+// and the host's semibold family rides in `fonts`.
 //
 // Used by:
 //   - AssistantComposer (below) — Send and Cancel
 // -----------------------------------------------------------
 
-function ActionLabel({ text, color }: { text: string; color: string }) {
-  return <Text style={{ fontSize: 14, fontWeight: '600', color }}>{text}</Text>;
+function ActionLabel({ text, color, fonts }: { text: string; color: string; fonts: AssistantFonts }) {
+  return <Text style={{ fontSize: 14, ...typeface(fonts, 'semibold'), color }}>{text}</Text>;
 }
 
 
@@ -81,7 +92,8 @@ function ActionLabel({ text, color }: { text: string; color: string }) {
 // Lays the field and one button in a row; isRunning swaps
 // Send for Cancel, canSend only DIMS Send — the primitive
 // owns the real disable. Every string arrives in `labels`,
-// `colors` falls back to the neutral palette.
+// `colors` falls back to the neutral palette, `fonts` to the
+// system face.
 //
 // Used by:
 //   - AssistantThread.tsx
@@ -91,10 +103,12 @@ function ActionLabel({ text, color }: { text: string; color: string }) {
 export default function AssistantComposer({
   labels,
   colors = defaultColors,
+  fonts = defaultFonts,
   onSend,
 }: {
   labels: AssistantLabels;
   colors?: AssistantColors;
+  fonts?: AssistantFonts;
   // The host's haptic tick, fired as a sending press lands
   onSend?: () => void;
 }) {
@@ -132,9 +146,10 @@ export default function AssistantComposer({
           paddingVertical: INPUT_PADDING_V,
           fontSize: 15,
           lineHeight: INPUT_LINE_HEIGHT,
+          ...typeface(fonts, 'regular'),
           color: colors.ink,
           backgroundColor: colors.surfaceSoft,
-          borderRadius: 20,
+          borderRadius: 22,
         }}
       />
 
@@ -145,7 +160,7 @@ export default function AssistantComposer({
           testID="assistantuikit-composer-cancel"
           style={{ ...BUTTON_STYLE, backgroundColor: colors.surfaceSoft, borderWidth: 1, borderColor: colors.line }}
         >
-          <ActionLabel text={labels.cancel} color={colors.ink} />
+          <ActionLabel text={labels.cancel} color={colors.ink} fonts={fonts} />
         </ComposerPrimitive.Cancel>
       ) : (
         <ComposerPrimitive.Send
@@ -155,7 +170,7 @@ export default function AssistantComposer({
           onPressIn={canSend ? onSend : undefined}
           style={{ ...BUTTON_STYLE, backgroundColor: colors.brand, opacity: canSend ? 1 : 0.4 }}
         >
-          <ActionLabel text={labels.send} color={colors.onBrand} />
+          <ActionLabel text={labels.send} color={colors.onBrand} fonts={fonts} />
         </ComposerPrimitive.Send>
       )}
 

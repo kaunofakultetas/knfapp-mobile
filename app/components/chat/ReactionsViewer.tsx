@@ -82,6 +82,7 @@ export default function ReactionsViewer({
           className="mx-md rounded-2xl bg-surface p-md"
           style={{ marginBottom: insets.bottom + 24 }}
           accessibilityViewIsModal
+          onAccessibilityEscape={onClose}
         >
 
           <Text

@@ -16,7 +16,7 @@
 // -----------------------------------------------------------
 
 import type { MessagesPage } from '../../core/transport';
-import type { ChatMessage, ChatMessageKind, ChatReplyRef, ConversationMeta, Participant, ReactionGroup } from '../../core/types';
+import type { ChatMessage, ChatMessageKind, ChatReplyRef, ChatSystemEvent, ConversationMeta, Participant, ReactionGroup } from '../../core/types';
 
 
 
@@ -95,7 +95,10 @@ export interface ApiMedia {
 // -----------------------------------------------------------
 //
 // The quoted-message snapshot the backend joins into a reply
-// row.
+// row. A GHOST quote — the quoted row was hard-deleted by the
+// disappearing-messages sweep, so the join found nothing —
+// arrives deleted with a null sender (chat/api/views.py
+// _reply_payload); the types say so, and mapReply coerces.
 //
 // Used by:
 //   - ApiMessage (below) — the `replyTo` field
@@ -104,8 +107,8 @@ export interface ApiMedia {
 
 export interface ApiReply {
   id: string;
-  senderId: string;
-  senderName: string;
+  senderId: string | null;
+  senderName: string | null;
   text: string;
   imageUrl?: string | null;
   deleted: boolean;
@@ -183,6 +186,8 @@ export interface ApiMessage {
   expiresAt?: string | null;
   pinnedAt?: string | null;
   pinnedBy?: string | null;
+  // A 'system' row's event — the domain shape as is
+  system?: ChatSystemEvent | null;
 }
 
 
@@ -472,7 +477,10 @@ export interface ApiMessagesReadEvent {
 // -----------------------------------------------------------
 //
 // The quoted-message snapshot of a reply, or undefined when
-// the row answers nothing.
+// the row answers nothing. A ghost quote's null sender becomes
+// '' — ChatReplyRef promises strings, and a UI interpolating
+// the name must never print "null" (the snippet already reads
+// "deleted" for such a row).
 //
 // Used by:
 //   - toChatMessage (below) — its only caller; nothing imports
@@ -483,8 +491,8 @@ export const mapReply = (reply: ApiReply | null | undefined): ChatReplyRef | und
   reply
     ? {
         id: reply.id,
-        senderId: reply.senderId,
-        senderName: reply.senderName,
+        senderId: reply.senderId ?? '',
+        senderName: reply.senderName ?? '',
         text: reply.text ?? '',
         imageUrl: reply.imageUrl || undefined,
         deleted: !!reply.deleted,
@@ -601,6 +609,7 @@ export function toChatMessage(m: ApiMessage): ChatMessage {
     expiresAt: m.expiresAt ?? undefined,
     pinnedAt: m.pinnedAt ?? undefined,
     pinnedBy: m.pinnedBy ?? undefined,
+    system: m.system ?? undefined,
   };
 }
 

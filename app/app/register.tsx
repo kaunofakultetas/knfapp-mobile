@@ -27,6 +27,17 @@
 //  index.tsx reads that flag and would otherwise bounce the
 //  fresh account back to onboarding on the next launch.
 //
+//  The form refuses on the FIELD what the server would refuse
+//  — the username shape, the e-mail cap, and the password
+//  policy's checkable rules (6 characters, 72 UTF-8 bytes, not
+//  containing the username or the e-mail's name) — and a
+//  server refusal that names a field (invalid_username,
+//  username_taken, invalid_email, any password_* code) lands
+//  on that field, focused and announced, instead of a toast
+//  that is gone before the student finds the culprit. A
+//  submit is single-flight: a double tap, or Done plus the
+//  button, sends one registration.
+//
 //  Split into (root component last):
 //
 //    REASON_KEYS     — validate-code reason → i18n key
@@ -34,7 +45,9 @@
 //    errorHint       — hint line for connectivity toasts
 //    inviteErrorKey  — submit failure → code-field routing
 //    resolveReturnTo — ?returnTo= validation → safe Href
-//    FormTopBar      — brand top bar, back to login
+//    serverFieldFor  — server machine code → the field it names
+//    utf8Bytes       — the byte length bcrypt's cap counts
+//    FormTopBar      — the app's StackHeader, back to login
 //    CodeStatus      — live code-check feedback
 //    ModeIndicator   — guest vs invited registration row
 //    validateAccountFields — the pure per-field checks
@@ -50,6 +63,7 @@
 import withFeature from '@/components/FeatureGate';
 
 import QrScanner, { extractCode } from '@/components/QrScanner';
+import StackHeader from '@/components/navigation/StackHeader';
 import { Button, Input } from '@/components/ui';
 import { roleLabel } from '@/constants/roles';
 import { useTheme } from '@/hooks/useTheme';
@@ -92,11 +106,33 @@ const REASON_KEYS: Record<string, string> = {
   expired: 'register.codeExpired',
 };
 
-// The backend's account-field shape (users/api/auth_views.py
-// USERNAME_RE / EMAIL_MAX), mirrored so the form refuses what
-// the server would refuse — before the request, on the field
+// The backend's username shape (users/api/auth_views.py
+// USERNAME_RE), mirrored so the form refuses what the server
+// would refuse — before the request, on the field
 const USERNAME_RE = /^[A-Za-z0-9._-]{3,32}$/;
+
+// The backend's e-mail cap (auth_views.py EMAIL_MAX), mirrored
+// the same way
 const EMAIL_MAX = 254;
+
+// The password policy's byte cap (users/auth.py
+// PASSWORD_MAX_BYTES — bcrypt reads no further), in UTF-8
+// bytes: a diacritic counts twice
+const PASSWORD_MAX_BYTES = 72;
+
+// Server machine codes that name ONE account field — the
+// refusal lands on that field instead of a toast
+const SERVER_FIELD_CODES: Record<string, keyof RegisterFields> = {
+  invalid_username: 'username',
+  username_taken: 'username',
+  invalid_email: 'email',
+  weak_password: 'password',
+  password_too_short: 'password',
+  password_too_long: 'password',
+  password_contains_username: 'password',
+  password_contains_email: 'password',
+  password_too_common: 'password',
+};
 
 // Field values; keys double as the error-map keys. The
 // invitation code is NOT here — useInvitationCode owns that
@@ -271,44 +307,81 @@ function resolveReturnTo(value: string | string[] | undefined): Href {
 
 
 // -----------------------------------------------------------
+// serverFieldFor
+// -----------------------------------------------------------
+//
+// The account field a server refusal names, or null — see
+// SERVER_FIELD_CODES above. Invitation-code refusals are
+// inviteErrorKey's business and never land here.
+//
+// Used by:
+//   - RegisterScreen (below) — handleRegister's catch
+// -----------------------------------------------------------
+
+function serverFieldFor(err: unknown): keyof RegisterFields | null {
+
+  if (!(err instanceof ApiError) || !err.serverCode) return null;
+
+
+  return SERVER_FIELD_CODES[err.serverCode] ?? null;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// utf8Bytes
+// -----------------------------------------------------------
+//
+// The UTF-8 length the backend's 72-byte password cap counts —
+// by code point, so a Lithuanian letter weighs two bytes and
+// an emoji four, without relying on TextEncoder.
+//
+// Used by:
+//   - validateAccountFields (below)
+// -----------------------------------------------------------
+
+function utf8Bytes(text: string): number {
+
+  let bytes = 0;
+  for (const char of text) {
+    const code = char.codePointAt(0) ?? 0;
+    bytes += code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4;
+  }
+  return bytes;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // FormTopBar
 // -----------------------------------------------------------
 //
-// The burgundy band above the form — keeps the app-wide
-// "brand top on every screen" invariant behind the root
-// layout's light StatusBar, and carries the back-to-login
-// affordance.
+// The app's own pushed-screen bar (components/navigation/
+// StackHeader) — the same chevron, 44pt target, haptic and
+// title as every other stack screen; this form drew its own
+// arrow before and looked foreign. Back is a pop or a replace
+// decided by the caller, so the navigation shape is supplied
+// by hand.
 //
 // Used by:
 //   - RegisterScreen (below)
 // -----------------------------------------------------------
 
 function FormTopBar({ title, onBack }: { title: string; onBack: () => void }) {
-
-  const { t } = useTranslation();
-  const { colors } = useTheme();
-
-
   return (
-    <SafeAreaView edges={['top']} className="bg-brand-header">
-      <View className="flex-row items-center px-md" style={{ paddingVertical: 10 }}>
-
-        <Pressable
-          onPress={onBack}
-          hitSlop={12}
-          accessibilityRole="button"
-          accessibilityLabel={t('common.back')}
-          style={({ pressed }) => [
-            { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-            pressed && { opacity: 0.7 },
-          ]}
-        >
-          <Ionicons name="arrow-back" size={24} color={colors.onBrand} />
-        </Pressable>
-
-        <Text className="ml-sm flex-1 font-raleway-bold text-xl text-on-brand">{title}</Text>
-      </View>
-    </SafeAreaView>
+    <StackHeader
+      navigation={{ goBack: onBack, canGoBack: () => true }}
+      route={{ name: 'register' }}
+      options={{ title }}
+    />
   );
 }
 
@@ -440,7 +513,11 @@ function ModeIndicator({ invited }: { invited: boolean }) {
 // lands on the field instead of a round trip; the display-
 // name cap mirrors the backend's 100-char limit: its rejection
 // is a code-less 400 inviteErrorKey would misread as an
-// invitation-code failure, so it must never be reachable.
+// invitation-code failure, so it must never be reachable. The
+// password mirrors users/auth.py validate_new_password's
+// checkable rules — the 72-byte cap and the username / e-mail
+// name containment (the common-password list stays server-
+// side; its refusal comes back onto the field instead).
 //
 // Used by:
 //   - RegisterScreen (below) — submit-time validation
@@ -463,8 +540,17 @@ function validateAccountFields(form: RegisterFields, t: TFunction): FieldErrors 
   else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     next.email = t('register.errors.emailInvalid');
   }
+  const lowered = form.password.toLowerCase();
+  const localPart = email.toLowerCase().split('@')[0] ?? '';
   if (!form.password) next.password = t('register.errors.passwordRequired');
   else if (form.password.length < 6) next.password = t('register.errors.passwordMin');
+  else if (utf8Bytes(form.password) > PASSWORD_MAX_BYTES) {
+    next.password = t('errors.codes.password_too_long');
+  } else if (username && lowered.includes(username.toLowerCase())) {
+    next.password = t('errors.codes.password_contains_username');
+  } else if (localPart.length >= 3 && lowered.includes(localPart)) {
+    next.password = t('errors.codes.password_contains_email');
+  }
   if (form.password !== form.confirmPassword) {
     next.confirmPassword = t('register.errors.passwordMismatch');
   }
@@ -708,11 +794,12 @@ function useSubmitCooldown(ms = 15_000) {
 // Composes the pieces: form state and errors for the five
 // account fields, the invite hook and the 429 cooldown, and a
 // ref-per-field focus chain whose first failing field is
-// announced and focused. handleRegister flushes the pending
-// code check and branches on the RETURNED verdict, writes
-// 'onboarded' before leaving, and routes invite failures back
-// onto the field; goToLogin pops when history exists and
-// replaces on deep-link arrivals.
+// announced and focused. handleRegister is single-flight (a
+// ref, set before the first await), flushes the pending code
+// check and branches on the RETURNED verdict, writes
+// 'onboarded' before leaving, and routes invite and account-
+// field refusals back onto their fields; goToLogin pops when
+// history exists and replaces on deep-link arrivals.
 //
 // Used by:
 //   - expo-router — route /register (app/_layout.tsx stack)
@@ -749,6 +836,12 @@ function RegisterScreen() {
   const [scannerVisible, setScannerVisible] = useState(false);
 
 
+  // Single-flight latch — `loading` from the auth context only
+  // flips after a re-render, so a double tap (or Done plus the
+  // button) inside one frame passed its guard twice
+  const submittingRef = useRef(false);
+
+
   // The code field's whole life; the 429 freeze
   const invite = useInvitationCode(codeValue);
   const { cooldown, trigger: triggerCooldown } = useSubmitCooldown();
@@ -761,6 +854,13 @@ function RegisterScreen() {
   const emailRef = useRef<TextInput>(null);
   const passwordRef = useRef<TextInput>(null);
   const confirmRef = useRef<TextInput>(null);
+  const fieldRefs = {
+    username: usernameRef,
+    displayName: displayNameRef,
+    email: emailRef,
+    password: passwordRef,
+    confirmPassword: confirmRef,
+  } as const;
 
 
   const updateField = (field: keyof RegisterFields, value: string) => {
@@ -784,13 +884,6 @@ function RegisterScreen() {
 
     setErrors(next);
 
-    const fieldRefs = {
-      username: usernameRef,
-      displayName: displayNameRef,
-      email: emailRef,
-      password: passwordRef,
-      confirmPassword: confirmRef,
-    } as const;
     const order: (keyof RegisterFields)[] = [
       'username',
       'displayName',
@@ -819,8 +912,17 @@ function RegisterScreen() {
   const handleRegister = async () => {
     // The button is disabled while a code check is in flight —
     // this guards the keyboard's Done key taking the same path
-    if (loading || cooldown || invite.validation.checking) return;
+    if (submittingRef.current || loading || cooldown || invite.validation.checking) return;
+    submittingRef.current = true;
+    try {
+      await submitRegistration();
+    } finally {
+      submittingRef.current = false;
+    }
+  };
 
+
+  const submitRegistration = async () => {
     // A pending typing debounce means the current code was
     // never checked — flush it and branch on the RETURNED
     // verdict (state read after the await is the stale closure)
@@ -863,6 +965,17 @@ function RegisterScreen() {
       const codeKey = inviteErrorKey(err, Boolean(code));
       if (codeKey) {
         invite.applyServerRejection(t(codeKey));
+        return;
+      }
+
+      // A refusal that names an account field lands on it,
+      // focused and announced — never a toast to remember
+      const field = serverFieldFor(err);
+      if (field) {
+        const message = errorText(err, t, Boolean(code));
+        setErrors((previous) => ({ ...previous, [field]: message }));
+        AccessibilityInfo.announceForAccessibility(message);
+        fieldRefs[field].current?.focus();
         return;
       }
 
@@ -1003,6 +1116,9 @@ function RegisterScreen() {
             value={form.password}
             onChangeText={(value) => updateField('password', value)}
             error={errors.password}
+            // The rules up front — a student should not have to
+            // fail the policy to learn it (an error replaces it)
+            helperText={t('register.passwordHint')}
             secureTextEntry
             autoComplete="new-password"
             textContentType="newPassword"

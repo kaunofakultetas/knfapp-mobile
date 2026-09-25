@@ -82,7 +82,7 @@
 //
 //  Split into (root component last):
 //
-//    routePath        — segment points → one SVG path string
+//    routePath        — the shown floor's stretches → one SVG path string
 //    clampScale / clampTranslation — the camera bounds, pure
 //    fitToWidth       — the drawing's size at scale 1
 //    centreOn         — the translation that centres a plan point
@@ -90,12 +90,13 @@
 //    toContent        — a viewport point as a drawing point
 //    toPlan           — a viewport point as a plan point
 //    readFingers      — a touch event as the camera sees it
+//    RoomsLayer       — the room polygons, memoised
 //    Overlay          — the one Svg drawn over the host's plan
 //    FloorPlan        — the viewport (default export)
 // -----------------------------------------------------------
 
 import type { ReactNode } from 'react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Easing, PanResponder, StyleSheet, View } from 'react-native';
 import type { GestureResponderEvent, LayoutChangeEvent, PanResponderGestureState, PanResponderInstance, StyleProp, ViewStyle } from 'react-native';
 import Svg, { Circle, G, Path, Polygon, Rect, Text as SvgText } from 'react-native-svg';
@@ -307,21 +308,31 @@ const PIN_PX = 8;
 // routePath
 // -----------------------------------------------------------
 //
-// The segment's points as one polyline command string, in plan
+// The route on one floor as ONE path command string, in plan
 // units — nothing is scaled here because the overlay's viewBox
-// IS the plan. Fewer than two points draw nothing (a route
-// that only touches this level at a connector has no line to
-// show), and a segment belonging to another level answers the
-// same, so a host may hand the plan whatever segment it holds.
+// IS the plan. Takes a segment or the route's whole list of
+// segments: a route that leaves a floor and comes back to it
+// (two wings joined only upstairs) has two stretches there,
+// and each becomes its own subpath ("M…L… M…L…"), so the line
+// reaches the destination pin instead of stopping at the
+// first stairwell. A stretch with fewer than two points draws
+// nothing (a route that only touches this level at a
+// connector has no line to show), and a stretch on another
+// level answers the same, so a host may hand the plan every
+// segment it holds.
 //
 // Used by:
 //   - FloorPlan (below) — decides the viewport's label too
 //   - tests pinning the command format
 // -----------------------------------------------------------
 
-export function routePath(route: KitRouteSegment | null | undefined, levelId: string): string {
-  if (!route || route.level !== levelId || route.points.length < 2) return '';
-  return route.points.map(([x, y], i) => `${i === 0 ? 'M' : 'L'}${x} ${y}`).join(' ');
+export function routePath(route: KitRouteSegment | readonly KitRouteSegment[] | null | undefined, levelId: string): string {
+  if (!route) return '';
+  const segments: readonly KitRouteSegment[] = 'level' in route ? [route] : route;
+  return segments
+    .filter((segment) => segment.level === levelId && segment.points.length >= 2)
+    .map((segment) => segment.points.map(([x, y], i) => `${i === 0 ? 'M' : 'L'}${x} ${y}`).join(' '))
+    .join(' ');
 }
 
 
@@ -629,11 +640,81 @@ function readFingers(evt: GestureResponderEvent, g: PanResponderGestureState, or
 
 
 // -----------------------------------------------------------
+// RoomsLayer
+// -----------------------------------------------------------
+//
+// The room polygons (a faint brand wash, tappable) and their
+// names — on a real floor the overlay's heaviest layer, and
+// the one that changes least: the walker's dot moves every
+// step, a dragged node or a rubber band every finger move,
+// the rooms not at all. Memoised on its props, so those
+// renders skip it (a host keeping `rooms` and onPressRoom
+// stable gets the whole saving). Names come from the graph,
+// not from a drawing — a plan with no artwork still reads.
+//
+// Used by:
+//   - Overlay (below)
+// -----------------------------------------------------------
+
+const RoomsLayer = memo(function RoomsLayer({
+  rooms,
+  u,
+  brand,
+  ink,
+  onPressRoom,
+}: {
+  rooms: readonly PlanRoom[];
+  u: number;
+  brand: string;
+  ink: string;
+  onPressRoom?: (id: string) => void;
+}) {
+  return (
+    <>
+      {rooms.map((room) => (
+        <G key={room.id}>
+          <Polygon
+            testID={`wayfinduikit-plan-room-${room.id}`}
+            points={room.polygon.map(([x, y]) => `${x},${y}`).join(' ')}
+            fill={brand}
+            fillOpacity={0.08}
+            stroke={brand}
+            strokeOpacity={0.35}
+            strokeWidth={u}
+            onPress={onPressRoom ? () => onPressRoom(room.id) : undefined}
+            accessible
+            accessibilityLabel={room.label ?? room.id}
+          />
+          {room.label ? (
+            <SvgText
+              testID={`wayfinduikit-plan-room-label-${room.id}`}
+              x={room.polygon.reduce((sum, [x]) => sum + x, 0) / room.polygon.length}
+              y={room.polygon.reduce((sum, [, y]) => sum + y, 0) / room.polygon.length + 4.5 * u}
+              textAnchor="middle"
+              fontSize={13 * u}
+              fill={ink}
+            >
+              {room.label}
+            </SvgText>
+          ) : null}
+        </G>
+      ))}
+    </>
+  );
+});
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // Overlay
 // -----------------------------------------------------------
 //
 // Everything the kit draws over the host's plan, bottom to
-// top: room polygons (a faint brand wash, tappable), the route
+// top: room polygons (RoomsLayer, above), the route
 // as a glow under a line, the corridor nodes, the start ring,
 // the destination pin, the walker's dot — a brand disc in a
 // white ring over a soft halo, so it reads on a busy drawing —
@@ -699,36 +780,7 @@ function Overlay({
   return (
     <Svg width={content.width} height={content.height} viewBox={`${minX} ${minY} ${vbW} ${vbH}`} style={StyleSheet.absoluteFill}>
 
-      {rooms.map((room) => (
-        <G key={room.id}>
-          <Polygon
-            testID={`wayfinduikit-plan-room-${room.id}`}
-            points={room.polygon.map(([x, y]) => `${x},${y}`).join(' ')}
-            fill={colors.brand}
-            fillOpacity={0.08}
-            stroke={colors.brand}
-            strokeOpacity={0.35}
-            strokeWidth={u}
-            onPress={onPressRoom ? () => onPressRoom(room.id) : undefined}
-            accessible
-            accessibilityLabel={room.label ?? room.id}
-          />
-          {/* The name comes from the graph, not from a drawing —
-              a plan with no artwork still reads */}
-          {room.label ? (
-            <SvgText
-              testID={`wayfinduikit-plan-room-label-${room.id}`}
-              x={room.polygon.reduce((sum, [x]) => sum + x, 0) / room.polygon.length}
-              y={room.polygon.reduce((sum, [, y]) => sum + y, 0) / room.polygon.length + 4.5 * u}
-              textAnchor="middle"
-              fontSize={13 * u}
-              fill={colors.planInk}
-            >
-              {room.label}
-            </SvgText>
-          ) : null}
-        </G>
-      ))}
+      <RoomsLayer rooms={rooms} u={u} brand={colors.brand} ink={colors.planInk} onPressRoom={onPressRoom} />
 
       {d ? (
         <G accessibilityLabel={labels.routeOnPlanA11y(level.label)}>
@@ -808,7 +860,7 @@ function Overlay({
 // -----------------------------------------------------------
 //
 //   <FloorPlan level={level} plan={<SvgXml xml={xml} width="100%" height="100%" />}
-//              route={segmentForLevel} start={start} end={end}
+//              route={route.floors} start={start} end={end}
 //              youAreHere={position} nodes={nodes} rooms={rooms}
 //              onPressRoom={(id) => pick(id)} focus={target} />
 //
@@ -844,7 +896,9 @@ export default function FloorPlan({
 }: {
   level: KitLevel;
   plan?: ReactNode;
-  route?: KitRouteSegment | null;
+  // One stretch, or the route's every stretch — the ones on
+  // this floor are drawn, however many (see routePath)
+  route?: KitRouteSegment | readonly KitRouteSegment[] | null;
   start?: PlanPoint | null;
   end?: PlanPoint | null;
   youAreHere?: PlanPoint | null;

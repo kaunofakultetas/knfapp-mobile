@@ -34,8 +34,10 @@
 //    useApp                   — the consumer hook
 // -----------------------------------------------------------
 
-// The shared tab roster names the keys that stay pinned
+// The shared tab roster names the keys that stay pinned; the
+// default pin set follows the modules this build ships
 import { HARD_PINNED_TABS } from '@/constants/tabs';
+import { DEFAULT_PINNED_TABS } from '@/services/features';
 
 // Settings shape and i18n side-effects
 import i18n, { deviceLanguage } from '@/i18n';
@@ -66,11 +68,12 @@ type AppAction =
   | { type: 'RESET' };
 
 // Defaults for a fresh install; language is corrected to the
-// device locale during hydration when nothing is stored yet
+// device locale during hydration when nothing is stored yet,
+// and the pins are the enabled modules' default bar
 const initialState: AppSettings = {
   language: 'lt',
   theme: 'system',
-  pinnedTabs: ['news', 'messages', 'schedule', 'id'],
+  pinnedTabs: [...DEFAULT_PINNED_TABS],
 };
 
 interface AppContextType extends AppSettings {
@@ -138,8 +141,12 @@ function appReducer(state: AppSettings, action: AppAction): AppSettings {
       return { ...state, pinnedTabs: ensureHardPinned(action.payload) };
     case 'RESET':
       // Fresh copies — handing out the shared initialState by
-      // reference would let a later mutation corrupt the defaults
-      return { ...initialState, pinnedTabs: [...initialState.pinnedTabs] };
+      // reference would let a later mutation corrupt the defaults.
+      // The language resets to the DEVICE language, exactly what
+      // a fresh install starts in: resetting an English phone to
+      // the 'lt' placeholder stranded an exchange student in a
+      // UI they cannot read, one tap from the reset button
+      return { ...initialState, language: deviceLanguage, pinnedTabs: [...initialState.pinnedTabs] };
     default:
       return state;
   }

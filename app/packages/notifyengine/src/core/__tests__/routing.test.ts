@@ -9,7 +9,9 @@
 //  re-fires the launch tap), the pre-
 //  resolver buffer with its order and cap, the launch tap that
 //  reached the warm listener first and is adopted as the cold
-//  start while no resolver exists, action-id mapping, throwing
+//  start while no resolver exists — including one an ingest has
+//  claimed but is still parking when the launch consumer asks
+//  (KNF-167) — action-id mapping, throwing
 //  resolvers, garbage payloads, and the normalizer's stringify
 //  / drop-null / legacy-envelope rules.
 // -----------------------------------------------------------
@@ -46,6 +48,38 @@ const makeHub = (slot: ReturnType<typeof makeSlot>, storage = createMemoryStorag
   storage,
   hub: createRoutingHub({ storage, ...slot }),
 });
+
+// A memory storage whose WRITES can be held — an ingest parks
+// only after its marker write, so holding writes freezes it
+// mid-flight, the window the launch consumer can fall into
+const makeHeldStorage = () => {
+  const inner = createMemoryStorage();
+  let gate: Promise<void> | null = null;
+  let open: (() => void) | null = null;
+  return {
+    map: inner.map,
+    get: inner.get,
+    del: inner.del,
+    set: async (key: string, value: string) => {
+      if (gate) await gate;
+      await inner.set(key, value);
+    },
+    hold: () => {
+      gate = new Promise<void>((resolve) => {
+        open = resolve;
+      });
+    },
+    release: () => {
+      gate = null;
+      open?.();
+    },
+  };
+};
+
+// Lets every already-queued promise continuation run
+const settle = async () => {
+  for (let i = 0; i < 20; i += 1) await Promise.resolve();
+};
 
 
 describe('warm ingest', () => {
@@ -386,6 +420,117 @@ describe('cold-start consume', () => {
     // A genuinely new tap still routes
     await later.ingest(fixtureResponse('news', { postId: 'n2' }, 'ring-2'), false);
     expect(resolved.map((intent) => intent.data.postId)).toEqual(['n2']);
+  });
+});
+
+
+describe('a launch tap still parking when the launch consumer asks (KNF-167)', () => {
+  const coldChat: RouteIntent = {
+    type: 'chat_message',
+    data: { type: 'chat_message', conversationId: 'c1' },
+    coldStart: true,
+    actionId: null,
+  };
+
+  it('an ingest suspended in its marker write is waited for and adopted — the warm resolver never replays it', async () => {
+    const storage = makeHeldStorage();
+    const slot = makeSlot(fixtureChatMessage);
+    const hub = createRoutingHub({ storage, ...slot });
+
+    // The warm listener's copy of the launch tap claims the
+    // identifier, then stalls in its storage write
+    storage.hold();
+    const ingesting = hub.ingest(fixtureChatMessage, false);
+    await settle();
+
+    // The launch consumer asks inside that window
+    const consuming = hub.consumeInitial();
+    await settle();
+    storage.release();
+    await ingesting;
+
+    await expect(consuming).resolves.toEqual(coldChat);
+    // The parked copy WAS the answer — the device never needed asking
+    expect(slot.log).toEqual([]);
+
+    // index.tsx settles the gate and the host installs the
+    // resolver: nothing is left in the buffer to flush warm
+    const warm: RouteIntent[] = [];
+    hub.setResolver((intent) => warm.push(intent));
+    expect(warm).toEqual([]);
+  });
+
+  it('an ingest that claims the tap DURING the device read is waited for too, then adopted by its identifier', async () => {
+    const storage = makeHeldStorage();
+    // A holder, not a bare `let`: the resolver is assigned inside
+    // the read's own promise, out of the narrowing's sight
+    const read = { open: (): void => undefined };
+    const log: string[] = [];
+    const hub = createRoutingHub({
+      storage,
+      readLastResponse: async () => {
+        log.push('read');
+        await new Promise<void>((resolve) => {
+          read.open = resolve;
+        });
+        return fixtureChatMessage;
+      },
+      clearLastResponse: () => {
+        log.push('clear');
+      },
+    });
+
+    // Nothing in flight yet: the consumer goes to the device
+    const consuming = hub.consumeInitial();
+    await settle();
+    expect(log).toEqual(['read']);
+
+    // The warm listener claims the same tap while the device read
+    // is out, and stalls before parking
+    storage.hold();
+    const ingesting = hub.ingest(fixtureChatMessage, false);
+    await settle();
+
+    // The read answers: the identifier is claimed but NOT parked
+    // — the old code answered null here and the resolver later
+    // flushed the tap warm over the news tab
+    read.open();
+    await settle();
+    storage.release();
+    await ingesting;
+
+    await expect(consuming).resolves.toEqual(coldChat);
+    expect(log).toEqual(['read', 'clear']);
+
+    const warm: RouteIntent[] = [];
+    hub.setResolver((intent) => warm.push(intent));
+    expect(warm).toEqual([]);
+  });
+
+  it('a flight that never lands cannot hold the launch screen — the consumer gives up after the bound and answers null', async () => {
+    jest.useFakeTimers();
+    try {
+      const storage = makeHeldStorage();
+      const hub = createRoutingHub({ storage, ...makeSlot(fixtureChatMessage) });
+      storage.hold();
+      void hub.ingest(fixtureChatMessage, false);
+      await settle();
+
+      let answer: RouteIntent | null | undefined;
+      void hub.consumeInitial().then((intent) => {
+        answer = intent;
+      });
+
+      // Two bounded waits (the up-front one and the one naming
+      // the identifier) — a second each, never forever
+      await jest.advanceTimersByTimeAsync(999);
+      expect(answer).toBeUndefined();
+      await jest.advanceTimersByTimeAsync(1_001);
+      await settle();
+      expect(answer).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
 

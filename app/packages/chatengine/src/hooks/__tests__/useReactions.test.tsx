@@ -13,8 +13,44 @@ import { useState, type ReactNode } from 'react';
 import { ChatEngineProvider, fakeTransport, useReactions, type ChatMessage, type EngineNotice } from '../../index';
 
 
+// The signed-in viewer
 const SELF = { id: 'u1', displayName: 'Me' };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// target
+// -----------------------------------------------------------
+//
+// The message every test reacts to — one foreign 👍 already on
+// it.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
+
 const target = (): ChatMessage => ({ id: 'm1', conversationId: 'c1', senderId: 'u2', senderName: 'Ona', text: 'labas', createdAt: '2026-08-29T10:00:00Z', isOwn: false, status: 'read', reactions: [{ emoji: '👍', count: 1, bySelf: false, byUserIds: ['u2'] }], deleted: false });
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// setup
+// -----------------------------------------------------------
+//
+// The hook over the fake transport and a live message list,
+// with the engine's notices collected.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
 
 async function setup() {
   const transport = fakeTransport({ self: SELF, messages: [target()] });
@@ -106,5 +142,51 @@ describe('useReactions', () => {
       h.result.current.reactions.reactTo('ghost', '👍');
     });
     expect(h.notices.map((n) => n.code)).toContain('reaction_target_gone');
+  });
+});
+
+
+// KNF-140: the bubble's "React" accessibility action is a one-tap
+// toggle that rides the SAME engine path as the picker —
+// optimistic, parked offline, rolled back on a refusal — never a
+// bare REST call whose failure only toasts
+describe('useReactions toggleReaction', () => {
+  it('puts the emoji on at once, then takes it off on the second tap', async () => {
+    const h = await setup();
+    await act(async () => {
+      h.result.current.reactions.toggleReaction('m1', '👍');
+    });
+    // Optimistic: the viewer joins the 👍 group before any answer
+    expect(h.result.current.messages[0].reactions).toEqual([{ emoji: '👍', count: 2, bySelf: true, byUserIds: ['u2', 'u1'] }]);
+    await waitFor(() => expect(h.transport.calls.filter((c) => c.method === 'setReaction')).toHaveLength(1));
+    await act(async () => {
+      h.result.current.reactions.toggleReaction('m1', '👍');
+    });
+    expect(h.result.current.messages[0].reactions).toEqual([{ emoji: '👍', count: 1, bySelf: false, byUserIds: ['u2'] }]);
+    await waitFor(() => expect(h.transport.calls.filter((c) => c.method === 'removeReaction')).toHaveLength(1));
+  });
+
+  it('offline, the reaction stays on screen and is parked for replay — no error', async () => {
+    const h = await setup();
+    h.transport.fail('setReaction', new Error('offline'));
+    await act(async () => {
+      h.result.current.reactions.toggleReaction('m1', '❤️');
+    });
+    await waitFor(() => expect(h.transport.calls.filter((c) => c.method === 'setReaction')).toHaveLength(1));
+    expect(h.result.current.messages[0].reactions.find((r) => r.emoji === '❤️')?.bySelf).toBe(true);
+    expect(h.notices).toEqual([]);
+  });
+
+  it('a temp or unsent target is left alone — no request, no notice', async () => {
+    const h = await setup();
+    await act(async () => {
+      h.result.current.setMessages((prev) => [{ ...prev[0], id: 'temp-1-1' }, { ...prev[0], id: 'gone', deleted: true }]);
+    });
+    await act(async () => {
+      h.result.current.reactions.toggleReaction('temp-1-1', '👍');
+      h.result.current.reactions.toggleReaction('gone', '👍');
+    });
+    expect(h.transport.calls.filter((c) => c.method === 'setReaction' || c.method === 'removeReaction')).toEqual([]);
+    expect(h.notices).toEqual([]);
   });
 });

@@ -515,7 +515,10 @@ function IdCard() {
             <View className="flex-row items-center px-md pb-sm pt-md">
               <IdPhoto user={user} uploading={uploading} onPress={changePhoto} />
               <View className="ml-md flex-1">
-                <Text className="font-raleway-bold text-lg text-ink" numberOfLines={1}>
+                {/* Two lines, not one: a student card that clips
+                    "Aleksandravičiūtė-Vaitkevičienė" mid-surname
+                    fails at the one thing it is for */}
+                <Text className="font-raleway-bold text-lg text-ink" numberOfLines={2}>
                   {user.displayName}
                 </Text>
                 <View className="mt-xs flex-row">
@@ -582,7 +585,9 @@ function IdCard() {
               <Pressable
                 className="flex-row items-center justify-between py-1"
                 onPress={() => setIdentityShown((shown) => !shown)}
-                hitSlop={8}
+                // The row is ~24pt of xs text — the slop takes the
+                // target to the 44pt floor
+                hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
                 accessibilityRole="button"
                 accessibilityLabel={identityShown ? t('id.hideAccount') : t('id.showAccount')}
                 accessibilityState={{ expanded: identityShown }}

@@ -48,7 +48,11 @@ jest.mock('react-i18next', () => ({
 // stood in for — the strip is what this file pins
 jest.mock('@/components/news/PollWidget', () => () => null);
 jest.mock('@/components/ui', () => ({ Avatar: () => null }));
-jest.mock('@/services/format', () => ({ formatDate: () => '2026-09-01' }));
+jest.mock('@/services/format', () => ({
+  formatDate: () => '2026-09-01',
+  formatTime: () => '10:00',
+  parseIso: (iso: string) => new Date(iso),
+}));
 jest.mock('expo-image', () => ({ Image: () => null }));
 
 import { fireEvent, render } from '@testing-library/react-native';
@@ -57,6 +61,7 @@ import NewsCard from '@/components/news/NewsCard';
 import type { SocialFeedPost } from '@/services/api';
 
 
+// One scraped faculty article, the row every case starts from
 const post: SocialFeedPost = {
   id: 'p1',
   title: 'Fakulteto naujiena',
@@ -67,6 +72,22 @@ const post: SocialFeedPost = {
   comments: 2,
   shares: 1,
 };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// makeHandlers
+// -----------------------------------------------------------
+//
+// A fresh set of the card's four handlers, each a spy.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
 
 const makeHandlers = () => ({
   onPress: jest.fn(),
@@ -97,9 +118,12 @@ describe('NewsCard action strip', () => {
     const handlers = makeHandlers();
     const r = await render(<NewsCard post={post} liked={false} likeCount={3} {...handlers} />);
 
-    fireEvent.press(r.getByTestId('socialuikit-action-like'));
-    fireEvent.press(r.getByTestId('socialuikit-action-comment'));
-    fireEvent.press(r.getByTestId('socialuikit-action-share'));
+    // Awaited: RNTL 14's fireEvent is async, and an un-awaited
+    // press leaves an act() open that blanks the NEXT test's
+    // render (overlapping act calls)
+    await fireEvent.press(r.getByTestId('socialuikit-action-like'));
+    await fireEvent.press(r.getByTestId('socialuikit-action-comment'));
+    await fireEvent.press(r.getByTestId('socialuikit-action-share'));
 
     expect(handlers.onToggleLike).toHaveBeenCalledTimes(1);
     expect(handlers.onOpenComments).toHaveBeenCalledTimes(1);
@@ -107,7 +131,54 @@ describe('NewsCard action strip', () => {
     expect(handlers.onPress).not.toHaveBeenCalled();
 
     // The title block is the open-post button
-    fireEvent.press(r.getByLabelText('Fakulteto naujiena. news.a11yOpenPost'));
+    await fireEvent.press(r.getByLabelText('Fakulteto naujiena. news.a11yOpenPost'));
     expect(handlers.onPress).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// textNodes
+// -----------------------------------------------------------
+//
+// How many rendered Text nodes carry exactly this string. The
+// title sits inside the labelled open-post button, which the
+// text queries treat as one accessibility element, so the
+// rendered tree is walked directly.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
+
+const textNodes = (tree: unknown, text: string): number => {
+  if (!tree || typeof tree !== 'object') return 0;
+  if (Array.isArray(tree)) return tree.reduce<number>((sum, child) => sum + textNodes(child, text), 0);
+  const node = tree as { type?: string; children?: unknown[] | null };
+  const own = node.type === 'Text' && node.children?.length === 1 && node.children[0] === text ? 1 : 0;
+  return own + textNodes(node.children ?? [], text);
+};
+
+
+describe('NewsCard text', () => {
+  it("an untitled post prints its words once — the title, no teaser repeating it", async () => {
+    const short = 'Gal kas žinote, iki kada šiandien dirba biblioteka? 📚🙏';
+    const r = await render(
+      <NewsCard post={{ ...post, source: 'user', title: short, content: short, summary: short }} liked={false} likeCount={0} {...makeHandlers()} />,
+    );
+    expect(textNodes(r.toJSON(), short)).toBe(1);
+  });
+
+  it('a real title keeps its teaser', async () => {
+    const r = await render(
+      <NewsCard post={{ ...post, source: 'user', title: 'Rastas USB raktas', content: 'Radau jį 305 auditorijoje.', summary: 'Radau jį 305 auditorijoje.' }} liked={false} likeCount={0} {...makeHandlers()} />,
+    );
+    const tree = r.toJSON();
+    expect(textNodes(tree, 'Rastas USB raktas')).toBe(1);
+    expect(textNodes(tree, 'Radau jį 305 auditorijoje.')).toBe(1);
   });
 });

@@ -3,16 +3,65 @@
 //
 //  One entry per target with later intents replacing earlier
 //  ones in place, persistence that survives a reload, corrupt
-//  storage read as an empty queue, and clear() wiping the
-//  persisted copy too.
+//  storage read as an empty queue, clear() wiping the
+//  persisted copy too, and the drain's exact-entry removal
+//  that spares a newer intent parked under the same key.
 // -----------------------------------------------------------
 
 import { memorySocialStorage } from '../storage';
 import { createSocialTaskQueue, socialTaskKey, type PendingSocialTask } from '../tasks';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// like
+// -----------------------------------------------------------
+//
+// A pending like intent on a post.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
+
 const like = (id: string, desired: boolean): PendingSocialTask => ({ type: 'like', target: { type: 'post', id }, desired, at: '2026-08-31T10:00:00Z' });
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// rel
+// -----------------------------------------------------------
+//
+// A pending relationship intent toward a user.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
+
 const rel = (userId: string, action: 'connect' | 'disconnect'): PendingSocialTask => ({ type: 'relationship', userId, action, at: '2026-08-31T10:00:00Z' });
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// flush
+// -----------------------------------------------------------
+//
+// Drains the microtasks the queue's persistence writes ride.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
 
 const flush = async () => {
   for (let i = 0; i < 10; i++) await Promise.resolve();
@@ -76,5 +125,27 @@ describe('createSocialTaskQueue', () => {
     expect(queue.list()).toEqual([]);
     expect(storage.dump()['social:tasks']).toBeUndefined();
     expect(heard).toHaveBeenCalledTimes(2);
+  });
+
+  it('removeIfCurrent drops the listed entry only — a newer intent under the same key survives', async () => {
+    const storage = memorySocialStorage();
+    const queue = createSocialTaskQueue(storage);
+    queue.add(like('p1', false));
+    const replaying = queue.list()[0];
+    expect(queue.isCurrent(replaying)).toBe(true);
+
+    // The live lane parks a NEWER intent for the same post while
+    // the drain's call for the old one is on the wire
+    queue.add(like('p1', true));
+    expect(queue.isCurrent(replaying)).toBe(false);
+
+    queue.removeIfCurrent(replaying);
+    await flush();
+    expect(queue.list()).toEqual([expect.objectContaining({ desired: true })]);
+    expect(JSON.parse(storage.dump()['social:tasks'])).toHaveLength(1);
+
+    // The current entry itself does go
+    queue.removeIfCurrent(queue.list()[0]);
+    expect(queue.list()).toEqual([]);
   });
 });

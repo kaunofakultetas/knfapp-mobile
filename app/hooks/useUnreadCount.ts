@@ -12,9 +12,17 @@
 //  on a slower clock (2 s, past the room's own mark-read
 //  window): a reader scrolled up in that room never marks it
 //  read, and the badge would otherwise freeze under the
-//  server's count. App foregrounding, network restore and
-//  socket reconnects re-fetch too, so the badge never depends
-//  on live events alone.
+//  server's count — and no later message pulls that slow
+//  re-count back in, which would count the open room's message
+//  before its read committed. App foregrounding, network
+//  restore and socket reconnects re-fetch too, so the badge
+//  never depends on live events alone.
+//
+//  System lines (group created, timer set, a member left)
+//  never count — the server's unread excludes them — so they
+//  bump nothing. A screen that removes a whole room (delete,
+//  leave) asks for an immediate re-count through
+//  requestUnreadRecount instead of waiting for the next event.
 //
 //  Correctness notes:
 //    - every fetch carries a sequence number, so a slow
@@ -66,6 +74,34 @@ const RECONCILE_MS = 500;
 // AFTER the room's mark-read committed when it was going to,
 // and is right when it never was (the reader scrolled up)
 const ACTIVE_ROOM_RECONCILE_MS = 2_000;
+
+// The mounted hooks' re-count callbacks — requestUnreadRecount
+// reaches every badge without prop drilling
+const recountListeners = new Set<() => void>();
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// requestUnreadRecount
+// -----------------------------------------------------------
+//
+// Asks every mounted useUnreadCount for a server re-count
+// NOW — for the moments no socket event follows: a room the
+// reader deleted or left took its unread messages with it,
+// and the badge would otherwise keep them until the next
+// message arrived.
+//
+// Used by:
+//   - app/(main)/tabs/messages.tsx — after a delete/leave
+// -----------------------------------------------------------
+
+export function requestUnreadRecount(): void {
+  recountListeners.forEach((listener) => listener());
+}
 
 
 
@@ -139,18 +175,26 @@ export function useUnreadCount(): {
     let unsubscribeRead: (() => void) | undefined;
     let unsubscribeDeleted: (() => void) | undefined;
     let reconcileTimer: ReturnType<typeof setTimeout> | null = null;
+    // When the pending re-count fires (ms epoch) — see below
+    let reconcileDue = 0;
 
     // Debounced server re-count: socket bursts collapse into a
     // single request, so a run of optimistic increments settles
     // on the server's number instead of drifting. The delay is
     // the caller's — the open room's messages ask for the slow
-    // clock (see ACTIVE_ROOM_RECONCILE_MS)
+    // clock (see ACTIVE_ROOM_RECONCILE_MS) — and a later call
+    // may push the pending re-count further out but never pull
+    // it IN: a fast re-count for another room's message would
+    // otherwise land before the open room's mark-read committed
+    // and flash its message as unread
     const scheduleReconcile = (delayMs: number = RECONCILE_MS) => {
+      const due = Math.max(Date.now() + delayMs, reconcileTimer ? reconcileDue : 0);
       if (reconcileTimer) clearTimeout(reconcileTimer);
+      reconcileDue = due;
       reconcileTimer = setTimeout(() => {
         reconcileTimer = null;
         void refresh();
-      }, delayMs);
+      }, Math.max(due - Date.now(), 0));
     };
 
     void (async () => {
@@ -165,8 +209,11 @@ export function useUnreadCount(): {
 
       unsubscribeMessage = onNewMessage((message: SocketMessage) => {
         // Own outgoing messages echo back over the socket and
-        // are never unread
+        // are never unread — and neither is a system line (the
+        // server's count excludes them; a bump here flickered
+        // the badge +1 on every timer toggle or leave)
         if (message.senderId === userId) return;
+        if (message.kind === 'system') return;
         // Neither is a message for the room being read — no
         // bump, and no re-count on the fast clock: the room's
         // mark-read flush is slower than the debounce, so a
@@ -221,6 +268,17 @@ export function useUnreadCount(): {
   useNetworkRestore(() => {
     if (isAuthenticated) void refresh();
   });
+
+
+  // Explicit asks from screens that removed a room
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const listener = () => void refresh();
+    recountListeners.add(listener);
+    return () => {
+      recountListeners.delete(listener);
+    };
+  }, [isAuthenticated, refresh]);
 
 
   useEffect(() => {

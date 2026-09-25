@@ -9,12 +9,31 @@
 //  the server still answers, empty on a successful claim,
 //  KEEP on a failed claim (the next login retries), and
 //  CLEAR on logout so a shared phone's second user cannot
-//  absorb the first one's history. Storage is the official
-//  in-memory AsyncStorage mock; the axios layer is a thin
-//  fake recording what each call sent.
+//  absorb the first one's history. The listing hides husks —
+//  threads whose first send died before a word was stored
+//  (no title, no preview) — while the registry keeps their
+//  ids; a successful delete is announced to subscribers, a
+//  failed one is not. Storage is the official in-memory
+//  AsyncStorage mock; the axios layer is a thin fake
+//  recording what each call sent.
 // -----------------------------------------------------------
 
+// Imports sit ABOVE the mock blocks (jest hoists every
+// jest.mock above them anyway) so the lint's import order and
+// the runtime order agree
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+import {
+  claimGuestThreads,
+  clearGuestThreadRegistry,
+  createThread,
+  deleteThread,
+  listThreads,
+  onThreadDeleted,
+} from '@/services/assistantThreads';
+
 jest.mock('@react-native-async-storage/async-storage', () =>
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- a mock factory runs before the module graph loads; only require() can reach the official mock
   require('@react-native-async-storage/async-storage/jest/async-storage-mock'));
 
 // The axios client — api.* answers the mockScripted value (or
@@ -39,16 +58,6 @@ jest.mock('@/services/api/client', () => ({
   request: async (promise: Promise<unknown>) => promise,
 }));
 
-import AsyncStorage from '@react-native-async-storage/async-storage';
-
-import {
-  claimGuestThreads,
-  clearGuestThreadRegistry,
-  createThread,
-  deleteThread,
-  listThreads,
-} from '@/services/assistantThreads';
-
 
 const REGISTRY_KEY = 'assistant-guest-threads-v1';
 
@@ -57,10 +66,15 @@ const registry = async (): Promise<string[]> =>
 
 const seedRegistry = (ids: string[]) => AsyncStorage.setItem(REGISTRY_KEY, JSON.stringify(ids));
 
+// A real conversation row — titled by its first question
 const thread = (id: string) => ({
-  id, title: null, preview: null, language: 'lt' as const,
+  id, title: `Klausimas ${id}`, preview: null, language: 'lt' as const,
   createdAt: '2026-09-15T10:00:00Z', lastMessageAt: '2026-09-15T10:00:00Z',
 });
+
+// A husk: minted, but its first send died before the
+// container stored a word — no title, no preview
+const husk = (id: string) => ({ ...thread(id), title: null, preview: null });
 
 
 beforeEach(async () => {
@@ -134,6 +148,17 @@ describe('listThreads', () => {
     expect(await listThreads({ signedIn: false })).toEqual([]);
     expect(mockCalls).toHaveLength(0);
   });
+
+  it('husks are hidden from both listings, yet a guest registry KEEPS their ids', async () => {
+    mockScripted = { threads: [thread('real-1'), husk('husk-2'), { ...husk('answered-3'), preview: 'Atsakymas' }] };
+    expect((await listThreads({ signedIn: true })).map((row) => row.id)).toEqual(['real-1', 'answered-3']);
+
+    await seedRegistry(['real-1', 'husk-2', 'answered-3']);
+    expect((await listThreads({ signedIn: false })).map((row) => row.id)).toEqual(['real-1', 'answered-3']);
+    // The server still answers the husk — its first answer may
+    // yet land, so the device keeps its map to it
+    expect(await registry()).toEqual(['real-1', 'husk-2', 'answered-3']);
+  });
 });
 
 
@@ -145,6 +170,25 @@ describe('deleteThread', () => {
 
     expect(mockCalls[0].path).toBe('/assistant/threads/gone-2/delete');
     expect(await registry()).toEqual(['keep-1']);
+  });
+
+  it('announces a SUCCESSFUL delete to subscribers — never a failed one, never after unsubscribe', async () => {
+    const heard: string[] = [];
+    const stop = onThreadDeleted((id) => heard.push(id));
+    // A throwing subscriber cannot fail the delete that happened
+    const stopBroken = onThreadDeleted(() => {
+      throw new Error('listener bug');
+    });
+
+    mockScripted = { deleted: true };
+    await deleteThread('t-1');
+    mockFailNext = new Error('502');
+    await expect(deleteThread('t-2')).rejects.toThrow('502');
+    stop();
+    stopBroken();
+    await deleteThread('t-3');
+
+    expect(heard).toEqual(['t-1']);
   });
 });
 

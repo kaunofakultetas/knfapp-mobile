@@ -19,6 +19,11 @@
 //  Full width is the default: forms and overlays want
 //  edge-to-edge actions; row placements pass
 //  fullWidth={false} and the button shrinks to its content.
+//
+//  The label is declared in the app's language (iOS
+//  accessibilityLanguage): on a phone set to English with the
+//  app in Lithuanian, VoiceOver otherwise read "Prisijungti"
+//  with English phonetics.
 // -----------------------------------------------------------
 
 // Icon glyphs for the optional left icon
@@ -26,6 +31,9 @@ import { Ionicons } from '@expo/vector-icons';
 
 // Press handling, spinner and label primitives
 import { ActivityIndicator, Pressable, Text } from 'react-native';
+
+// The app language the label is declared in
+import { useTranslation } from 'react-i18next';
 
 // Spinner, icon and pressed colors for the active scheme
 import { useTheme } from '@/hooks/useTheme';
@@ -129,16 +137,20 @@ export default function Button({
 }: ButtonProps) {
 
   const { colors } = useTheme();
+  const { i18n } = useTranslation();
   const isDisabled = disabled || loading;
 
 
-  // Spinner and icon share the variant's label color
+  // Spinner and icon share the variant's label color — the
+  // outline/ghost label is brand-AS-TEXT (text-brand resolves to
+  // brandText, see tailwind.config.js), so the glyph beside it
+  // takes the same AA-checked pink instead of the fill's
   const contentColor =
     variant === 'primary' || variant === 'danger'
       ? colors.onBrand
       : variant === 'secondary'
         ? colors.ink
-        : colors.brand;
+        : colors.brandText;
 
 
   // The sm height is 40px — hitSlop restores the 44pt target
@@ -169,6 +181,7 @@ export default function Button({
       hitSlop={hitSlop}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? title}
+      accessibilityLanguage={i18n?.language}
       accessibilityState={{ disabled: isDisabled, busy: loading }}
     >
       {loading ? (

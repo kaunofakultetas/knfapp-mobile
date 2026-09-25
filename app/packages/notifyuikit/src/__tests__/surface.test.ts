@@ -25,4 +25,14 @@ describe('@knf/notifyuikit surface', () => {
     expect(Object.keys(icons)).toEqual(['master', 'chatPreview', 'news', 'chat', 'schedule', 'admin']);
     expect(Object.keys(hints)).toEqual(['news', 'chat', 'schedule', 'admin']);
   });
+
+  it('types the 1.2 typography — every family optional, the onBrand ink optional too', () => {
+    const fonts: pkg.NotifyFonts = { regular: 'R', medium: 'M', bold: 'B' };
+    const none: pkg.NotifyFonts = {};
+    const colors: pkg.NotifyColors = { ink: '#000', inkSoft: '#111', line: '#222', brand: '#333', surface: '#444' };
+    expect(Object.keys(fonts)).toEqual(['regular', 'medium', 'bold']);
+    expect(none).toEqual({});
+    expect(colors.onBrand).toBeUndefined();
+    expect(pkg.defaultColors.onBrand).toBe('#FFFFFF');
+  });
 });

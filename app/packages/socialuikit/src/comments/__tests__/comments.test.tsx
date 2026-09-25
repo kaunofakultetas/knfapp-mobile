@@ -26,7 +26,34 @@ const METRICS = { insets: { top: 0, bottom: 34, left: 0, right: 0 }, frame: { x:
 // Five minutes past the comment below, so the row's
 // RelativeTime reads '5m' whatever the machine clock says
 const NOW = new Date('2026-08-30T12:39:00.000Z');
+// The kit env the rows read: the frozen clock above
 const ENV = { now: () => NOW };
+// One comment from Ona, posted five minutes before NOW
+const comment: KitComment = {
+  id: 'c1',
+  author: { id: 'u1', displayName: 'Ona' },
+  text: 'Labas visiems',
+  createdAt: '2026-08-30T12:34:00.000Z',
+  isOwn: false,
+};
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// wrap
+// -----------------------------------------------------------
+//
+// A kit piece under the provider in English on the frozen
+// clock, inside a safe-area frame (the composer reads real
+// insets).
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
 
 const wrap = (ui: React.ReactElement) =>
   render(
@@ -37,20 +64,28 @@ const wrap = (ui: React.ReactElement) =>
     </SafeAreaProvider>,
   );
 
-// Settles the submit promise chain (await onSubmit → setText)
+
+
+
+
+
+
+// -----------------------------------------------------------
+// flush
+// -----------------------------------------------------------
+//
+// Settles the submit promise chain (await onSubmit → setText).
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
+
 const flush = async () => {
   await act(async () => {
     for (let i = 0; i < 40; i++) await Promise.resolve();
   });
 };
 
-const comment: KitComment = {
-  id: 'c1',
-  author: { id: 'u1', displayName: 'Ona' },
-  text: 'Labas visiems',
-  createdAt: '2026-08-30T12:34:00.000Z',
-  isOwn: false,
-};
 
 
 
@@ -97,6 +132,29 @@ describe('CommentRow', () => {
     expect(onPressAuthor).not.toHaveBeenCalled();
   });
 
+
+  it('an inert row is a plain view — never a dimmed button to a screen reader', async () => {
+    const r = await wrap(<CommentRow comment={comment} />);
+    const row = r.getByTestId('socialuikit-comment-row');
+    expect(row.props.accessibilityState?.disabled).toBeFalsy();
+    expect(row.props.onLongPress).toBeUndefined();
+    expect(r.queryByRole('button')).toBeNull();
+  });
+
+  it('a long-press row names its gestures as screen-reader actions', async () => {
+    const onPressAuthor = jest.fn();
+    const onLongPress = jest.fn();
+    const r = await wrap(<CommentRow comment={comment} onPressAuthor={onPressAuthor} onLongPress={onLongPress} />);
+    const row = r.getByTestId('socialuikit-comment-row');
+    expect(row.props.accessibilityActions).toEqual([
+      { name: 'longpress', label: 'Comment actions' },
+      { name: 'openAuthor', label: 'Open profile: Ona' },
+    ]);
+    await fireEvent(row, 'accessibilityAction', { nativeEvent: { actionName: 'longpress' } });
+    expect(onLongPress).toHaveBeenCalledWith(comment);
+    await fireEvent(row, 'accessibilityAction', { nativeEvent: { actionName: 'openAuthor' } });
+    expect(onPressAuthor).toHaveBeenCalledWith(comment.author);
+  });
 
   it('hands the author back from the portrait and the comment back from a long-press', async () => {
     const onPressAuthor = jest.fn();

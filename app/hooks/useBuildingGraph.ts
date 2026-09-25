@@ -11,7 +11,15 @@
 //  timestamps: the seed is revision 0, every publish counts
 //  up, and a candidate only replaces what is shown when its
 //  revision is higher. The graph object is stable between
-//  updates — the engine memoises its index on identity.
+//  updates — the engine memoises its index on identity. A
+//  candidate the engine could not index (not an object with
+//  the four arrays) is never shown: a damaged cached copy
+//  would otherwise crash the tab on every open, since the
+//  cache outlives restarts — and its ETag is not sent either,
+//  so the server answers a whole fresh copy that replaces it.
+//  A fresh server graph also warms the plan cache for every
+//  level (prefetchPlans), so the plan view works offline on
+//  floors the student has not opened yet.
 //
 //  Used by:
 //    - components/map/WayfindHost.tsx — the provider's graph
@@ -19,6 +27,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 
+import { prefetchPlans } from '@/hooks/usePlanXml';
 import { fetchBuildingGraph } from '@/services/api';
 import { cacheKeyWayfindGraph } from '@/services/cacheKeys';
 import { KNF_BUILDING_ID, KNF_GRAPH } from '@/services/wayfind/seed';
@@ -82,6 +91,32 @@ const revisionOf = (graph: BuildingGraph): number => (typeof graph.revision === 
 
 
 // -----------------------------------------------------------
+// isBuildingGraph
+// -----------------------------------------------------------
+//
+// Whether a candidate is a graph the engine can index without
+// throwing — an object whose levels, nodes, edges and rooms
+// are arrays. The server only ever publishes that shape; this
+// guards what a proxy or a storage bug might hand over instead.
+//
+// Used by:
+//   - useBuildingGraph (below) — the cached copy and every
+//     server answer
+// -----------------------------------------------------------
+
+export const isBuildingGraph = (value: unknown): value is BuildingGraph => {
+  if (!value || typeof value !== 'object') return false;
+  const graph = value as Record<string, unknown>;
+  return ['levels', 'nodes', 'edges', 'rooms'].every((key) => Array.isArray(graph[key]));
+};
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // useBuildingGraph
 // -----------------------------------------------------------
 //
@@ -119,10 +154,11 @@ export function useBuildingGraph(buildingId: string = KNF_BUILDING_ID): Building
     const revalidate = async () => {
       try {
         const answer = await fetchBuildingGraph(buildingId, etagRef.current);
-        if (!alive || answer.kind === 'unchanged') return;
+        if (!alive || answer.kind === 'unchanged' || !isBuildingGraph(answer.graph)) return;
         etagRef.current = answer.etag;
         adopt(answer.graph, 'server');
         void cache.set<StoredGraph>(key, { graph: answer.graph, etag: answer.etag });
+        void prefetchPlans(answer.graph, cache);
       } catch {
         // Offline or a server without a published map — the seed
         // or the cache stands
@@ -132,7 +168,8 @@ export function useBuildingGraph(buildingId: string = KNF_BUILDING_ID): Building
     void (async () => {
       const cached = await cache.get<StoredGraph>(key);
       if (!alive) return;
-      if (cached) {
+      // A damaged copy lends neither its graph nor its ETag
+      if (cached && isBuildingGraph(cached.data?.graph)) {
         etagRef.current = cached.data.etag;
         adopt(cached.data.graph, 'cache');
       }

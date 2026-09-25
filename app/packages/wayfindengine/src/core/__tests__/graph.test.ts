@@ -8,36 +8,93 @@
 //  the vocabulary (a NaN cost), a length that is negative, NaN
 //  or infinite (a route walked backwards), and a same-level
 //  length under its plan chord (a mis-measure the router must
-//  survive optimally). Every code has a case that fires and a
+//  survive optimally) — plus a coordinate that is not a finite
+//  number (KNF-024: NaN lengths and a 'no_path' on a connected
+//  map) and a point drawn off its level's viewBox (KNF-176: a
+//  moved layer). Every code has a case that fires and a
 //  neighbour that must not.
 // -----------------------------------------------------------
 
 import { indexGraph, validateGraph } from '../graph';
+import { findRoute } from '../route';
 import type { BuildingGraph, GraphEdge, GraphNode, NodeKind } from '../types';
 
 
-const node = (id: string, level: string, x: number, y: number, kind: NodeKind = 'corridor'): GraphNode => ({ id, level, x, y, kind });
-
-// Two levels at 1 m/px; a chain a ─ b ─ s1 on L1, s1/s2 a stairwell, s2 ─ c on L2
-const building = (edges: GraphEdge[], nodes: GraphNode[] = []): BuildingGraph => ({
-  version: 1,
-  building: 'test',
-  levels: [
-    { id: 'L1', label: '1', viewBox: [0, 0, 100, 100], metersPerPixel: 1, ordinal: 1 },
-    { id: 'L2', label: '2', viewBox: [0, 0, 100, 100], metersPerPixel: 1, ordinal: 2 },
-  ],
-  nodes: [node('a', 'L1', 0, 0), node('b', 'L1', 10, 0), node('s1', 'L1', 20, 0, 'stairs'), node('s2', 'L2', 20, 0, 'stairs'), node('c', 'L2', 30, 0), ...nodes],
-  edges,
-  rooms: [],
-  entranceNodeId: 'a',
-});
-
+// The chain every spec starts from: a ─ b ─ s1 on L1, the
+// s1 / s2 stairwell at 6 m, s2 ─ c on L2
 const chain: GraphEdge[] = [
   { a: 'a', b: 'b', kind: 'hallway' },
   { a: 'b', b: 's1', kind: 'hallway' },
   { a: 's1', b: 's2', kind: 'stairs', lengthM: 6 },
   { a: 's2', b: 'c', kind: 'hallway' },
 ];
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// node
+// -----------------------------------------------------------
+//
+// One graph node, a corridor unless told.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
+
+function node(id: string, level: string, x: number, y: number, kind: NodeKind = 'corridor'): GraphNode {
+  return { id, level, x, y, kind };
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// building
+// -----------------------------------------------------------
+//
+// Two levels at 1 m/px; a chain a ─ b ─ s1 on L1, s1/s2 a stairwell, s2 ─ c on L2
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
+
+function building(edges: GraphEdge[], nodes: GraphNode[] = []): BuildingGraph {
+  return {
+    version: 1,
+    building: 'test',
+    levels: [
+      { id: 'L1', label: '1', viewBox: [0, 0, 100, 100], metersPerPixel: 1, ordinal: 1 },
+      { id: 'L2', label: '2', viewBox: [0, 0, 100, 100], metersPerPixel: 1, ordinal: 2 },
+    ],
+    nodes: [node('a', 'L1', 0, 0), node('b', 'L1', 10, 0), node('s1', 'L1', 20, 0, 'stairs'), node('s2', 'L2', 20, 0, 'stairs'), node('c', 'L2', 30, 0), ...nodes],
+    edges,
+    rooms: [],
+    entranceNodeId: 'a',
+  };
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// codesFor
+// -----------------------------------------------------------
+//
+// The issues one ref drew, as 'severity:code'.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
 
 const codesFor = (graph: BuildingGraph, ref: string) => validateGraph(graph).filter((issue) => issue.ref === ref).map((issue) => `${issue.severity}:${issue.code}`);
 
@@ -167,10 +224,75 @@ describe('validateGraph — panorama facts', () => {
     expect(codes).toEqual([expect.objectContaining({ severity: 'warning', ref: 'p' })]);
   });
 
+  it('never throws on panoLinks that are not a list of objects', () => {
+    const graph = building(chain, [
+      { ...node('p', 'L1', 5, 5), panoLinks: 5 as unknown as [] },
+      { ...node('q', 'L1', 6, 6), panoLinks: ['x', null, { yaw: 3 }] as unknown as [] },
+    ]);
+    expect(() => validateGraph(graph)).not.toThrow();
+    // A link object with no target is still a link to nowhere
+    expect(codesFor(graph, 'q')).toContain('warning:pano_link_unknown');
+    expect(codesFor(graph, 'p')).not.toContain('warning:pano_link_unknown');
+  });
+
   it('warns on a panorama link to a missing node or to itself', () => {
     const graph = building(chain, [{ ...node('p', 'L1', 5, 5), panoLinks: [{ targetNodeId: 'a', yaw: 10 }, { targetNodeId: 'nowhere', yaw: 20 }, { targetNodeId: 'p', yaw: 30 }] }]);
     const refs = validateGraph(graph).filter((i) => i.code === 'pano_link_unknown');
     expect(refs).toHaveLength(2);
     expect(refs.every((i) => i.ref === 'p' && i.severity === 'warning')).toBe(true);
+  });
+});
+
+
+describe('validateGraph — bad_coordinate', () => {
+  it("a node whose x / y is a string, null or NaN is an error — the router would answer no_path on a connected map", () => {
+    // Hand-written JSON: the types say number, the wire says otherwise
+    const graph = building(chain, [
+      { ...node('p', 'L1', 0, 0), x: 'not-a-number' as unknown as number },
+      { ...node('q', 'L1', 0, 0), y: null as unknown as number },
+      { ...node('r', 'L1', Number.NaN, 1) },
+    ]);
+    for (const ref of ['p', 'q', 'r']) expect(codesFor(graph, ref)).toContain('error:bad_coordinate');
+
+    // The failure it names: the router cannot price the node's
+    // edges, so a connected pair answers no_path
+    const broken = building([{ a: 'a', b: 'p', kind: 'hallway' }, { a: 'p', b: 'b', kind: 'hallway' }], [{ ...node('p', 'L1', 0, 0), x: 'x' as unknown as number }]);
+    expect(findRoute(indexGraph(broken), 'a', 'b').reason).toBe('no_path');
+  });
+
+  it('a finite coordinate, zero and negatives included, is clean', () => {
+    const graph = building(chain, [node('z', 'L1', 0, 0)]);
+    expect(codesFor(graph, 'z').filter((code) => code.endsWith('bad_coordinate'))).toEqual([]);
+  });
+});
+
+
+describe('validateGraph — outside_plan', () => {
+  it("a node or a room corner off its level's viewBox is a warning, once per room", () => {
+    const graph: BuildingGraph = {
+      ...building(chain, [node('far', 'L1', 500, 100)]),
+      rooms: [
+        { id: 'moved', name: 'Moved', level: 'L1', nodeId: 'a', polygon: [[180, -20], [240, -20], [240, 20], [180, 20]] },
+        { id: 'fine', name: 'Fine', level: 'L1', nodeId: 'b', polygon: [[0, 0], [100, 0], [100, 100], [0, 100]] },
+      ],
+    };
+    expect(codesFor(graph, 'far')).toContain('warning:outside_plan');
+    expect(codesFor(graph, 'moved')).toEqual(['warning:outside_plan']);
+    // The drawing's own edges count as on it
+    expect(codesFor(graph, 'fine')).toEqual([]);
+    expect(codesFor(graph, 'a')).toEqual([]);
+  });
+
+  it('never throws on an outline that is not a list of pairs', () => {
+    const graph: BuildingGraph = {
+      ...building(chain),
+      rooms: [
+        { id: 'str', name: 'S', level: 'L1', nodeId: 'a', polygon: 'broken' as unknown as [number, number][] },
+        { id: 'mix', name: 'M', level: 'L1', nodeId: 'a', polygon: [[1, 2], 'x', [500, 1]] as unknown as [number, number][] },
+      ],
+    };
+    expect(() => validateGraph(graph)).not.toThrow();
+    expect(codesFor(graph, 'str')).toEqual([]);
+    expect(codesFor(graph, 'mix')).toEqual(['warning:outside_plan']);
   });
 });

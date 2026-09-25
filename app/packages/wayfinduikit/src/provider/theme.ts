@@ -57,6 +57,7 @@ export interface KitColors {
   inkFaint: string;    // tertiary text, distances in the margin
   line: string;        // hairlines between rows, chip borders
   brand: string;       // primary actions, the active floor chip
+  brandText: string;   // brand-coloured TEXT on surfaces — a lighter pink in dark, where the fill would read under AA
   onBrand: string;     // text and icons on brand fills
   brandSoft: string;   // brand-tinted washes (pressed chips, the current step)
   success: string;     // arrival, an aligned marker
@@ -199,6 +200,7 @@ export const defaultTheme: KitTheme = {
     inkFaint: '#9CA3AF',
     line: '#E5E7EB',
     brand: '#7B003F',
+    brandText: '#7B003F',
     onBrand: '#FFFFFF',
     brandSoft: '#F6E3ED',
     success: '#16A34A',
@@ -256,6 +258,9 @@ export const darkTheme: KitTheme = {
     inkFaint: '#6B7280',
     line: '#273244',
     brand: '#C9558A',
+    // The fill pink reads 4.3:1 as text on the dark card; this
+    // one clears AA (6.3:1) on it
+    brandText: '#E07AA6',
     onBrand: '#FFFFFF',
     brandSoft: '#3B1229',
     success: '#4ADE80',

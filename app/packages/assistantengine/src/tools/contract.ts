@@ -29,8 +29,9 @@
 //      integration job — the describe on both wires
 //    - testing/index.tsx — referenceTools serves the mirrors,
 //      the fixtures are typed against the output shapes
-//    - hosts typing a tool part's input/output — the app's
-//      assistant screen, once it lands; no app import yet
+//    - hosts typing a tool part's input/output — nothing in
+//      the app imports these at the moment (its tool cards
+//      read the kit's reduced part instead)
 // -----------------------------------------------------------
 
 import { readFailureBody, toAssistantFailure } from '../core/errors';

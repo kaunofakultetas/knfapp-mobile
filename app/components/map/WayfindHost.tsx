@@ -4,23 +4,38 @@
 //  Feeds the standalone wayfinding packages what they may not
 //  reach for themselves: the building graph (seed → cache →
 //  server, through useBuildingGraph), the app palette and
-//  Raleway families as the kit theme, the active locale (the
-//  kit's own LT/EN catalog does the rest) and getUploadUrl as
-//  the image resolver for server-hosted panoramas. Mounted by
-//  the map tab around its own screen — the packages are only
-//  ever rendered there.
+//  Raleway families as the kit theme, the app language as the
+//  kit locale — read through useTranslation, so a language
+//  switch re-renders the kit in the new language at once
+//  (activeLocale()'s BCP 47 'en-GB' never equalled 'en', which
+//  once pinned the kit to Lithuanian) — and getUploadUrl as
+//  the image resolver for server-hosted panoramas.
+//
+//  WayfindKitHost is the kit half on its own, for the screens
+//  that draw kit components without routing: the map editor,
+//  the guided capture and the alignment screen mount it, so
+//  their plan, HUD and stage speak the app's language and
+//  scheme instead of the kit's Lithuanian light defaults
+//  inside a dark English screen.
+//
+//  Split into (root component last):
+//
+//    WayfindKitHost — the kit provider, themed from the app
+//    WayfindHost    — graph + kit, for the map tab (default)
 //
 //  Used by:
-//    - app/(main)/tabs/map.tsx
+//    - app/(main)/tabs/map.tsx — WayfindHost
+//    - app/(main)/map-editor/{index,capture,align}.tsx —
+//      WayfindKitHost
 // -----------------------------------------------------------
 
 import { useMemo, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { fonts } from '@/constants/theme';
 import { useBuildingGraph } from '@/hooks/useBuildingGraph';
 import { useTheme } from '@/hooks/useTheme';
 import { getUploadUrl } from '@/services/api';
-import { activeLocale } from '@/services/format';
 import { WayfindProvider } from '@knf/wayfindengine';
 import { WayfindUiKitProvider, defaultTheme, type KitTheme } from '@knf/wayfinduikit';
 
@@ -31,23 +46,27 @@ import { WayfindUiKitProvider, defaultTheme, type KitTheme } from '@knf/wayfindu
 
 
 // -----------------------------------------------------------
-// WayfindHost (default export)
+// WayfindKitHost
 // -----------------------------------------------------------
 //
-// Two memos feed the providers: the palette-to-kit-token map
-// (route on brand, plan on surface, the photo stage kept dark
-// in both schemes) and an env whose resolveImageUrl falls
+// Two memos feed the kit provider: the palette-to-kit-token
+// map (route on brand, brand-coloured text on the app's
+// AA-checked brandText, plan on surface, the photo stage kept
+// dark in both schemes) and an env whose resolveImageUrl falls
 // back to the raw value where getUploadUrl answers null — the
-// kit insists on a string.
+// kit insists on a string. The locale follows i18n.language
+// live; anything but Lithuanian reads English, the same rule
+// the timetable host uses.
 //
 // Used by:
-//   - app/(main)/tabs/map.tsx — wraps the map screen
+//   - WayfindHost (below)
+//   - app/(main)/map-editor/index.tsx, capture.tsx, align.tsx
 // -----------------------------------------------------------
 
-export default function WayfindHost({ children }: { children: ReactNode }) {
+export function WayfindKitHost({ children }: { children: ReactNode }) {
 
   const { colors, scheme } = useTheme();
-  const { graph } = useBuildingGraph();
+  const { i18n } = useTranslation();
 
 
   // App palette → kit tokens. The route takes the brand, the
@@ -62,6 +81,8 @@ export default function WayfindHost({ children }: { children: ReactNode }) {
         inkFaint: colors.inkFaint,
         line: colors.line,
         brand: colors.brand,
+        // Brand as TEXT is the AA-checked pink in dark mode
+        brandText: colors.brandText,
         onBrand: colors.onBrand,
         brandSoft: colors.brandSoft,
         success: colors.success,
@@ -88,10 +109,38 @@ export default function WayfindHost({ children }: { children: ReactNode }) {
 
 
   return (
+    <WayfindUiKitProvider theme={theme} scheme={scheme === 'dark' ? 'dark' : 'light'} locale={i18n.language === 'lt' ? 'lt' : 'en'} env={env}>
+      {children}
+    </WayfindUiKitProvider>
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// WayfindHost (default export)
+// -----------------------------------------------------------
+//
+// The routing engine over the building graph, with the themed
+// kit inside it — everything the map tab's hooks and kit
+// components read.
+//
+// Used by:
+//   - app/(main)/tabs/map.tsx — wraps the map screen
+// -----------------------------------------------------------
+
+export default function WayfindHost({ children }: { children: ReactNode }) {
+
+  const { graph } = useBuildingGraph();
+
+
+  return (
     <WayfindProvider graph={graph}>
-      <WayfindUiKitProvider theme={theme} scheme={scheme === 'dark' ? 'dark' : 'light'} locale={activeLocale() === 'en' ? 'en' : 'lt'} env={env}>
-        {children}
-      </WayfindUiKitProvider>
+      <WayfindKitHost>{children}</WayfindKitHost>
     </WayfindProvider>
   );
 }

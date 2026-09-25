@@ -4,7 +4,8 @@
 //  One entry of the news feed, styled after the faculty site
 //  (knf.vu.lt/naujienos): the card runs the FULL screen width —
 //  cover edge to edge, no rounding — with the burgundy date
-//  strip pinned under the image, then title, author row, a
+//  strip ("Šiandien, 12:30" / "Vakar" / the long date —
+//  components/news/cardDate) pinned under the image, then title, author row, a
 //  ~150-character teaser and the like / comment / share action
 //  row. The source badge sits on the cover's corner and moves
 //  into the date strip when there is no image. Poll posts swap
@@ -26,7 +27,14 @@
 //  `pendingLike` arrive as props from the screen's row wrapper
 //  (the social engine's useLikeToggle layered over the feed
 //  row), so this component stays a pure renderer —
-//  memo()-wrapped so untouched feed rows skip re-rendering.
+//  memo()-wrapped, and the row wrapper above it (news.tsx
+//  FeedRow) is memoised over stable screen handlers, so an
+//  untouched feed row skips its whole subtree (KNF-137). A
+//  poll card hands the widget the poll its feed row carries
+//  inline — no request per card (KNF-172). The cover keeps
+//  decoded frames in memory as well as on disk (a recycled
+//  row re-shows its image without a decode), like every other
+//  list image in the app (KNF-189).
 //
 //  Split into (root component last):
 //
@@ -49,10 +57,10 @@ import SourceBadge from './SourceBadge';
 import { ActionRow } from '@knf/socialuikit';
 import { isFeatureEnabled } from '@/services/features';
 
-// Feed shape, upload resolution and date formatting
+// Feed shape, upload resolution and the date strip's words
 import { getUploadUrl, type SocialFeedPost } from '@/services/api';
-import { stripMarkdown, stripScrapedPreamble } from '@/services/newsText';
-import { formatDate } from '@/services/format';
+import { stripMarkdown, stripScrapedPreamble, titleRepeatsBody } from '@/services/newsText';
+import { cardDate } from './cardDate';
 import type { NewsPost } from '@/types';
 
 // Rendering
@@ -193,9 +201,11 @@ export function resolveCoverUri(post: NewsPost): string | null {
 // -----------------------------------------------------------
 //
 // The author line under the title — with the avatar for user
-// posts in community mode. Pressable (brand-tinted) only when
-// onOpenAuthor is passed; self-start keeps the press target on
-// the name itself, not the whole card width.
+// posts in community mode. Pressable (brand-tinted, in the
+// AA-checked text token) only when onOpenAuthor is passed;
+// self-start keeps the press target on the name itself, not
+// the whole card width. A long name wraps rather than
+// pushing past the card edge.
 //
 // Used by:
 //   - NewsCard (below)
@@ -215,10 +225,12 @@ function AuthorRow({ author, avatarUrl, withAvatar, onOpenAuthor }: {
     <>
       {withAvatar ? <Avatar uri={avatarUrl} name={author} size={24} /> : null}
       <Text
+        // shrink: a Text in a row only wraps when it may shrink —
+        // without it a long name runs past the card edge
         className={
           onOpenAuthor
-            ? 'font-raleway-medium text-sm text-brand'
-            : 'font-raleway text-sm text-ink-soft'
+            ? 'shrink font-raleway-medium text-sm text-brand-text'
+            : 'shrink font-raleway text-sm text-ink-soft'
         }
       >
         {author}
@@ -283,17 +295,19 @@ function NewsCard({
   const { t, i18n } = useTranslation();
 
 
-  // Poll posts show the live widget instead of a text teaser;
-  // memoized so like toggles on other rows don't recompute it
-  const snippet = useMemo(
-    () =>
-      post.postType === 'poll'
-        ? null
-        // The content fallback is markdown for scraped posts —
-        // a teaser is prose, never markers
-        : makeSnippet(stripMarkdown(stripScrapedPreamble(post.summary || post.content, post))),
-    [post],
-  );
+  // Poll posts show the live widget instead of a text teaser,
+  // and an untitled post (its title IS the body's head) shows
+  // its words once — as the title — never a teaser repeating
+  // them; memoized so like toggles on other rows don't
+  // recompute it
+  const snippet = useMemo(() => {
+    if (post.postType === 'poll') return null;
+    // The content fallback is markdown for scraped posts — a
+    // teaser is prose, never markers
+    const body = stripScrapedPreamble(post.summary || post.content, post);
+    if (titleRepeatsBody(post.title, body)) return null;
+    return makeSnippet(stripMarkdown(body));
+  }, [post]);
 
   const coverUri = useMemo(() => resolveCoverUri(post), [post]);
 
@@ -307,9 +321,12 @@ function NewsCard({
     setCoverFailed(false);
   }
 
-  // The language is a dependency — formatDate follows it
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- i18n.language drives formatDate's locale implicitly; the recompute is the point
-  const dateText = useMemo(() => formatDate(post.date), [post.date, i18n.language]);
+  // "Šiandien, 12:30" / "Vakar" / the long date (see cardDate).
+  // The language and the calendar day are dependencies — a card
+  // left on screen past midnight re-reads as "Vakar"
+  const dayKey = new Date().toDateString();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- i18n.language drives the formatter's locale and dayKey the day words implicitly; the recompute is the point
+  const dateText = useMemo(() => cardDate(post, t), [post.date, post.source, i18n.language, dayKey, t]);
 
 
   // The web build has nothing behind the share action without
@@ -350,6 +367,7 @@ function NewsCard({
               source={{ uri: coverUri }}
               style={{ width: '100%', aspectRatio: 16 / 9 }}
               contentFit="cover"
+              cachePolicy="memory-disk"
               recyclingKey={coverUri}
               transition={150}
               onError={() => setCoverFailed(true)}
@@ -362,8 +380,10 @@ function NewsCard({
             the cover (or standing in as the card's top band when
             there is no image, where it also hosts the badge) */}
         <View className="flex-row items-center justify-between bg-brand-header px-lg py-2">
-          <Text className="font-raleway-medium text-xs tracking-wide text-on-brand">
-            {dateText}
+          {/* A friends-only wall post says so beside its date (a
+              private FACULTY row is a staff draft, not that) */}
+          <Text className="shrink font-raleway-medium text-xs tracking-wide text-on-brand">
+            {post.source === 'user' && post.isPublic === false ? `${dateText} · ${t('news.friendsOnly')}` : dateText}
           </Text>
           {!coverUri || coverFailed ? <SourceBadge source={post.source} /> : null}
         </View>
@@ -398,7 +418,7 @@ function NewsCard({
           full-bleed card */}
       {post.postType === 'poll' ? (
         <View className="px-lg pb-1">
-          <PollWidget postId={post.id} />
+          <PollWidget postId={post.id} poll={post.poll} />
         </View>
       ) : null}
 

@@ -22,8 +22,46 @@ import { defaultLabels } from '../../provider/labels';
 import PollBlock from '../PollBlock';
 
 
+// The injected clock's frozen "now" — 'expired' is a property
+// of the fixture, not of wall time
 const NOW = new Date(Date.UTC(2026, 7, 30, 12, 0, 0));
+// The props every rendered block shares: a viewer who may
+// vote, and a vote that goes nowhere
+const base = { canVote: true, onVote: () => {} };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// at
+// -----------------------------------------------------------
+//
+// An ISO stamp this many hours from NOW (negative: past).
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
+
 const at = (hoursFromNow: number) => new Date(NOW.getTime() + hoursFromNow * 3_600_000).toISOString();
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// opt
+// -----------------------------------------------------------
+//
+// One option "Option <ID>" with its tally and the viewer's mark.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
 
 const opt = (id: string, voteCount = 0, votedByMe = false): KitPollOption => ({
   id,
@@ -31,6 +69,23 @@ const opt = (id: string, voteCount = 0, votedByMe = false): KitPollOption => ({
   voteCount,
   votedByMe,
 });
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// buildPoll
+// -----------------------------------------------------------
+//
+// One open single-answer poll with two empty options,
+// overridable.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
 
 const buildPoll = (over: Partial<KitPoll> = {}): KitPoll => ({
   id: 'p1',
@@ -43,8 +98,23 @@ const buildPoll = (over: Partial<KitPoll> = {}): KitPoll => ({
   ...over,
 });
 
-// English labels for readable assertions; the frozen clock
-// makes 'expired' a property of the fixture, not of wall time
+
+
+
+
+
+
+// -----------------------------------------------------------
+// wrap
+// -----------------------------------------------------------
+//
+// A block under the kit provider in English (readable
+// assertions) on the frozen clock.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
+
 const wrap = (ui: ReactElement) =>
   render(
     <SocialUiKitProvider locale="en" env={{ now: () => NOW }}>
@@ -52,9 +122,24 @@ const wrap = (ui: ReactElement) =>
     </SocialUiKitProvider>,
   );
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// flat
+// -----------------------------------------------------------
+//
+// An element's style, flattened to one object.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
+
 const flat = (el: { props: { style?: unknown } }) => StyleSheet.flatten(el.props.style) as Record<string, unknown>;
 
-const base = { canVote: true, onVote: () => {} };
 
 
 
@@ -248,6 +333,15 @@ describe('PollBlock results', () => {
     expect(within(r.getByTestId('socialuikit-poll-option-a')).queryByLabelText('Your vote')).toBeNull();
   });
 
+
+  it('speaks a result row as ONE stop — the option, its share and the own-vote mark', async () => {
+    const voted = buildPoll({ votedByMe: true, totalVotes: 4, options: [opt('a', 3, true), opt('b', 1)] });
+    const r = await wrap(<PollBlock poll={voted} {...base} />);
+    const first = r.getByTestId('socialuikit-poll-option-a');
+    expect(first.props.accessible).toBe(true);
+    expect(first.props.accessibilityLabel).toBe('Option A, 75%, Your vote');
+    expect(r.getByTestId('socialuikit-poll-option-b').props.accessibilityLabel).toBe('Option B, 25%');
+  });
 
   it('offers the refresh link only when the host wires onRefreshResults', async () => {
     const onRefreshResults = jest.fn();

@@ -67,6 +67,7 @@ interface InputProps extends TextInputProps {
 //   - app/(main)/tabs/id.tsx — student-card edit fields
 //   - app/(main)/new-chat/ — user search + group name
 //   - app/(main)/create-post/ — title, content and poll rows
+//   - components/social/FindPeopleView.tsx — the people search
 // -----------------------------------------------------------
 
 const Input = forwardRef<TextInput, InputProps>(function Input(
@@ -86,7 +87,7 @@ const Input = forwardRef<TextInput, InputProps>(function Input(
   ref,
 ) {
 
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { colors } = useTheme();
   const [focused, setFocused] = useState(false);
   const [passwordVisible, setPasswordVisible] = useState(false);
@@ -122,7 +123,11 @@ const Input = forwardRef<TextInput, InputProps>(function Input(
   return (
     <View className={`mb-md ${containerClassName ?? ''}`}>
 
-      {label && <Text className="mb-xs font-raleway-medium text-sm text-ink">{label}</Text>}
+      {label && (
+        <Text className="mb-xs font-raleway-medium text-sm text-ink" accessibilityLanguage={i18n?.language}>
+          {label}
+        </Text>
+      )}
 
       <View className={fieldClasses}>
 
@@ -194,7 +199,11 @@ const Input = forwardRef<TextInput, InputProps>(function Input(
       {/* Error replaces the helper — one line below the field;
           the live region reads it out the moment it appears */}
       {error ? (
-        <Text accessibilityLiveRegion="assertive" className="mt-xs font-raleway text-xs text-danger">
+        <Text
+          accessibilityLiveRegion="assertive"
+          accessibilityLanguage={i18n?.language}
+          className="mt-xs font-raleway text-xs text-danger"
+        >
           {error}
         </Text>
       ) : helperText ? (

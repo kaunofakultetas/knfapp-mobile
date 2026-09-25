@@ -1,4 +1,6 @@
 {
   "NSCameraUsageDescription": "Kamera reikalinga kvietimo QR kodams nuskaityti.",
-  "NSPhotoLibraryUsageDescription": "Prieiga prie nuotraukų reikalinga dalintis vaizdais įrašuose ir žinutėse."
+  "NSPhotoLibraryUsageDescription": "Prieiga prie nuotraukų reikalinga dalintis vaizdais įrašuose ir žinutėse.",
+  "NSMicrophoneUsageDescription": "Mikrofonas reikalingas balso žinutėms įrašyti.",
+  "NSMotionUsageDescription": "Judesio jutikliai naudojami pastatų panoramoms fiksuoti žemėlapio redaktoriuje."
 }

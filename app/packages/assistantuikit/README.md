@@ -7,9 +7,10 @@ streaming markdown, a collapsible thinking row, tool cards behind a
 name-keyed renderer registry, a typing indicator, copy / regenerate
 / branch actions, an error strip with retry, and a composer that
 grows to six lines. Every label is handed in by the host, colours
-are tokens, and the kit owns no i18n, no navigation, no native
-modules and no knowledge of any tool — it never imports an engine,
-it is typed against the upstream part shapes alone.
+are tokens, fonts are the host's loaded families, and the kit owns
+no i18n, no navigation, no native modules and no knowledge of any
+tool — it never imports an engine, it is typed against the upstream
+part shapes alone.
 
 ```tsx
 import { AssistantThread, ToolCardShell } from '@knf/assistantuikit';
@@ -20,6 +21,7 @@ import { AssistantThread, ToolCardShell } from '@knf/assistantuikit';
   <AssistantThread
     labels={labels}                                 // your i18n, your words
     colors={myTokens}                               // optional; neutral defaults
+    fonts={{ regular: 'Raleway-Regular', semibold: 'Raleway-SemiBold', bold: 'Raleway-Bold' }}
     suggestions={[{ title: t('…'), prompt: t('…') }]}
     copyToClipboard={(text) => Clipboard.setStringAsync(text)}
     onPressLink={(url) => Linking.openURL(url)}
@@ -41,13 +43,14 @@ import { AssistantThread, ToolCardShell } from '@knf/assistantuikit';
 ```
 
 **AssistantThread** is the screen body: the message list, the empty
-state, the error strip and the composer in one column. Put it at
-the screen root (or under a header the window already accounts
-for) — the keyboard math reads the column's own frame: iOS pads
-through the platform's avoiding view, and on Android the column
-pads itself by the keyboard's height whenever the edge-to-edge
-window keeps its height under it (where the window still resizes,
-the pad stays out of the way). A drag on the list dismisses the
+state, the error strip and the composer in one column. Mount it
+anywhere — at the screen root or under a header of the host's own:
+the keyboard math measures the column's frame in the WINDOW. iOS
+pads through the platform's avoiding view, handed the column's
+distance from the window top; on Android the column pads itself by
+exactly the part of it the keyboard covers whenever the edge-to-edge
+window keeps its height under the keyboard (where the window still
+resizes, the pad stays out of the way). A drag on the list dismisses the
 keyboard — interactively on iOS, on the drag on Android. The list
 keeps what the reader sees still while a reply streams in, follows
 the tail through the upstream auto-scroll while pinned to it, and
@@ -97,11 +100,12 @@ message; rendered on its own it must sit under a message provider.
 | Prop | Default | What it does |
 | --- | --- | --- |
 | `labels` | — | `AssistantLabels` — every string the surfaces can show (below) |
-| `colors` | `defaultColors` | `AssistantColors` — `ink`, `inkSoft`, `line`, `brand`, `onBrand`, `surface`, `surfaceSoft`, `danger` |
+| `colors` | `defaultColors` | `AssistantColors` — `ink`, `inkSoft`, `line`, `brand` (fills), `brandText` (brand-coloured TEXT: links, the details toggle — keep it AA in both schemes), `onBrand`, `surface`, `surfaceSoft`, `danger` |
+| `fonts` | `defaultFonts` (`{}`) | `AssistantFonts` — `regular`, `medium`, `semibold`, `bold`, `mono` family names the host LOADED; a set weight is drawn in that family with no `fontWeight` beside it, an unset one keeps the system face at that weight |
 | `tools` | — | `Record<string, ToolCardRenderer>` — a renderer per tool name; a name with no entry falls to the generic card |
 | `suggestions` | — | `AssistantSuggestion[]` — `{ title, prompt, description? }`; one chip each in the empty state, tapping sends the prompt |
 | `copyToClipboard` | — | `(text) => Promise<void> \| void`; without it the copy action is not rendered at all |
-| `onPressLink` | — | `(url) => void`; markdown links call it — the kit never navigates |
+| `onPressLink` | — | `(url) => void`; markdown links, bare URLs (`https://…`) and bare e-mail addresses (as `mailto:…`) call it — the kit never navigates, and the host decides which schemes may leave the app |
 | `contentPaddingBottom` | `0` | Bottom padding on the whole column, under the composer — so a floating tab bar or the home indicator never covers Send |
 
 ## AssistantLabels
@@ -126,19 +130,22 @@ message; rendered on its own it must sit under a message provider.
 | Export | Props | What it is |
 | --- | --- | --- |
 | `AssistantMessage` | — | one row by role; reads labels, colours, tools and callbacks from the nearest `AssistantThread` or `AssistantKitProvider` |
-| `AssistantComposer` | `labels`, `colors?` | the input strip on its own |
-| `AssistantErrorBanner` | `labels`, `colors?`, `onRetry` | the error strip on its own — render it under a message provider |
-| `ToolCardShell` | `title`, `status`, `labels`, `colors?`, `children?`, `details?` | the card frame: status dot, title, status word, body, details behind the toggle |
+| `AssistantComposer` | `labels`, `colors?`, `fonts?` | the input strip on its own — field and button both at the 44pt touch floor |
+| `AssistantErrorBanner` | `labels`, `colors?`, `fonts?`, `onRetry` | the error strip on its own — render it under a message provider; announced as an alert |
+| `ToolCardShell` | `title`, `status`, `labels`, `colors?`, `fonts?`, `children?`, `details?` | the card frame: status dot, title, status word, body, details behind a 44pt toggle |
 | `TypingIndicator` | `colors?`, `testID?` | the three dots; still at half strength when the OS asks for less motion |
-| `MarkdownText` | `text`, `colors?`, `onPressLink?`, `isStreaming?` | the markdown renderer — paragraphs with bold / italic / code / links, headings 1-3, fenced code, lists nested one level, blockquotes, rules; an open marker stays plain text while `isStreaming` |
+| `MarkdownText` | `text`, `colors?`, `fonts?`, `onPressLink?`, `isStreaming?` | the markdown renderer — paragraphs with bold / italic / code / links (bare URLs and e-mail addresses included), headings 1-3, fenced code, lists nested one level (a nested switch of marker kind is a list of its own, never bullets numbered as steps), blockquotes, rules, pipe tables; an open marker stays plain text while `isStreaming`, and a streaming answer re-parses only the block being written |
 | `parseMarkdown` | `(text) => MarkdownBlock[]` | the pure parser under it |
-| `AssistantKitProvider` | `labels`, `colors?`, `tools?`, `copyToClipboard?`, `onPressLink?` | carries the kit context to bubbles a host lays out in a list of its own |
+| `AssistantKitProvider` | `labels`, `colors?`, `fonts?`, `tools?`, `copyToClipboard?`, `onPressLink?` | carries the kit context to bubbles a host lays out in a list of its own |
 | `defaultColors` | — | the neutral palette |
+| `defaultFonts` | — | the empty font map — system faces throughout |
 
 ## testIDs
 
 Stable across all of it: `assistantuikit-thread`,
-`assistantuikit-keyboard-column`, `assistantuikit-composer-input`,
+`assistantuikit-keyboard-column`, `assistantuikit-keyboard-frame`
+(iOS/web: the measured wrapper around it),
+`assistantuikit-composer-input`,
 `assistantuikit-composer-send`, `assistantuikit-composer-cancel`,
 `assistantuikit-message-user`, `assistantuikit-message-assistant`,
 `assistantuikit-typing`, `assistantuikit-tool-<name>`,
@@ -156,7 +163,9 @@ thinking row, the typing dots (in the bubble, after a tool call,
 reduced motion at half strength), the tool registry and the generic
 card, the error strip and retry, copy and its flip (fake timers)
 and its dim, regenerate and the branch picker with its edge dim,
-the keyboard column on both platforms, the "latest" button's
-hysteresis and label, the provider guard, the link-and-ink wiring
-through the real renderer, the markdown parser and renderer, and
-the export surface.
+the keyboard column on both platforms (the window-measured offset
+and the covered-part pad), the "latest" button's hysteresis and
+label, the provider guard, the link-and-ink wiring through the real
+renderer, the host fonts reaching every text, the markdown parser
+and renderer (the streaming parser equal to a full parse on every
+prefix, the emphasis scan linear), and the export surface.

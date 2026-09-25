@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased — 2026-09-25
+
+The QA sweep over the schedule tab (audit KNF-037/078/174/184):
+
+- Event kinds: the KNF adapter maps the timetable's own type word
+  (`lectureType` — "Paskaita", "Pratybos", "Egzaminas", the combined
+  "Paskaitos ir seminarai" / "Paskaitos ir pratybos", …) onto the
+  canonical `kind` codes through `knfKind` (new export); a word no
+  stem knows becomes `'other'`, never a guess.
+- Subgroups: `subgroupKeys` on the entry ("Pogrupiai: 1"), shape-
+  checked at the normalize gate; the group-scope conflict rule never
+  pairs two DISJOINT subgroups of one group (the two halves of a
+  group in two rooms painted every split practical red), while the
+  person scope still flags a teacher in two rooms.
+- `formatMinutes` pads the hour ("09:45"): the grid was the one
+  timetable surface printing "9:45".
+- `termKeyOf(dateISO)` (new export): the scraper's semester-label
+  rule on a date string.
+
 ## 1.0.1 — 2026-09-01
 
 The adversarial review round over the fresh core, before any screen

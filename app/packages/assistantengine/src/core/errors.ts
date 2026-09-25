@@ -7,7 +7,9 @@
 //  unavailable, the rest of 4xx/5xx server), Retry-After
 //  becomes milliseconds whether it came as seconds or as an
 //  HTTP-date, the server's own `error`/`message` wins over the
-//  status text; a thrown error is read by NAME — 'AbortError'
+//  status text and its machine code (`error.code`, or a bare
+//  `code`) rides along as serverCode; a thrown error is read
+//  by NAME — 'AbortError'
 //  (or an aborted signal) is the user's cancel, 'TimeoutError'
 //  (a host's own deadline signal, AbortSignal.timeout say) is
 //  'timeout' — the transport's first-byte deadline builds that
@@ -23,6 +25,7 @@
 //    parseRetryAfter           — seconds or HTTP-date → ms
 //    readFailureBody           — the one body read, JSON or text
 //    toAssistantFailure        — the mapping table
+//    serverCodeOf              — the body's machine code
 //
 //  Used by:
 //    - core/transport.ts, tools/contract.ts — every failure path
@@ -231,8 +234,8 @@ export async function readFailureBody(response: Response): Promise<unknown> {
 // The message is the server's `error` or `message` (a string,
 // or an object carrying a string `message`) when the body is
 // JSON, else the status text, else 'HTTP <status>'.
-// retryAfterMs and status are present only when derived —
-// the object compares by value in a mapping table.
+// retryAfterMs, status and serverCode are present only when
+// derived — the object compares by value in a mapping table.
 //
 // Used by:
 //   - transport.ts, tools/contract.ts — every failure path
@@ -265,7 +268,13 @@ export function toAssistantFailure(input: unknown, body?: unknown): AssistantFai
 function fromResponse(response: ResponseLike, body: unknown): AssistantFailure {
   const { status } = response;
   const message = serverMessage(body) ?? response.statusText ?? '';
-  const base: AssistantFailure = { code: 'server', status, message: message || `HTTP ${status}` };
+  const serverCode = serverCodeOf(body);
+  const base: AssistantFailure = {
+    code: 'server',
+    status,
+    message: message || `HTTP ${status}`,
+    ...(serverCode ? { serverCode } : {}),
+  };
   if (status === 401 || status === 403) return { ...base, code: 'auth' };
   if (status === 429) return withRetryAfter({ ...base, code: 'quota' }, response);
   if (status === 502 || status === 503 || status === 504) return withRetryAfter({ ...base, code: 'unavailable' }, response);
@@ -310,14 +319,47 @@ function withRetryAfter(failure: AssistantFailure, response: ResponseLike): Assi
 //
 // Used by:
 //   - fromResponse (above)
+//   - transport.ts — the thread resolver's failure
 // -----------------------------------------------------------
 
-function serverMessage(body: unknown): string | null {
+export function serverMessage(body: unknown): string | null {
   if (!body || typeof body !== 'object') return null;
   const { error, message } = body as { error?: unknown; message?: unknown };
   if (typeof error === 'string' && error.length > 0) return error;
   if (typeof message === 'string' && message.length > 0) return message;
   return messageOf(error);
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// serverCodeOf
+// -----------------------------------------------------------
+//
+//   serverCodeOf({ error: { code: 'RATE_LIMITED' } }) → 'RATE_LIMITED'
+//   serverCodeOf({ error: 'x', code: 'not_found' })  → 'not_found'
+//   serverCodeOf('<html>…')                          → null
+//
+// The server's machine code out of a JSON body: the
+// container's envelope nests it in `error`, Django's flat
+// envelope puts it beside `error`. Only a non-empty string
+// counts.
+//
+// Used by:
+//   - fromResponse (above)
+//   - transport.ts — the thread resolver's failure
+// -----------------------------------------------------------
+
+export function serverCodeOf(body: unknown): string | null {
+  if (!body || typeof body !== 'object') return null;
+  const { error, code } = body as { error?: unknown; code?: unknown };
+  const nested = (error as { code?: unknown } | null | undefined)?.code;
+  if (typeof nested === 'string' && nested.length > 0) return nested;
+  return typeof code === 'string' && code.length > 0 ? code : null;
 }
 
 

@@ -20,6 +20,7 @@ export { defaultColors } from './core/types';
 export type {
   NotifyChannelKey,
   NotifyColors,
+  NotifyFonts,
   NotifyEngineLike,
   PermissionLike,
   PrefsLike,

@@ -73,6 +73,35 @@ jest.mock('@/context/NetworkContext', () => ({ showToast: jest.fn() }));
 jest.mock('expo-notifications', () => ({ dismissAllNotificationsAsync: jest.fn() }));
 
 
+// The profile the storage-level tests persist and read back
+const storedUser: User = {
+  id: 'u1',
+  username: 'jonas',
+  email: 'jonas@knf.vu.lt',
+  displayName: 'Jonas',
+  role: 'student',
+};
+
+// The session module's own type, for loadRealSession below
+type SessionModule = typeof import('@/services/session');
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// http
+// -----------------------------------------------------------
+//
+// An HTTP failure with the given status — the only
+// shape isAuthRejection reads
+//
+// Used by:
+//   - the isAuthRejection tests below
+// -----------------------------------------------------------
+
 const http = (status: number) => new ApiError('failed', status, 'http');
 
 
@@ -111,6 +140,19 @@ describe('authReducer', () => {
     expect(authReducer(loggedIn, { type: 'LOGOUT' })).toEqual(guest);
   });
 
+  it('an unchanged profile from /me keeps the current user object — nothing memoized on it rebuilds', () => {
+    const loggedIn = authReducer(guest, { type: 'LOGIN_SUCCESS', payload: { user, token: 'tok' } });
+    // Every foreground's /me answers an equal but NEW object
+    const same = authReducer(loggedIn, { type: 'SET_USER', payload: { ...user } });
+    expect(same).toBe(loggedIn);
+    const renamed = authReducer(loggedIn, { type: 'SET_USER', payload: { ...user, displayName: 'Jonas J.' } });
+    expect(renamed).not.toBe(loggedIn);
+    expect(renamed.user?.displayName).toBe('Jonas J.');
+    // A field the old record lacked counts as a change too
+    const withGroup = authReducer(loggedIn, { type: 'SET_USER', payload: { ...user, studyGroup: 'IS-1' } });
+    expect(withGroup.user?.studyGroup).toBe('IS-1');
+  });
+
   it('keeps a live session through a failed re-login attempt', () => {
     const loggedIn = authReducer(guest, { type: 'LOGIN_SUCCESS', payload: { user, token: 'tok' } });
     const afterFailure = authReducer(authReducer(loggedIn, { type: 'LOGIN_START' }), { type: 'LOGIN_FAILURE' });
@@ -121,24 +163,29 @@ describe('authReducer', () => {
 });
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// loadRealSession
+// -----------------------------------------------------------
+//
 // The REAL storage module, fresh per test (its token cache is
 // module state) — the module-level mock above serves the
 // AuthContext import only
-type SessionModule = typeof import('@/services/session');
+//
+// Used by:
+//   - the storage-level tests below
+// -----------------------------------------------------------
+
 const loadRealSession = (): SessionModule => {
   let session: SessionModule | undefined;
   jest.isolateModules(() => {
     session = jest.requireActual<SessionModule>('@/services/session');
   });
   return session as SessionModule;
-};
-
-const storedUser: User = {
-  id: 'u1',
-  username: 'jonas',
-  email: 'jonas@knf.vu.lt',
-  displayName: 'Jonas',
-  role: 'student',
 };
 
 

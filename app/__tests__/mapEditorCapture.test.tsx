@@ -15,18 +15,28 @@
 //  with a conflict surfacing as the overwrite/discard dialog.
 //  A retake purges the replaced target's queued frame so the
 //  stale photo cannot outlive the new one, the screen sweeps
-//  foreign leftovers on mount and clears its queues on a
-//  delivered assign, and a re-captured node loses its stale
-//  panoYaw unless the pano url is unchanged. Plus the
+//  foreign leftovers on mount and empties its upload queue on
+//  a delivered assign — its ops it never wipes: Close on a
+//  failed stitch keeps an earlier assign still queued
+//  (KNF-112) — and a re-captured node loses its stale panoYaw
+//  unless the pano url is unchanged. With the map editor
+//  mounted underneath the assign is HANDED to it
+//  (editorHandoff), the stitched band's vOffsetDeg included,
+//  and nothing goes through this screen's outbox; an editor
+//  that declines is reported, and the no-editor fallback
+//  whose server is out of reach says so instead of claiming a
+//  success. Plus the
 //  per-platform sensor adapter alone (iOS flips the accel
 //  sign, Android passes through) and a camera failure re-
 //  arming the shutter instead of losing the target.
 // -----------------------------------------------------------
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import type { GraphNode } from '@knf/wayfindengine';
 import { act, fireEvent, render } from '@testing-library/react-native';
 
 import CaptureScreen, { trackerSampleFrom } from '@/app/(main)/map-editor/capture';
+import { registerNodeEditSink } from '@/services/wayfind/editorHandoff';
 
 
 // This suite pins its module's BEHAVIOR, so the shipping
@@ -45,6 +55,8 @@ jest.mock('@/services/features', () => {
 });
 
 jest.mock('@react-native-async-storage/async-storage', () => require('@react-native-async-storage/async-storage/jest/async-storage-mock'));
+// The conflict dialog's answer — overwrite, unless a spec says
+// discard
 const mockConfirm = jest.fn(async () => true);
 jest.mock('@/components/ui', () => {
   const { Pressable, Text, View } = require('react-native');
@@ -61,16 +73,20 @@ jest.mock('@/components/ui', () => {
     ),
   };
 });
-jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string, opts?: Record<string, unknown>) => (opts && 'count' in opts ? `${key}:${opts.count}` : key) }) }));
+jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string, opts?: Record<string, unknown>) => (opts && 'count' in opts ? `${key}:${opts.count}` : key), i18n: { language: 'lt' } }) }));
 jest.mock('@/hooks/useTheme', () => ({
   useTheme: () => ({ colors: { surface: '#fff', surfaceSoft: '#eee', ink: '#111', inkSoft: '#666', inkFaint: '#999', brand: '#7B003F', onBrand: '#fff', danger: '#C62828', scrim: 'rgba(0,0,0,0.45)' }, scheme: 'light' }),
 }));
 jest.mock('@/context/AuthContext', () => ({ useAuth: () => ({ user: { id: 'a1', role: 'admin' }, hydrated: true }) }));
+// Every toast the screen raised, for the specs to read
 const mockToast = jest.fn();
 jest.mock('@/context/NetworkContext', () => ({ showToast: (...args: unknown[]) => mockToast(...args) }));
 jest.mock('@knf/dataengine', () => ({ useDataEngine: () => ({ onRestore: () => () => undefined, cache: { get: async () => null, set: async () => undefined } }) }));
 
+// The router's back, to see the screen leave
 const mockBack = jest.fn();
+
+// The route params the NodeSheet would mint, set per spec
 const mockParams: Record<string, string> = {};
 jest.mock('expo-router', () => ({
   useRouter: () => ({ back: mockBack, push: jest.fn() }),
@@ -120,10 +136,20 @@ jest.mock('expo-sensors', () => ({
 }));
 
 type SentOp = { id: string; type?: string; kind?: string; entityId?: string; data?: Record<string, unknown>; baseRevision?: number };
+// The server's op endpoint: every batch applied at revision 9
+// unless a spec answers otherwise
 const mockPostOps = jest.fn(async (_b: string, ops: SentOp[]): Promise<{ revision: number; results: Record<string, unknown>[] }> => ({ revision: 9, results: ops.map((op) => ({ id: op.id, status: 'applied' })) }));
+
+// The frame upload: each PUT answers one stored frame
 const mockUploadFrame = jest.fn(async (..._args: unknown[]) => ({ stored: 1, expected: 36 }));
+
+// The capture record's create, answering the client's own id
 const mockCreateCapture = jest.fn(async (_b: string, body: { id: string }) => ({ id: body.id, status: 'uploading' }));
+
+// Finish, which queues the stitch
 const mockFinishCapture = jest.fn(async (..._args: unknown[]) => ({ status: 'queued' }));
+
+// The stitch-status poll, answered per spec
 const mockGetCapture = jest.fn();
 jest.mock('@/services/api', () => ({
   ApiError: class ApiError extends Error {
@@ -135,6 +161,7 @@ jest.mock('@/services/api', () => ({
       this.serverCode = serverCode;
     }
   },
+  apiErrorKey: () => 'errors.generic',
   getUploadUrl: (path: string) => path,
 }));
 jest.mock('@/services/wayfindTransport', () => ({
@@ -151,14 +178,57 @@ jest.mock('@/services/wayfindTransport', () => ({
 }));
 
 
+// A stitch the poll answers done: the served panorama the
+// assign writes onto the node
+const DONE_ANSWER = {
+  id: 'c',
+  status: 'done',
+  frames: 8,
+  expected: 36,
+  pano: { id: 'h', url: '/api/wayfind/panoramas/h.jpg', width: 4096, height: 2048, hfovDeg: 360, vfovDeg: 160, centreYawDeg: 12 },
+};
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// settle
+// -----------------------------------------------------------
+//
+// Flush the fake clock's due work inside act, so the
+// queue's drains and the screen's effects land.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
+
 const settle = async () => {
   await act(async () => {
     await jest.advanceTimersByTimeAsync(0);
   });
 };
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// feed
+// -----------------------------------------------------------
+//
 // One synthetic sensor stretch: time moves first so the
-// screen's Date.now dt matches the step, then the pair lands
+// screen's Date.now dt matches the step, then the pair
+// lands.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
+
 const feed = async (gyro: { x: number; y: number; z: number }, ms: number, stepMs = 50) => {
   for (let elapsed = 0; elapsed < ms; elapsed += stepMs) {
     await act(async () => {
@@ -169,20 +239,82 @@ const feed = async (gyro: { x: number; y: number; z: number }, ms: number, stepM
   }
 };
 
-// Hold still long enough for the tracker's 1500 ms window
+
+
+
+
+
+
+// -----------------------------------------------------------
+// calibrate
+// -----------------------------------------------------------
+//
+// Hold still long enough for the tracker's 1500 ms
+// window.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
+
 const calibrate = () => feed({ x: 0, y: 0, z: 0 }, 1700);
 
-// Turn the phone by yawDeg (clockwise seen from above): the
-// facing swings -z → +x when the gyro spins NEGATIVE about
-// device y, per the capture package's frames
+
+
+
+
+
+
+// -----------------------------------------------------------
+// turnYaw
+// -----------------------------------------------------------
+//
+// Turn the phone by yawDeg (clockwise seen from above):
+// the facing swings -z → +x when the gyro spins NEGATIVE
+// about device y, per the capture package's frames.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
+
 const turnYaw = (yawDeg: number) => feed({ x: 0, y: -((yawDeg * Math.PI) / 180), z: 0 }, 1000);
 
-// Quiet long enough for the session's 300 ms stability window
+
+
+
+
+
+
+// -----------------------------------------------------------
+// holdStill
+// -----------------------------------------------------------
+//
+// Quiet long enough for the session's 300 ms stability
+// window.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
+
 const holdStill = () => feed({ x: 0, y: 0, z: 0 }, 450);
 
 
-// The whole 8-shot walls row in one sweep — calibrate, shoot
-// r0-0, then seven 30° turns each settling into its own shot
+
+
+
+
+
+// -----------------------------------------------------------
+// sweepAll
+// -----------------------------------------------------------
+//
+// The whole 8-shot walls row in one sweep — calibrate,
+// shoot r0-0, then seven 30° turns each settling into its
+// own shot.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
+
 const sweepAll = async () => {
   await calibrate();
   await holdStill();
@@ -194,14 +326,22 @@ const sweepAll = async () => {
   }
 };
 
-const DONE_ANSWER = {
-  id: 'c',
-  status: 'done',
-  frames: 8,
-  expected: 36,
-  pano: { id: 'h', url: '/api/wayfind/panoramas/h.jpg', width: 4096, height: 2048, hfovDeg: 360, vfovDeg: 160, centreYawDeg: 12 },
-};
 
+
+
+
+
+
+// -----------------------------------------------------------
+// startCapture
+// -----------------------------------------------------------
+//
+// Pick the plan mode (walls unless told) and press Start —
+// the capture record is created and aiming begins.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
 
 const startCapture = async (r: Awaited<ReturnType<typeof render>>, mode: 'walls' | 'full' = 'walls') => {
   if (mode === 'full') {
@@ -374,10 +514,13 @@ describe('CaptureScreen', () => {
     expect(mockBack).toHaveBeenCalled();
     expect(mockToast).toHaveBeenCalledWith('success', 'mapEditor.capture.assigned');
 
-    // A delivered assign clears this screen's queues — nothing
-    // piles up in storage across captures
+    // A delivered assign empties the upload queue and leaves no op
+    // behind — the applied one left the outbox with its answer.
+    // (This once asserted the ops KEY was wiped: that was
+    // clearAll, which also erased any still-queued assign —
+    // KNF-112; the outbox is now only ever drained, never wiped)
     expect(await AsyncStorage.getItem('wayfind-capture:uploads:knf')).toBeNull();
-    expect(await AsyncStorage.getItem('wayfind-capture:ops:knf')).toBeNull();
+    expect(JSON.parse((await AsyncStorage.getItem('wayfind-capture:ops:knf')) ?? '[]')).toEqual([]);
   });
 
 
@@ -640,5 +783,122 @@ describe('CaptureScreen', () => {
     expect(body.mode).toBe('full');
     expect(body.targets).toHaveLength(44);
     expect(body.targets[43]).toEqual({ id: 'r-70-3', yawDeg: 135, pitchDeg: -70 });
+  });
+
+
+  // Sweep, finish, poll to done — the screen ready to assign
+  const toDone = async (answer: Record<string, unknown> = DONE_ANSWER) => {
+    mockGetCapture.mockResolvedValue(answer);
+    const r = await render(<CaptureScreen />);
+    await settle();
+    await startCapture(r);
+    await sweepAll();
+    await act(async () => {
+      fireEvent.press(r.getByText('mapEditor.capture.finish'));
+    });
+    await settle();
+    return r;
+  };
+
+
+  it("with the editor underneath, assign hands the panorama to it — the band's offset included — and this outbox stays empty", async () => {
+    const handed: [string, Record<string, unknown> | null][] = [];
+    const release = registerNodeEditSink((nodeId, edit) => {
+      // The editor's LIVE node carries an older, aligned photo
+      handed.push([nodeId, edit({ id: 'n-1', level: 'L1', x: 100, y: 200, kind: 'corridor', pano: '/api/wayfind/panoramas/old.jpg', panoYaw: 40 } as GraphNode)]);
+      return 'applied';
+    });
+    try {
+      const r = await toDone({ ...DONE_ANSWER, pano: { ...DONE_ANSWER.pano, vfovDeg: 75, vOffsetDeg: 12 } });
+      await act(async () => {
+        fireEvent.press(r.getByText('mapEditor.capture.assign'));
+      });
+      await settle();
+      expect(handed).toEqual([
+        ['n-1', {
+          pano: '/api/wayfind/panoramas/h.jpg',
+          panoGeometry: { hfovDeg: 360, vfovDeg: 75, centreYawDeg: 12, vOffsetDeg: 12 },
+          panoYaw: null,
+          panoHeading: { source: 'auto' },
+        }],
+      ]);
+      expect(mockPostOps).not.toHaveBeenCalled();
+      expect(mockToast).toHaveBeenCalledWith('success', 'mapEditor.capture.assigned');
+      expect(mockBack).toHaveBeenCalled();
+      expect(await AsyncStorage.getItem('wayfind-capture:uploads:knf')).toBeNull();
+    } finally {
+      release();
+    }
+  });
+
+
+  it('an editor that declines the assign is reported — the screen stays and writes nothing', async () => {
+    const release = registerNodeEditSink(() => 'declined');
+    try {
+      const r = await toDone();
+      await act(async () => {
+        fireEvent.press(r.getByText('mapEditor.capture.assign'));
+      });
+      await settle();
+      expect(mockToast).toHaveBeenCalledWith('error', 'mapEditor.nodeChanged');
+      expect(mockPostOps).not.toHaveBeenCalled();
+      expect(mockBack).not.toHaveBeenCalled();
+    } finally {
+      release();
+    }
+  });
+
+
+  it('with no editor and no server, the assign stays queued and the screen says so instead of claiming success', async () => {
+    mockPostOps.mockImplementation(async () => {
+      throw new Error('offline');
+    });
+    try {
+      const r = await toDone({ ...DONE_ANSWER, pano: { ...DONE_ANSWER.pano, vOffsetDeg: -4 } });
+      await act(async () => {
+        fireEvent.press(r.getByText('mapEditor.capture.assign'));
+      });
+      await settle();
+      await settle();
+      expect(mockToast).toHaveBeenCalledWith('info', 'mapEditor.savedOffline');
+      expect(mockToast).not.toHaveBeenCalledWith('success', 'mapEditor.capture.assigned');
+      expect(mockBack).not.toHaveBeenCalled();
+      const stored = JSON.parse((await AsyncStorage.getItem('wayfind-capture:ops:knf')) ?? '[]') as { op: { data: { panoGeometry: Record<string, unknown> } }; status: string }[];
+      expect(stored.map((entry) => entry.status)).toEqual(['queued']);
+      // The fallback carries the band's offset too
+      expect(stored[0].op.data.panoGeometry).toMatchObject({ vOffsetDeg: -4 });
+    } finally {
+      mockPostOps.mockImplementation(async (_b: string, ops: SentOp[]) => ({ revision: 9, results: ops.map((op) => ({ id: op.id, status: 'applied' })) }));
+    }
+  });
+
+
+  it('Close on a failed stitch drops the frames and keeps an earlier assign still queued (KNF-112)', async () => {
+    // An assign from an earlier session, waiting in this outbox —
+    // the ops endpoint fails while frames still upload, the
+    // residual case the audit found reachable
+    const leftover = { op: { id: 'op-old', type: 'upsert', kind: 'node', entityId: 'n-9', data: { pano: '/api/wayfind/panoramas/x.jpg' }, baseRevision: 3 }, status: 'queued', queuedAt: 1 };
+    await AsyncStorage.setItem('wayfind-capture:ops:knf', JSON.stringify([leftover]));
+    mockPostOps.mockImplementation(async () => {
+      throw new Error('ops down');
+    });
+    try {
+      const r = await toDone({ id: 'c', status: 'failed', frames: 8, expected: 36, report: { reason: 'boom' } });
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(3000);
+      });
+      await settle();
+      expect(r.getByTestId('capture-status-line').props.children).toBe('mapEditor.capture.failed');
+      await act(async () => {
+        fireEvent.press(r.getByText('mapEditor.capture.close'));
+      });
+      await settle();
+      expect(mockBack).toHaveBeenCalled();
+      expect(await AsyncStorage.getItem('wayfind-capture:uploads:knf')).toBeNull();
+      const stored = JSON.parse((await AsyncStorage.getItem('wayfind-capture:ops:knf')) ?? '[]') as { op: { id: string }; status: string }[];
+      expect(stored.map((entry) => [entry.op.id, entry.status])).toEqual([['op-old', 'queued']]);
+    } finally {
+      mockPostOps.mockImplementation(async (_b: string, ops: SentOp[]) => ({ revision: 9, results: ops.map((op) => ({ id: op.id, status: 'applied' })) }));
+    }
   });
 });

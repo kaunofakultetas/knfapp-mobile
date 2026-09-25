@@ -22,13 +22,15 @@
 //  a toast: every failure resolves through apiErrorKey to a
 //  TRANSLATED sentence (backend machine code first, then the
 //  HTTP status, then the network/timeout sentinels) — raw
-//  backend prose never reaches the screen.
+//  backend prose never reaches the screen. A sign-in is
+//  single-flight: a double tap, or Done plus the button,
+//  sends one request (a second one minted a second session).
 //
 //  Split into (root component last):
 //
 //    errorText      — failure → translated display text
 //    resolveReturnTo — ?returnTo= validation → safe Href
-//    FormTopBar     — brand top bar with the back affordance
+//    FormTopBar     — the app's StackHeader, back to the pitch
 //    WelcomeStep    — the burgundy brand pitch
 //    ErrorBanner    — inline server-error box above the form
 //    LoginStep      — the credential form
@@ -40,6 +42,7 @@
 // sign-in surface at all
 import withFeature from '@/components/FeatureGate';
 
+import StackHeader from '@/components/navigation/StackHeader';
 import { Button, Input } from '@/components/ui';
 import { useTheme } from '@/hooks/useTheme';
 
@@ -78,6 +81,15 @@ import LogoKnF from '../components/logoknf.svg';
 // Field values — the shared domain shape
 import type { LoginForm } from '@/types';
 
+
+// Input cap: the identifier is a username (32) or an e-mail —
+// the backend's 254 is the longer of the two
+const IDENTIFIER_MAX = 254;
+
+// Input cap far above bcrypt's 72 bytes (a 72-character
+// Lithuanian password is 144), so no real password is ever
+// cut — only a pasted blob is
+const PASSWORD_MAX = 256;
 
 // The welcome pitch offers the guest skip next to Continue
 interface WelcomeStepProps {
@@ -181,42 +193,26 @@ function resolveReturnTo(
 // FormTopBar
 // -----------------------------------------------------------
 //
-// The burgundy band above the credential form — it keeps the
-// app-wide "brand top on every screen" invariant the root
-// layout's light StatusBar relies on, and carries the back
-// arrow to the welcome step (the flow is one route, so back
-// is state, not navigation).
+// The app's own pushed-screen bar (components/navigation/
+// StackHeader) above the credential form — the same chevron,
+// 44pt target, haptic and title as every other stack screen
+// (the form drew its own arrow before and looked foreign),
+// and the brand band the root layout's light StatusBar relies
+// on. The flow is one route, so back is STATE (the welcome
+// step) or a pop decided by the caller — the navigation shape
+// is supplied by hand.
 //
 // Used by:
 //   - LoginStep (below)
 // -----------------------------------------------------------
 
 function FormTopBar({ title, onBack }: { title: string; onBack: () => void }) {
-
-  const { t } = useTranslation();
-  const { colors } = useTheme();
-
-
   return (
-    <SafeAreaView edges={['top']} className="bg-brand-header">
-      <View className="flex-row items-center px-md" style={{ paddingVertical: 10 }}>
-
-        <Pressable
-          onPress={onBack}
-          hitSlop={12}
-          accessibilityRole="button"
-          accessibilityLabel={t('common.back')}
-          style={({ pressed }) => [
-            { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-            pressed && { opacity: 0.7 },
-          ]}
-        >
-          <Ionicons name="arrow-back" size={24} color={colors.onBrand} />
-        </Pressable>
-
-        <Text className="ml-sm flex-1 font-raleway-bold text-xl text-on-brand">{title}</Text>
-      </View>
-    </SafeAreaView>
+    <StackHeader
+      navigation={{ goBack: onBack, canGoBack: () => true }}
+      route={{ name: 'login' }}
+      options={{ title }}
+    />
   );
 }
 
@@ -234,7 +230,10 @@ function FormTopBar({ title, onBack }: { title: string; onBack: () => void }) {
 // mark, the tagline, Continue into the credential form and
 // the underlined guest skip. Continue only advances the step —
 // 'onboarded' is written by an actual outcome (login, register
-// or the guest skip), never by merely seeing this page.
+// or the guest skip), never by merely seeing this page. The
+// page scrolls when it must: on a 320pt phone at a large text
+// size the mark and the copy outgrow the screen, and a fixed
+// column clipped the Continue button off the bottom.
 //
 // Used by:
 //   - LoginScreen (below)
@@ -247,50 +246,58 @@ function WelcomeStep({ onContinue, onGuest }: WelcomeStepProps) {
 
   return (
     <SafeAreaView edges={['top', 'bottom']} className="flex-1 bg-brand-header">
+      <ScrollView
+        contentContainerClassName="flex-grow"
+        alwaysBounceVertical={false}
+        showsVerticalScrollIndicator={false}
+      >
 
-      {/* The mark floats in the free upper space */}
-      <View className="flex-1 items-center justify-center">
-        <LogoKnF width={180} height={260} />
-      </View>
+        {/* The mark floats in the free upper space */}
+        <View className="flex-1 items-center justify-center py-lg">
+          <LogoKnF width={180} height={260} />
+        </View>
 
-      <View className="w-full items-center px-lg pb-xl">
+        <View className="w-full items-center px-lg pb-xl">
 
-        <Text className="text-center font-raleway-bold text-2xl text-on-brand">
-          {t('login.welcomeTitle')}
-        </Text>
-
-        {/* Full-opacity on-brand text and a width cap for the
-            balanced two-line look — no baked-in line break */}
-        <Text
-          className="mt-md text-center font-raleway text-base leading-6 text-on-brand"
-          style={{ maxWidth: 300 }}
-        >
-          {t('login.subtitle')}
-        </Text>
-
-        {/* The ui Button has no white-on-burgundy variant, so
-            the brand-screen CTA is its own pressable */}
-        <Pressable
-          onPress={onContinue}
-          className="mt-xl h-14 self-stretch items-center justify-center rounded-full bg-surface active:opacity-85"
-          accessibilityRole="button"
-          accessibilityLabel={t('login.continue')}
-        >
-          <Text className="font-raleway-bold text-lg text-brand-text">{t('login.continue')}</Text>
-        </Pressable>
-
-        <Pressable
-          onPress={onGuest}
-          className="mt-md py-sm"
-          hitSlop={8}
-          accessibilityRole="link"
-          accessibilityLabel={t('login.continueAsGuest')}
-        >
-          <Text className="text-center font-raleway text-base text-on-brand underline">
-            {t('login.continueAsGuest')}
+          <Text className="text-center font-raleway-bold text-2xl text-on-brand">
+            {t('login.welcomeTitle')}
           </Text>
-        </Pressable>
-      </View>
+
+          {/* Full-opacity on-brand text and a width cap for the
+              balanced two-line look — no baked-in line break */}
+          <Text
+            className="mt-md text-center font-raleway text-base leading-6 text-on-brand"
+            style={{ maxWidth: 300 }}
+          >
+            {t('login.subtitle')}
+          </Text>
+
+          {/* The ui Button has no white-on-burgundy variant, so
+              the brand-screen CTA is its own pressable — a
+              min-height, not a height, so a large system text
+              size grows the pill instead of clipping its label */}
+          <Pressable
+            onPress={onContinue}
+            className="mt-xl min-h-14 self-stretch items-center justify-center rounded-full bg-surface py-sm active:opacity-85"
+            accessibilityRole="button"
+            accessibilityLabel={t('login.continue')}
+          >
+            <Text className="font-raleway-bold text-lg text-brand-text">{t('login.continue')}</Text>
+          </Pressable>
+
+          <Pressable
+            onPress={onGuest}
+            className="mt-md py-sm"
+            hitSlop={8}
+            accessibilityRole="link"
+            accessibilityLabel={t('login.continueAsGuest')}
+          >
+            <Text className="text-center font-raleway text-base text-on-brand underline">
+              {t('login.continueAsGuest')}
+            </Text>
+          </Pressable>
+        </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -362,7 +369,8 @@ function ErrorBanner({ message }: { message: string | null }) {
 // the redirect replaces to returnTarget — the ?returnTo=
 // value already validated by resolveReturnTo. A 429 freezes
 // the submit for a visible cooldown instead of inviting an
-// instant retry.
+// instant retry, and a ref latch makes the submit single-
+// flight (see the file header).
 //
 // Used by:
 //   - LoginScreen (below)
@@ -382,6 +390,11 @@ function LoginStep({ returnTo, returnTarget, onBack, onGuest }: LoginStepProps) 
   const usernameRef = useRef<TextInput>(null);
   const passwordRef = useRef<TextInput>(null);
   const cooldownRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Single-flight latch — `loading` from the auth context only
+  // flips after a re-render, so two presses inside one frame
+  // both passed the old guard and minted two sessions
+  const submittingRef = useRef(false);
 
 
   // The cooldown timer must not fire into an unmounted screen
@@ -420,7 +433,8 @@ function LoginStep({ returnTo, returnTarget, onBack, onGuest }: LoginStepProps) 
 
 
   const handleLogin = async () => {
-    if (loading || cooldown || !validateForm()) return;
+    if (submittingRef.current || loading || cooldown || !validateForm()) return;
+    submittingRef.current = true;
     Keyboard.dismiss();
     setServerError(null);
 
@@ -453,6 +467,8 @@ function LoginStep({ returnTo, returnTarget, onBack, onGuest }: LoginStepProps) 
         if (cooldownRef.current) clearTimeout(cooldownRef.current);
         cooldownRef.current = setTimeout(() => setCooldown(false), 15_000);
       }
+    } finally {
+      submittingRef.current = false;
     }
   };
 
@@ -489,6 +505,7 @@ function LoginStep({ returnTo, returnTarget, onBack, onGuest }: LoginStepProps) 
             value={form.username}
             onChangeText={(value) => updateField('username', value)}
             error={fieldErrors.username}
+            maxLength={IDENTIFIER_MAX}
             autoCapitalize="none"
             autoCorrect={false}
             autoComplete="username"
@@ -504,6 +521,7 @@ function LoginStep({ returnTo, returnTarget, onBack, onGuest }: LoginStepProps) 
             value={form.password}
             onChangeText={(value) => updateField('password', value)}
             error={fieldErrors.password}
+            maxLength={PASSWORD_MAX}
             secureTextEntry
             autoComplete="password"
             textContentType="password"

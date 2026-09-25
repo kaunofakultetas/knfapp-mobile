@@ -4,11 +4,14 @@
 //  The small uppercase group label above settings and info
 //  sections: xs Raleway bold, ink-soft, widest tracking.
 //  Carries no margins of its own — the screen's layout owns
-//  the spacing around it.
+//  the spacing around it. It IS a heading to assistive tech:
+//  VoiceOver's rotor and TalkBack's heading navigation jump
+//  section to section on it, in the app's language.
 // -----------------------------------------------------------
 
-// Label primitive
+// Label primitive, announced in the app's language
 import type { ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Text } from 'react-native';
 
 
@@ -36,8 +39,16 @@ interface SectionTitleProps {
 // -----------------------------------------------------------
 
 export default function SectionTitle({ children }: SectionTitleProps) {
+
+  const { i18n } = useTranslation();
+
+
   return (
-    <Text className="font-raleway-bold text-xs uppercase tracking-widest text-ink-soft">
+    <Text
+      className="font-raleway-bold text-xs uppercase tracking-widest text-ink-soft"
+      accessibilityRole="header"
+      accessibilityLanguage={i18n?.language}
+    >
       {children}
     </Text>
   );

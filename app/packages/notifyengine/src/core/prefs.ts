@@ -19,7 +19,11 @@
 //    chat preview — a privacy flag, optimistic with revert,
 //      cache committed only after transport success; the
 //      caller learns whether the wire agreed (true) or the
-//      switch snapped back (false).
+//      switch snapped back (false). Its PUT takes the same wire
+//      lock as everything else, and a GET landing while a
+//      preview write is still pending leaves the flag alone —
+//      a pull-to-refresh can never revert a flip the server
+//      already committed (the channels' KNF-100, for the flag).
 //
 //  Unknown channel keys are rejected before any write, by
 //  name — the union mirrors the server's list and garbage
@@ -106,10 +110,11 @@ export interface PrefsMachine {
 // createPrefsMachine
 // -----------------------------------------------------------
 //
-// The visible channels are confirmed ⊕ pending; flushes and
-// refreshes share one wire lock, a failed flush reverts only
-// its own batch's keys, and a hydrate() that lost the race to
-// an explicit toggle drops its stale disk value.
+// The visible channels are confirmed ⊕ pending; flushes,
+// preview writes and refreshes share one wire lock, a failed
+// flush reverts only its own batch's keys, and a hydrate()
+// that lost the race to an explicit toggle drops its stale
+// disk value.
 //
 // Used by:
 //   - engine.ts — snapshot store, hydrate() at init, and the
@@ -231,29 +236,56 @@ export function createPrefsMachine(deps: {
   };
 
 
+  // The preview's server truth — what a failed write snaps back
+  // to (the value at request time may be another write's
+  // optimistic guess); moved only by a GET or a confirmed PUT
+  let confirmedPreview = true;
+  // Preview writes not yet settled, and the newest one's ticket:
+  // only the newest write paints its outcome, and a GET landing
+  // while any write is pending leaves the flag alone
+  let previewPending = 0;
+  let previewSeq = 0;
+
   // Resolves true only when the wire agreed with the request —
   // a revert AND a server that answered the other value both
-  // read false, since either way the switch did not take
-  const setChatPreview = async (on: boolean): Promise<boolean> => {
-    const before = store.get().chatPreview;
+  // read false, since either way the switch did not take. The
+  // flip paints at once; the PUT itself queues on the wire lock
+  // (declared above the flush it shares with), so a GET already
+  // on the wire answers first and its older body cannot land
+  // over this write's
+  const setChatPreview = (on: boolean): Promise<boolean> => {
+    const seq = ++previewSeq;
+    previewPending += 1;
     store.set({ ...store.get(), chatPreview: on });
-    try {
-      const confirmedValue = await transport.putChatPreview(on);
-      store.set({ ...store.get(), chatPreview: confirmedValue });
-      return confirmedValue === on;
-    } catch {
-      store.set({ ...store.get(), chatPreview: before });
-      return false;
-    }
+
+    const turn = wireLock.then(async (): Promise<boolean> => {
+      try {
+        const answer = await transport.putChatPreview(on);
+        confirmedPreview = answer;
+        if (seq === previewSeq) store.set({ ...store.get(), chatPreview: answer });
+        return answer === on;
+      } catch {
+        // A newer write still pending owns the switch — it
+        // settles against the same server truth when it lands
+        if (seq === previewSeq) store.set({ ...store.get(), chatPreview: confirmedPreview });
+        return false;
+      } finally {
+        previewPending -= 1;
+      }
+    });
+    wireLock = turn.then(() => undefined);
+    return turn;
   };
 
 
   // Server truth only: channels and the preview flag. The
   // master switch is never part of the write — the snapshot's
   // value at commit time IS the session's, and a copy taken
-  // before the GET would revert a toggle made during it. Runs
-  // under the wire lock (see refresh); never rejects, so the
-  // chain behind it always proceeds
+  // before the GET would revert a toggle made during it. The
+  // preview likewise stays put while a preview write is pending
+  // (queued behind this GET, it is newer truth than the body).
+  // Runs under the wire lock (see refresh); never rejects, so
+  // the chain behind it always proceeds
   const pull = async (): Promise<void> => {
     try {
       const [channels, chatPreview] = await Promise.all([transport.getChannels(), transport.getChatPreview()]);
@@ -264,10 +296,12 @@ export function createPrefsMachine(deps: {
         if (typeof channels[key] === 'boolean') next[key] = channels[key];
       }
       confirmed = next;
+      const previewSettled = previewPending === 0 && typeof chatPreview === 'boolean';
+      if (previewSettled) confirmedPreview = chatPreview;
       store.set({
         ...store.get(),
         channels: { ...confirmed, ...pending },
-        chatPreview: typeof chatPreview === 'boolean' ? chatPreview : store.get().chatPreview,
+        chatPreview: previewSettled ? chatPreview : store.get().chatPreview,
         syncState: Object.keys(pending).length === 0 ? 'fresh' : 'stale',
       });
     } catch {

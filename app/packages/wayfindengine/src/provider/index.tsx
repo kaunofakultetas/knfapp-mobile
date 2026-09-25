@@ -75,13 +75,16 @@ const WayfindContext = createContext<WayfindEnv | null>(null);
 // -----------------------------------------------------------
 //
 // RoutingOptions is plain data (a mode, a flag, a list, a
-// number table), so a serialisation is its identity — but only
-// a canonical one: the fields go out in a fixed order, the
-// avoid list and the speed table's kinds sorted, so two
-// literals that spell the same options differently share a
-// key. The key parses back into the options, so a memo may
-// rebuild them from the key alone and depend on exactly what
-// it uses.
+// number table, an instant), so a serialisation is its
+// identity — but only a canonical one: the fields go out in a
+// fixed order, the avoid list and the speed table's kinds
+// sorted, so two literals that spell the same options
+// differently share a key. The key parses back into the
+// options — EVERY field, `at` included (a key that dropped it
+// once made the closedUntil time travel dead through the
+// hooks: both consumers rebuild the options from the key) —
+// so a memo may rebuild them from the key alone and depend on
+// exactly what it uses.
 //
 // Used by:
 //   - WayfindProvider (below) — the building-wide defaults
@@ -103,6 +106,9 @@ export function routingKey(options: RoutingOptions | null | undefined): string {
     for (const kind of (Object.keys(speeds) as EdgeKind[]).sort()) sorted[kind] = speeds[kind];
     canonical.walkingSpeeds = sorted;
   }
+  // The instant closedUntil is judged at; last, so the order of
+  // the fields above never moves
+  if (options.at !== undefined) canonical.at = options.at;
   return JSON.stringify(canonical);
 }
 

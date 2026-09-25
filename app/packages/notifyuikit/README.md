@@ -19,6 +19,7 @@ import { NotifySettingsPanel, PermissionGate } from '@knf/notifyuikit';
     labels={panelLabels}
     onBlocked={(reason) => showPermissionSheet(reason)}
     colors={myTokens}                 // optional; neutral defaults
+    fonts={{ regular, medium, bold }} // optional; your families, platform face otherwise
     showChannels={signedIn}           // optional; server-truth rows only with an account
     channelsLocked={!serverRead}      // optional; dim + disable until the first server read
     channelHints={{ news: t('…') }}   // optional; a line under a channel label
@@ -50,7 +51,8 @@ register claims it.
 | `engine` | — | `NotifyEngineLike` — the panel reads `prefs` and calls `setMasterEnabled` / `setChannelEnabled` / `setChatPreview`; the type also carries `permission` + `requestPermission()`, shared with `PermissionGate`, so one engine object serves both components |
 | `labels` | — | `NotifySettingsLabels` — master, its hint, the four channel labels, chat preview and its hint |
 | `onBlocked` | — | Called with `'permission'` or `'unsupported'` after a master-ON snapped back; the host prompts |
-| `colors` | `defaultColors` | `NotifyColors` — ink, inkSoft, line, brand, surface |
+| `colors` | `defaultColors` | `NotifyColors` — ink, inkSoft, line, brand, surface, and the optional onBrand (the gate's button label; white when absent) |
+| `fonts` | — | `NotifyFonts` — optional `regular` (hints), `medium` (row labels) and `bold` families. A given family is used without a fontWeight; an absent one keeps the platform face. `PermissionGate` takes the same prop: bold for its title and button, regular for its body and the unsupported note |
 | `showChannels` | `true` | `false` drops the channel rows, both hairlines and the chat-preview row from the tree; the master row stays. Those rows are server state — a host with no account to read them from hides them |
 | `channelsLocked` | `false` | `true` dims + disables the channel and chat-preview rows even with the master ON — until the host's first successful server read. The master never locks, and only the host lifts the lock |
 | `channelHints` | — | `NotifyChannelHints`: a hint line under a channel label, keyed by channel |

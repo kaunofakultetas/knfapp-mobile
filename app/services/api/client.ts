@@ -31,10 +31,12 @@
 //                   session-invalidation emit)
 //    request      — unwrap .data, normalize every failure
 //    getUploadUrl — relative upload path → absolute URL
+//    getUploadThumbUrl — the same, for the small derivative
 // -----------------------------------------------------------
 
-// Every normalized failure leaves a diagnosable trace
-import { logError } from '@/services/log';
+// Every normalized failure leaves a diagnosable trace — at the
+// severity it deserves
+import { logError, logExpected } from '@/services/log';
 
 // Persisted session token (cached — no per-request storage I/O)
 import { getStoredToken } from '@/services/session';
@@ -351,7 +353,8 @@ const normalizeError = (err: unknown): ApiError => {
 //
 // Unwraps response.data and converts every failure into an
 // ApiError — domain modules stay one-liners and screens catch
-// exactly one error type.
+// exactly one error type. Every failure is logged on the way
+// out: a 4xx as an expected outcome, the rest as a fault.
 //
 // Used by:
 //   - every services/api/* domain module
@@ -363,11 +366,18 @@ export async function request<T>(promise: Promise<AxiosResponse<T>>): Promise<T>
     return data;
   } catch (err) {
     // Screens swallow most of these on purpose — the log line
-    // is the only trace a field failure leaves behind. A
+    // is the only trace a field failure leaves behind. A 4xx is
+    // an outcome the screen answers itself (a wrong password,
+    // a validation refusal, a 404/409/429) and logs as such —
+    // console.error summoned the dev LogBox's red toast for
+    // every one; 5xx and transport failures stay faults. A
     // caller-aborted request is no failure and stays unlogged.
     const normalized = normalizeError(err);
-    if (normalized.code !== 'canceled') {
-      logError('api', normalized, err instanceof AxiosError ? err.config?.url : undefined);
+    const url = err instanceof AxiosError ? err.config?.url : undefined;
+    if (normalized.code === 'http' && normalized.status >= 400 && normalized.status < 500) {
+      logExpected('api', normalized, url);
+    } else if (normalized.code !== 'canceled') {
+      logError('api', normalized, url);
     }
     throw normalized;
   }
@@ -432,4 +442,37 @@ export function getUploadUrl(path: string): string | null {
   const lead = path.startsWith('/') ? path : `/${path}`;
   const prefixed = lead.startsWith('/api/') ? lead : `/api${lead}`;
   return `${origin}${prefixed}`;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// getUploadThumbUrl
+// -----------------------------------------------------------
+//
+//   getUploadThumbUrl('/api/uploads/x.jpg') → …/api/uploads/x.jpg?s=thumb
+//   getUploadThumbUrl('/api/uploads/x.gif') → …/api/uploads/x.gif
+//   getUploadThumbUrl('file://…')           → unchanged
+//
+// The backend's one derivative size (?s=thumb, a 320 px copy
+// made on first request) for small renders — a 40 pt avatar
+// disc has no use for the 2048 px original (KNF-136). Only a
+// stored still photo (jpg/png) gets the variant: animations,
+// picker previews, other same-origin paths and refused
+// foreign URLs resolve exactly as getUploadUrl does. A server
+// without the variant ignores the query and serves the
+// original — safe either way.
+//
+// Used by:
+//   - components/ui/Avatar.tsx — every small portrait
+// -----------------------------------------------------------
+
+export function getUploadThumbUrl(path: string): string | null {
+  const url = getUploadUrl(path);
+  if (!url || !/\/api\/uploads\/[0-9a-f]{32}\.(jpe?g|png)$/i.test(url)) return url;
+  return `${url}?s=thumb`;
 }

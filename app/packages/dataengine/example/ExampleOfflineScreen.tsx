@@ -26,7 +26,7 @@
 //    - example/__tests__/example.test.tsx — mounts it whole
 // -----------------------------------------------------------
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, Text, View } from 'react-native';
 
 import {
@@ -41,14 +41,35 @@ import {
 } from '../src';
 
 
+// Small pages, so the paging is visible after a few rows
 const PAGE_SIZE = 4;
+
+// The offline copy's key — the demo seeds it before mount
 const CACHE_KEY = 'feed:board';
 
+// One board row as the fake server serves it
 interface Post {
   id: string;
   author: string;
   text: string;
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// post
+// -----------------------------------------------------------
+//
+// A board row with a stable `p<n>` id — the id useFeed's
+// load-more dedupe keys on.
+//
+// Used by:
+//   - createDemoServer (below) — the seed rows and every new post
+// -----------------------------------------------------------
 
 const post = (id: number, author: string, text: string): Post => ({ id: `p${id}`, author, text });
 
@@ -59,19 +80,15 @@ const post = (id: number, author: string, text: string): Post => ({ id: `p${id}`
 
 
 // -----------------------------------------------------------
-// Demo server
+// DemoServer
 // -----------------------------------------------------------
 //
-// One fake backend for the demo's lifetime: a page-sliced row
-// list that throws while the manual network is off, gains a
-// fresh post on every page-1 fetch after the first (so a merge
-// refresh has something to fold in), and a cache seeded before
-// mount — the "last visit" whose copy the offline first page
-// serves. The demo starts OFFLINE on purpose.
+// What the fake backend hands the screen: the storage and the
+// hand-driven network the provider runs on, and the fetchPage
+// adapter useFeed pages through.
 //
 // Used by:
-//   - ExampleOfflineScreen (below) — provider wiring
-//   - Board (below) — fetchPage and the toggle
+//   - createDemoServer / useDemoServer (below)
 // -----------------------------------------------------------
 
 interface DemoServer {
@@ -80,56 +97,100 @@ interface DemoServer {
   fetchPage: (page: number) => Promise<FeedPage<Post>>;
 }
 
-function useDemoServer(): DemoServer {
-  const ref = useRef<DemoServer | null>(null);
-  if (!ref.current) {
-    const storage = memoryStorage();
-    const network = manualNetwork(false);
 
 
-    const rows: Post[] = [
-      post(1, 'Rasa', 'Library hours change next week — check the door.'),
-      post(2, 'Jonas', 'Anyone lost a blue scarf in room 204?'),
-      post(3, 'Ona', 'Chess club moves to Thursdays.'),
-      post(4, 'Tomas', 'Free coffee vouchers at the info desk.'),
-      post(5, 'Rasa', 'The gym is closed for maintenance on Friday.'),
-      post(6, 'Jonas', 'Study group for the statistics exam, sign up!'),
-      post(7, 'Ona', 'Lost & found is overflowing — come claim things.'),
-      post(8, 'Tomas', 'Bike parking moves behind the main building.'),
-      post(9, 'Rasa', 'Spring concert tickets go on sale Monday.'),
-    ];
 
 
-    // The copy a previous session left behind — what the
-    // offline mount serves (memoryStorage's writes commit
-    // synchronously, so this lands before the first fetch)
-    void createCache(storage).set(CACHE_KEY, rows.slice(0, PAGE_SIZE));
 
 
-    // Someone posts between visits: every page-1 fetch after
-    // the first finds one more row on top, so both the restore
-    // refetch and a pull-to-refresh have a visible effect
-    let firstPageFetches = 0;
-    const fetchPage = async (page: number): Promise<FeedPage<Post>> => {
-      if (!network.isOnline()) throw new Error('offline');
+// -----------------------------------------------------------
+// createDemoServer
+// -----------------------------------------------------------
+//
+// One fake backend for the demo's lifetime: a page-sliced row
+// list that throws while the manual network is off, gains a
+// fresh post on every page-1 fetch after the first (so a merge
+// refresh has something to fold in), and a cache seeded before
+// mount — the "last visit" whose copy the offline first page
+// serves. The demo starts OFFLINE on purpose. A plain factory
+// outside any component, so the mutable demo state it closes
+// over is ordinary JavaScript, not render-time state.
+//
+// Used by:
+//   - useDemoServer (below) — built once per mount
+// -----------------------------------------------------------
+
+function createDemoServer(): DemoServer {
+
+  const storage = memoryStorage();
+  const network = manualNetwork(false);
 
 
-      if (page === 1) {
-        firstPageFetches += 1;
-        if (firstPageFetches > 1) {
-          rows.unshift(post(100 + firstPageFetches, 'Live', `Posted while you were away #${firstPageFetches - 1}`));
-        }
+  const rows: Post[] = [
+    post(1, 'Rasa', 'Library hours change next week — check the door.'),
+    post(2, 'Jonas', 'Anyone lost a blue scarf in room 204?'),
+    post(3, 'Ona', 'Chess club moves to Thursdays.'),
+    post(4, 'Tomas', 'Free coffee vouchers at the info desk.'),
+    post(5, 'Rasa', 'The gym is closed for maintenance on Friday.'),
+    post(6, 'Jonas', 'Study group for the statistics exam, sign up!'),
+    post(7, 'Ona', 'Lost & found is overflowing — come claim things.'),
+    post(8, 'Tomas', 'Bike parking moves behind the main building.'),
+    post(9, 'Rasa', 'Spring concert tickets go on sale Monday.'),
+  ];
+
+
+  // The copy a previous session left behind — what the
+  // offline mount serves (memoryStorage's writes commit
+  // synchronously, so this lands before the first fetch)
+  void createCache(storage).set(CACHE_KEY, rows.slice(0, PAGE_SIZE));
+
+
+  // Someone posts between visits: every page-1 fetch after
+  // the first finds one more row on top, so both the restore
+  // refetch and a pull-to-refresh have a visible effect
+  let firstPageFetches = 0;
+  const fetchPage = async (page: number): Promise<FeedPage<Post>> => {
+    if (!network.isOnline()) throw new Error('offline');
+
+
+    if (page === 1) {
+      firstPageFetches += 1;
+      if (firstPageFetches > 1) {
+        rows.unshift(post(100 + firstPageFetches, 'Live', `Posted while you were away #${firstPageFetches - 1}`));
       }
+    }
 
 
-      const start = (page - 1) * PAGE_SIZE;
-      return { items: rows.slice(start, start + PAGE_SIZE), hasMore: start + PAGE_SIZE < rows.length };
-    };
+    const start = (page - 1) * PAGE_SIZE;
+    return { items: rows.slice(start, start + PAGE_SIZE), hasMore: start + PAGE_SIZE < rows.length };
+  };
 
 
-    ref.current = { storage, network, fetchPage };
-  }
-  return ref.current;
+  return { storage, network, fetchPage };
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// useDemoServer
+// -----------------------------------------------------------
+//
+// The demo backend, built exactly once per mount through a
+// lazy state initializer — the render-safe home for one-time
+// construction.
+//
+// Used by:
+//   - ExampleOfflineScreen (below) — provider wiring
+//   - Board (below) — fetchPage and the toggle, via props
+// -----------------------------------------------------------
+
+function useDemoServer(): DemoServer {
+  const [server] = useState(createDemoServer);
+  return server;
 }
 
 

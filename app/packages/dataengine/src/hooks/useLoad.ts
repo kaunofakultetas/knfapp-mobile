@@ -170,6 +170,7 @@ export function useLoad<T>(
   // change; the caller owns the dependency list, exactly like
   // a bare useEffect, so the static check is opted out
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the deps change IS the event: the previous entity must clear and the spinner show before the new one loads
     void load(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);

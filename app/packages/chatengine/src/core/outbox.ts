@@ -18,7 +18,7 @@
 
 import type { KeyValueStorage } from '../provider/storage';
 import type { OutgoingMessage, UploadAsset } from './transport';
-import { isTempId, type ChatMessage, type ChatUser } from './types';
+import { isTempId, type ChatGalleryItem, type ChatMessage, type ChatUser } from './types';
 
 
 
@@ -108,15 +108,44 @@ export interface PickedAsset extends UploadAsset {
 
 
 // -----------------------------------------------------------
+// StoredUpload
+// -----------------------------------------------------------
+//
+// One upload a failed send already finished: the picked local
+// uri it came from and what the backend stored. A retry that
+// meets the same uri reuses the stored file instead of sending
+// (and charging) the bytes again.
+//
+// Used by:
+//   - OutboxEntry (below) — the `uploaded` list
+//   - hooks/useComposer.ts — uploadOnce's memo
+// -----------------------------------------------------------
+
+export interface StoredUpload {
+  uri: string;
+  item: ChatGalleryItem;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // OutboxEntry
 // -----------------------------------------------------------
 //
 // What a failed send needs to retry: the body, the uploaded
 // image path — or, when the upload itself failed, the picked
 // asset so the retry uploads again; `extra` is the attachment /
-// media of a send that failed AFTER its upload. createdAt is
-// the bubble's original stamp, persisted so a rehydrated
-// bubble keeps it.
+// media of a send that failed AFTER its upload. `uploaded` is
+// what a half-finished upload phase already stored (a
+// gallery's first photos, a video's poster) — the retry
+// reuses those; `ownUploads` is every file THIS send stored,
+// so discarding the bubble can delete them instead of leaving
+// them on the account's quota. createdAt is the bubble's
+// original stamp, persisted so a rehydrated bubble keeps it.
 //
 // Used by:
 //   - readOutbox / writeOutbox / readOutboxTemps (below)
@@ -132,6 +161,8 @@ export interface OutboxEntry {
   // uploads every photo again
   assets?: PickedAsset[];
   extra?: Pick<OutgoingMessage, 'kind' | 'attachment' | 'media' | 'gallery'>;
+  uploaded?: StoredUpload[];
+  ownUploads?: string[];
   createdAt?: string;
 }
 
@@ -178,6 +209,13 @@ export async function readOutbox(storage: KeyValueStorage, conversationId: strin
         // redrive would post an empty body the backend rejects
         assets: Array.isArray(payload.assets) ? payload.assets.filter((a) => a && typeof a === 'object' && typeof a.uri === 'string') : undefined,
         extra: payload.extra && typeof payload.extra === 'object' ? payload.extra : undefined,
+        // What a half-finished upload already stored, and every
+        // file this send owns — both survive the round trip, or a
+        // relaunched retry re-uploads and a discard orphans
+        uploaded: Array.isArray(payload.uploaded)
+          ? payload.uploaded.filter((u) => u && typeof u === 'object' && typeof u.uri === 'string' && u.item && typeof u.item.url === 'string')
+          : undefined,
+        ownUploads: Array.isArray(payload.ownUploads) ? payload.ownUploads.filter((u) => typeof u === 'string') : undefined,
         createdAt: typeof payload.createdAt === 'string' ? payload.createdAt : undefined,
       });
     }

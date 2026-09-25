@@ -21,10 +21,17 @@ import type { TimetableEntry } from './types';
 // formatMinutes
 // -----------------------------------------------------------
 //
-// 545 → "9:05". 24-hour, no leading zero on the hour — the
-// axis label style, matching how Lithuanian timetables read
+// 545 → "09:05". 24-hour and zero-padded on BOTH parts — the
+// shape the scraped "HH:MM" strings carry and every other
+// clock in the app prints (Intl, hour '2-digit', in lt-LT
+// and en-GB alike), so a lesson reads "09:45" in the grid,
+// the list and the detail sheet. It used to drop the hour's
+// zero, and the grid alone said "9:45" (KNF-184). 1440 stays
+// "24:00" — a window's end, never "00:00" of the next day.
 //
 // Used by:
+//   - components/schedule/TimetableHost.tsx — the kit's
+//     formatTime (grid axis and cells)
 //   - app/(main)/tabs/schedule.tsx — the list cards' times
 //   - components/schedule/LessonSheet.tsx — the tap sheet
 // -----------------------------------------------------------
@@ -33,7 +40,36 @@ export function formatMinutes(min: number): string {
   const clamped = Math.max(0, Math.min(24 * 60, Math.floor(min)));
   const h = Math.floor(clamped / 60);
   const m = clamped % 60;
-  return `${h}:${String(m).padStart(2, '0')}`;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// termKeyOf
+// -----------------------------------------------------------
+//
+// The 'YYYY-R/P' label the scraper stamps on an event of the
+// given 'YYYY-MM-DD' date — the backend's own rule mirrored
+// one to one (schedule_scraper._get_semester_label): August–
+// December → '{y}-R', January–July → '{y-1}-P', months
+// counted 1 = January. The label year is the academic year's
+// FIRST calendar year, so '2026-P' is spring 2027. Pure on
+// the date string — no Date, no timezone.
+//
+// Used by:
+//   - app/(main)/tabs/schedule.tsx — today's term (the jump's
+//     "back to today" branch) and the visible week's term
+//     (the semester row the filter sheet checks)
+// -----------------------------------------------------------
+
+export function termKeyOf(dateISO: string): string {
+  const [year, month] = dateISO.split('-').map(Number);
+  return month >= 8 ? `${year}-R` : `${year - 1}-P`;
 }
 
 

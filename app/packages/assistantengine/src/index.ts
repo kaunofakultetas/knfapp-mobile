@@ -15,7 +15,8 @@
 //  doubles ship from '@knf/assistantengine/testing'.
 //
 //  Used by:
-//    - the mobile app's assistant screen wiring, once it lands
+//    - app/(main)/tabs/assistant.tsx — transport, runtime,
+//      provider and the failure hook
 //    - the container's integration job (the contract describes)
 // -----------------------------------------------------------
 
@@ -102,8 +103,9 @@ export type {
 // content so far, not a delta.
 //
 // Used by:
-//   - the assistant screen's streaming stub, once it lands
-//     (nothing imports this door yet)
+//   - nothing imports this door at the moment — the screen
+//     runs on the wire; the kit's own suites use the upstream
+//     local runtime directly
 // -----------------------------------------------------------
 
 export { useLocalRuntime } from '@assistant-ui/react-native';

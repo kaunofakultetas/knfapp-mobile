@@ -10,6 +10,7 @@
 //  Split into:
 //
 //    ChatMessageKind / ChatFile / ChatVideo — what a row carries
+//    ChatSystemEvent                        — a 'system' row's event
 //    ChatReaction / ChatReplyRef            — the row's parts
 //    ChatMessage                            — one row
 //    ChatUser / Participant / ConversationMeta
@@ -175,6 +176,37 @@ export interface ChatLinkPreview {
 
 
 // -----------------------------------------------------------
+// ChatSystemEvent
+// -----------------------------------------------------------
+//
+// What a 'system' row narrates, as a code plus parameters, so
+// the UI words it in the READER's language with the row's
+// sender as the actor. The KNF backend sends 'group_created'
+// {title}, 'left', 'ttl_on' {seconds} and 'ttl_off'; any code a
+// UI does not know — and every row written before events
+// existed (no `system` at all) — falls back to the row's
+// `text`, the backend's own prose.
+//
+// Used by:
+//   - ChatMessage (below) — the `system` field
+//   - adapters/knf/wire.ts — ApiMessage carries it as is
+// -----------------------------------------------------------
+
+export interface ChatSystemEvent {
+  event: string;
+  // 'group_created': the group's name as created
+  title?: string;
+  // 'ttl_on': the disappearing window, in seconds
+  seconds?: number;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // ChatReaction
 // -----------------------------------------------------------
 //
@@ -281,6 +313,9 @@ export interface ChatMessage {
   mediaSize?: { width: number; height: number };
   // A 'custom' message's payload — opaque to the engine
   custom?: unknown;
+  // A 'system' row's event (see ChatSystemEvent) — absent on
+  // every other row and on system rows older than events
+  system?: ChatSystemEvent | null;
   // Null until the backend's unfurl lands (an 'updated' event)
   linkPreview?: ChatLinkPreview | null;
   // Several photos in one message (2+). Each url is a stored

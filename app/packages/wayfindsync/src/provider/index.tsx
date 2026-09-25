@@ -80,6 +80,15 @@ export interface SyncEnv {
   resolveConflict: (opId: string, how: 'keep-mine' | 'drop') => void;
   drain: () => Promise<DrainReport | null>;
   publish: (note?: string | null) => Promise<PublishAnswer>;
+  // Empties the upload queue only: the outbox's ops — a write
+  // still owed its drain, a rejection still owed its host — stay
+  // queued and persisted. What a screen that owns its uploads
+  // (the guided capture's frames) calls on the way out
+  clearUploads: () => void;
+  // Empties BOTH queues, ops included, in memory and on disk — a
+  // queued write is destroyed with no record, so only a host that
+  // knows every op in this outbox is its own and settled may call
+  // it
   clearAll: () => void;
 }
 
@@ -224,6 +233,10 @@ export function WayfindSyncProvider({
       },
       drain,
       publish: (note) => transportRef.current.publish(buildingId, note ?? null),
+      clearUploads: () => {
+        uploads.clear();
+        reported.current.clear();
+      },
       clearAll: () => {
         outbox.clear();
         uploads.clear();

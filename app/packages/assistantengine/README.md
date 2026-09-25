@@ -91,11 +91,17 @@ fetch (`createAssistantFetch`, also exported) with four disciplines:
   reported to `onFailure` (it was asked for), and the chain stays
   installed after headers arrive so a stop mid-answer cuts the body.
 
-`AssistantFailure` is `{ code, status?, retryAfterMs?, message }` with
-the closed code set `'network' | 'timeout' | 'auth' | 'quota' |
-'server' | 'unavailable' | 'aborted'`; `message` is the server's own
-words when it sent any, the status text otherwise, and is never shown
-raw — the host maps `code` to its i18n. `toAssistantFailure`,
+`AssistantFailure` is `{ code, status?, retryAfterMs?, serverCode?,
+message }` with the closed code set `'network' | 'timeout' | 'auth' |
+'quota' | 'server' | 'unavailable' | 'aborted'`; `message` is the
+server's own words when it sent any, the status text otherwise, and
+is never shown raw — the host maps `code` (sharpened by `serverCode`,
+the body's machine code, and `status`) to its i18n. The thrown
+error's message names all three for a screenshot:
+`"quota 429 RATE_LIMITED: …"`. The chat body is windowed on the way
+out — the newest 40 messages at most, opening on a user turn, tool
+parts kept only on the newest 10 — so a long conversation never
+crosses the container's message / body ceilings. `toAssistantFailure`,
 `parseRetryAfter`, `readFailureBody` and `isAssistantTransportError`
 are exported for hosts that catch on their own; `buildAssistantHeaders`
 and `resolveFetch` are the two pieces the wrapped fetch and the tools
@@ -105,7 +111,9 @@ endpoint share.
 
 `useKnfAssistantRuntime({ transport, initialMessages? })` — the
 upstream chat runtime with `sendAutomaticallyWhen` set to its own
-"last assistant message is complete with tool calls" predicate.
+"last assistant message is complete with tool calls" predicate and
+streamed updates throttled to one per 50 ms (the raw delta rate
+re-rendered — and re-parsed — the answer dozens of times a second).
 Tools run inside the container, which streams the call and its result
 back and ends the response; the client then resends the thread on its
 own and the model finishes its answer in the SAME assistant message.

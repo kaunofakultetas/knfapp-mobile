@@ -84,7 +84,9 @@ export default function KitAvatar({
   // A press wraps whichever face renders below
   const wrap = (node: ReactNode) =>
     onPress ? (
-      <Pressable onPress={onPress} hitSlop={6} accessibilityRole="button" accessibilityLabel={accessibilityLabel ?? name}>
+      // The slop takes any disc to a 44pt target (a 28pt row
+      // portrait once stopped at 40)
+      <Pressable onPress={onPress} hitSlop={Math.max(6, Math.ceil((44 - size) / 2))} accessibilityRole="button" accessibilityLabel={accessibilityLabel ?? name}>
         {node}
       </Pressable>
     ) : (
@@ -100,6 +102,10 @@ export default function KitAvatar({
         style={{ width: size, height: size, borderRadius: size / 2 }}
         contentFit="cover"
         transition={100}
+        // The same portrait repeats down every run and across rooms
+        // — decoded once, kept on disk, never re-fetched per row
+        cachePolicy="memory-disk"
+        recyclingKey={uri}
         accessibilityIgnoresInvertColors
         onError={() => setFailed(true)}
       />,
@@ -116,7 +122,7 @@ export default function KitAvatar({
   // the translucent white
   const personal = !group && !onBrand;
   const disc = onBrand ? colors.onBrandWash : personal ? avatarColorFor(colorKey ?? name, avatarColors) : colors.brandSoft;
-  const ink = onBrand ? colors.onBrand : personal ? '#FFFFFF' : colors.brand;
+  const ink = onBrand ? colors.onBrand : personal ? '#FFFFFF' : colors.brandText;
 
 
   return wrap(

@@ -8,8 +8,10 @@
 //  delete). Route /(main)/profile?userId=… — pushed from the
 //  friends and requests rows; WITHOUT the param it means "my
 //  profile", which is what finally makes the own-profile
-//  branch reachable; a logged-out visitor there gets a login
-//  prompt instead.
+//  branch reachable; a logged-out visitor there gets the same
+//  login-required state the friends and activity screens
+//  show — never a "user not found" that blames an account
+//  that does not exist yet.
 //
 //  The relationship (connect / cancel / accept / decline /
 //  disconnect) rides the social engine: the profile payload's
@@ -37,7 +39,13 @@
 //  an ErrorState with retry. A sequence counter drops
 //  superseded responses and loading clears on every path.
 //  Posts ride useFeed for real pagination (onEndReached) and
-//  optimistic own-post deletion with exact revert.
+//  optimistic own-post deletion with exact revert. The post a
+//  reader OPENS is remembered, and on the way back it is
+//  re-read on its own (components/news/openedPostResync): an
+//  edit, a like or a comment made on the article screen
+//  reaches its row, and a post deleted there leaves the list
+//  — the count above and the rows below never disagree
+//  (KNF-108) — without collapsing the reader's pagination.
 //
 //  Avatar uploads persist the RELATIVE upload path — an
 //  absolute URL would bake the current host into the DB — and
@@ -104,6 +112,12 @@ import { useTheme } from '@/hooks/useTheme';
 
 // Dates in the active language
 import { formatDate } from '@/services/format';
+
+// The opened post's re-read on the way back
+import { resyncOpenedPost } from '@/components/news/openedPostResync';
+
+// An untitled post's derived title is its body's own head
+import { titleRepeatsBody } from '@/services/newsText';
 
 // Domain types
 import type { NewsPost } from '@/types';
@@ -294,7 +308,7 @@ function ProfileHeader({
       <Text className="mt-sm text-center font-raleway-bold text-xl text-ink">
         {profile.displayName}
       </Text>
-      <Text className="font-raleway-medium text-sm text-brand">
+      <Text className="font-raleway-medium text-sm text-brand-text">
         {roleLabel(t, profile.role)}
       </Text>
       <Text className="mt-xs font-raleway text-xs text-ink-soft">@{profile.username}</Text>
@@ -344,13 +358,14 @@ function ProfileHeader({
       )}
 
       {/* Quiet moderation links — block (when not already) and
-          report, deliberately understated under the main row */}
+          report, deliberately understated under the main row;
+          hitSlop 14 lifts the ~16pt text lines to 44pt targets */}
       {canInteract && (
         <View className="mt-sm w-full flex-row items-center justify-center gap-xl">
           {relationship !== 'blocking' && (
             <Pressable
               onPress={onBlockAction}
-              hitSlop={8}
+              hitSlop={14}
               accessibilityRole="button"
               accessibilityLabel={t('profile.block')}
             >
@@ -361,7 +376,7 @@ function ProfileHeader({
           )}
           <Pressable
             onPress={onReport}
-            hitSlop={8}
+            hitSlop={14}
             accessibilityRole="button"
             accessibilityLabel={t('profile.report')}
           >
@@ -395,8 +410,12 @@ function ProfileHeader({
 // -----------------------------------------------------------
 //
 // One post preview card: title, a 3-line body, like/comment
-// counts and a delete action on the own profile. Title and
-// body arrive as the raw text the author typed — the backend
+// counts and a delete action on the own profile. An untitled
+// post's title is its body's first words (derived by the
+// backend), so over that body it is left out — the text
+// prints once, in full ink, instead of a cut bold line
+// repeated by the teaser under it. Title and body arrive as
+// the raw text the author typed — the backend
 // escapes nothing on output and the api client decodes nothing;
 // React escapes at render. The Card is accessible={false} so
 // screen readers reach the inner targets one by one: the text
@@ -424,6 +443,8 @@ const PostRow = memo(function PostRow({
 
   const { t } = useTranslation();
   const { colors } = useTheme();
+  const body = post.content || post.summary;
+  const showTitle = !!post.title && !titleRepeatsBody(post.title, body);
 
 
   return (
@@ -442,13 +463,13 @@ const PostRow = memo(function PostRow({
             }}
             accessibilityRole="button"
           >
-            {post.title ? (
+            {showTitle ? (
               <Text className="mb-xs font-raleway-bold text-base text-ink" numberOfLines={1}>
                 {post.title}
               </Text>
             ) : null}
-            <Text className="font-raleway text-sm text-ink-soft" numberOfLines={3}>
-              {post.content || post.summary}
+            <Text className={`font-raleway text-sm ${showTitle ? 'text-ink-soft' : 'text-ink'}`} numberOfLines={3}>
+              {body}
             </Text>
           </Pressable>
 
@@ -658,11 +679,22 @@ function ProfileScreen() {
   }, [targetId, loadProfile]);
 
 
+  // The post the reader last opened from this list — re-read
+  // on its own on the way back (see the file header)
+  const lastOpenedRef = useRef<string | null>(null);
+
+
   // Friendship status and counts go stale after actions on
   // other screens — resync the profile silently on every
-  // return, leaving the paginated posts (and the reader's
-  // scroll position) alone; the first focus rides the mount
-  // load and is skipped
+  // return, and the one post opened from here with it; the
+  // rest of the paginated list (and the reader's scroll
+  // position) stays; the first focus rides the mount load and
+  // is skipped. The list's setItems rides a ref: the focus
+  // callback's identity must move with the target only
+  const postsRef = useRef(posts);
+  useEffect(() => {
+    postsRef.current = posts;
+  });
   const focusedOnceRef = useRef(false);
   useFocusEffect(
     useCallback(() => {
@@ -671,6 +703,9 @@ function ProfileScreen() {
         return;
       }
       void loadProfile('refresh');
+      const opened = lastOpenedRef.current;
+      lastOpenedRef.current = null;
+      if (opened) void resyncOpenedPost(opened, postsRef.current.setItems);
     }, [loadProfile]),
   );
 
@@ -822,8 +857,10 @@ function ProfileScreen() {
   );
 
   const handleOpenPost = useCallback(
-    (post: NewsPost) =>
-      router.push({ pathname: '/(main)/news-post', params: { postId: post.id } }),
+    (post: NewsPost) => {
+      lastOpenedRef.current = post.id;
+      router.push({ pathname: '/(main)/news-post', params: { postId: post.id } });
+    },
     [router],
   );
 
@@ -931,13 +968,14 @@ function ProfileScreen() {
 
 
   // Param-less and logged out: "my profile" has no target —
-  // invite the visitor to sign in rather than spin forever
+  // the login-required state the other signed-in screens show,
+  // never a "not found" (and never an endless spinner)
   if (!targetId) {
     return (
       <Screen>
         <EmptyState
           icon="person-circle-outline"
-          title={t('profile.notFound')}
+          title={t('profile.loginRequired')}
           action={{
             label: t('settings.login'),
             onPress: () => router.push({ pathname: '/login', params: { returnTo } }),

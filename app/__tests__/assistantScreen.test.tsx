@@ -15,27 +15,38 @@
 //  the stored transcript and the runtime replays it with
 //  no send at all; a settled answer carries NO thumbs row —
 //  the owner dropped answer feedback from the app, so the
-//  host hands the kit no onFeedback. Chrome
+//  host hands the kit no onFeedback. The error sentence comes
+//  from the CURRENT run's failure (a 429 two turns ago never
+//  captions a mid-stream fault — KNF-087), names the wait a
+//  Retry-After carried and the precise case (a switched-off
+//  assistant, a vanished thread); the kit draws in the app's
+//  Raleway; answer links open only for web/mail/phone; a
+//  conversation deleted from the history leaves the tab; the
+//  header's "new conversation" door appears once there is a
+//  conversation to leave; a malformed ?thread param is never
+//  fetched. Chrome
 //  (Screen/Header/theme/i18n) is mocked the way the schedule
-//  suite mocks it — pinned by
-//  their own suites; the threads service and session are
-//  mocked because their storage does not exist in jest.
+//  suite mocks it — pinned by their own suites; the threads
+//  service and session are mocked because their storage does
+//  not exist in jest.
 // -----------------------------------------------------------
 
 // Imports sit ABOVE the mock blocks (jest hoists every
 // jest.mock above them anyway) so the lint's import order and
 // the runtime order agree
-import { fireEvent, render, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import * as Linking from 'expo-linking';
 
 import AssistantScreen from '@/app/(main)/tabs/assistant';
 import { TABS } from '@/constants/tabs';
-import { createFakeAssistantServer, errorReply, textReply } from '@knf/assistantengine/testing';
+import { createFakeAssistantServer, errorReply, streamReply, textReply } from '@knf/assistantengine/testing';
 
 // This suite pins its module's BEHAVIOR, so the shipping
 // flags are pinned all-on — the real features.json (whatever
 // the current release preset says) must never decide whether
 // these tests see their subject
 jest.mock('@/services/features', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- a mock factory runs before the module graph loads; only require() can reach the roster
   const { TABS } = require('@/constants/tabs');
   return {
     isFeatureEnabled: () => true,
@@ -46,18 +57,20 @@ jest.mock('@/services/features', () => {
   };
 });
 
-jest.mock('react-i18next', () => ({
-  useTranslation: () => ({
-    t: (key: string) => key,
-    i18n: { language: 'lt' },
-  }),
-}));
+// Stable t and i18n, like the real hook's (it memoizes per
+// language); params ride after the key so an interpolated
+// sentence is observable
+jest.mock('react-i18next', () => {
+  const t = (key: string, params?: Record<string, unknown>) => (params ? `${key} ${JSON.stringify(params)}` : key);
+  const i18n = { language: 'lt' };
+  return { useTranslation: () => ({ t, i18n }) };
+});
 
 jest.mock('@/hooks/useTheme', () => ({
   useTheme: () => ({
     scheme: 'light',
     colors: {
-      brand: '#7B003F', onBrand: '#FFF', ink: '#111', inkSoft: '#666', inkFaint: '#999',
+      brand: '#7B003F', brandText: '#9E1F5C', onBrand: '#FFF', ink: '#111', inkSoft: '#666', inkFaint: '#999',
       surface: '#FFF', surfaceSoft: '#EEE', line: '#DDD', danger: '#C00',
     },
   }),
@@ -89,7 +102,8 @@ jest.mock('@/services/session', () => ({ getStoredToken: async () => null }));
 // screen must discard the mounted conversation on a flip
 let mockAuth: { isAuthenticated: boolean; user?: { id: string } } = { isAuthenticated: false };
 jest.mock('@/context/AuthContext', () => ({ useAuth: () => mockAuth }));
-jest.mock('@/context/NetworkContext', () => ({ showToast: jest.fn() }));
+const mockShowToast = jest.fn();
+jest.mock('@/context/NetworkContext', () => ({ showToast: (...args: unknown[]) => mockShowToast(...args) }));
 
 // The api client module boots axios over the real session
 // store — the screen takes only the base URL from it
@@ -102,10 +116,17 @@ const mockCreateThread = jest.fn(async () => ({
   id: 'thread-fixed-1', title: null, language: 'lt',
   createdAt: '2026-09-15T10:00:00Z', lastMessageAt: '2026-09-15T10:00:00Z',
 }));
-const mockFetchThreadMessages = jest.fn(async () => [] as { id: string; format: string; content: unknown; createdAt: string }[]);
+const mockFetchThreadMessages = jest.fn(async (_id?: string) => [] as { id: string; format: string; content: unknown; createdAt: string }[]);
+// The delete announcements: the tab's listener is captured so
+// a test can play a delete from the history screen
+const mockDeleteListeners = new Set<(id: string) => void>();
 jest.mock('@/services/assistantThreads', () => ({
   createThread: (...args: unknown[]) => mockCreateThread(...(args as [])),
   fetchThreadMessages: (...args: unknown[]) => mockFetchThreadMessages(...(args as [])),
+  onThreadDeleted: (listener: (id: string) => void) => {
+    mockDeleteListeners.add(listener);
+    return () => mockDeleteListeners.delete(listener);
+  },
 }));
 
 // Navigation: the history push is observed; the ?thread param
@@ -135,6 +156,12 @@ type View = Awaited<ReturnType<typeof render>>;
 const settled = (view: View, text: string) =>
   waitFor(() => expect(view.getByText(text)).toBeTruthy());
 
+// Type a question and press Send, the way a student would
+const ask = async (view: View, text: string) => {
+  await fireEvent.changeText(view.getByTestId('assistantuikit-composer-input'), text);
+  await fireEvent.press(view.getByTestId('assistantuikit-composer-send'));
+};
+
 
 beforeEach(() => {
   serverHolder.current = createFakeAssistantServer();
@@ -143,6 +170,8 @@ beforeEach(() => {
   mockPush.mockClear();
   mockCreateThread.mockClear();
   mockFetchThreadMessages.mockClear();
+  mockShowToast.mockClear();
+  mockDeleteListeners.clear();
 });
 
 
@@ -280,27 +309,177 @@ describe('the assistant screen on the wire', () => {
     expect(view.queryByLabelText('assistant.feedbackUp')).toBeNull();
   });
 
-  it('failures branch by CODE: a 429 reads as the quota message, not "check your connection"', async () => {
+  it('failures branch by CODE: a 429 reads as the quota sentence WITH its wait, not "check your connection"', async () => {
     serverHolder.current!.script(errorReply(429, { error: 'spent' }, { 'retry-after': '30' }));
     const view = await render(<AssistantScreen />);
 
-    await fireEvent.changeText(view.getByTestId('assistantuikit-composer-input'), 'Klausimas?');
-    await fireEvent.press(view.getByTestId('assistantuikit-composer-send'));
+    await ask(view, 'Klausimas?');
 
     await waitFor(() => expect(view.getByTestId('assistantuikit-error')).toBeTruthy());
-    expect(view.getByText('assistant.errorQuota')).toBeTruthy();
+    // This used to pin the wait-less 'assistant.errorQuota': the
+    // Retry-After the server sent now names the wait
+    expect(view.getByText('assistant.errorQuotaWait {"wait":"assistant.waitSeconds {\\"seconds\\":30}"}')).toBeTruthy();
     expect(view.queryByText('assistant.errorBody')).toBeNull();
+    expect(view.queryByText('assistant.errorNetwork')).toBeNull();
   });
 
-  it('a dead backend reads as the unavailable message', async () => {
+  it('a dead backend reads as the unavailable message; a switched-off one says so', async () => {
     serverHolder.current!.script(errorReply(503, { error: 'down' }));
     const view = await render(<AssistantScreen />);
 
-    await fireEvent.changeText(view.getByTestId('assistantuikit-composer-input'), 'Klausimas?');
-    await fireEvent.press(view.getByTestId('assistantuikit-composer-send'));
+    await ask(view, 'Klausimas?');
 
     await waitFor(() => expect(view.getByTestId('assistantuikit-error')).toBeTruthy());
     expect(view.getByText('assistant.errorUnavailable')).toBeTruthy();
+
+    // The container's envelope: no active prompt is a
+    // deliberate OFF, not an outage
+    serverHolder.current!.script(errorReply(503, {
+      message: 'No active system prompt — activate one in the admin panel',
+      error: { code: 'PROMPT_NOT_CONFIGURED', message: 'No active system prompt — activate one in the admin panel' },
+    }));
+    await fireEvent.press(view.getByText('assistant.retry'));
+    await waitFor(() => expect(view.getByText('assistant.errorNotConfigured')).toBeTruthy());
+    // The precise technical line stays visible under it
+    expect(view.getByText(/unavailable 503 PROMPT_NOT_CONFIGURED: No active system prompt/)).toBeTruthy();
+  });
+
+  it('KNF-087: a 429 two turns ago never captions a later mid-stream fault', async () => {
+    const server = serverHolder.current!;
+    server.script(errorReply(429, { error: 'spent' }));
+    server.script(textReply(['Gerai.']));
+    server.script(streamReply([
+      { type: 'start' },
+      { type: 'start-step' },
+      { type: 'text-start', id: 't1' },
+      { type: 'text-delta', id: 't1', delta: 'Egzaminai prasideda ' },
+      { type: 'text-end', id: 't1' },
+      { type: 'error', errorText: 'Atsiprašau, įvyko klaida generuojant atsakymą.' },
+    ]));
+    const view = await render(<AssistantScreen />);
+
+    await ask(view, 'Pirmas?');
+    await waitFor(() => expect(view.getByText('assistant.errorQuota')).toBeTruthy());
+
+    // Retry succeeds — the strip leaves
+    await fireEvent.press(view.getByText('assistant.retry'));
+    await settled(view, 'Gerai.');
+    await waitFor(() => expect(view.queryByTestId('assistantuikit-error')).toBeNull());
+
+    // A fault INSIDE a 200 stream: the sentence is the server
+    // one, never the stale quota line
+    await ask(view, 'Kada egzaminai?');
+    await waitFor(() => expect(view.getByTestId('assistantuikit-error')).toBeTruthy());
+    expect(view.getByText('assistant.errorServer')).toBeTruthy();
+    expect(view.queryByText('assistant.errorQuota')).toBeNull();
+    expect(view.getByText(/Atsiprašau, įvyko klaida generuojant atsakymą/)).toBeTruthy();
+    expect(view.getByText(/Egzaminai prasideda/)).toBeTruthy();
+  });
+
+  it('a vanished thread (404) says so — start a new one', async () => {
+    serverHolder.current!.script(errorReply(404, { message: 'Thread not found', error: { code: 'THREAD_NOT_FOUND', message: 'Thread not found' } }));
+    const view = await render(<AssistantScreen />);
+    await ask(view, 'Klausimas?');
+    await waitFor(() => expect(view.getByText('assistant.errorThreadGone')).toBeTruthy());
+  });
+});
+
+
+describe('the host around the kit', () => {
+  it('draws the kit in the app\'s Raleway families', async () => {
+    const view = await render(<AssistantScreen />);
+    const face = (text: string) => Object.assign({}, ...[view.getByText(text).props.style].flat(Infinity).filter(Boolean));
+    expect(face('assistant.emptyTitle')).toMatchObject({ fontFamily: 'Raleway-Bold' });
+    expect(face('assistant.emptyTitle').fontWeight).toBeUndefined();
+    expect(face('assistant.emptyBody')).toMatchObject({ fontFamily: 'Raleway-Regular' });
+    expect(face('assistant.suggestionScheduleTitle')).toMatchObject({ fontFamily: 'Raleway-SemiBold' });
+    expect(face('assistant.send')).toMatchObject({ fontFamily: 'Raleway-SemiBold' });
+  });
+
+  it('answer links are drawn in the theme\'s brand TEXT hue, not the fill', async () => {
+    serverHolder.current!.script(textReply(['Žr. [svetainę](https://knf.vu.lt).']));
+    const view = await render(<AssistantScreen />);
+    await ask(view, 'Kur?');
+    await settled(view, 'svetainę');
+    expect(Object.assign({}, ...[view.getByText('svetainę').props.style].flat()).color).toBe('#9E1F5C');
+  });
+
+  it('answer links open for web, mail and phone — never another scheme', async () => {
+    serverHolder.current!.script(textReply([
+      '[svetainė](https://knf.vu.lt) [paštas](mailto:knf@knf.vu.lt) [telefonas](tel:+37037422523) [blogas](javascript:alert(1)) [programa](intent://x)',
+    ]));
+    const view = await render(<AssistantScreen />);
+    await ask(view, 'Kontaktai?');
+    await settled(view, 'svetainė');
+
+    const open = Linking.openURL as jest.Mock;
+    open.mockClear();
+    for (const label of ['svetainė', 'paštas', 'telefonas', 'blogas', 'programa']) {
+      await fireEvent.press(view.getByText(label));
+    }
+    expect(open.mock.calls.map(([url]) => url)).toEqual(['https://knf.vu.lt', 'mailto:knf@knf.vu.lt', 'tel:+37037422523']);
+  });
+
+  it('deleting the conversation on screen from the history resets the tab; another delete does not', async () => {
+    serverHolder.current!.script(textReply(['Atsakymas.']));
+    const view = await render(<AssistantScreen />);
+    await ask(view, 'Klausimas?');
+    await settled(view, 'Atsakymas.');
+    expect(mockCreateThread).toHaveBeenCalledTimes(1);
+
+    // Some OTHER thread deleted — the chat stays
+    await act(async () => {
+      mockDeleteListeners.forEach((listener) => listener('another-thread'));
+    });
+    expect(view.getAllByTestId('assistantuikit-message-user')).toHaveLength(1);
+
+    // THIS chat's minted thread deleted — it leaves the screen
+    await act(async () => {
+      mockDeleteListeners.forEach((listener) => listener('thread-fixed-1'));
+    });
+    expect(view.queryAllByTestId('assistantuikit-message-user')).toHaveLength(0);
+    expect(view.getByText('assistant.emptyTitle')).toBeTruthy();
+  });
+
+  it('the header offers "new conversation" once a chat is on screen, and it starts a fresh one', async () => {
+    serverHolder.current!.script(textReply(['Atsakymas.']));
+    const view = await render(<AssistantScreen />);
+    // Nothing to leave yet — only the history door
+    expect(view.queryByLabelText('assistant.threadsNew')).toBeNull();
+
+    await ask(view, 'Klausimas?');
+    await settled(view, 'Atsakymas.');
+    await fireEvent.press(view.getByLabelText('assistant.threadsNew'));
+
+    expect(view.queryAllByTestId('assistantuikit-message-user')).toHaveLength(0);
+    expect(view.getByText('assistant.emptyTitle')).toBeTruthy();
+    expect(view.queryByLabelText('assistant.threadsNew')).toBeNull();
+    // The next send mints a NEW thread — the old one is left
+    serverHolder.current!.script(textReply(['Kitas.']));
+    await ask(view, 'Kitas klausimas?');
+    await settled(view, 'Kitas.');
+    expect(mockCreateThread).toHaveBeenCalledTimes(2);
+  });
+
+  it('a malformed ?thread param is never fetched', async () => {
+    mockParams = { thread: '../../etc/passwd', n: '1' };
+    await render(<AssistantScreen />);
+    await act(async () => {});
+    expect(mockFetchThreadMessages).not.toHaveBeenCalled();
+  });
+
+  it('a transcript that fails to load keeps the chat on screen and toasts', async () => {
+    serverHolder.current!.script(textReply(['Pirmas atsakymas.']));
+    const view = await render(<AssistantScreen />);
+    await ask(view, 'Klausimas?');
+    await settled(view, 'Pirmas atsakymas.');
+
+    mockFetchThreadMessages.mockRejectedValueOnce(new Error('offline'));
+    mockParams = { thread: 'b2c3d4e5-1111-2222-3333-444455556666', n: '9' };
+    await view.rerender(<AssistantScreen />);
+    await waitFor(() => expect(mockShowToast).toHaveBeenCalledWith('error', 'assistant.threadsError'));
+    expect(view.getByText('Pirmas atsakymas.')).toBeTruthy();
+    expect(view.queryByText('loading')).toBeNull();
   });
 });
 

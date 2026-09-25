@@ -2,9 +2,10 @@
 //  [*] Tests — services/newsText
 // -----------------------------------------------------------
 
-import { stripScrapedPreamble } from '@/services/newsText';
+import { stripScrapedPreamble, titleRepeatsBody } from '@/services/newsText';
 
 
+// A scraped VU article: the title and byline its preamble repeats
 const post = { title: 'Vicky Reiter: Visi indoeuropeistai – šiek tiek keistoki', author: 'Vilniaus universitetas' };
 
 
@@ -78,5 +79,24 @@ describe('stripScrapedPreamble on markdown bodies', () => {
     expect(stripScrapedPreamble(body, post)).toBe(
       'Priežastys, kodėl žmonės mokosi lietuvių kalbos, yra skirtingos.',
     );
+  });
+});
+
+
+
+describe('titleRepeatsBody', () => {
+  it('knows a derived title — whole, word-cut with an ellipsis, or an old 80-char prefix', () => {
+    const body = 'Gal kas žinote, iki kada šiandien dirba biblioteka? 📚🙏';
+    expect(titleRepeatsBody(body, body)).toBe(true);
+    const long = 'Pirmoji semestro savaitė praėjo labai greitai, o bendrabutyje jau visi geria kavą';
+    expect(titleRepeatsBody('Pirmoji semestro savaitė praėjo labai greitai, o bendrabutyje jau visi…', long)).toBe(true);
+    expect(titleRepeatsBody(long.slice(0, 80), long)).toBe(true);
+  });
+
+  it('a real title, and blanks on either side, are not a repeat', () => {
+    expect(titleRepeatsBody('Rastas USB raktas', 'Radau 305 auditorijoje...')).toBe(false);
+    expect(titleRepeatsBody('', 'tekstas')).toBe(false);
+    expect(titleRepeatsBody('…', 'tekstas')).toBe(false);
+    expect(titleRepeatsBody('Pavadinimas', '')).toBe(false);
   });
 });

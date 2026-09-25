@@ -6,7 +6,7 @@
 //  itself, never sink the week.
 // -----------------------------------------------------------
 
-import { normalizeKnf, toTimetableEntry, type KnfLesson } from '../index';
+import { knfKind, normalizeKnf, toTimetableEntry, type KnfLesson } from '../index';
 
 const ROW: KnfLesson = {
   id: 17,
@@ -35,8 +35,10 @@ describe('toTimetableEntry', () => {
       groupKey: 'ISKS-1',
       termKey: '2025-R',
     });
-    // Extra backend fields ride along untouched
+    // Extra backend fields ride along untouched, and the type
+    // word becomes the canonical kind
     expect(entry.lectureType).toBe('Paskaita');
+    expect(entry.kind).toBe('lecture');
   });
 
   it('pads an unpadded "9:00" before the strict parse', () => {
@@ -84,5 +86,40 @@ describe('toTimetableEntry teacher titles', () => {
   it('plain multi-teacher lists still split into individual names', () => {
     expect(toTimetableEntry({ ...ROW, teacher: 'A. Petraitis, B. Jonaitis' }).people)
       .toEqual(['A. Petraitis', 'B. Jonaitis']);
+  });
+});
+
+
+describe('event kinds and subgroups', () => {
+  it("the site's type words map onto canonical kinds, case and diacritics aside", () => {
+    expect(knfKind('Paskaita')).toBe('lecture');
+    expect(knfKind('Pratybos')).toBe('practice');
+    expect(knfKind('EGZAMINAS')).toBe('exam');
+    expect(knfKind('Laboratoriniai darbai')).toBe('lab');
+    expect(knfKind('Įskaita')).toBe('assessment');
+    expect(knfKind('Konsultacija')).toBe('consultation');
+    // The faculty's two combined types keep their own kinds —
+    // never read as the "Paskaita" they begin with; any other
+    // combination is 'other' (its raw word is printed)
+    expect(knfKind('Paskaitos ir seminarai')).toBe('lecture_seminar');
+    expect(knfKind('Paskaitos ir pratybos')).toBe('lecture_practice');
+    expect(knfKind('Pratybos ir laboratoriniai darbai')).toBe('other');
+    // A word no stem knows is 'other' — never a guess; blank
+    // (every row stored before types) is no kind at all
+    expect(knfKind('Ekskursija')).toBe('other');
+    expect(knfKind('')).toBeUndefined();
+    expect(knfKind(undefined)).toBeUndefined();
+  });
+
+  it('the row carries its kind and subgroups; the raw word rides along', () => {
+    const entry = toTimetableEntry({ ...ROW, lectureType: 'Egzaminas', subgroups: ['1', ' ', '2'] });
+    expect(entry.kind).toBe('exam');
+    expect(entry.subgroupKeys).toEqual(['1', '2']);
+    expect(entry.lectureType).toBe('Egzaminas');
+  });
+
+  it('an older wire without subgroups (or a drifted one) reads as the whole group', () => {
+    expect(toTimetableEntry(ROW).subgroupKeys).toEqual([]);
+    expect(toTimetableEntry({ ...ROW, subgroups: '1' as unknown as string[] }).subgroupKeys).toEqual([]);
   });
 });

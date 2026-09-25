@@ -111,7 +111,8 @@ export interface ApiPoll {
 // ApiLikeResponse
 // -----------------------------------------------------------
 //
-// POST /news/<postId>/like.
+// POST /news/<postId>/like {liked} — the state the server
+// settled on and the stored count.
 //
 // Used by:
 //   - adapters/knf/index.ts — setLiked

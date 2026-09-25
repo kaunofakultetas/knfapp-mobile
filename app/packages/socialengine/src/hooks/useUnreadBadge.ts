@@ -17,6 +17,12 @@
 //  probes (a poll tick during a slow answer, a manual refresh)
 //  share the request already on the wire.
 //
+//  The provider's unread signal moves it between probes: the
+//  activity list's mark-all-read ('cleared') zeroes the badge
+//  at once — a reader who just saw every row must not find a
+//  stale "3" in the drawer for up to an interval — and a
+//  refused mark-read ('stale') re-probes the server.
+//
 //  Used by:
 //    - the host's tab bar / activity entry point
 // -----------------------------------------------------------
@@ -69,7 +75,7 @@ export interface UseUnreadBadgeResult {
 // -----------------------------------------------------------
 
 export function useUnreadBadge(options?: { intervalMs?: number; cap?: number }): UseUnreadBadgeResult {
-  const { transport, currentUser } = useSocialEngine();
+  const { transport, currentUser, unread } = useSocialEngine();
   // Guests carry no badge and never probe the wire
   const signedIn = currentUser !== null;
   const intervalMs = options?.intervalMs ?? 30000;
@@ -149,6 +155,21 @@ export function useUnreadBadge(options?: { intervalMs?: number; cap?: number }):
       sub.remove();
     };
   }, [transport, intervalMs, refresh, signedIn]);
+
+
+  // The list's word between probes (see the file banner); a
+  // probe already on the wire when 'cleared' lands may still
+  // answer the pre-read count — the next tick corrects it
+  useEffect(() => {
+    if (!signedIn) return;
+    return unread.subscribe((kind) => {
+      if (kind === 'cleared') {
+        if (mountedRef.current) setCount(0);
+      } else {
+        void refresh();
+      }
+    });
+  }, [unread, signedIn, refresh]);
 
 
   // 0 stays invisible; the cap turns into 'N+' so a runaway

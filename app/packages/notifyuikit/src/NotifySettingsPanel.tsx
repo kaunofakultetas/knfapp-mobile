@@ -20,7 +20,8 @@
 //  channelsLocked dims + disables them until the host's first
 //  successful server read, so a flip never overwrites an
 //  unread snapshot. channelHints and icons are decoration.
-//  Every string arrives through labels / channelHints.
+//  Every string arrives through labels / channelHints, and the
+//  host's typography through `fonts`.
 //
 //  Split into (root component last):
 //
@@ -36,7 +37,13 @@ import { type ReactNode } from 'react';
 import { Switch, Text, View } from 'react-native';
 
 import { useStoreValue } from './hooks/useStoreValue';
-import { defaultColors, type NotifyChannelKey, type NotifyColors, type NotifyEngineLike } from './core/types';
+import {
+  defaultColors,
+  type NotifyChannelKey,
+  type NotifyColors,
+  type NotifyEngineLike,
+  type NotifyFonts,
+} from './core/types';
 
 
 // The switches render in this fixed order whatever the label
@@ -120,7 +127,8 @@ export type NotifySettingsIcons = Partial<Record<'master' | 'chatPreview' | Noti
 // The glyph sits in a FIXED 24-wide box so the label column
 // lines up across rows whether or not this row has one; the
 // panel reserves the box on every row or on none, so an
-// icon-less host renders no gutter anywhere.
+// icon-less host renders no gutter anywhere. The switch speaks
+// the label, and the hint as its accessibility hint.
 //
 // Used by:
 //   - NotifySettingsPanel (below) — master, channels, chat preview
@@ -135,6 +143,7 @@ function Row({
   disabled,
   onToggle,
   colors,
+  fonts,
   testID,
 }: {
   label: string;
@@ -145,6 +154,7 @@ function Row({
   disabled?: boolean;
   onToggle: (on: boolean) => void;
   colors: NotifyColors;
+  fonts?: NotifyFonts;
   testID: string;
 }) {
   return (
@@ -169,8 +179,19 @@ function Row({
         </View>
       ) : null}
       <View style={{ flex: 1, marginRight: 12 }}>
-        <Text style={{ fontSize: 14, color: colors.ink }}>{label}</Text>
-        {hint ? <Text style={{ fontSize: 12, lineHeight: 16, color: colors.inkSoft, marginTop: 2 }}>{hint}</Text> : null}
+        <Text style={[{ fontSize: 14, color: colors.ink }, fonts?.medium ? { fontFamily: fonts.medium } : null]}>
+          {label}
+        </Text>
+        {hint ? (
+          <Text
+            style={[
+              { fontSize: 12, lineHeight: 16, color: colors.inkSoft, marginTop: 2 },
+              fonts?.regular ? { fontFamily: fonts.regular } : null,
+            ]}
+          >
+            {hint}
+          </Text>
+        ) : null}
       </View>
       <Switch
         testID={testID}
@@ -179,6 +200,7 @@ function Row({
         onValueChange={onToggle}
         trackColor={{ true: colors.brand, false: colors.line }}
         accessibilityLabel={label}
+        accessibilityHint={hint}
       />
     </View>
   );
@@ -230,6 +252,7 @@ export default function NotifySettingsPanel({
   labels,
   onBlocked,
   colors = defaultColors,
+  fonts,
   showChannels = true,
   channelsLocked = false,
   channelHints,
@@ -241,6 +264,8 @@ export default function NotifySettingsPanel({
   // (prompt for permission, explain the runtime)
   onBlocked?: (reason: 'permission' | 'unsupported') => void;
   colors?: NotifyColors;
+  // Absent families keep the platform font (see NotifyFonts)
+  fonts?: NotifyFonts;
   // false drops the channel + chat-preview rows (server truth a
   // signed-out host cannot read); the master row stays
   showChannels?: boolean;
@@ -291,6 +316,7 @@ export default function NotifySettingsPanel({
         value={prefs.masterEnabled}
         onToggle={(on) => void toggleMaster(on)}
         colors={colors}
+        fonts={fonts}
         testID="notifyuikit-master"
       />
 
@@ -311,6 +337,7 @@ export default function NotifySettingsPanel({
               disabled={serverRowsDisabled}
               onToggle={(on) => engine.setChannelEnabled(key, on)}
               colors={colors}
+              fonts={fonts}
               testID={`notifyuikit-channel-${key}`}
             />
           ))}
@@ -326,6 +353,7 @@ export default function NotifySettingsPanel({
             disabled={serverRowsDisabled}
             onToggle={(on) => void engine.setChatPreview(on).catch(() => undefined)}
             colors={colors}
+            fonts={fonts}
             testID="notifyuikit-chat-preview"
           />
         </>

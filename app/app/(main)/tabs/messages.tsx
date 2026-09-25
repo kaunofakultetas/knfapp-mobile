@@ -47,8 +47,9 @@ import withFeature from '@/components/FeatureGate';
 import CachedBanner from '@/components/CachedBanner';
 import LoginRequiredOverlay from '@/components/LoginRequiredOverlay';
 
-// Row rendering
+// Row rendering, and the pure row patch a live message applies
 import ConversationRow from '@/components/chat/ConversationRow';
+import { patchWithNewMessage } from '@/components/chat/conversationList';
 
 // UI kit
 import {
@@ -70,6 +71,7 @@ import { useTheme } from '@/hooks/useTheme';
 // Feed engine and realtime plumbing
 import { useFeed } from '@knf/dataengine';
 import { useSocketStatus } from '@/hooks/useSocketStatus';
+import { requestUnreadRecount } from '@/hooks/useUnreadCount';
 import {
   connectSocket,
   leaveConversation,
@@ -78,9 +80,6 @@ import {
   type SocketMessage,
   type SocketStatus,
 } from '@/services/socket';
-
-// Server-stamp parsing for socket patches (zoneless-UTC shape)
-import { parseStamp } from '@knf/chatuikit';
 
 // Conversations REST API and its offline cache key
 import {
@@ -405,9 +404,12 @@ function FilterTabs({
                 accessibilityElementsHidden
                 importantForAccessibility="no-hide-descendants"
               >
+                {/* On the active chip the pill is WHITE: its count takes
+                    the deep fill hue (text-brand-fill) — text-brand is the
+                    light text pink in dark mode and read 2.8:1 there */}
                 <Text
                   className={`font-raleway-bold text-xs ${
-                    isActive ? 'text-brand' : 'text-on-brand'
+                    isActive ? 'text-brand-fill' : 'text-on-brand'
                   }`}
                 >
                   {badgeLabel}
@@ -472,7 +474,12 @@ function Conversations() {
       deps: [isAuthenticated],
     },
   );
-  const { setItems, refresh } = feed;
+  // setItems is for OUR optimistic writes (pin, delete) — it
+  // moves the feed's refresh fence; patchItems is for live
+  // server truth (socket echoes) and leaves the fence alone, so
+  // a refresh in flight — the one that discovers a brand-new
+  // conversation — still lands (KNF-120)
+  const { setItems, patchItems, refresh } = feed;
 
   // The RefreshControl spinner belongs to the PULL gesture
   // alone — the focus-return and reconnect refreshes reuse the
@@ -554,33 +561,12 @@ function Conversations() {
           return;
         }
 
-        // Own outgoing messages echo back too — never unread,
-        // and neither is a message for the room currently being
-        // read (the room acknowledges it via mark_read on this
-        // same event). The age comes from the SERVER stamp, not
-        // the device clock — a skewed clock would pin the row
-        // to the top
-        setItems((current) =>
+        // The row patch itself: components/chat/conversationList.ts
+        const activeId = getActiveConversation();
+        patchItems((current) =>
           current.map((conversation) =>
             conversation.id === message.conversationId
-              ? {
-                  ...conversation,
-                  lastUpdatedMs:
-                    parseStamp(message.createdAt)?.getTime() ?? conversation.lastUpdatedMs,
-                  unreadCount:
-                    message.senderId === userId ||
-                    message.conversationId === getActiveConversation()
-                      ? conversation.unreadCount
-                      : conversation.unreadCount + 1,
-                  lastMessage: {
-                    id: message.id,
-                    text: message.text,
-                    imageUrl: message.imageUrl,
-                    time: message.time,
-                    senderId: message.senderId,
-                    senderName: message.senderName,
-                  },
-                }
+              ? patchWithNewMessage(conversation, message, userId, activeId)
               : conversation,
           ),
         );
@@ -588,7 +574,7 @@ function Conversations() {
 
       // An unsent last message flips its preview to the placeholder
       unsubscribeDeleted = onMessageDeleted(({ conversationId, messageId }) => {
-        setItems((current) =>
+        patchItems((current) =>
           current.map((conversation) =>
             conversation.id === conversationId && conversation.lastMessage?.id === messageId
               ? {
@@ -610,7 +596,7 @@ function Conversations() {
         refetchTimerRef.current = null;
       }
     };
-  }, [userId, scheduleRefetch, setItems]);
+  }, [userId, scheduleRefetch, patchItems]);
 
 
   // Re-focus refresh clears the unread count of the chat the
@@ -710,19 +696,23 @@ function Conversations() {
 
   // Tab filter + title search + sort (pinned first, newest
   // activity next) — socket patches re-sort through this memo.
-  // Query and titles fold diacritics, so "rysiai" finds "Ryšiai"
+  // Query and titles fold diacritics, so "rysiai" finds "Ryšiai";
+  // a room with no title (a direct chat whose other side left)
+  // matches by the fallback name the row shows — a null title
+  // once crashed the whole tab on the first keystroke
+  const fallbackTitle = t('messages.conversationFallback');
   const visible = useMemo(() => {
     const q = foldForSearch(query.trim());
     let list = feed.items;
     if (activeTab === 'people') list = list.filter((c) => c.type === 'direct');
     else if (activeTab === 'groups') list = list.filter((c) => c.type === 'group');
-    if (q) list = list.filter((c) => foldForSearch(c.title).includes(q));
+    if (q) list = list.filter((c) => foldForSearch(c.title || fallbackTitle).includes(q));
 
     return [...list].sort((a, b) => {
       if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
       return (b.lastUpdatedMs || 0) - (a.lastUpdatedMs || 0);
     });
-  }, [feed.items, query, activeTab]);
+  }, [feed.items, query, activeTab, fallbackTitle]);
 
 
   // Unread totals for the chip pills
@@ -749,11 +739,12 @@ function Conversations() {
 
   const openChat = useCallback(
     (conversation: ApiConversation) => {
+      // No title param: the room ignores it (a deep link's title
+      // is spoofable — the room names itself from its own row)
       router.push({
         pathname: '/(main)/chat-room',
         params: {
           conversationId: conversation.id,
-          title: conversation.title,
           type: conversation.type,
           // The room draws its "new messages" line from this —
           // captured now, before opening the room clears it
@@ -820,6 +811,9 @@ function Conversations() {
         // after server-side removal, not an in-room leave.)
         removedIdsRef.current.add(conversation.id);
         leaveConversation(conversation.id);
+        // The room's unread left with it — no socket event will
+        // say so, so the tab badge re-counts now
+        requestUnreadRecount();
       } catch {
         setItems((current) => {
           const next = [...current];

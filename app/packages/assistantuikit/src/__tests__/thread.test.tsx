@@ -13,13 +13,17 @@
 //  the reader is back at the tail, scrolls to the end on a
 //  press and carries the host's screen-reader label. The
 //  keyboard column pads by the keyboard: on iOS through the
-//  platform's avoiding view, on Android by the kit's own pad —
-//  only when the edge-to-edge window kept its height — with
-//  the drag-dismiss mode the platform honours.
+//  platform's avoiding view, offset by the column's measured
+//  distance from the window top (a host header above it no
+//  longer leaves the composer behind the keys), on Android by
+//  the kit's own pad — only when the edge-to-edge window kept
+//  its height, and only by the part of the column the keyboard
+//  covers (no overshoot when the column ends above the window
+//  bottom) — with the drag-dismiss mode the platform honours.
 // -----------------------------------------------------------
 
 import { act, fireEvent, render } from '@testing-library/react-native';
-import { Dimensions, FlatList, Keyboard, Platform } from 'react-native';
+import { Dimensions, FlatList, Keyboard, Platform, View } from 'react-native';
 import type { TestInstance } from 'test-renderer';
 
 import AssistantThread from '../AssistantThread';
@@ -211,6 +215,35 @@ describe('the keyboard column on iOS', () => {
     });
     expect(flat(view.getByTestId('assistantuikit-keyboard-column').props.style).paddingBottom).toBe(0);
   });
+
+  it('a column under a host header pads the FULL overlap — its window offset rides in', async () => {
+    // The column sits 100pt down the window (under a header) and
+    // is 700 tall: its bottom is the window's, 800
+    jest.spyOn(View.prototype, 'measureInWindow').mockImplementation(function measure(callback: (...frame: number[]) => void) {
+      callback(0, 100, 390, 700);
+    } as never);
+    const keyboard = captureKeyboard();
+    jest.spyOn(Keyboard, 'isVisible').mockReturnValue(false);
+    const view = await renderThread(createScriptedModel([]));
+    await act(async () => {
+      fireEvent(view.getByTestId('assistantuikit-keyboard-frame'), 'layout', { nativeEvent: { layout: { x: 0, y: 0, width: 390, height: 700 } } });
+    });
+    const column = view.getByTestId('assistantuikit-keyboard-column');
+
+    await act(async () => {
+      fireEvent(column, 'layout', { persist: () => {}, nativeEvent: { layout: { x: 0, y: 0, width: 390, height: 700 } } });
+    });
+    await act(async () => {
+      keyboard.emit('keyboardWillShow', {
+        duration: 0,
+        easing: undefined,
+        endCoordinates: { screenX: 0, screenY: 500, width: 390, height: 300 },
+      });
+    });
+    // 800 - 500: the whole overlap — the frame alone (700 - 500)
+    // came up 100 short, the header's height, on device
+    expect(flat(view.getByTestId('assistantuikit-keyboard-column').props.style).paddingBottom).toBe(300);
+  });
 });
 
 describe('the keyboard column on Android', () => {
@@ -247,6 +280,30 @@ describe('the keyboard column on Android', () => {
     dims.mockReturnValue({ width: 390, height: 500, scale: 2, fontScale: 1 });
     await act(async () => {
       keyboard.emit('keyboardDidShow', { endCoordinates: { screenX: 0, screenY: 500, width: 390, height: 300 } });
+    });
+    expect(columnPad()).toBe(0);
+  });
+
+  it('pads only what the keyboard COVERS — a column ending above the window bottom does not overshoot', async () => {
+    const keyboard = captureKeyboard();
+    jest.spyOn(Dimensions, 'get').mockReturnValue({ width: 390, height: 800, scale: 2, fontScale: 1 });
+    // The column spans 100..750 of the window — 50 above its
+    // bottom — and the keyboard's top edge is at 500
+    jest.spyOn(View.prototype, 'measureInWindow').mockImplementation(function measure(callback: (...frame: number[]) => void) {
+      callback(0, 100, 390, 650);
+    } as never);
+    const view = await renderThread(createScriptedModel([]));
+    const columnPad = () => flat(view.getByTestId('assistantuikit-keyboard-column').props.style).paddingBottom;
+
+    await act(async () => {
+      keyboard.emit('keyboardDidShow', { endCoordinates: { screenX: 0, screenY: 500, width: 390, height: 300 } });
+    });
+    // 750 - 500 — the full 300 would lift the composer 50 above
+    // the keys
+    expect(columnPad()).toBe(250);
+
+    await act(async () => {
+      keyboard.emit('keyboardDidHide', undefined);
     });
     expect(columnPad()).toBe(0);
   });

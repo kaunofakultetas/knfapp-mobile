@@ -7,7 +7,10 @@
 //  becomes a PickedAsset (kind 'audio', .m4a) handed to the
 //  engine's composer.attach — upload, optimistic bubble and
 //  retry are its business from there. A take under a second
-//  is discarded (a mis-tap, not a message).
+//  is discarded (a mis-tap, not a message). A take ended while
+//  its start is still awaiting the permission or the recorder
+//  (the room left mid-start) stays ended: the late start backs
+//  out instead of switching on a microphone nobody can stop.
 //
 //  Used by:
 //    - app/(main)/chat-room/index.tsx
@@ -92,6 +95,9 @@ export function useVoiceRecorder(onRecorded: (asset: PickedAsset) => Promise<voi
   // Set synchronously so a double tap cannot start two takes;
   // startedAt is the single clock every reader derives from
   const busyRef = useRef(false);
+  // The take's number, bumped by every start AND every finish —
+  // a start resuming after an await compares it to its own
+  const takeRef = useRef(0);
   const startedAtRef = useRef(0);
   const tickerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Raw level samples (0..1), one per tick — bucketed down to
@@ -113,6 +119,7 @@ export function useVoiceRecorder(onRecorded: (asset: PickedAsset) => Promise<voi
     async (send: boolean) => {
       if (!busyRef.current) return;
       busyRef.current = false;
+      takeRef.current += 1;
       clearTicker();
       const seconds = Math.round((Date.now() - startedAtRef.current) / 1000);
       setRecording(null);
@@ -147,15 +154,25 @@ export function useVoiceRecorder(onRecorded: (asset: PickedAsset) => Promise<voi
   const start = useCallback(async () => {
     if (busyRef.current) return;
     busyRef.current = true;
+    const take = ++takeRef.current;
+    // Ended meanwhile (cancel, unmount) — this start must not go on
+    const ended = () => take !== takeRef.current;
     try {
       const permission = await AudioModule.requestRecordingPermissionsAsync();
+      if (ended()) return;
       if (!permission.granted) {
         busyRef.current = false;
         showToast('error', t('chat.micPermission'));
         return;
       }
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
-      await recorder.prepareToRecordAsync();
+      if (!ended()) await recorder.prepareToRecordAsync();
+      if (ended()) {
+        // finish() may have put the mode back before this start
+        // switched it on — put it back again
+        setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => {});
+        return;
+      }
       recorder.record();
       startedAtRef.current = Date.now();
       samplesRef.current = [];
@@ -179,7 +196,11 @@ export function useVoiceRecorder(onRecorded: (asset: PickedAsset) => Promise<voi
         setRecording({ elapsedSeconds: elapsed });
       }, TICK_MS);
     } catch {
+      // A take already ended owes nobody a toast (a released
+      // recorder throws once the room is gone)
+      if (ended()) return;
       busyRef.current = false;
+      takeRef.current += 1;
       clearTicker();
       setRecording(null);
       showToast('error', t('chat.voiceRecordError'));

@@ -321,6 +321,9 @@ export function BubbleBody({
 
   const style: ViewStyle = {
     ...bubbleRadii(position, own),
+    // Never wider than the capped column around it, whatever a
+    // one-line child (a quote, a file name) would like
+    maxWidth: '100%',
     backgroundColor: deleted ? 'transparent' : failed ? colors.dangerSoft : own ? colors.bubbleOut : colors.bubbleIn,
     borderWidth: deleted || failed ? 1 : 0,
     borderStyle: deleted ? 'dashed' : 'solid',
@@ -804,9 +807,13 @@ function MessageBubbleInner({
     if (name === 'reply') onSwipeReply(message);
     // Copy and React act directly when the host wired them; the
     // menu stays behind the honestly-named 'Message actions'
-    else if (name === 'copy') (onCopy ? onCopy(message) : longPress());
-    else if (name === 'react') (onReact ? onReact(message, DEFAULT_REACTION_EMOJI) : longPress());
-    else if (name === 'messageActions') longPress();
+    else if (name === 'copy') {
+      if (onCopy) onCopy(message);
+      else longPress();
+    } else if (name === 'react') {
+      if (onReact) onReact(message, DEFAULT_REACTION_EMOJI);
+      else longPress();
+    } else if (name === 'messageActions') longPress();
     else if (name === 'jumpToQuoted') onPressQuote(message);
     else if (name === 'openPhoto') onPressImage(message);
     else if (name === 'openVideo') onPressVideo?.(message);
@@ -862,7 +869,10 @@ function MessageBubbleInner({
           </Text>
         ) : null}
 
-        <View>
+        {/* maxWidth 100% down the whole chain to the bubble: each
+            wrapper sizes to its content, so without it a one-line
+            quote's natural width escaped the 78% column above */}
+        <View style={{ maxWidth: '100%' }}>
           {/* The reply glyph sits under the bubble's dragged edge and
               is uncovered as the bubble travels */}
           <Animated.View
@@ -884,7 +894,7 @@ function MessageBubbleInner({
           </Animated.View>
 
           <GestureDetector gesture={pan}>
-            <Animated.View style={dragStyle}>
+            <Animated.View style={[{ maxWidth: '100%' }, dragStyle]}>
               <Pressable
                 ref={bodyRef}
                 onPress={() => onPress(message)}
@@ -898,7 +908,7 @@ function MessageBubbleInner({
                 accessibilityHint={deleted ? undefined : labels.showTime}
                 accessibilityActions={accessibilityActions}
                 onAccessibilityAction={onAccessibilityAction}
-                style={{ borderRadius: BUBBLE_RADIUS, overflow: 'visible' }}
+                style={{ borderRadius: BUBBLE_RADIUS, overflow: 'visible', maxWidth: '100%' }}
               >
                 <BubbleGuard
                   fallback={

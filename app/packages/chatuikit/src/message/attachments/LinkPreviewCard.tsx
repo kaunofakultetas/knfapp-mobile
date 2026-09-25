@@ -19,6 +19,7 @@ import type { KitLabels } from '../../provider/labels';
 // Rendering
 import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
+import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 import { BUBBLE_PADDING_H } from '../../core/metrics';
@@ -35,8 +36,11 @@ import type { KitLinkPreview } from '../../core/types';
 // -----------------------------------------------------------
 //
 // The hero image collapses to an inline link glyph when the
-// unfurl carried no picture; the title falls back to the raw
-// URL, so the card never renders empty.
+// unfurl carried no picture — AND when the picture it carried
+// will not load (a purged file, no connection), which once
+// left an empty 120pt band above the title; a changed image
+// gets a fresh try. The title falls back to the raw URL, so
+// the card never renders empty.
 //
 // Used by:
 //   - message/MessageBubble.tsx — under a linkified body
@@ -58,7 +62,9 @@ export default function LinkPreviewCard({
 
   const { colors, fonts } = useKitTheme();
   const { resolveImageUrl } = useKitEnv();
-  const image = preview.imageUrl ? resolveImageUrl(preview.imageUrl) : null;
+  const resolved = preview.imageUrl ? resolveImageUrl(preview.imageUrl) : null;
+  const [failedImage, setFailedImage] = useState<string | null>(null);
+  const image = resolved && resolved !== failedImage ? resolved : null;
   const ink = own ? colors.onBrand : colors.ink;
   const soft = own ? colors.onBrand : colors.inkSoft;
 
@@ -82,7 +88,7 @@ export default function LinkPreviewCard({
       }}
     >
       {image ? (
-        <ExpoImage source={{ uri: image }} placeholder={preview.imagePreview ? { uri: preview.imagePreview } : undefined} placeholderContentFit="cover" style={{ width: '100%', height: 120, backgroundColor: colors.surfaceSoft }} contentFit="cover" cachePolicy="memory-disk" recyclingKey={image} accessibilityIgnoresInvertColors />
+        <ExpoImage source={{ uri: image }} placeholder={preview.imagePreview ? { uri: preview.imagePreview } : undefined} placeholderContentFit="cover" style={{ width: '100%', height: 120, backgroundColor: colors.surfaceSoft }} contentFit="cover" cachePolicy="memory-disk" recyclingKey={image} accessibilityIgnoresInvertColors onError={() => setFailedImage(image)} testID="chatuikit-link-preview-image" />
       ) : null}
       <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 8 }}>
         {!image ? <Ionicons name="link-outline" size={18} color={soft} style={{ marginRight: 8 }} /> : null}

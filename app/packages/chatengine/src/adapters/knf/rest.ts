@@ -241,6 +241,16 @@ export function createKnfRest(options: KnfRestOptions): Omit<ChatTransport, 'rea
         await http.put(`/chat/conversations/${enc(conversationId)}/ttl`, { seconds });
       }),
 
+    // The uploads route takes the stored NAME — the url's last
+    // segment; anything that is not one of our uploads is left
+    // alone (a meme library path, a forwarded foreign url)
+    deleteUpload: (url) =>
+      guard(async () => {
+        const match = /\/api\/uploads\/([^/?#]+)$/.exec(url);
+        if (!match) return;
+        await http.delete(`/uploads/${enc(match[1])}`);
+      }),
+
     upload: (asset: UploadAsset, onProgress?: (fraction: number) => void): Promise<UploadResult> =>
       guard(async () => {
         const name = asset.name || asset.uri.split('/').pop() || (asset.kind === 'video' ? 'video.mp4' : asset.kind === 'file' ? 'file' : 'photo.jpg');

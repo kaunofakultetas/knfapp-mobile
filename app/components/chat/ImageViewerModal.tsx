@@ -16,6 +16,15 @@
 //  freshly-mounted rail measures its width AFTER that resync;
 //  the railWidth effect re-centres once the layout lands.
 //
+//  Every swipe is reported back (onViewChange, the entry's id)
+//  so the host can follow the photo ON SCREEN; the host's index
+//  for it then comes back as initialIndex. While open, the
+//  resync moves the gallery only to a position it is not
+//  already showing — the photo shifting because another one
+//  was removed, or an older page landing — never for the
+//  viewer's own swipe echoed back (that would cut the swipe's
+//  spring short with a jump).
+//
 //  Both the stage and the rail draw with expo-image (the same
 //  memory-disk cache the bubbles' thumbnails already filled),
 //  so the rail downsamples to its 56 px views instead of
@@ -78,7 +87,7 @@ const THUMB_FULL = THUMB_SIZE + THUMB_MARGIN;
 //
 // Used by:
 //   - ImageViewerModal (below)
-//   - app/(main)/chat-room/index.tsx — builds the entries with
+//   - hooks/chat/useImageViewer.ts — builds the entries with
 //     getUploadUrl at render time
 // -----------------------------------------------------------
 
@@ -184,11 +193,12 @@ function StageImage({
 // ImageViewerModal (default export)
 // -----------------------------------------------------------
 //
-// Owns the index state, the two imperative refs (Gallery and
-// the rail FlatList) and the rail's measured width; three
-// effects keep them honest — the reopen resync, the
-// post-layout re-centre, and the clamp/close when unsends
-// shrink the image set under the current index.
+// Owns the index state (mirrored in a ref the effects read),
+// the two imperative refs (Gallery and the rail FlatList) and
+// the rail's measured width; three effects keep them honest —
+// the reopen / moved-under-the-viewer resync, the post-layout
+// re-centre, and the clamp/close when unsends shrink the image
+// set under the current index.
 //
 // Used by:
 //   - app/(main)/chat-room/index.tsx — the chat room screen
@@ -198,11 +208,14 @@ export default function ImageViewerModal({
   visible,
   images,
   initialIndex,
+  onViewChange,
   onClose,
 }: {
   visible: boolean;
   images: ViewerImage[];
   initialIndex: number;
+  // The entry now on screen, after every swipe or rail tap
+  onViewChange?: (id: string) => void;
   onClose: () => void;
 }) {
 
@@ -212,9 +225,20 @@ export default function ImageViewerModal({
 
 
   const [index, setIndex] = useState(initialIndex);
+  // The index on screen for the effects, and whether this open
+  // already landed (a fresh open always resyncs)
+  const indexRef = useRef(initialIndex);
+  const landedRef = useRef(false);
   const galleryRef = useRef<GalleryRef>(null);
   const thumbListRef = useRef<FlatList<ViewerImage>>(null);
   const [railWidth, setRailWidth] = useState(0);
+
+
+  // The one way the on-screen index changes
+  const show = (idx: number) => {
+    indexRef.current = idx;
+    setIndex(idx);
+  };
 
 
   // Center the active thumbnail in the rail
@@ -230,15 +254,20 @@ export default function ImageViewerModal({
   // The component stays mounted across opens (only the Modal's
   // children unmount) — resync both the local index and the
   // Gallery every time the viewer opens on a (possibly
-  // different) image
+  // different) image, and while open whenever the viewed photo
+  // sits somewhere the gallery is not showing; the viewer's own
+  // swipe, echoed back by the host, is already on screen
   useEffect(() => {
-    if (!visible) return;
-
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- the open is the event: local index and the imperative Gallery resync together
-    setIndex(initialIndex);
+    if (!visible) {
+      landedRef.current = false;
+      return;
+    }
+    if (landedRef.current && initialIndex === indexRef.current) return;
+    landedRef.current = true;
+    show(initialIndex);
     galleryRef.current?.setIndex(initialIndex);
     centerThumb(initialIndex, false);
-    // centerThumb identity is render-scoped on purpose
+    // show / centerThumb identities are render-scoped on purpose
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, initialIndex]);
 
@@ -265,7 +294,7 @@ export default function ImageViewerModal({
     if (index > images.length - 1) {
       const clamped = images.length - 1;
       // eslint-disable-next-line react-hooks/set-state-in-effect -- the unsend shrinking the set is the event; state and the imperative Gallery clamp together
-      setIndex(clamped);
+      show(clamped);
       galleryRef.current?.setIndex(clamped);
       centerThumb(clamped, false);
     }
@@ -293,8 +322,10 @@ export default function ImageViewerModal({
           maxScale={5}
           onSwipeToClose={onClose}
           onIndexChange={(idx) => {
-            setIndex(idx);
+            show(idx);
             centerThumb(idx, true);
+            const entry = images[idx];
+            if (entry) onViewChange?.(entry.id);
             // Live position for screen readers — the swipe
             // itself is silent
             AccessibilityInfo.announceForAccessibility(
@@ -342,8 +373,9 @@ export default function ImageViewerModal({
                   <Pressable
                     onPress={() => {
                       galleryRef.current?.setIndex(idx, true);
-                      setIndex(idx);
+                      show(idx);
                       centerThumb(idx, true);
+                      onViewChange?.(item.id);
                     }}
                     accessibilityRole="imagebutton"
                     accessibilityLabel={t('chat.photoIndex', {

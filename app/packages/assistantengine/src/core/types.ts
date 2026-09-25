@@ -233,6 +233,14 @@ export interface AssistantFailure {
   // fixed English fallback — never shown raw to a user, the
   // host maps `code` to its i18n
   message: string;
+  // The server's MACHINE code when its JSON body carried one
+  // (`error.code` in the container's envelope, a bare `code`
+  // elsewhere) — 'RATE_LIMITED', 'PROMPT_NOT_CONFIGURED',
+  // 'THREAD_NOT_FOUND'. Present only when sent: it lets a host
+  // tell two failures of one status apart (a conversation
+  // too long to send vs. any other 400), and it rides in the
+  // error message so a screenshot names it
+  serverCode?: string;
 }
 
 
@@ -258,11 +266,14 @@ export class AssistantTransportError extends Error {
   readonly failure: AssistantFailure;
 
   constructor(failure: AssistantFailure, options?: { cause?: unknown }) {
-    // The message carries the code and HTTP status ON PURPOSE:
-    // the thread's error banner prints error.message, and a
-    // student's screenshot must name the failure precisely —
-    // "auth 401: Session expired", not just the prose
-    super(`${failure.code}${failure.status !== undefined ? ` ${failure.status}` : ''}: ${failure.message}`, options);
+    // The message carries the code, the HTTP status and the
+    // server's machine code ON PURPOSE: the thread's error
+    // banner prints error.message, and a student's screenshot
+    // must name the failure precisely — "auth 401
+    // SESSION_INVALID: Session expired", not just the prose
+    const status = failure.status !== undefined ? ` ${failure.status}` : '';
+    const serverCode = failure.serverCode ? ` ${failure.serverCode}` : '';
+    super(`${failure.code}${status}${serverCode}: ${failure.message}`, options);
     this.name = 'AssistantTransportError';
     this.failure = failure;
   }

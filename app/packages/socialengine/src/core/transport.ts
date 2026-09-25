@@ -32,6 +32,12 @@
 import type { Poll, RelationshipState, SocialNotification } from './types';
 
 
+// The transport-failure kinds an ApiError's `code` can carry —
+// never a server's machine code (relationshipFailureCode reads
+// a bare `code` as a slug only when it is none of these)
+const TRANSPORT_KINDS = new Set(['http', 'network', 'timeout', 'canceled']);
+
+
 
 
 
@@ -289,8 +295,6 @@ export function isRetryableError(err: unknown): boolean {
 //   - hooks/useRelationship.ts — the definitive-refusal branch
 //   - provider/index.tsx — the drain's relationship replay
 // -----------------------------------------------------------
-
-const TRANSPORT_KINDS = new Set(['http', 'network', 'timeout', 'canceled']);
 
 export function relationshipFailureCode(err: unknown): SocialNoticeCode {
   if (!err || typeof err !== 'object') return 'relationship_failed';

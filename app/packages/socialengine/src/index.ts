@@ -53,18 +53,19 @@ export { createToggleQueue, getToggleQueue, type ToggleQueue } from './core/togg
 export { memorySocialStorage, type SocialStorage } from './core/storage';
 export { createSocialTaskQueue, socialTaskKey, type PendingSocialTask, type SocialTaskQueue } from './core/tasks';
 
-// Poll arithmetic and gating, pure
-export { pollPercent, pollLeaders, isPollExpired, showPollResults } from './core/poll';
+// Poll arithmetic and gating, pure — plus the poll store's entry
+export { pollPercent, pollLeaders, isPollExpired, showPollResults, type PollEntry } from './core/poll';
 
-// The activity list's grouping rules, pure
-export { groupNotifications, type GroupNotificationsOptions } from './core/notifications';
+// The activity list's grouping rules, pure — plus the unread
+// signal's shape (the provider owns the instance)
+export { groupNotifications, type GroupNotificationsOptions, type UnreadSignal } from './core/notifications';
 
 // The provider every hook reads
 export { SocialEngineProvider, useSocialEngine, type SocialEngineEnv } from './provider';
 
 // Interaction hooks
 export { useLikeToggle, type UseLikeToggleResult } from './hooks/useLikeToggle';
-export { usePoll, type UsePollResult } from './hooks/usePoll';
+export { usePoll, type UsePollOptions, type UsePollResult } from './hooks/usePoll';
 export { useRelationship, type UseRelationshipResult } from './hooks/useRelationship';
 export { useNotifications, type UseNotificationsResult } from './hooks/useNotifications';
 export { useUnreadBadge, type UseUnreadBadgeResult } from './hooks/useUnreadBadge';

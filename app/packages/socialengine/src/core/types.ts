@@ -313,7 +313,10 @@ export interface SocialProfile {
 // The activity row's kind. Open-ended (string) beyond the
 // well-known values so backends can extend without a package
 // release; unknown kinds still render (the UI shows a generic
-// line).
+// line). The KNF backend writes only like / comment /
+// connect_request / connect_accept (its activity CHECK) —
+// 'reply', 'mention' and 'system' are the engine's generic
+// vocabulary, dormant there and kept for other backends.
 //
 // Used by:
 //   - SocialNotification, NotificationGroup (below)

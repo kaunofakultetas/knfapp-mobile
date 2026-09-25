@@ -8,7 +8,12 @@
 //  second, each end disabled AND dimmed at its edge — the dim
 //  is what tells the reader which arrow still works. Regenerate
 //  sits on the LAST assistant message only — history with two
-//  answers offers one button.
+//  answers offers one button. Open disclosure state (the
+//  thinking row, a source's excerpt) belongs to ONE answer:
+//  switching branches never carries it to the sibling — the
+//  list keys its rows by message id, so each answer mounts its
+//  own state (the critique's "open state survives branch
+//  switches" item, pinned here).
 // -----------------------------------------------------------
 
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
@@ -74,6 +79,38 @@ describe('regenerate and branches', () => {
     expect(view.getByText('2 / 2')).toBeTruthy();
     // Only one message row on screen — siblings, not a list of both
     expect(view.getAllByTestId('assistantuikit-message-assistant')).toHaveLength(1);
+  });
+
+  it('an open thinking row and an open source never carry over to the sibling answer', async () => {
+    const entries = { entries: [{ id: 'h1', title: 'Šaltinis', excerpt: 'Ištrauka', language: 'lt' }] };
+    const run = [
+      { reasoning: 'Galvoju' },
+      { tool: { name: 'searchHandbook', input: { query: 'q' }, output: entries } },
+      { text: 'Atsakymas [1].' },
+    ];
+    const model = createScriptedModel([run, run]);
+    const view = await renderThread(model);
+    await send(view, 'Klausimas');
+    await settled(view);
+
+    // Open both disclosures on the first answer
+    await fireEvent.press(view.getByText(LABELS.thinking));
+    await fireEvent.press(view.getByTestId('assistantuikit-source-0'));
+    expect(view.getByText('Galvoju')).toBeTruthy();
+    expect(view.getByTestId('assistantuikit-source-excerpt-0')).toBeTruthy();
+
+    // The sibling mounts closed...
+    await fireEvent.press(view.getByTestId('assistantuikit-regenerate'));
+    await settled(view);
+    await waitFor(() => expect(view.getByText('2 / 2')).toBeTruthy());
+    expect(view.queryByText('Galvoju')).toBeNull();
+    expect(view.queryByTestId('assistantuikit-source-excerpt-0')).toBeNull();
+
+    // ...and so does the first answer when the picker returns
+    await fireEvent.press(view.getByLabelText('Ankstesnis atsakymas'));
+    await waitFor(() => expect(view.getByText('1 / 2')).toBeTruthy());
+    expect(view.queryByText('Galvoju')).toBeNull();
+    expect(view.queryByTestId('assistantuikit-source-excerpt-0')).toBeNull();
   });
 
   it('regenerate sits on the last assistant message only', async () => {

@@ -34,6 +34,16 @@ describe('parseTimeToMinutes', () => {
   });
 });
 
+describe('normalizeEntries subgroup shape', () => {
+  it('a subgroup list that is not a string array skips its row — the conflict scan leans on it', () => {
+    const good = { ...L('a', 0, 540, 630), subgroupKeys: ['1'] };
+    const bad = { ...L('b', 0, 540, 630), subgroupKeys: '1' as unknown as string[] };
+    const result = normalizeEntries([good, bad]);
+    expect(result.entries.map((e) => e.id)).toEqual(['a']);
+    expect(result.skipped).toBe(1);
+  });
+});
+
 describe('normalizeEntries', () => {
   it('keeps clean rows untouched and in order', () => {
     const rows = [L('a', 0, 540, 630), L('b', 4, 0, DAY_MINUTES)];

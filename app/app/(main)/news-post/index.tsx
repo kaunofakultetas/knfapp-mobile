@@ -23,13 +23,24 @@
 //      a guest's tap routes to login (SocialEngineHost);
 //    - comments show one page only; when the total says more
 //      exist, a "view all" row links to /news-comments where
-//      the fully paginated thread lives.
+//      the fully paginated thread lives;
+//    - a long-press on a comment is the viewer's one action on
+//      it — delete (their own comment, any comment under their
+//      own post, anything for an admin) or report — and a tap
+//      on a commenter opens their profile
+//      (components/news/commentActions);
+//    - a return to the screen (from the full thread, the
+//      editor, a profile) silently re-reads the post AND the
+//      inline thread, so a comment added or deleted elsewhere
+//      shows here and the strip's tally agrees with it;
+//    - the share is the feed's (components/news/sharePost —
+//      excerpt plus deep link for an app-native post) and a
+//      completed one is recorded, its count shown on the strip.
 //
 //  Split into (root component last):
 //
 //    SOURCE_KEYS      — source id → i18n label key
 //    COMMENTS_PREVIEW — page size of the inline thread
-//    toKitComment     — backend comment → the kit's row shape
 //    MetaBar          — burgundy date + source strip
 //    SourceLink       — "read at the source" external link
 //    ActionBar        — the engine-backed like / comments / share strip
@@ -47,11 +58,13 @@ import { isFeatureEnabled } from '@/services/features';
 
 import { resolveCoverUri } from '@/components/news/NewsCard';
 import PollWidget from '@/components/news/PollWidget';
+import { toKitComment, useCommentActions, useOpenCommentAuthor } from '@/components/news/commentActions';
+import { openShareSheet } from '@/components/news/sharePost';
 
 // The social kit's rows and strip, and the engine's like hook
 // (both providers are mounted in the (main) layout)
 import { useLikeToggle } from '@knf/socialengine';
-import { ActionRow, CommentComposer, CommentRow, type KitComment } from '@knf/socialuikit';
+import { ActionRow, CommentComposer, CommentRow } from '@knf/socialuikit';
 
 // UI kit and theming
 import { Button, EmptyState, ErrorState, LoadingSpinner, RefreshSpinner, Screen, confirmAction } from '@/components/ui';
@@ -66,6 +79,7 @@ import {
   addCommentApi,
   fetchComments,
   fetchNewsPost,
+  sharePostApi,
   type CommentResponse,
   type NewsPostDetail,
 } from '@/services/api';
@@ -76,7 +90,7 @@ import type { NewsPost } from '@/types';
 // rows; app-wide toasts and connectivity for the error flavour
 import { useAuth } from '@/context/AuthContext';
 import { showToast, useNetwork } from '@/context/NetworkContext';
-import { isScrapedSource, stripScrapedPreamble } from '@/services/newsText';
+import { isScrapedSource, stripScrapedPreamble, titleRepeatsBody } from '@/services/newsText';
 
 // Markdown-aware article body renderer
 import NewsBody from '@/components/news/NewsBody';
@@ -101,7 +115,6 @@ import {
   type ListRenderItemInfo,
   Platform,
   Pressable,
-  Share,
   Text,
   View,
 } from 'react-native';
@@ -120,34 +133,6 @@ const SOURCE_KEYS: Record<string, string> = {
 // One backend page of comments shown inline; more live behind
 // the ViewAllRow on the dedicated comments screen
 const COMMENTS_PREVIEW = 20;
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// toKitComment
-// -----------------------------------------------------------
-//
-// The backend comment row in the kit's vocabulary. `time` is
-// the raw created_at stamp (naive UTC) — the kit's RelativeTime
-// reads a zone-less stamp as UTC, so no reformatting here.
-// isOwn paints the viewer's own comments with the brand wash;
-// the backend has no comment deletion, so `deleted` never sets.
-//
-// Used by:
-//   - NewsPostScreen (below) — renderComment's row mapping
-// -----------------------------------------------------------
-
-const toKitComment = (comment: CommentResponse, viewerId: string | null): KitComment => ({
-  id: comment.id,
-  author: { id: comment.userId, displayName: comment.userName, avatarUrl: comment.userAvatar },
-  text: comment.text,
-  createdAt: comment.time,
-  isOwn: viewerId !== null && comment.userId === viewerId,
-});
 
 
 
@@ -220,8 +205,8 @@ function SourceLink({ onPress }: { onPress: () => void }) {
       accessibilityRole="link"
       accessibilityLabel={t('newsPost.openSource')}
     >
-      <Ionicons name="open-outline" size={16} color={colors.brand} />
-      <Text className="font-raleway-medium text-sm text-brand underline">
+      <Ionicons name="open-outline" size={16} color={colors.brandText} />
+      <Text className="font-raleway-medium text-sm text-brand-text underline">
         {t('newsPost.openSource')}
       </Text>
     </Pressable>
@@ -239,8 +224,8 @@ function SourceLink({ onPress }: { onPress: () => void }) {
 // -----------------------------------------------------------
 //
 // Feed-card parity on the detail screen: the kit's ActionRow
-// (heart with the live tally, the comments tally, share)
-// inside the article's ruled strip. The like state comes from
+// (heart with the live tally, the comments tally, share with
+// its tally) inside the article's ruled strip. The like state comes from
 // the social engine — useLikeToggle merges the viewer's
 // optimistic shadow over the loaded row, so `liked` and
 // `likeCount` are already the view to draw and `toggle` is the
@@ -257,11 +242,13 @@ function SourceLink({ onPress }: { onPress: () => void }) {
 function ActionBar({
   post,
   commentCount,
+  shareCount,
   onPressComment,
   onShare,
 }: {
   post: NewsPostDetail;
   commentCount: number;
+  shareCount: number;
   onPressComment: () => void;
   onShare: () => void;
 }) {
@@ -283,6 +270,7 @@ function ActionBar({
         onPressLike={toggle}
         onPressComment={onPressComment}
         onPressShare={onShare}
+        shareCount={shareCount}
       />
     </View>
   );
@@ -310,12 +298,14 @@ function ActionBar({
 function ArticleHeader({
   post,
   commentCount,
+  shareCount,
   onPressComment,
   onShare,
   onOpenSource,
 }: {
   post: NewsPostDetail;
   commentCount: number;
+  shareCount: number;
   onPressComment: () => void;
   onShare: () => void;
   onOpenSource: () => void;
@@ -324,14 +314,14 @@ function ArticleHeader({
   const { t } = useTranslation();
 
 
-  // Untitled community posts get their opening text copied
-  // into `title` server-side — when the rendered body still
-  // starts with it, showing the title block would print the
-  // same words twice (checked against the STRIPPED body, so a
-  // scraped article whose preamble repeated the title keeps
-  // its headline)
+  // Untitled community posts get their opening words as the
+  // `title` server-side (whole, or cut at a word with "…") —
+  // when the rendered body starts with them, showing the title
+  // block would print the same words twice (checked against
+  // the STRIPPED body, so a scraped article whose preamble
+  // repeated the title keeps its headline)
   const body = stripScrapedPreamble(post.content, post);
-  const showTitle = !!post.title && !body.trim().startsWith(post.title.trim());
+  const showTitle = !!post.title && !titleRepeatsBody(post.title, body);
 
   // The feed card's cover defence, shared: own uploads resolve
   // against the API origin, scraped faculty covers pass as-is,
@@ -368,9 +358,11 @@ function ArticleHeader({
           hand-written posts render exactly as typed */}
       <NewsBody text={body} markdown={isScrapedSource(post)} />
 
+      {/* The poll rides in the post's own answer — rendered at
+          once, the vote shared with the feed card underneath */}
       {post.postType === 'poll' && (
         <View className="px-md pt-sm">
-          <PollWidget postId={post.id} />
+          <PollWidget postId={post.id} poll={post.poll} />
         </View>
       )}
 
@@ -383,6 +375,7 @@ function ArticleHeader({
           <ActionBar
             post={post}
             commentCount={commentCount}
+            shareCount={shareCount}
             onPressComment={onPressComment}
             onShare={onShare}
           />
@@ -418,7 +411,7 @@ function ArticleHeader({
 //   - NewsPostScreen (below) — ListFooterComponent
 // -----------------------------------------------------------
 
-function ViewAllRow({ postId, count }: { postId: string; count: number }) {
+function ViewAllRow({ postId, authorId, count }: { postId: string; authorId?: string | null; count: number }) {
 
   const { t } = useTranslation();
   const { colors } = useTheme();
@@ -429,14 +422,14 @@ function ViewAllRow({ postId, count }: { postId: string; count: number }) {
     <Pressable
       className="mx-md mt-xs flex-row items-center justify-center gap-xs rounded-md border border-line bg-surface py-sm"
       style={{ minHeight: 44 }}
-      onPress={() => router.push(`/(main)/news-comments?postId=${postId}`)}
+      onPress={() => router.push({ pathname: '/(main)/news-comments', params: { postId, authorId: authorId ?? '' } })}
       accessibilityRole="button"
       accessibilityLabel={t('newsPost.viewAllComments', { count })}
     >
-      <Text className="font-raleway-medium text-sm text-brand">
+      <Text className="font-raleway-medium text-sm text-brand-text">
         {t('newsPost.viewAllComments', { count })}
       </Text>
-      <Ionicons name="chevron-forward" size={16} color={colors.brand} />
+      <Ionicons name="chevron-forward" size={16} color={colors.brandText} />
     </Pressable>
   );
 }
@@ -521,13 +514,15 @@ function CommentsFallback({
 // mapping, the preview page via useFeed) and the comment
 // total, which travels through a ref so a superseded response
 // can never write state; also the author-only header actions,
-// the focus-return refetch after an edit, the keyboard
-// scroll-lift with its onLayout re-apply, and the https-only
-// source-link guard.
+// the focus-return refetch of both loads, the comment rows'
+// long-press actions and the delete's tally, the recorded
+// share and its tally, the keyboard scroll-lift with its
+// onLayout re-apply, and the https-only source-link guard.
 //
 // Used by:
 //   - app/(main)/_layout.tsx — route /news-post?postId=
-//     (pushed from the news feed and profile post lists)
+//     (pushed from the news feed, profile post lists and the
+//     activity list)
 // -----------------------------------------------------------
 
 function NewsPostScreen() {
@@ -546,6 +541,10 @@ function NewsPostScreen() {
   // post's own count stands in for the strip's tally
   const [commentTotal, setCommentTotal] = useState<number | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+
+  // The share tally once a share from HERE was recorded (the
+  // server's count); null means the loaded post's own count
+  const [shareCount, setShareCount] = useState<number | null>(null);
 
 
   // 404 → null (deleted post, notFound state); any other
@@ -600,6 +599,7 @@ function NewsPostScreen() {
     commentTotalRef.current = null;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- the postId switch is the event: the carried total and its ref mirror reset together
     setCommentTotal(null);
+    setShareCount(null);
   }, [postId]);
 
 
@@ -648,9 +648,10 @@ function NewsPostScreen() {
       headerRight: ownPost
         ? () => (
             <View className="flex-row items-center gap-lg">
+              {/* hitSlop 11 lifts the 22pt glyphs to 44pt targets */}
               <Pressable
                 onPress={openEdit}
-                hitSlop={10}
+                hitSlop={11}
                 accessibilityRole="button"
                 accessibilityLabel={t('createPost.editTitle')}
               >
@@ -658,7 +659,7 @@ function NewsPostScreen() {
               </Pressable>
               <Pressable
                 onPress={handleDelete}
-                hitSlop={10}
+                hitSlop={11}
                 accessibilityRole="button"
                 accessibilityLabel={t('profile.deletePost')}
               >
@@ -671,9 +672,10 @@ function NewsPostScreen() {
   }, [navigation, ownPost, openEdit, handleDelete, t, colors.onBrand]);
 
 
-  // Returning from the edit screen must show the edited text —
-  // the first focus is the mount itself, every later one is a
-  // comeback worth a silent refetch
+  // Every return is worth a silent re-read: the editor changed
+  // the text, the full thread took or lost a comment (the
+  // inline page and the strip's tally follow it), a vote moved
+  // the poll. The first focus is the mount itself
   const focusedOnceRef = useRef(false);
   useFocusEffect(
     useCallback(() => {
@@ -682,8 +684,9 @@ function NewsPostScreen() {
         return;
       }
       void postLoad.refresh();
-      // eslint-disable-next-line react-hooks/exhaustive-deps -- postLoad.refresh is a stable useLoad callback; the postLoad object itself is not
-    }, [postLoad.refresh]),
+      void commentsFeed.refresh();
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- postLoad.refresh and commentsFeed.refresh are stable hook callbacks; the objects themselves are not
+    }, [postLoad.refresh, commentsFeed.refresh]),
   );
 
 
@@ -759,11 +762,11 @@ function NewsPostScreen() {
 
 
   // The strip's comments tally opens the fully paginated
-  // thread — the same door as the ViewAllRow
+  // thread — the same door as the ViewAllRow, the author along
   const openComments = useCallback(() => {
     if (!postId) return;
-    router.push(`/(main)/news-comments?postId=${postId}`);
-  }, [postId, router]);
+    router.push({ pathname: '/(main)/news-comments', params: { postId, authorId: postLoad.data?.authorId ?? '' } });
+  }, [postId, postLoad.data?.authorId, router]);
 
 
   // The composer's sign-in button: login, then back to exactly
@@ -774,19 +777,23 @@ function NewsPostScreen() {
   }, [returnTo, router]);
 
 
-  // Share works logged out too; the dismiss-rejection some
-  // platforms throw is not an error worth surfacing
+  // Share works logged out too, with the feed card's message
+  // (the web address, or the excerpt plus the deep link); a
+  // completed share is counted like one from the feed — an
+  // optimistic bump the server's count then replaces. Only a
+  // real failure toasts (a dismissal is no error)
   const handleShare = async () => {
     const post = postLoad.data;
     if (!post) return;
     try {
-      await Share.share({
-        title: post.title,
-        message: post.sourceUrl ? `${post.title}\n${post.sourceUrl}` : post.title,
-        url: post.sourceUrl || undefined,
-      });
+      if ((await openShareSheet(post)) === 'dismissed') return;
+      const before = shareCount ?? post.shares;
+      setShareCount(before + 1);
+      sharePostApi(post.id)
+        .then((resp) => setShareCount(resp.shares))
+        .catch(() => setShareCount(before));
     } catch {
-      // User dismissed the share sheet
+      showToast('error', t('common.error'));
     }
   };
 
@@ -845,11 +852,34 @@ function NewsPostScreen() {
   // change (own-row wash) is worth a new one. The kit row pads
   // its own gutter, so no wrapper here
   const viewerId = user?.id ?? null;
+
+
+  // A confirmed comment delete: the row leaves the inline page
+  // and the tally follows the server's recount (null — already
+  // gone — takes one off what the screen holds)
+  const { setItems: setComments } = commentsFeed;
+  const handleCommentDeleted = useCallback(
+    (commentId: string, total: number | null) => {
+      setComments((items) => items.filter((item) => item.id !== commentId));
+      const next = total ?? (commentTotalRef.current === null ? null : Math.max(0, commentTotalRef.current - 1));
+      commentTotalRef.current = next;
+      setCommentTotal(next);
+    },
+    [setComments],
+  );
+
+  const commentActions = useCommentActions({
+    postId,
+    postAuthorId: postLoad.data?.authorId,
+    onDeleted: handleCommentDeleted,
+  });
+  const openCommentAuthor = useOpenCommentAuthor();
+
   const renderComment = useCallback(
     ({ item }: ListRenderItemInfo<CommentResponse>) => (
-      <CommentRow comment={toKitComment(item, viewerId)} />
+      <CommentRow comment={toKitComment(item, viewerId)} onLongPress={commentActions} onPressAuthor={openCommentAuthor} />
     ),
-    [viewerId],
+    [viewerId, commentActions, openCommentAuthor],
   );
 
 
@@ -918,6 +948,7 @@ function NewsPostScreen() {
             <ArticleHeader
               post={post}
               commentCount={commentTotal ?? post.comments}
+              shareCount={shareCount ?? post.shares}
               onPressComment={openComments}
               onShare={() => void handleShare()}
               onOpenSource={() => void handleOpenSource()}
@@ -933,7 +964,7 @@ function NewsPostScreen() {
             ) : null
           }
           ListFooterComponent={
-            isFeatureEnabled('social') && showViewAll ? <ViewAllRow postId={postId} count={commentTotal} /> : null
+            isFeatureEnabled('social') && showViewAll ? <ViewAllRow postId={postId} authorId={post.authorId} count={commentTotal} /> : null
           }
           refreshControl={
             <RefreshSpinner

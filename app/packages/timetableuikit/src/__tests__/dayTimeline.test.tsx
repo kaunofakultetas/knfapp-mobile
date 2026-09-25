@@ -85,9 +85,15 @@ describe('DayTimeline', () => {
   it('an empty day says so; a dateLabel and skipped notice surface', async () => {
     const view = await renderDay({ placed: [], dateLabel: '2026-03-25', skippedCount: 2 });
     await layOut(view);
-    expect(view.getByTestId('timetableuikit-empty').props.children).toBe('Paskaitų nėra');
+    expect(view.getByTestId('timetableuikit-empty').props.children).toBe('Nėra paskaitų');
     expect(view.getByText('2026-03-25')).toBeTruthy();
     expect(view.getByTestId('timetableuikit-skipped')).toBeTruthy();
+  });
+
+  it('an empty day says the host\'s own reason when given one', async () => {
+    const view = await renderDay({ placed: [], emptyLabel: 'Nepaskelbta' });
+    await layOut(view);
+    expect(view.getByTestId('timetableuikit-empty').props.children).toBe('Nepaskelbta');
   });
 
   it('forwards renderLesson and onPressLesson to its column', async () => {

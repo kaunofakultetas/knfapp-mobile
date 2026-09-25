@@ -13,7 +13,13 @@
 //  issue the ground floor lacks, 'duplicate_id', on a level
 //  and folded from validateGraph across two), and attribute
 //  values written with entities — the '&' every editor
-//  escapes — reaching the graph decoded.
+//  escapes — reaching the graph decoded. A raw '>' inside a
+//  quoted value (legal XML) stays part of the value instead
+//  of ending the tag with a misleading issue (KNF-177), and a
+//  marked-up shape under a transform — its own or a group's —
+//  is an 'unsupported_transform' error while a transformed
+//  group of plain artwork is none of the tool's business
+//  (KNF-176).
 // -----------------------------------------------------------
 
 import { indexGraph, validateGraph } from '../../core/graph';
@@ -21,6 +27,11 @@ import { findRoute } from '../../core/route';
 import { mergeLevels, svgToGraph, type SvgToGraphResult } from '../svgToGraph';
 
 
+
+
+
+// The ground floor: every attribute the tool reads and every
+// issue it reports but one
 const GROUND = `
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" width="400" height="300">
   <!-- <circle id="n-ghost" cx="0" cy="0" r="4"/> -->
@@ -47,6 +58,7 @@ const GROUND = `
   <path id="r-lost" d="M 340 230 H 400 V 290 H 340 Z" data-node="n-nowhere"/>
 </svg>`;
 
+// The first floor: the plain case, with a <rect> room
 const FIRST = `
 <svg viewBox="0 0 400 300">
   <circle id="n-st2" cx="300" cy="200" r="4" data-kind="stairs"/>
@@ -60,8 +72,57 @@ const FIRST = `
 </svg>`;
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// ground
+// -----------------------------------------------------------
+//
+// The ground floor parsed as level L1.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
+
 const ground = (): SvgToGraphResult => svgToGraph(GROUND, { levelId: 'L1', ordinal: 1, label: '1 aukštas', metersPerPixel: 0.05 });
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// first
+// -----------------------------------------------------------
+//
+// The first floor parsed as level L2, with its plan
+// reference.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
+
 const first = (): SvgToGraphResult => svgToGraph(FIRST, { levelId: 'L2', ordinal: 2, label: '2 aukštas', metersPerPixel: 0.05, plan: 'plans/first.svg' });
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// codes
+// -----------------------------------------------------------
+//
+// A result's issues as 'code:ref'.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
 
 const codes = (result: SvgToGraphResult) => result.issues.map((issue) => `${issue.code}:${issue.ref}`);
 
@@ -242,6 +303,55 @@ describe('svgToGraph — a shape drawn twice', () => {
     ]);
     expect(nodes.map((node) => [node.id, node.x])).toEqual([['n-a', 5]]);
     expect(rooms.map((room) => room.name)).toEqual(['first']);
+  });
+});
+
+
+describe('svgToGraph — quoting and transforms', () => {
+  it("keeps a raw '>' inside a quoted value as part of the value", () => {
+    // KNF-177: the tag once ended at that '>', dropping d — and
+    // the author was told the path had no d attribute
+    const svg = `<svg viewBox="0 0 100 100">
+      <circle id="n-a" cx="5" cy="5" r="1" data-landmark='Sale A > B'/>
+      <path id="r-7" data-name="Sale A > B" d="M0 0 L10 0 L10 10 Z" data-node="n-a"/>
+    </svg>`;
+    const { rooms, nodes, issues } = svgToGraph(svg, { levelId: 'L', ordinal: 0, label: 'L', metersPerPixel: 1 });
+    expect(issues).toEqual([]);
+    expect(rooms.map((room) => [room.id, room.name])).toEqual([['7', 'Sale A > B']]);
+    expect(nodes[0].landmark).toBe('Sale A > B');
+  });
+
+  it('reports every marked-up shape under a transform — and only those', () => {
+    const svg = `<svg viewBox="0 0 1000 600">
+      <g id="walls" transform="translate(5,5)"><rect x="0" y="0" width="1000" height="600"/><circle cx="1" cy="1" r="1"/></g>
+      <g id="layer-markup" transform="translate(500,100)">
+        <circle id="n-a" cx="0" cy="0" r="4"/>
+        <circle id="n-b" cx="200" cy="0" r="4"/>
+        <line id="e-ab" x1="0" y1="0" x2="200" y2="0"/>
+        <rect id="r-101" x="180" y="-20" width="60" height="40" data-node="n-b"/>
+      </g>
+      <circle id="n-c" cx="10" cy="10" r="4" transform="rotate(45)"/>
+      <circle id="n-d" cx="20" cy="20" r="4"/>
+    </svg>`;
+    const { issues, nodes } = svgToGraph(svg, { levelId: 'L', ordinal: 0, label: 'L', metersPerPixel: 1 });
+    const flagged = issues.filter((issue) => issue.code === 'unsupported_transform');
+    expect(flagged.map((issue) => [issue.severity, issue.ref])).toEqual([
+      ['error', 'n-a'], ['error', 'n-b'], ['error', 'e-ab'], ['error', 'r-101'], ['error', 'n-c'],
+    ]);
+    // The shapes are still read as written — one moved layer is
+    // one error per shape, not a cascade of dangling edges
+    expect(nodes.map((node) => node.id)).toEqual(['n-a', 'n-b', 'n-c', 'n-d']);
+    expect(issues.some((issue) => issue.code === 'unsnapped_edge')).toBe(false);
+  });
+
+  it("warns, through mergeLevels, about a room drawn off the level's viewBox", () => {
+    const svg = `<svg viewBox="0 0 1000 600">
+      <circle id="n-b" cx="200" cy="0" r="4"/>
+      <rect id="r-101" x="180" y="-20" width="60" height="40" data-node="n-b"/>
+    </svg>`;
+    const level = svgToGraph(svg, { levelId: 'L', ordinal: 0, label: 'L', metersPerPixel: 1 });
+    const merged = mergeLevels([level], { building: 'b', connectors: [], entranceNodeId: 'n-b' });
+    expect(merged.issues.filter((issue) => issue.code === 'outside_plan').map((issue) => issue.ref)).toEqual(['101']);
   });
 });
 

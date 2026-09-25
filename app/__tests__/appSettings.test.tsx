@@ -20,6 +20,7 @@ import { act, renderHook, waitFor } from '@testing-library/react-native';
 import { AppProvider, useApp } from '@/context/AppContext';
 
 
+// The i18n language switch AppProvider drives, observed
 const mockChangeLanguage = jest.fn(async (_language: string) => {});
 
 jest.mock('@react-native-async-storage/async-storage', () =>
@@ -36,7 +37,39 @@ jest.mock('@/i18n', () => ({
 }));
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// renderApp
+// -----------------------------------------------------------
+//
+// The settings context under a real AppProvider
+//
+// Used by:
+//   - every test below
+// -----------------------------------------------------------
+
 const renderApp = () => renderHook(() => useApp(), { wrapper: AppProvider });
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// storedBlobs
+// -----------------------------------------------------------
+//
+// Every app_settings blob written so far, parsed — the
+// persistence contract is asserted on these
+//
+// Used by:
+//   - the persistence tests below
+// -----------------------------------------------------------
 
 const storedBlobs = () =>
   (AsyncStorage.setItem as jest.Mock).mock.calls
@@ -169,5 +202,22 @@ describe('language change side effects', () => {
     await waitFor(() => expect(mockChangeLanguage).toHaveBeenCalledWith('en'));
     const last = storedBlobs().at(-1);
     expect(last?.language).toBe('en');
+  });
+
+
+  it('a settings reset lands in the DEVICE language, like a fresh install — never the lt placeholder', async () => {
+    await AsyncStorage.setItem('app_settings', JSON.stringify({ language: 'lt', theme: 'dark' }));
+    const { result } = await renderApp();
+    await waitFor(() => expect(result.current.hydrated).toBe(true));
+    expect(result.current.language).toBe('lt');
+
+    await act(async () => {
+      result.current.resetSettings();
+    });
+
+    // The mocked device is English: an exchange student's reset
+    // must not strand them in a UI they cannot read
+    expect(result.current.language).toBe('en');
+    expect(result.current.theme).toBe('system');
   });
 });

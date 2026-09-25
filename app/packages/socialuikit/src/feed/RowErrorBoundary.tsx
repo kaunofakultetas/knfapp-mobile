@@ -67,8 +67,9 @@ function FailedRow({ onReset }: { onReset: () => void }) {
       <Text style={{ flex: 1, color: colors.inkSoft, fontFamily: fonts.regular, fontSize: 14, marginRight: 12 }}>
         {labels.rowFailed}
       </Text>
-      <Pressable accessibilityRole="button" accessibilityLabel={labels.tryAgain} hitSlop={8} onPress={onReset}>
-        <Text style={{ color: colors.brand, fontFamily: fonts.medium, fontSize: 14 }}>{labels.tryAgain}</Text>
+      {/* hitSlop 13 lifts the ~18pt text line to the 44pt floor */}
+      <Pressable accessibilityRole="button" accessibilityLabel={labels.tryAgain} hitSlop={13} onPress={onReset}>
+        <Text style={{ color: colors.brandText, fontFamily: fonts.medium, fontSize: 14 }}>{labels.tryAgain}</Text>
       </Pressable>
     </View>
   );

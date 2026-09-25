@@ -382,6 +382,35 @@ describe('channelHints', () => {
     expect(flat(view.getByText('Žinutės ir paminėjimai').props.style).fontSize).toBe(12);
     expect(flat(view.getByText('Pokalbiai').props.style).fontSize).toBe(14);
   });
+
+  it('a hint is also what the switch reads out as its accessibility hint', async () => {
+    const view = await renderPanel(makeEngine(), { channelHints: { chat: 'Žinutės ir paminėjimai' } });
+    expect(view.getByTestId('notifyuikit-channel-chat').props.accessibilityHint).toBe('Žinutės ir paminėjimai');
+    expect(view.getByTestId('notifyuikit-master').props.accessibilityHint).toBe('Leisti programai pranešti');
+    expect(view.getByTestId('notifyuikit-channel-news').props.accessibilityHint).toBeUndefined();
+  });
+});
+
+
+describe('fonts', () => {
+  it("labels set in the host's medium face and hints in its regular one — family, no weight", async () => {
+    const view = await renderPanel(makeEngine(), {
+      fonts: { regular: 'Raleway-Regular', medium: 'Raleway-Medium', bold: 'Raleway-Bold' },
+      channelHints: { chat: 'Žinutės ir paminėjimai' },
+    });
+    for (const label of ['Pranešimai', 'Naujienos', 'Pokalbiai', 'Rodyti žinutės tekstą']) {
+      expect(flat(view.getByText(label).props.style).fontFamily).toBe('Raleway-Medium');
+    }
+    expect(flat(view.getByText('Žinutės ir paminėjimai').props.style).fontFamily).toBe('Raleway-Regular');
+    expect(flat(view.getByText('Leisti programai pranešti').props.style).fontFamily).toBe('Raleway-Regular');
+    expect(flat(view.getByText('Pokalbiai').props.style).fontWeight).toBeUndefined();
+  });
+
+  it('no fonts ⇒ the platform face, exactly as before', async () => {
+    const view = await renderPanel(makeEngine());
+    expect(flat(view.getByText('Pokalbiai').props.style).fontFamily).toBeUndefined();
+    expect(flat(view.getByText('Leisti programai pranešti').props.style).fontFamily).toBeUndefined();
+  });
 });
 
 describe('icons', () => {

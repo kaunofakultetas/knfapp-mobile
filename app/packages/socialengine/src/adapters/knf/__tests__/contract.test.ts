@@ -39,6 +39,8 @@ interface StubBackend {
   http: HttpClient;
   polls: Map<string, ApiPoll & { userVoteBy: string | null }>;
   likes: Map<string, { liked: boolean; count: number }>;
+  // Every like request's body, in order
+  likeBodies: unknown[];
   received: RequestRow[];
   sent: RequestRow[];
   friends: Set<string>;
@@ -47,14 +49,46 @@ interface StubBackend {
   activity: ActivityRow[];
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// reject
+// -----------------------------------------------------------
+//
+// A rejected request the way the KNF client rejects one: an
+// Error carrying the HTTP status.
+//
+// Used by:
+//   - stubBackend (below) — every refused route
+// -----------------------------------------------------------
+
 const reject = (status: number, error: string) => Promise.reject(Object.assign(new Error(error), { status }));
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// stubBackend
+// -----------------------------------------------------------
+//
 // The routes, as data. Only the paths the adapter actually
-// takes are answered; anything else 404s like the real server
+// takes are answered; anything else 404s like the real server.
+//
+// Used by:
+//   - knfHarness (below)
+// -----------------------------------------------------------
+
 function stubBackend(): StubBackend {
   const polls = new Map<string, ApiPoll & { userVoteBy: string | null }>();
   const likes = new Map<string, { liked: boolean; count: number }>();
+  const likeBodies: unknown[] = [];
   const received: StubBackend['received'] = [];
   const sent: StubBackend['sent'] = [];
   const activity: StubBackend['activity'] = [];
@@ -106,9 +140,14 @@ function stubBackend(): StubBackend {
     async post<T>(path: string, body?: unknown): Promise<T> {
       const like = path.match(/^\/news\/([^/]+)\/like$/);
       if (like) {
+        // The real route: {liked} SETS the state (a repeat is a
+        // no-op), no body flips it — the legacy toggle
         const id = decodeURIComponent(like[1]);
         const row = likes.get(id) ?? { liked: false, count: 0 };
-        const next = { liked: !row.liked, count: row.count + (row.liked ? -1 : 1) };
+        likeBodies.push(body);
+        const target = (body as { liked?: unknown } | undefined)?.liked;
+        const liked = typeof target === 'boolean' ? target : !row.liked;
+        const next = { liked, count: row.count + (liked === row.liked ? 0 : liked ? 1 : -1) };
         likes.set(id, next);
         return { liked: next.liked, likes: next.count } as T;
       }
@@ -196,12 +235,26 @@ function stubBackend(): StubBackend {
     },
   };
 
-  return { http, polls, likes, received, sent, friends, blocked, reports, activity };
+  return { http, polls, likes, likeBodies, received, sent, friends, blocked, reports, activity };
 }
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// toApiPoll
+// -----------------------------------------------------------
+//
 // Engine Poll → the wire row the stub serves. The engine's
-// pollId is the post id, so the seed keys on poll.id
+// pollId is the post id, so the seed keys on poll.id.
+//
+// Used by:
+//   - knfHarness (below) — seedPoll
+// -----------------------------------------------------------
+
 const toApiPoll = (poll: Poll): ApiPoll & { userVoteBy: string | null } => {
   const mine = poll.options.find((o) => o.votedByMe);
   return {
@@ -219,6 +272,25 @@ const toApiPoll = (poll: Poll): ApiPoll & { userVoteBy: string | null } => {
 
 
 let seededRequests = 0;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// knfHarness
+// -----------------------------------------------------------
+//
+// The shared contract harness over the KNF adapter: a fresh
+// stub backend, the transport built on its http client, and
+// the seeding hooks the contract suite drives.
+//
+// Used by:
+//   - describeSocialContract (below) — the shared suite
+//   - the KNF-specific tests below
+// -----------------------------------------------------------
 
 function knfHarness(): SocialTransportHarness & { backend: StubBackend } {
   const backend = stubBackend();
@@ -266,13 +338,19 @@ describeSocialContract('KNF adapter over stubbed routes', knfHarness);
 
 
 describe('KNF adapter mappings', () => {
-  it('passes the toggled answer through even when it disagrees with the desired state', async () => {
+  it('sends the absolute target, so a repeated like stays a like', async () => {
+    // This test once pinned the adapter firing a bare FLIP and
+    // passing "desired like, landed unlike" through — the very
+    // parity bug an odd tap burst turned into a lost like
+    // (KNF-110). Every call now carries its target state
     const h = knfHarness();
     h.backend.likes.set('p1', { liked: true, count: 7 });
-    // Desired "like", but the toggle lands on unlike — the
-    // server's word comes back untouched for the shadow to adopt
     const result = await h.transport.setLiked({ type: 'post', id: 'p1' }, true);
-    expect(result).toEqual({ liked: false, likeCount: 6 });
+    expect(result).toEqual({ liked: true, likeCount: 7 });
+    expect(h.backend.likeBodies).toEqual([{ liked: true }]);
+
+    await expect(h.transport.setLiked({ type: 'post', id: 'p1' }, false)).resolves.toEqual({ liked: false, likeCount: 6 });
+    expect(h.backend.likeBodies).toEqual([{ liked: true }, { liked: false }]);
   });
 
   it('absorbs the already-voted 409 into a refetch of the current poll', async () => {

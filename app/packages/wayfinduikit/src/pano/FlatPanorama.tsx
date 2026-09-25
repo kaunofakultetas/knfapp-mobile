@@ -443,6 +443,8 @@ function HotspotChip({ hotspot, x, y, onPress }: { hotspot: KitHotspot; x: numbe
       accessibilityLabel={hotspot.label ?? undefined}
       disabled={!onPress}
       onPress={onPress}
+      // A 36 pt disc: the slop reaches the 44 pt touch floor
+      hitSlop={4}
       style={{
         position: 'absolute',
         left: x - HOTSPOT_SIZE / 2,

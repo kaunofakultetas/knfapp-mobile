@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased — 2026-09-25
+
+Two races closed, both pinned:
+
+- **The launch tap an ingest is still parking** (KNF-167) — an ingest
+  claims its identifier, then spends two storage round-trips before
+  the intent parks. A `consumeInitial()` that ran in that gap found
+  the buffer empty and the identifier already seen, answered null,
+  and the warm resolver later flushed the parked tap over the landing
+  screen. The hub now tracks ingests in flight: `consumeInitial()`
+  lets every flight already under way land first, and a device read
+  naming a claimed identifier waits for that flight and adopts
+  exactly its intent (`coldStart: true`). Both waits are bounded
+  (1 s each), so a storage layer that never answers cannot hold the
+  launch screen. A repeat `ingest()` of a claimed identifier now
+  returns the first flight's promise.
+- **The chat-preview flag and a refresh** — the preview PUT now takes
+  the same wire lock as channel flushes and refreshes, and a GET that
+  lands while a preview write is pending leaves the flag alone. Only
+  the newest of several quick writes paints its outcome, and a failed
+  write snaps back to the last server-confirmed value (a GET's or a
+  PUT's answer), never to another write's optimistic guess.
+- The Expo adapter's fire-and-forget `clearLastResponse()` handles
+  the primitive's rejection instead of leaving it unhandled.
+
 ## 1.0.3 — 2026-09-05
 
 Behaviour release — the second review round over the wired

@@ -21,13 +21,13 @@ import { useKitTheme } from '../../provider';
 import type { KitLabels } from '../../provider/labels';
 
 // Rendering
-import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
 import { useState, type ReactNode } from 'react';
 import { Text, View, useWindowDimensions } from 'react-native';
 
 import { fitMedia, isExtremeAspect, mediaBoxFor } from '../../core/media';
 import type { KitMediaSize } from '../../core/types';
+import MediaUnavailable from './MediaUnavailable';
 
 
 
@@ -71,6 +71,10 @@ export function useMediaFit(mediaSize: KitMediaSize | undefined, initialRatio: n
 // A failed load retries when the uri changes (the local
 // preview swapping to the uploaded path); an extreme aspect
 // ratio drops to the compact strip row instead of a crop.
+//
+// Used by:
+//   - message/MessageBubble.tsx (BubbleBody) — a lone photo
+//   - message/attachments/VideoAttachment.tsx — the poster
 // -----------------------------------------------------------
 
 export default function ImageAttachment({
@@ -114,18 +118,7 @@ export default function ImageAttachment({
 
 
   if (failed || !uri) {
-    return (
-      <View
-        style={{ width: fit.width, height: fit.height, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceSoft }}
-        accessible
-        accessibilityLabel={unavailableLabel ?? labels.imageUnavailable}
-      >
-        <Ionicons name="image-outline" size={28} color={colors.inkSoft} />
-        <Text style={{ marginTop: 4, fontFamily: fonts.regular, fontSize: 12, lineHeight: 15, color: colors.inkSoft }}>
-          {unavailableLabel ?? labels.imageUnavailable}
-        </Text>
-      </View>
-    );
+    return <MediaUnavailable width={fit.width} height={fit.height} label={unavailableLabel ?? labels.imageUnavailable} />;
   }
 
 

@@ -1,7 +1,9 @@
 // -----------------------------------------------------------
 //  [*] Tests — useNow: the half-minute clock
 //
-//  Monday-first day mapping and the tick, on fake timers.
+//  Monday-first day mapping and the tick, on fake timers — and
+//  a clock switched ON late reads the wall clock at once
+//  instead of serving its mount-time sample for half a minute.
 // -----------------------------------------------------------
 
 import { act, renderHook } from '@testing-library/react-native';
@@ -70,5 +72,20 @@ describe('useNow', () => {
     });
     expect(result.current).not.toBe(before);
     expect(result.current.minutes).toBe(631);
+  });
+
+  it('a clock switched on late reads the wall clock at once, not its mount-time sample', async () => {
+    jest.setSystemTime(new Date('2026-03-23T10:30:00Z'));
+    const { result, rerender } = await renderHook((props: { enabled: boolean }) => useNow({ enabled: props.enabled }), {
+      initialProps: { enabled: false },
+    });
+    expect(result.current.minutes).toBe(630);
+    // An hour browsing another week, the clock silent…
+    jest.setSystemTime(new Date('2026-03-23T11:30:00Z'));
+    // …then back to this week: no half-minute of the old sample
+    await act(async () => {
+      await rerender({ enabled: true });
+    });
+    expect(result.current.minutes).toBe(690);
   });
 });

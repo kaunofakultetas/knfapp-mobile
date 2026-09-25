@@ -13,10 +13,42 @@ import { act, renderHook } from '@testing-library/react-native';
 import { useFeedFreshness } from '../useFeedFreshness';
 
 
+
+
+
+
+
+// -----------------------------------------------------------
+// flush
+// -----------------------------------------------------------
+//
+// Settle the peek's promise chain inside act
+//
+// Used by:
+//   - tick (below)
+// -----------------------------------------------------------
+
 const flush = () =>
   act(async () => {
     for (let i = 0; i < 40; i++) await Promise.resolve();
   });
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// tick
+// -----------------------------------------------------------
+//
+// Advance the fake clock past the probe interval, then
+// let the peek's answer land
+//
+// Used by:
+//   - every test below
+// -----------------------------------------------------------
 
 const tick = async (ms: number) => {
   await act(async () => {
@@ -68,6 +100,22 @@ describe('useFeedFreshness', () => {
     await tick(1000);
     expect(h.result.current.newCount).toBe(1);
     await act(async () => h.result.current.clear());
+    expect(h.result.current.newCount).toBe(0);
+  });
+
+  it('a count belongs to its baseline — the newest id coming BACK never resurrects a stale count', async () => {
+    const peek = jest.fn(async () => ['e', 'd', 'c']);
+    const h = await renderHook(({ newest }: { newest: string }) => useFeedFreshness(newest, peek, { intervalMs: 1000 }), {
+      initialProps: { newest: 'c' },
+    });
+    await tick(1000);
+    expect(h.result.current.newCount).toBe(2);
+
+    // A refresh lands ('e' on top), then the top post is deleted
+    // and 'c' is the newest again — nothing was probed since
+    await h.rerender({ newest: 'e' });
+    expect(h.result.current.newCount).toBe(0);
+    await h.rerender({ newest: 'c' });
     expect(h.result.current.newCount).toBe(0);
   });
 

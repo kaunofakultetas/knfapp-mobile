@@ -103,6 +103,8 @@ function FaceButton({
       // Belt and braces: `disabled` stops the event system, the
       // undefined handler stops a synthetic press in tests
       disabled={pending}
+      // The 36dp pill reaches the 44pt floor through its slop
+      hitSlop={{ top: 4, bottom: 4 }}
       onPress={pending ? undefined : () => onAction(action)}
       accessibilityRole="button"
       accessibilityLabel={a11yLabel ?? label}

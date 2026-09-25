@@ -1,45 +1,38 @@
 // -----------------------------------------------------------
 //  [*] API — chat
 //
-//  REST side of messaging: conversations, message history,
-//  reactions, pinning, read state and the people search that
-//  starts a new chat. Live delivery (new_message, typing,
-//  read receipts) is services/socket.ts — this module is what
-//  loads history and what the composer posts through.
+//  REST side of messaging OUTSIDE a room: the conversation
+//  list and its row actions, the unread badge, the people
+//  search that starts a chat, presence, and the in-room
+//  search. Everything a room does with its messages — history
+//  pages, sends, edits, unsends, reactions, pins, read marks —
+//  goes through @knf/chatengine's knf adapter
+//  (packages/chatengine/src/adapters/knf/rest.ts via
+//  services/chatTransport.ts); live delivery is
+//  services/socket.ts.
 //
-//  Timestamp contract: every `time` field here (ApiMessage,
-//  MessageSearchResult, ApiConversation.lastMessage) is
+//  Timestamp contract: every `time` field here
+//  (MessageSearchResult, ApiConversation.lastMessage) is
 //  preformatted SERVER-SIDE in UTC and is 2–3 h off in
 //  Lithuania. Screens must IGNORE `time` and format the ISO
 //  `createdAt` (or lastUpdatedMs) locally via
 //  services/format.ts.
 //
-//  Reaction REST responses carry the authoritative
-//  `reactions` array (wire shape — no bySelf) and the react
-//  helpers resolve to it, so the acting client reconciles
-//  immediately; the same state is also broadcast on the
-//  'reaction_update' socket event, the cross-client path.
-//
 //  Split into:
 //
 //    ApiConversation       — one conversation-list row
-//    ApiMessage            — one message of a conversation
+//    ApiMessageKind        — what a message row IS
+//    ApiSystemEvent        — what a system row narrates
 //    ConversationsResponse — the conversation list
-//    MessagesResponse      — one history page
 //    SearchUserResult      — user search hit
 //    MessageSearchResult   — in-conversation search hit
-//    ApiReactionGroup      — wire shape of one emoji group
 //    fetchConversations    — list all conversations
 //    createConversation    — start a direct/group chat
-//    fetchMessages         — paged history (newest first)
-//    sendMessageApi        — post text and/or an image
-//    reactToMessageApi     — set own reaction
-//    removeReactionApi     — clear own reaction
 //    togglePinApi          — pin/unpin a conversation
-//    markConversationRead  — clear the unread counter
 //    fetchTotalUnreadCount — badge total across conversations
 //    deleteConversationApi — leave/delete a conversation
 //    searchMessagesApi     — text search inside a conversation
+//    PresenceResult        — the merged presence maps
 //    fetchOnlineStatus     — presence lookup, fail-soft
 //    searchUsersApi        — find people for a new chat
 // -----------------------------------------------------------
@@ -62,19 +55,22 @@ import type { UserRole } from '@/types';
 //
 // Sort/recency comes from lastUpdatedMs (epoch ms) — not from
 // lastMessage.time, which is server-formatted UTC (see the
-// file header).
+// file header). `title` is NULL for a direct chat whose other
+// member left (nobody left to name it after) — every reader
+// renders messages.conversationFallback then.
 //
 // Used by:
 //   - ConversationsResponse (below)
 //   - app/(main)/tabs/messages.tsx — conversation rows
+//   - app/(main)/chat-room/index.tsx — the forward sheet
 //   - components/chat/ConversationRow.tsx — row rendering
 // -----------------------------------------------------------
 
 export interface ApiConversation {
   id: string;
   type: 'direct' | 'group';
-  title: string;
-  avatarEmoji?: string;
+  title: string | null;
+  avatarEmoji?: string | null;
   pinned: boolean;
   unreadCount: number;
   lastUpdatedMs: number;
@@ -85,14 +81,17 @@ export interface ApiConversation {
     // the REST list blanks it) — previews fall back either way
     text: string | null;
     imageUrl?: string | null;
-    // text | image | video | file | system — previews name the
-    // kind when there is no text
+    // What the row IS — previews name the kind when there is no
+    // text (a voice note is "Voice message", never "Photo")
     kind?: ApiMessageKind;
     time: string;
     senderId: string;
     senderName: string;
     // The last message was unsent — previews show a placeholder
     deleted?: boolean;
+    // A system line's event — the preview words it in the
+    // reader's language; absent on other rows and old ones
+    system?: ApiSystemEvent | null;
   };
 }
 
@@ -106,37 +105,16 @@ export interface ApiConversation {
 // ApiMessageKind
 // -----------------------------------------------------------
 //
-// text | image | video | file | system — what a message row IS,
-// so previews and bubbles can branch without sniffing fields.
+// text | image | video | file | audio | system — what a
+// message row IS, the backend's own closed set (the send
+// route stores 'audio' for a voice note), so previews and
+// bubbles can branch without sniffing fields.
 //
 // Used by:
-//   - ApiConversation (above), ApiMessage, SendMessageExtra
+//   - ApiConversation (above)
 // -----------------------------------------------------------
 
-export type ApiMessageKind = 'text' | 'image' | 'video' | 'file' | 'system';
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// ApiAttachment
-// -----------------------------------------------------------
-//
-// A document / video attachment as stored (migration v57).
-//
-// Used by:
-//   - ApiMessage, SendMessageExtra (below)
-// -----------------------------------------------------------
-
-export interface ApiAttachment {
-  url: string;
-  name: string;
-  size: number;
-  mime: string;
-}
+export type ApiMessageKind = 'text' | 'image' | 'video' | 'file' | 'audio' | 'system';
 
 
 
@@ -145,83 +123,23 @@ export interface ApiAttachment {
 
 
 // -----------------------------------------------------------
-// ApiMedia
+// ApiSystemEvent
 // -----------------------------------------------------------
 //
-// What a photo / video message knows about its frame (v58):
-// natural size, duration in seconds, the poster's upload path.
+// What a 'system' row narrates, as a code plus parameters —
+// 'group_created' {title}, 'left', 'ttl_on' {seconds},
+// 'ttl_off' — so a reader's own language words it (the row's
+// text is the backend's Lithuanian fallback).
 //
 // Used by:
-//   - ApiMessage, SendMessageExtra (below)
+//   - ApiConversation (above)
+//   - components/chat/conversationList.ts — the preview line
 // -----------------------------------------------------------
 
-export interface ApiMedia {
-  width?: number | null;
-  height?: number | null;
-  duration?: number | null;
-  thumbnailUrl?: string | null;
-}
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// ApiMessage
-// -----------------------------------------------------------
-//
-// Format createdAt (ISO) for display and ignore `time` — see
-// the file header. imageUrl is a relative upload path that
-// screens resolve with getUploadUrl.
-//
-// Used by:
-//   - MessagesResponse, sendMessageApi (below)
-//   - hooks/chat/useChatMessages.ts — history + live merge
-//   - app/(main)/chat-room/index.tsx — the message list
-// -----------------------------------------------------------
-
-export interface ApiMessage {
-  id: string;
-  // The sender's optimistic clientId, echoed back on own rows
-  // so the app can adopt the matching temp bubble by id
-  clientMsgId?: string | null;
-  conversationId: string;
-  senderId: string;
-  senderName: string;
-  senderAvatar?: string | null;
-  text: string;
-  imageUrl?: string | null;
-  time: string;
-  createdAt: string;
-  isOwn: boolean;
-  status?: 'sent' | 'delivered' | 'read';
-  readBy?: string[];
-  reactions: {
-    emoji: string;
-    count: number;
-    bySelf: boolean;
-    byUserIds: string[];
-  }[];
-  // Quoted message of a reply (null when not a reply); the
-  // quote of an unsent message keeps the sender, loses content
-  replyTo?: {
-    id: string;
-    senderId: string;
-    senderName: string;
-    text: string;
-    imageUrl?: string | null;
-    deleted: boolean;
-    kind?: ApiMessageKind;
-    fileName?: string | null;
-  } | null;
-  // Unsent by its sender — text/imageUrl arrive blank
-  deleted?: boolean;
-  kind?: ApiMessageKind;
-  editedAt?: string | null;
-  attachment?: ApiAttachment | null;
-  media?: ApiMedia | null;
+export interface ApiSystemEvent {
+  event: string;
+  title?: string;
+  seconds?: number;
 }
 
 
@@ -254,36 +172,6 @@ export interface ConversationsResponse {
 
 
 // -----------------------------------------------------------
-// MessagesResponse
-// -----------------------------------------------------------
-//
-// One history page: hasMore says an older page exists past
-// the cursor, while participants and conversation describe
-// the whole room, not the page — they repeat identically on
-// every page fetched.
-//
-// Used by:
-//   - fetchMessages (below)
-//   - hooks/chat/useChatMessages.ts — paging state
-// -----------------------------------------------------------
-
-export interface MessagesResponse {
-  messages: ApiMessage[];
-  hasMore: boolean;
-  // Every member — the room header and intro card draw from it
-  participants: { id: string; displayName: string; avatarUrl?: string | null }[];
-  // The conversation row — type/title for rooms opened without
-  // route params (push notifications)
-  conversation: { id: string; type: 'direct' | 'group'; title?: string | null; avatarEmoji?: string | null } | null;
-}
-
-
-
-
-
-
-
-// -----------------------------------------------------------
 // SearchUserResult
 // -----------------------------------------------------------
 //
@@ -295,6 +183,7 @@ export interface MessagesResponse {
 // Used by:
 //   - searchUsersApi (below)
 //   - app/(main)/new-chat/index.tsx — people picker rows
+//   - components/social/FindPeopleView.tsx — Find people rows
 // -----------------------------------------------------------
 
 export interface SearchUserResult {
@@ -336,6 +225,9 @@ export interface MessageSearchResult {
   time: string;
   createdAt: string;
   isOwn: boolean;
+  // A disappearing message's deadline — a hit that lapses
+  // while the results are open leaves them
+  expiresAt?: string | null;
 }
 
 
@@ -355,6 +247,8 @@ export interface MessageSearchResult {
 //
 // Used by:
 //   - app/(main)/tabs/messages.tsx — the conversation list
+//   - app/(main)/chat-room/index.tsx — the forward sheet's
+//     room list
 // -----------------------------------------------------------
 
 export const fetchConversations = () =>
@@ -392,240 +286,6 @@ export const createConversation = (params: {
 
 
 // -----------------------------------------------------------
-// fetchMessages
-// -----------------------------------------------------------
-//
-//   fetchMessages(convId)          — latest page
-//   fetchMessages(convId, beforeCreatedAt, 50, beforeId)
-//     — the page older than the (stamp, id) cursor: the server
-//       pages on created_at with the id as tiebreak, so pass
-//       BOTH fields of the oldest loaded message — the id keeps
-//       equal-stamp siblings from being skipped across a page
-//       boundary (stamp-only still works, minus the tiebreak)
-//
-// Used by:
-//   - hooks/chat/useChatMessages.ts — history + scroll-back
-// -----------------------------------------------------------
-
-export const fetchMessages = (convId: string, before?: string, limit = 50, beforeId?: string) =>
-  request(
-    api.get<MessagesResponse>(`/chat/conversations/${encodeURIComponent(convId)}/messages`, {
-      params: {
-        limit,
-        ...(before ? { before } : {}),
-        ...(before && beforeId ? { before_id: beforeId } : {}),
-      },
-    }),
-  );
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// SendMessageExtra
-// -----------------------------------------------------------
-//
-// The optional third rail of a send: an uploaded attachment,
-// its media frame data, and the explicit kind.
-//
-// Used by:
-//   - sendMessageApi (below) — the `extra` parameter
-// -----------------------------------------------------------
-
-export interface SendMessageExtra {
-  // A document or a video (uploaded first — uploadFileApi)
-  attachment?: ApiAttachment;
-  // The frame size / duration / poster of a photo or video
-  media?: ApiMedia;
-  kind?: ApiMessageKind;
-}
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// sendMessageApi
-// -----------------------------------------------------------
-//
-// Text and image are both optional at the type level but the
-// backend rejects an empty body — callers send at least one.
-// imageUrl must be the RELATIVE path from uploadImageApi;
-// replyToId quotes a message of the same conversation.
-// clientMsgId is the optimistic temp's clientId — the backend
-// stores it uniquely per sender and answers a repeat with the
-// EXISTING row, so a timed-out-but-committed send that is
-// retried never duplicates the message.
-//
-// Used by:
-//   - hooks/chat/useChatComposer.ts — the send action
-// -----------------------------------------------------------
-
-export const sendMessageApi = (
-  convId: string,
-  text: string,
-  imageUrl?: string,
-  replyToId?: string,
-  clientMsgId?: string,
-  extra?: SendMessageExtra,
-) =>
-  request(
-    api.post<{ message: ApiMessage }>(`/chat/conversations/${encodeURIComponent(convId)}/messages`, {
-      ...(text ? { text } : {}),
-      ...(imageUrl ? { imageUrl } : {}),
-      ...(replyToId ? { replyToId } : {}),
-      ...(clientMsgId ? { client_msg_id: clientMsgId } : {}),
-      ...(extra?.attachment ? { attachment: extra.attachment } : {}),
-      ...(extra?.media ? { media: extra.media } : {}),
-      ...(extra?.kind ? { kind: extra.kind } : {}),
-    }),
-  );
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// editMessageApi
-// -----------------------------------------------------------
-//
-// The sender rewrites their own text; the backend stamps
-// editedAt and broadcasts 'message_edited' to the room (the
-// hook applies the echo like everyone else's).
-//
-// Used by:
-//   - hooks/chat/useChatComposer.ts — edit mode
-// -----------------------------------------------------------
-
-export const editMessageApi = (convId: string, msgId: string, text: string) =>
-  request(
-    api.put<{ id: string; text: string; editedAt: string }>(
-      `/chat/conversations/${encodeURIComponent(convId)}/messages/${encodeURIComponent(msgId)}`,
-      { text },
-    ),
-  );
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// deleteMessageApi
-// -----------------------------------------------------------
-//
-// "Unsend" — only the sender may call it (403 otherwise). The
-// backend clears the content, keeps the row and broadcasts
-// 'message_deleted'; the hook updates optimistically and
-// reverts on failure.
-//
-// Used by:
-//   - hooks/chat/useChatMessages.ts — deleteMessage
-// -----------------------------------------------------------
-
-export async function deleteMessageApi(convId: string, msgId: string): Promise<void> {
-  await request(api.delete(`/chat/conversations/${encodeURIComponent(convId)}/messages/${encodeURIComponent(msgId)}`));
-}
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// ApiReactionGroup
-// -----------------------------------------------------------
-//
-// One emoji group as the react endpoints and the socket's
-// reaction_update carry it — NO bySelf on the wire; consumers
-// recompute it from byUserIds and the session user id.
-//
-// Used by:
-//   - reactToMessageApi, removeReactionApi (below)
-//   - hooks/chat/useChatReactions.ts — applying the REST echo
-// -----------------------------------------------------------
-
-export interface ApiReactionGroup {
-  emoji: string;
-  count: number;
-  byUserIds: string[];
-}
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// reactToMessageApi
-// -----------------------------------------------------------
-//
-// Resolves to the authoritative `reactions` array from the
-// response body so the acting client reconciles at once; the
-// 'reaction_update' socket event carries the same state to
-// every other client.
-//
-// Used by:
-//   - hooks/chat/useChatReactions.ts — set/replace own reaction
-// -----------------------------------------------------------
-
-export async function reactToMessageApi(
-  convId: string,
-  msgId: string,
-  emoji: string,
-): Promise<ApiReactionGroup[]> {
-  const data = await request(
-    api.post<{ reactions: ApiReactionGroup[] }>(
-      `/chat/conversations/${encodeURIComponent(convId)}/messages/${encodeURIComponent(msgId)}/react`,
-      { emoji },
-    ),
-  );
-  return data.reactions;
-}
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// removeReactionApi
-// -----------------------------------------------------------
-//
-// Resolves to the authoritative `reactions` array, exactly
-// like reactToMessageApi above.
-//
-// Used by:
-//   - hooks/chat/useChatReactions.ts — clear own reaction
-// -----------------------------------------------------------
-
-export async function removeReactionApi(convId: string, msgId: string): Promise<ApiReactionGroup[]> {
-  const data = await request(
-    api.delete<{ reactions: ApiReactionGroup[] }>(
-      `/chat/conversations/${encodeURIComponent(convId)}/messages/${encodeURIComponent(msgId)}/react`,
-    ),
-  );
-  return data.reactions;
-}
-
-
-
-
-
-
-
-// -----------------------------------------------------------
 // togglePinApi
 // -----------------------------------------------------------
 //
@@ -640,30 +300,6 @@ export async function removeReactionApi(convId: string, msgId: string): Promise<
 
 export const togglePinApi = (convId: string) =>
   request(api.put<{ pinned: boolean }>(`/chat/conversations/${encodeURIComponent(convId)}/pin`));
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// markConversationRead
-// -----------------------------------------------------------
-//
-// PUT /chat/conversations/<id>/read — advances the caller's
-// read watermark (never backwards) and writes per-message
-// receipts; 'messages_read' goes out only when something was
-// actually new. Shares one 10-per-10 s budget with the
-// socket's mark_read (429 beyond it).
-//
-// Used by:
-//   - hooks/chat/useChatMessages.ts — on open and on new message
-// -----------------------------------------------------------
-
-export async function markConversationRead(convId: string): Promise<void> {
-  await request(api.put(`/chat/conversations/${encodeURIComponent(convId)}/read`));
-}
 
 
 
@@ -823,6 +459,8 @@ export async function fetchOnlineStatus(userIds: string[]): Promise<PresenceResu
 //
 // Used by:
 //   - app/(main)/new-chat/index.tsx — the people search box
+//   - components/social/FindPeopleView.tsx — the friends
+//     screen's Find people search
 // -----------------------------------------------------------
 
 export const searchUsersApi = (q: string) =>

@@ -253,8 +253,7 @@ export async function deleteAccountApi(password: string): Promise<void> {
 // the caller (Art. 15). Tightly rate limited server-side.
 //
 // Used by:
-//   - nothing renders it yet — kept for the settings surface
-//     that will offer the download
+//   - app/(main)/tabs/settings.tsx — the "Download my data" row
 // -----------------------------------------------------------
 
 export const exportMyDataApi = () =>

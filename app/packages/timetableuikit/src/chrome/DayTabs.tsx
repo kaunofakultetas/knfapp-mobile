@@ -2,13 +2,20 @@
 //  [*] timetableuikit — DayTabs
 //
 //  The quick day tab bar: whichever day set the host passes
-//  (weekdays, or the full week once a weekend day is in
-//  view), each day a real BUTTON — an evenly spaced pill
-//  showing the short day name and announcing the full one.
-//  The selected day fills with the brand color; today, while
-//  not selected, wears a brand outline (a dated host passes
-//  `today` only when the shown week actually contains it);
-//  every other day is a quiet line-bordered pill.
+//  (weekdays, plus the weekend days its data fills), each day
+//  a real BUTTON — an evenly spaced pill showing the short day
+//  name and announcing the full one. The selected day fills
+//  with the brand color; today, while not selected, wears a
+//  brand outline (a dated host passes `today` only when the
+//  shown week actually contains it); every other day is a
+//  quiet line-bordered pill.
+//
+//  The strip is 44 pt tall — 24 pt pills in 10 pt of padding,
+//  the slop reaching the strip's edges — because a touch
+//  target cannot outgrow its scroll parent on Android: the
+//  36 pt strip this replaced capped every day tab at 36 pt
+//  whatever its hitSlop claimed. `bordered={false}` drops the
+//  strip's own hairline for a host row that draws one.
 //
 //  Used by:
 //    - hosts, under their filter row
@@ -51,6 +58,7 @@ export default function DayTabs({
   selectedDay,
   today,
   onSelect,
+  bordered = true,
 }: {
   // 0=Monday…6=Sunday, in display order
   days: readonly number[];
@@ -59,6 +67,9 @@ export default function DayTabs({
   // really contains today; a foreign week has no today column
   today?: number;
   onSelect: (day: number) => void;
+  // False when the host row already draws the bottom hairline
+  // — two stacked hairlines read as one thick rule
+  bordered?: boolean;
 }) {
 
   const { colors, fonts } = useTimetableTheme();
@@ -92,7 +103,7 @@ export default function DayTabs({
       style={{
         flexGrow: 0,
         flexShrink: 0,
-        borderBottomWidth: 1,
+        borderBottomWidth: bordered ? 1 : 0,
         borderBottomColor: colors.line,
         backgroundColor: colors.surface,
       }}
@@ -100,7 +111,7 @@ export default function DayTabs({
         flexDirection: 'row',
         gap: 6,
         paddingHorizontal: 12,
-        paddingVertical: 6,
+        paddingVertical: 10,
       }}
     >
       {days.map((day) => {
@@ -118,9 +129,10 @@ export default function DayTabs({
             // whatever it returns on device. The chips keep
             // their natural size — an overflowing set scrolls,
             // never squeezes; the pill and the pressed dim ride
-            // the child render function's View. hitSlop grows
-            // the compact chip back to a comfortable target
-            hitSlop={{ top: 8, bottom: 8 }}
+            // the child render function's View. The slop fills
+            // the strip's padding: 24 + 10 + 10 = 44 pt, and
+            // half the 6 pt gap on each side
+            hitSlop={{ top: 10, bottom: 10, left: 3, right: 3 }}
             onLayout={(event: LayoutChangeEvent) => {
               chipFrames.current[day] = {
                 x: event.nativeEvent.layout.x,

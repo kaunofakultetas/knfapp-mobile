@@ -21,7 +21,13 @@
 //      composer. The view detects that case at keyboardDidShow —
 //      the window kept its height while a keyboard appeared — and
 //      pads by the keyboard height itself. Detected per event, so
-//      a device that resizes and one that does not both work.
+//      a device that resizes and one that does not both work. The
+//      keyboard-less baseline only moves while the keyboard is
+//      DOWN (a split-screen or fold resize); a resize arriving
+//      with the keyboard up re-judges the pad instead — so a
+//      platform that reports its adjustResize shrink after
+//      keyboardDidShow settles to no pad rather than lifting the
+//      composer twice.
 //
 //  Apply the bottom safe-area inset INSIDE (the Composer already
 //  does: only while the keyboard is down).
@@ -73,22 +79,31 @@ export default function KitKeyboardAvoidingView({
   const [androidPad, setAndroidPad] = useState(0);
   useEffect(() => {
     if (Platform.OS !== 'android') return;
-    const windowBefore = { height: Dimensions.get('window').height };
-    const dims = Dimensions.addEventListener('change', ({ window }) => {
-      // Track the keyboard-less height: only update while no pad
-      // is applied (a resize with the keyboard up is the platform
-      // doing the lifting — then no pad is wanted)
-      windowBefore.height = window.height;
-    });
-    const show = Keyboard.addListener('keyboardDidShow', (e) => {
-      const keyboard = e.endCoordinates?.height ?? 0;
-      const now = Dimensions.get('window').height;
+    // The keyboard-less window height, and the keyboard now up
+    // (0 while it is down) — keyed off keyboard VISIBILITY, never
+    // off the pad: the resize that accompanies a keyboard must not
+    // become the new baseline
+    const baseline = { height: Dimensions.get('window').height };
+    const keyboard = { height: 0 };
+    const judge = (windowHeight: number) => {
       // adjustResize shrank the window by about the keyboard —
       // nothing to do; edge-to-edge left it whole — pad
-      const resized = windowBefore.height - now > keyboard * 0.5;
-      setAndroidPad(resized ? 0 : Math.max(0, keyboard - keyboardVerticalOffset));
+      const resized = baseline.height - windowHeight > keyboard.height * 0.5;
+      setAndroidPad(resized ? 0 : Math.max(0, keyboard.height - keyboardVerticalOffset));
+    };
+    const dims = Dimensions.addEventListener('change', ({ window }) => {
+      if (keyboard.height === 0) baseline.height = window.height;
+      else judge(window.height);
     });
-    const hide = Keyboard.addListener('keyboardDidHide', () => setAndroidPad(0));
+    const show = Keyboard.addListener('keyboardDidShow', (e) => {
+      keyboard.height = e.endCoordinates?.height ?? 0;
+      judge(Dimensions.get('window').height);
+    });
+    const hide = Keyboard.addListener('keyboardDidHide', () => {
+      keyboard.height = 0;
+      baseline.height = Dimensions.get('window').height;
+      setAndroidPad(0);
+    });
     return () => {
       dims.remove();
       show.remove();

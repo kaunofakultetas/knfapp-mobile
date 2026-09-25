@@ -389,6 +389,19 @@ describe('responses — reduced to one shape', () => {
     deviceOn('ios').clearLastResponse();
     expect(native.clearLastNotificationResponseAsync).toHaveBeenCalledTimes(1);
   });
+
+  it('a clear the platform rejects is handled on the spot — never an unhandled rejection', async () => {
+    // The rejection the primitive hands back; spying its catch
+    // proves the adapter attached a handler (a bare `void` would
+    // leave it unhandled)
+    const rejection = Promise.reject(new Error('unavailable'));
+    const handled = jest.spyOn(rejection, 'catch');
+    native.clearLastNotificationResponseAsync.mockReturnValueOnce(rejection);
+
+    expect(() => deviceOn('ios').clearLastResponse()).not.toThrow();
+    expect(handled).toHaveBeenCalledTimes(1);
+    await expect(handled.mock.results[0].value).resolves.toBeUndefined();
+  });
 });
 
 

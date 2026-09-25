@@ -1,3 +1,12 @@
+// -----------------------------------------------------------
+//  [*] Tests — chatuikit LinkPreviewCard
+//
+//  The unfurled card: site, title and description, the tap
+//  opening the link, the card under a text bubble but never on
+//  an unsent one — and a picture that will not load collapsing
+//  to the glyph row instead of an empty band (KNF-166).
+// -----------------------------------------------------------
+
 jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'));
 jest.mock('react-native-gesture-handler', () => {
   const builder = () => {
@@ -10,7 +19,7 @@ jest.mock('react-native-gesture-handler', () => {
 });
 jest.mock('expo-haptics', () => ({ impactAsync: jest.fn(async () => {}), selectionAsync: jest.fn(async () => {}), ImpactFeedbackStyle: { Light: 'light', Medium: 'medium' } }));
 
-import { fireEvent, render } from '@testing-library/react-native';
+import { act, fireEvent, render } from '@testing-library/react-native';
 
 import type { KitMessage } from '../../../core/types';
 import { ChatUiKitProvider } from '../../../provider';
@@ -18,7 +27,11 @@ import { defaultLabels } from '../../../provider/labels';
 import MessageBubble from '../../MessageBubble';
 import LinkPreviewCard from '../LinkPreviewCard';
 
+
+
+// The kit's own English wording
 const labels = defaultLabels.en;
+// An unfurled card with a stored picture
 const card = { url: 'https://knf.vu.lt/naujienos', title: 'Naujienos', description: 'Fakulteto naujienos', siteName: 'knf.vu.lt', imageUrl: '/api/uploads/p.jpg' };
 
 describe('LinkPreviewCard', () => {
@@ -44,5 +57,20 @@ describe('LinkPreviewCard', () => {
     expect(withCard.getByTestId('chatuikit-link-preview')).toBeTruthy();
     const unsent = await render(<ChatUiKitProvider locale="en"><MessageBubble {...props} message={{ ...base, deleted: true, text: '' }} /></ChatUiKitProvider>);
     expect(unsent.queryByTestId('chatuikit-link-preview')).toBeNull();
+  });
+});
+
+
+describe('LinkPreviewCard picture failure', () => {
+  it('a picture that fails to load collapses to the link glyph row, never an empty band', async () => {
+    const { getByTestId, queryByTestId, getByText } = await render(
+      <ChatUiKitProvider locale="en" resolveImageUrl={(p) => `https://host${p}`}>
+        <LinkPreviewCard preview={card} own={false} labels={labels} onPress={() => {}} />
+      </ChatUiKitProvider>,
+    );
+    const image = getByTestId('chatuikit-link-preview-image');
+    await act(async () => image.props.onError?.({ nativeEvent: { error: '404' } }));
+    expect(queryByTestId('chatuikit-link-preview-image')).toBeNull();
+    expect(getByText('Naujienos')).toBeTruthy();
   });
 });

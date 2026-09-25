@@ -2,8 +2,9 @@
 //  [*] Tests — conflicts: two scopes, exclusive endpoints
 //
 //  Group scope answers the student ("my group is double-
-//  booked") and stays OFF in a mixed view; person scope
-//  answers the teacher and crosses groups on purpose.
+//  booked") and stays OFF in a mixed view — and never pairs
+//  two DISJOINT subgroups of the group; person scope answers
+//  the teacher and crosses groups (and subgroups) on purpose.
 // -----------------------------------------------------------
 
 import { annotateConflicts, conflictIds } from '../conflicts';
@@ -46,6 +47,43 @@ describe('conflictIds group scope', () => {
   it('different days never clash; blocks never participate', () => {
     expect(conflictIds([L('a', 540, 630), L('b', 600, 660, { day: 1 })], scope).size).toBe(0);
     expect(conflictIds([L('a', 540, 630), L('bg', 480, 1200, { isBlock: true })], scope).size).toBe(0);
+  });
+});
+
+describe('conflictIds and subgroups', () => {
+  const scope = { scope: 'group' as const, groupFilterActive: true };
+
+  it("the two halves of one group in two rooms are never a clash (the live ISKS-1 Friday)", () => {
+    // Subgroup 1 in one subject, subgroup 2 in another, same
+    // slot — the screen used to paint both red every week
+    const ids = conflictIds(
+      [
+        L('a', 585, 675, { title: 'Akademinis raštingumas', subgroupKeys: ['1'], location: ['VI'] }),
+        L('b', 585, 675, { title: 'Reikalavimų analizė', subgroupKeys: ['2'], location: ['II'] }),
+      ],
+      scope,
+    );
+    expect(ids.size).toBe(0);
+  });
+
+  it('a whole-group lecture still clashes with any subgroup, and a shared subgroup clashes', () => {
+    // The live Thursday: the lecture runs to 17:30, subgroup 2
+    // starts at 17:15 — a real quarter-hour clash
+    expect(conflictIds([L('lecture', 930, 1050), L('practice', 1035, 1125, { subgroupKeys: ['2'] })], scope))
+      .toEqual(new Set(['lecture', 'practice']));
+    expect(conflictIds([L('a', 540, 630, { subgroupKeys: ['1', '2'] }), L('b', 600, 660, { subgroupKeys: ['2'] })], scope))
+      .toEqual(new Set(['a', 'b']));
+  });
+
+  it('the person scope ignores subgroups — one teacher in two rooms is double-booked', () => {
+    const ids = conflictIds(
+      [
+        L('a', 540, 630, { people: ['A. Petraitis'], subgroupKeys: ['1'] }),
+        L('b', 600, 660, { people: ['A. Petraitis'], subgroupKeys: ['2'] }),
+      ],
+      { scope: 'person' },
+    );
+    expect(ids).toEqual(new Set(['a', 'b']));
   });
 });
 

@@ -4,10 +4,17 @@
 //  Likes, comments and friend requests on the viewer's own
 //  things, grouped by @knf/socialengine ("Ona and 3 others
 //  liked your post") and drawn by @knf/socialuikit's
-//  NotificationRow. Opening the screen marks everything read
-//  (the badge in the drawer zeroes through the engine's own
-//  optimistic flip); a tap opens what the row is about — the
-//  post, the requests screen, the actor's profile.
+//  NotificationRow. Landing marks everything read — the rows
+//  flip at once, and the engine's unread signal zeroes the
+//  drawer's badge with them; a tap opens what the row is
+//  about — the post, the requests screen, the actor's
+//  profile.
+//
+//  Every return to the screen re-reads the list SILENTLY: the
+//  full-screen spinner belongs to the first load only (a
+//  refresh behind shown rows keeps them on screen), the pull
+//  gesture drives its own spinner, and the rows that arrived
+//  meanwhile are marked read too once they land.
 //
 //  Logged out the screen is a login prompt (auth adds
 //  features, never gates): the engine's hook reports the
@@ -37,7 +44,7 @@ import { EmptyState, ErrorState, LoadingSpinner, Screen } from '@/components/ui'
 
 // Navigation and rendering
 import { useFocusEffect, useRouter, type Href } from 'expo-router';
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { View } from 'react-native';
 
@@ -86,10 +93,12 @@ function destinationFor(group: NotificationGroup): Href | null {
 //
 // Wires useNotifications into the page: mark-all-read fires
 // only once rows have LANDED (a failed load never claims a
-// read), a focus effect silently refetches on return visits,
-// and the guard chain runs login prompt → spinner →
-// error-with-nothing → list, with taps routed through
-// destinationFor.
+// read), a skip-first focus effect silently refetches on
+// return visits (through a ref — the callback must never
+// close over a stale loading flag), the pull gesture owns its
+// spinner, and the guard chain runs login prompt → spinner
+// (nothing shown yet) → error-with-nothing → list, with taps
+// routed through destinationFor.
 //
 // Used by:
 //   - app/(main)/_layout.tsx — the 'activity/index' route
@@ -110,7 +119,8 @@ function ActivityScreen() {
 
   // Every visit marks the list read — once the rows are on
   // screen, not while they load, so a failed load never claims
-  // a read the viewer never saw
+  // a read the viewer never saw; a return visit's refetch
+  // landing runs it again for the rows that arrived meanwhile
   const { markAllRead, refresh, groups, loading, error } = activity;
   useEffect(() => {
     if (isAuthenticated && !loading && !error && groups.length > 0) void markAllRead();
@@ -118,14 +128,38 @@ function ActivityScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated, loading, error]);
 
-  // A silent refetch when the screen regains focus (the first
-  // focus rides the mount load)
+
+  // A silent refetch when the screen regains focus; the first
+  // focus rides the mount load. The refresh rides a ref, so the
+  // callback never reads a flag frozen at mount
+  const refreshRef = useRef(refresh);
+  useEffect(() => {
+    refreshRef.current = refresh;
+  });
+  const focusedOnceRef = useRef(false);
   useFocusEffect(
     useCallback(() => {
-      if (isAuthenticated && !loading) void refresh();
-      // eslint-disable-next-line react-hooks/exhaustive-deps
+      if (!focusedOnceRef.current) {
+        focusedOnceRef.current = true;
+        return;
+      }
+      if (isAuthenticated) void refreshRef.current();
     }, [isAuthenticated]),
   );
+
+
+  // The pull gesture's own spinner — the silent refetches never
+  // spin it
+  const [pullRefreshing, setPullRefreshing] = useState(false);
+  const handlePullRefresh = useCallback(async () => {
+    setPullRefreshing(true);
+    try {
+      await refreshRef.current();
+    } finally {
+      setPullRefreshing(false);
+    }
+  }, []);
+  const onPullRefresh = useCallback(() => void handlePullRefresh(), [handlePullRefresh]);
 
 
   const open = useCallback(
@@ -134,6 +168,15 @@ function ActivityScreen() {
       if (destination) router.push(destination);
     },
     [router],
+  );
+
+
+  // Stable list callbacks — the kit's rows skip re-renders
+  // while their group and these stay put
+  const keyOfGroup = useCallback((group: NotificationGroup) => group.key, []);
+  const renderGroup = useCallback(
+    (group: NotificationGroup) => <NotificationRow notification={group} onPress={() => open(group)} />,
+    [open],
   );
 
 
@@ -153,7 +196,9 @@ function ActivityScreen() {
   }
 
 
-  if (loading) {
+  // The full spinner is for a list with nothing on it yet — a
+  // refetch behind shown rows keeps them
+  if (loading && groups.length === 0) {
     return (
       <Screen>
         <View className="flex-1 items-center justify-center">
@@ -177,13 +222,14 @@ function ActivityScreen() {
     <Screen>
       <FeedList
         items={groups}
-        keyOf={(group) => group.key}
-        renderItem={(group) => <NotificationRow notification={group} onPress={() => open(group)} />}
+        keyOf={keyOfGroup}
+        renderItem={renderGroup}
         hasMore={activity.hasMore}
-        loadingMore={false}
+        loadingMore={activity.loadingMore}
         onEndReached={activity.loadMore}
-        refreshing={false}
-        onRefresh={() => void refresh()}
+        refreshing={pullRefreshing}
+        onRefresh={onPullRefresh}
+        contentContainerStyle={{ flexGrow: 1 }}
         ListEmptyComponent={<EmptyState icon="notifications-outline" title={t('activity.empty')} hint={t('activity.emptyHint')} />}
       />
     </Screen>

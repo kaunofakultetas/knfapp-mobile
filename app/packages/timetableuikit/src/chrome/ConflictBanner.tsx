@@ -5,8 +5,10 @@
 //  worded by the catalog's pluralizing conflictsOverlap. An
 //  accessible polite live region — role='alert' alone is a
 //  no-op announcement-wise on RN. The leading mark defaults
-//  to a dependency-free "!" disc; a host with an icon set
-//  passes its own.
+//  to a dependency-free "!" disc — white on the theme's
+//  dangerFill, the red tuned for a white label (danger itself
+//  is a TEXT red: 3.1–3.5:1 under white in a dark scheme); a
+//  host with an icon set passes its own.
 //
 //  Used by:
 //    - hosts, above their lesson list while conflicts exist
@@ -65,7 +67,7 @@ export default function ConflictBanner({ count, icon }: { count: number; icon?: 
             height: 16,
             width: 16,
             borderRadius: 8,
-            backgroundColor: colors.danger,
+            backgroundColor: colors.dangerFill ?? colors.danger,
             alignItems: 'center',
             justifyContent: 'center',
           }}

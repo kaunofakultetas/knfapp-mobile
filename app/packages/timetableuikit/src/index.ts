@@ -15,6 +15,7 @@ export { TimetableProvider, useTimetableEnv, useTimetableLabels, useTimetableThe
 export { defaultTheme, resolveTheme } from './provider/theme';
 export { defaultLabels } from './provider/labels';
 export { DEFAULT_SUBJECT_COLORS, subjectTint } from './core/palette';
+export { kindBadge, kindName } from './core/kinds';
 export { useNow } from './hooks/useNow';
 export { usePagePan } from './hooks/usePagePan';
 
@@ -24,6 +25,7 @@ export { default as ConflictBanner } from './chrome/ConflictBanner';
 export { default as DayStepper } from './chrome/DayStepper';
 export { default as DayTabs } from './chrome/DayTabs';
 export { default as LessonCard, type LessonCardProps } from './chrome/LessonCard';
+export { default as TodayButton } from './chrome/TodayButton';
 export { default as ViewModeSwitch, type TimetableViewMode } from './chrome/ViewModeSwitch';
 export { default as DayColumn } from './grid/DayColumn';
 export { default as HourAxis, AXIS_WIDTH } from './grid/HourAxis';

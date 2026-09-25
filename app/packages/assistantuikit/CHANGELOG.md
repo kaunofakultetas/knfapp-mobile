@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased — 2026-09-25
+
+- **Host fonts** — `AssistantFonts` (`regular` / `medium` /
+  `semibold` / `bold` / `mono`) on the thread, the provider and every
+  text-drawing export; a mapped weight is drawn in its family with no
+  synthesized `fontWeight`, an unmapped one keeps the system face.
+  `defaultFonts` on the root export.
+- **Touch floor** — the composer's Send/Cancel and field, the
+  suggestion chips, the tool card's details toggle and the source
+  rows all stand at 44pt; the "latest" disc reaches it by `hitSlop`.
+- **Keyboard** — the column measures itself in the window: iOS gets
+  the offset of a host header above it, Android pads only the part
+  the keyboard covers.
+- **Markdown** — a streaming answer re-parses only the block being
+  written (`createStreamingParser`, internal); an emphasis opener
+  with no possible closer is text at once (linear, not quadratic);
+  a nested marker-kind switch becomes a second nested list (`next`);
+  bare URLs and e-mail addresses are links.
+- **Colours** — `brandText` joins `AssistantColors`: links and the
+  details toggle are brand-coloured TEXT and take it, `brand` stays
+  the fill (bubbles, buttons, dots).
+- **Bubbles** — widths follow the live window (rotation,
+  split-screen); the sources footer shows titles only, never the
+  retrieval `section` key; the error strip is announced as an alert
+  and its technical line is selectable.
+
 ## 1.0.0 — 2026-09-05
 
 Chat surfaces over the upstream React Native primitives — every

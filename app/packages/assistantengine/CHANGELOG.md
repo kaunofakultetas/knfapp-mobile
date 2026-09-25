@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased — 2026-09-25
+
+- **Failure identity** — `AssistantFailure.serverCode`: the server's
+  machine code (`error.code` in the container's envelope, a bare
+  `code` elsewhere) rides along and into the error message
+  (`"quota 429 RATE_LIMITED: …"`). A rejecting threadId resolver keeps
+  the refusal's status, code and words, and any status outside the
+  auth / quota / unavailable rows reads as `server`, never `network`.
+- **History window** — the chat body carries at most the newest 40
+  messages (opening on a user turn), tool parts only on the newest
+  10; a short conversation's body goes out byte-identical. Long
+  threads no longer die on the container's message / body ceilings.
+- **Stream throttle** — `useKnfAssistantRuntime` throttles streamed
+  message updates to one per 50 ms (the upstream flushes the last).
+
 ## 1.1.0 — 2026-09-06
 
 The local-runtime door, nothing else.

@@ -13,10 +13,7 @@
 
 // Static and pressable containers
 import type { ReactNode } from 'react';
-import { Pressable, View, type ViewStyle } from 'react-native';
-
-// Pressed tint for the active scheme
-import { useTheme } from '@/hooks/useTheme';
+import { Pressable, View, type AccessibilityRole, type ViewStyle } from 'react-native';
 
 
 type CardPadding = 'none' | 'sm' | 'md' | 'lg';
@@ -31,6 +28,12 @@ interface CardProps {
   // (NewsCard, profile rows) expose their own inner targets;
   // simple childless cards leave it unset and stay grouped
   accessible?: boolean;
+  // A tappable card is a button by default; an external link
+  // passes 'link' (and a hint saying where it goes), so a
+  // screen reader never promises an in-app action
+  accessibilityRole?: AccessibilityRole;
+  accessibilityLabel?: string;
+  accessibilityHint?: string;
 }
 
 // The padding prop's four steps as Tailwind classes
@@ -64,7 +67,8 @@ const CARD_SHADOW: ViewStyle = {
 // The onPress fork picks the element type: plain View when
 // static, Pressable with an active: tint when tappable. The
 // shadow always rides as an object style — safe next to
-// className, unlike a style FUNCTION (see Button.tsx).
+// className, unlike a style FUNCTION (see Button.tsx). The
+// pressed tint is a class, so no theme hook is needed here.
 //
 // Used by:
 //   - components/news/NewsCard.tsx — every feed entry
@@ -74,10 +78,16 @@ const CARD_SHADOW: ViewStyle = {
 //   - app/(main)/admin/ — stat and invitation panels
 // -----------------------------------------------------------
 
-export default function Card({ children, onPress, padding = 'md', className, accessible }: CardProps) {
-
-  const { colors } = useTheme();
-
+export default function Card({
+  children,
+  onPress,
+  padding = 'md',
+  className,
+  accessible,
+  accessibilityRole,
+  accessibilityLabel,
+  accessibilityHint,
+}: CardProps) {
 
   const classes = `rounded-xl bg-surface ${PADDINGS[padding]} ${className ?? ''}`;
 
@@ -100,9 +110,11 @@ export default function Card({ children, onPress, padding = 'md', className, acc
       style={CARD_SHADOW}
       onPress={onPress}
       accessible={accessible}
-      // No button role when the card is opted out of grouping —
-      // the composite child provides its own labeled target
-      accessibilityRole={accessible === false ? undefined : 'button'}
+      // No role when the card is opted out of grouping — the
+      // composite child provides its own labeled target
+      accessibilityRole={accessible === false ? undefined : (accessibilityRole ?? 'button')}
+      accessibilityLabel={accessibilityLabel}
+      accessibilityHint={accessibilityHint}
     >
       {children}
     </Pressable>

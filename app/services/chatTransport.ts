@@ -5,10 +5,12 @@
 //  client (auth header, base URL, entity decoding, the ApiError
 //  shape the engine's retry policy reads) and the shared socket
 //  singleton. One instance for the app; ChatEngineHost hands it
-//  to the engine.
+//  to the engine, and the room calls its one engine-less route
+//  (the disappearing-messages window) directly.
 //
 //  Used by:
 //    - components/chat/ChatEngineHost.tsx
+//    - app/(main)/chat-room/index.tsx — DisappearingSheet
 // -----------------------------------------------------------
 
 import { Platform } from 'react-native';
@@ -57,6 +59,8 @@ const http: HttpClient = {
 //
 // Used by:
 //   - components/chat/ChatEngineHost.tsx — handed to the engine
+//   - app/(main)/chat-room/index.tsx — DisappearingSheet's
+//     setMessageTtl
 // -----------------------------------------------------------
 
 export const chatTransport = createKnfTransport({

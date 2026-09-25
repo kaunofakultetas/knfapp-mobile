@@ -30,6 +30,9 @@ const mockKitLabels = {
   voiceNote: 'Voice message', recordVoice: 'Record', sendVoice: 'Send voice', cancelRecording: 'Discard', playVoice: 'Play', pauseVoice: 'Pause', mentionUser: (name: string) => `Mention ${name}`,
   connecting: 'Connecting…', noConnection: 'No connection', pinnedMessage: 'Pinned message', forwarded: 'Forwarded', attachCamera: 'Camera',
   openMemes: 'Memes', searchMemes: 'Search', addMeme: 'Add', emptyMemes: 'None yet',
+  systemMessage: () => null,
+  openAttachments: 'Add attachment', trayGallery: 'Gallery', trayCamera: 'Camera', trayFile: 'File', trayMemes: 'Memes',
+  noMemeResults: 'No memes match', memesLoadError: 'Memes failed', removeMeme: 'Remove meme',
 };
 
 jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'));
@@ -63,26 +66,11 @@ import type { KitMessage } from '../core/types';
 type ChatMessage = KitMessage & { conversationId: string };
 
 
+// The timeline's day words
 const LABELS = { today: 'Today', yesterday: 'Yesterday', locale: 'en-GB' };
+// The anchor every row's stamp counts from
 const BASE = Date.UTC(2026, 7, 27, 10, 0, 0);
-
-function message(id: string, senderId: string, offsetMs: number, extra: Partial<ChatMessage> = {}): ChatMessage {
-  return {
-    id,
-    conversationId: 'c',
-    senderId,
-    senderName: senderId,
-    text: `text-${id}`,
-    createdAt: new Date(BASE + offsetMs).toISOString(),
-    isOwn: senderId === 'me',
-    status: 'sent',
-    reactions: [],
-    ...extra,
-  };
-}
-
-const noop = () => {};
-
+// The bubble's required props, all inert
 const bubbleDefaults = {
   timeRevealed: false,
   highlighted: false,
@@ -100,6 +88,56 @@ const bubbleDefaults = {
   onRetry: noop,
   onPressLink: noop,
 };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// message
+// -----------------------------------------------------------
+//
+// A host row from `senderId`, offsetMs past BASE — 'me' makes
+// it own.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
+
+function message(id: string, senderId: string, offsetMs: number, extra: Partial<ChatMessage> = {}): ChatMessage {
+  return {
+    id,
+    conversationId: 'c',
+    senderId,
+    senderName: senderId,
+    text: `text-${id}`,
+    createdAt: new Date(BASE + offsetMs).toISOString(),
+    isOwn: senderId === 'me',
+    status: 'sent',
+    reactions: [],
+    ...extra,
+  };
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// noop
+// -----------------------------------------------------------
+//
+// The inert handler every required callback gets.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
+
+function noop() {}
 
 
 describe('MessageBubble', () => {

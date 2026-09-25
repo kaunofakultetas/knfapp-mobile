@@ -115,6 +115,10 @@ export interface KitLabels {
   signInToComment: string;
   signIn: string;
   commentDeleted: string;
+  // The row's screen-reader actions: its long-press (the host's
+  // action sheet) and the author's profile
+  commentActions: string;
+  openProfile: (name: string) => string;
 
   // Profile counters
   profilePosts: string;
@@ -224,6 +228,8 @@ export const defaultLabels: { lt: KitLabels; en: KitLabels } = {
     signInToComment: 'Prisijunkite, kad galėtumėte komentuoti',
     signIn: 'Prisijungti',
     commentDeleted: 'Komentaras ištrintas',
+    commentActions: 'Komentaro veiksmai',
+    openProfile: (name) => `Atidaryti profilį: ${name}`,
 
     profilePosts: 'Įrašai',
     profileConnections: 'Ryšiai',
@@ -302,6 +308,8 @@ export const defaultLabels: { lt: KitLabels; en: KitLabels } = {
     signInToComment: 'Sign in to comment',
     signIn: 'Sign in',
     commentDeleted: 'Comment deleted',
+    commentActions: 'Comment actions',
+    openProfile: (name) => `Open profile: ${name}`,
 
     profilePosts: 'Posts',
     profileConnections: 'Connections',

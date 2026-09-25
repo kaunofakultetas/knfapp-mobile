@@ -263,6 +263,31 @@ export function updateNode(doc: GraphLike, id: string, patch: Patch<NodeLike>): 
 
 
 // -----------------------------------------------------------
+// PanoAttach
+// -----------------------------------------------------------
+//
+// What an attach knows about the stored panorama beyond its
+// url: the measured coverage and, when the photo recorded
+// one, its compass heading.
+//
+// Used by:
+//   - panoAttachPatch (below)
+// -----------------------------------------------------------
+
+export interface PanoAttach {
+  // The stored coverage, as the caller measured it
+  geometry: Record<string, unknown>;
+  // The photo's own compass heading, when it recorded one
+  headingDeg?: number | null;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // panoAttachPatch
 // -----------------------------------------------------------
 //
@@ -284,13 +309,6 @@ export function updateNode(doc: GraphLike, id: string, patch: Patch<NodeLike>): 
 //     both attach paths go through here so neither can forget
 //     the rule
 // -----------------------------------------------------------
-
-export interface PanoAttach {
-  // The stored coverage, as the caller measured it
-  geometry: Record<string, unknown>;
-  // The photo's own compass heading, when it recorded one
-  headingDeg?: number | null;
-}
 
 export function panoAttachPatch(node: { pano?: unknown } | null | undefined, url: string, meta: PanoAttach): Patch<NodeLike> {
   const samePano = node?.pano === url;

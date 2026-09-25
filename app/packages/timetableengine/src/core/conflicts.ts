@@ -15,7 +15,14 @@
 //               double-booked"), and it crosses groups on
 //               purpose — never semesters.
 //  Identical rows (same title, times, day, people, location)
-//  are duplicate data, not a conflict.
+//  are duplicate data, not a conflict. In the group scope two
+//  rows naming DISJOINT subgroups ("Pogrupiai: 1" beside
+//  "Pogrupiai: 2" — the two halves of one group in two rooms)
+//  are never a clash either: no student sits in both halves.
+//  A row naming no subgroup is the whole group, so it still
+//  clashes with any subgroup's row. The person scope ignores
+//  subgroups — one teacher in two rooms is double-booked
+//  whichever half each room holds.
 //
 //  An honest limit the group scope inherits from the data: the
 //  backend's group label can bundle parallel subgroups and
@@ -106,18 +113,48 @@ const identity = (entry: TimetableEntry) =>
 
 
 // -----------------------------------------------------------
+// disjointSubgroups
+// -----------------------------------------------------------
+//
+// True only when BOTH rows name subgroups and no subgroup is
+// in both — two halves of one group, never one student's
+// double-booking. An empty or absent list is the whole group
+// and overlaps everything.
+//
+// Used by:
+//   - shareGroupScope (below)
+// -----------------------------------------------------------
+
+const disjointSubgroups = (a: TimetableEntry, b: TimetableEntry) => {
+  const mine = a.subgroupKeys ?? [];
+  const theirs = b.subgroupKeys ?? [];
+  if (mine.length === 0 || theirs.length === 0) return false;
+  return !mine.some((key) => theirs.includes(key));
+};
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // shareGroupScope
 // -----------------------------------------------------------
 //
-// Group scope compares within one group AND one term — and
-// only when both rows carry a groupKey at all.
+// Group scope compares within one group AND one term — only
+// when both rows carry a groupKey at all, and never across
+// disjoint subgroups of that group.
 //
 // Used by:
 //   - conflictIds (below)
 // -----------------------------------------------------------
 
 const shareGroupScope = (a: TimetableEntry, b: TimetableEntry) =>
-  !!a.groupKey && a.groupKey === b.groupKey && (a.termKey ?? '') === (b.termKey ?? '');
+  !!a.groupKey &&
+  a.groupKey === b.groupKey &&
+  (a.termKey ?? '') === (b.termKey ?? '') &&
+  !disjointSubgroups(a, b);
 
 
 

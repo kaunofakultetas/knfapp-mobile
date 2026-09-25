@@ -10,8 +10,9 @@
 //  Search folds case and diacritics on BOTH sides — "rysiai"
 //  must find "Ryšiai" from a phone keyboard with the language
 //  switched off — and requires EVERY query token somewhere in
-//  a room's haystack (its name, the host's localised name, its
-//  aliases, its id), in any order: "auditorija vega" finds
+//  a room's haystack (its name, its second-language nameEn, the
+//  host's localised name, its aliases, its id), in any order:
+//  "auditorija vega" finds
 //  "VeGa Auditorija". A token scores by the best way it hits:
 //  the room's own id exactly, the start of a field or of a
 //  word inside one, or anywhere inside; the score is the sum
@@ -173,7 +174,7 @@ export function searchRooms(index: GraphIndex, query: string, options: SearchRoo
     // string, so a token can never straddle two of them and a
     // prefix is a prefix of a real field or word
     const id = foldForSearch(room.id);
-    const fields = [foldForSearch(room.name), foldForSearch(displayName(room)), ...(room.aliases ?? []).map(foldForSearch), id];
+    const fields = [foldForSearch(room.name), ...(room.nameEn ? [foldForSearch(room.nameEn)] : []), foldForSearch(displayName(room)), ...(room.aliases ?? []).map(foldForSearch), id];
 
 
     let score = 0;

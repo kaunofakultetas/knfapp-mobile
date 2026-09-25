@@ -5,7 +5,10 @@
 //  down keep their optimistic state, persist, and replay on the
 //  network restore in order; a definitive refusal on replay
 //  reverts and reports; a later change of the same message
-//  replaces the queued one.
+//  replaces the queued one; and a live pick made WHILE the
+//  replay's call for the same message is in flight waits for
+//  it, supersedes it (its stale answer is not applied) and
+//  lands last on the server.
 // -----------------------------------------------------------
 
 import { act, renderHook, waitFor } from '@testing-library/react-native';
@@ -109,6 +112,42 @@ describe('offline tasks', () => {
     await waitFor(() => expect(h.notices.map((n) => n.code)).toContain('edit_failed'));
     expect(h.result.current.conversation.messages.find((m) => m.id === 'a')?.text).toBe('a');
     expect(h.storage.dump()[scoped(tasksStorageKey('c1'))]).toBeUndefined();
+  });
+
+  it('a live pick during the replay of an older pick for the same message lands last and wins', async () => {
+    const h = await setup();
+    h.transport.fail('setReaction', offline());
+    await act(async () => {
+      h.result.current.reactions.reactTo('c', '❤️');
+    });
+    await waitFor(() => expect(JSON.parse(h.storage.dump()[scoped(tasksStorageKey('c1'))] ?? '[]')).toHaveLength(1));
+
+    // The replay's call is held on the wire …
+    const release = h.transport.stall('setReaction');
+    await act(async () => {
+      h.restore();
+    });
+    await waitFor(() => expect(h.transport.calls.filter((c) => c.method === 'setReaction')).toHaveLength(2));
+
+    // … while the reader picks again: the newer intent waits
+    // behind the held call instead of racing it
+    await act(async () => {
+      h.result.current.reactions.reactTo('c', '👍');
+    });
+    expect(h.transport.calls.filter((c) => c.method === 'setReaction')).toHaveLength(2);
+    expect(h.result.current.conversation.messages.find((m) => m.id === 'c')?.reactions[0]?.emoji).toBe('👍');
+
+    await act(async () => {
+      release();
+    });
+    await waitFor(() => expect(h.transport.calls.filter((c) => c.method === 'setReaction')).toHaveLength(3));
+    const picks = h.transport.calls.filter((c) => c.method === 'setReaction').map((c) => c.args[2]);
+    expect(picks).toEqual(['❤️', '❤️', '👍']);
+    await waitFor(() => expect(h.transport.rows.find((m) => m.id === 'c')?.reactions[0]?.emoji).toBe('👍'));
+    // The replay's stale ❤️ answer never replaced the newer state
+    expect(h.result.current.conversation.messages.find((m) => m.id === 'c')?.reactions[0]?.emoji).toBe('👍');
+    expect(h.storage.dump()[scoped(tasksStorageKey('c1'))]).toBeUndefined();
+    expect(h.notices).toHaveLength(0);
   });
 
   it('TaskQueue keeps one entry per message and kind, ordered by time', async () => {

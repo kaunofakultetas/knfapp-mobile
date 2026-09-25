@@ -207,8 +207,12 @@ provider): `buildingId`; `status` — `loaded`, `pendingOps` (queued),
 `enqueueOps`, `enqueueUpload`, `acknowledgeUpload`, `retryUpload`,
 `removeUpload`, `resolveConflict(opId, how)`, `drain()` (the report, or
 null if the drain itself threw), `publish(note?)` (the transport's
-answer, untouched) and `clearAll()` (both queues emptied, the "already
-reported" memory too). The counts re-derive on every queue change
+answer, untouched), `clearUploads()` (the upload queue emptied and
+nothing else — a queued op still owed its drain survives, in memory and
+on disk; what a screen that owns its uploads calls on the way out) and
+`clearAll()` (both queues emptied, the "already reported" memory too —
+a queued op is destroyed with no record, so only a host that knows
+every op in the outbox is its own and settled may call it). The counts re-derive on every queue change
 through the queues' own subscriptions.
 
 ## Layout

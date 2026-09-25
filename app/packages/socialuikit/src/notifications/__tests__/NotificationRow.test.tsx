@@ -3,10 +3,11 @@
 //
 //  The activity row pinned: every known kind maps to its label
 //  and an unknown kind degrades to the generic line; a grouped
-//  row names the first actor and counts the rest while the
-//  portrait stack caps at five; unread rows swap the testID
-//  suffix and grow the brand dot; and the whole row is ONE
-//  accessibility target speaking one combined sentence.
+//  row names the first actor and counts the rest while its
+//  faces stay a two-head duo inside the lone portrait's slot
+//  (a five-head stack squeezed the sentence); unread rows swap
+//  the testID suffix and grow the brand dot; and the whole row
+//  is ONE accessibility target speaking one combined sentence.
 // -----------------------------------------------------------
 
 import { fireEvent, render } from '@testing-library/react-native';
@@ -19,8 +20,8 @@ import NotificationRow from '../NotificationRow';
 // The provider-less fallback catalog is Lithuanian
 const lt = defaultLabels.lt;
 
-const user = (id: string, displayName: string): KitUser => ({ id, displayName });
-
+// One read like from Ona, two minutes ago (the helper below is
+// a hoisted declaration)
 const base: KitNotification = {
   key: 'n1',
   kind: 'like',
@@ -29,6 +30,26 @@ const base: KitNotification = {
   newestAt: new Date(Date.now() - 2 * 60 * 1000).toISOString(),
   read: true,
 };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// user
+// -----------------------------------------------------------
+//
+// A portrait-less actor.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
+
+function user(id: string, displayName: string): KitUser {
+  return { id, displayName };
+}
 
 
 
@@ -57,25 +78,33 @@ describe('NotificationRow', () => {
   });
 
 
-  it('names the first actor, counts the rest, and caps the stack at five', async () => {
+  it('names the first actor, counts the rest, and shows a group as a duo in one slot', async () => {
     const four = [user('u1', 'Ona'), user('u2', 'Jonas'), user('u3', 'Rasa'), user('u4', 'Tomas')];
     const grouped = await render(<NotificationRow notification={{ ...base, actors: four }} onPress={jest.fn()} />);
     expect(grouped.getByText(lt.notifLike('Ona', 3))).toBeTruthy();
 
     const seven = [...four, user('u5', 'Eglė'), user('u6', 'Lukas'), user('u7', 'Ieva')];
     const crowded = await render(<NotificationRow notification={{ ...base, actors: seven }} onPress={jest.fn()} />);
-    for (let i = 0; i < 5; i++) {
-      expect(crowded.getByTestId(`socialuikit-notification-avatar-${i}`)).toBeTruthy();
-    }
-    expect(crowded.queryByTestId('socialuikit-notification-avatar-5')).toBeNull();
-    // The sentence still counts everyone the stack could not show
+    const back = crowded.getByTestId('socialuikit-notification-avatar-0');
+    const front = crowded.getByTestId('socialuikit-notification-avatar-1');
+    expect(crowded.queryByTestId('socialuikit-notification-avatar-2')).toBeNull();
+    // The sentence still counts everyone the duo does not show
     expect(crowded.getByText(lt.notifLike('Ona', 6))).toBeTruthy();
 
-    // A lone actor: no 'and others' phrasing, one portrait
+    // A lone actor: no 'and others' phrasing, one full portrait
     const lone = await render(<NotificationRow notification={base} onPress={jest.fn()} />);
     expect(lone.getByText(lt.notifLike('Ona', 0))).toBeTruthy();
-    expect(lone.getByTestId('socialuikit-notification-avatar-0')).toBeTruthy();
+    const portrait = lone.getByTestId('socialuikit-notification-avatar-0');
     expect(lone.queryByTestId('socialuikit-notification-avatar-1')).toBeNull();
+
+    // The duo's heads are pinned to opposite corners, each
+    // smaller than the lone portrait — the slot never widens
+    const style = (node: { props: Record<string, unknown> }) =>
+      Object.assign({}, ...[node.props.style].flat(2)) as Record<string, number | string>;
+    expect(style(back)).toMatchObject({ position: 'absolute', top: 0, left: 0 });
+    expect(style(front)).toMatchObject({ position: 'absolute', bottom: 0, right: 0 });
+    expect(style(back).width).toBeLessThan(style(portrait).width as number);
+    expect(style(portrait).position).toBeUndefined();
   });
 
 

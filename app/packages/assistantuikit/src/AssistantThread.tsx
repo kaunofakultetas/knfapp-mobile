@@ -4,14 +4,17 @@
 //  The whole chat surface under a runtime provider: the
 //  message list, the empty state with its suggestion chips,
 //  the error strip and the composer, in one keyboard-safe
-//  column. Meant to be the screen body — the keyboard math
-//  reads the column's own frame against the window, so put it
-//  at the screen root or under a header the window already
-//  accounts for: iOS pads through the platform's avoiding
-//  view, and on Android the column pads ITSELF by the
-//  keyboard's height whenever the edge-to-edge window keeps
-//  its height under it (where the window still resizes, the
-//  pad stays out of the way). The list keeps its visible
+//  column. The keyboard math measures the column's own frame
+//  IN THE WINDOW, so it works wherever the host mounts it — at
+//  the screen root or under a header of its own: iOS pads
+//  through the platform's avoiding view, handed the column's
+//  distance from the window top (without it, a column under a
+//  header came up short by the header's height and the
+//  composer sat behind the keys); on Android the column pads
+//  ITSELF by exactly the part of it the keyboard covers
+//  whenever the edge-to-edge window keeps its height under the
+//  keyboard (where the window still resizes, the pad stays out
+//  of the way). The list keeps its visible
 //  content in place while a reply streams in and follows the
 //  tail through the upstream auto-scroll; a reader who
 //  scrolled up gets a "latest" button and is never yanked.
@@ -20,7 +23,8 @@
 //  body plus one chip per suggestion, each sending its prompt
 //  on a tap. The error strip sits under the LAST message's
 //  scope, where the upstream error primitives read from, and
-//  its retry reloads that message.
+//  its retry reloads that message. Every text is drawn in the
+//  host's font families (`fonts`, system faces by default).
 //
 //  Split into (root component last):
 //
@@ -38,7 +42,7 @@
 //    - hosts' assistant screens
 // -----------------------------------------------------------
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Dimensions,
   Keyboard,
@@ -63,9 +67,12 @@ import AssistantComposer from './AssistantComposer';
 import AssistantErrorBanner from './AssistantErrorBanner';
 import AssistantMessage from './AssistantMessage';
 import { AssistantKitProvider, useAssistantKit } from './core/context';
+import { typeface } from './core/typography';
 import {
   defaultColors,
+  defaultFonts,
   type AssistantColors,
+  type AssistantFonts,
   type AssistantLabels,
   type AssistantSuggestion,
   type ToolCardRenderer,
@@ -116,14 +123,15 @@ const renderMessage = () => <AssistantMessage />;
 //
 // One tappable chip: the title, an optional description line,
 // and the prompt behind it sent as a user message the moment
-// it is pressed (the upstream primitive appends and runs).
+// it is pressed (the upstream primitive appends and runs). A
+// one-line chip still stands at the 44pt touch floor.
 //
 // Used by:
 //   - EmptyState (below)
 // -----------------------------------------------------------
 
 function SuggestionChip({ suggestion, index }: { suggestion: AssistantSuggestion; index: number }) {
-  const { colors } = useAssistantKit();
+  const { colors, fonts } = useAssistantKit();
   return (
     <ThreadPrimitive.Suggestion
       testID={`assistantuikit-suggestion-${index}`}
@@ -132,6 +140,8 @@ function SuggestionChip({ suggestion, index }: { suggestion: AssistantSuggestion
       style={{
         paddingHorizontal: 14,
         paddingVertical: 10,
+        minHeight: 44,
+        justifyContent: 'center',
         borderRadius: 14,
         borderWidth: 1,
         borderColor: colors.line,
@@ -139,9 +149,11 @@ function SuggestionChip({ suggestion, index }: { suggestion: AssistantSuggestion
         marginBottom: 8,
       }}
     >
-      <Text style={{ fontSize: 14, fontWeight: '600', color: colors.ink }}>{suggestion.title}</Text>
+      <Text style={{ fontSize: 14, ...typeface(fonts, 'semibold'), color: colors.ink }}>{suggestion.title}</Text>
       {suggestion.description ? (
-        <Text style={{ fontSize: 12, lineHeight: 16, color: colors.inkSoft, marginTop: 2 }}>{suggestion.description}</Text>
+        <Text style={{ fontSize: 12, lineHeight: 16, ...typeface(fonts, 'regular'), color: colors.inkSoft, marginTop: 2 }}>
+          {suggestion.description}
+        </Text>
       ) : null}
     </ThreadPrimitive.Suggestion>
   );
@@ -167,7 +179,7 @@ function SuggestionChip({ suggestion, index }: { suggestion: AssistantSuggestion
 
 function EmptyState({ suggestions }: { suggestions?: AssistantSuggestion[] }) {
 
-  const { labels, colors } = useAssistantKit();
+  const { labels, colors, fonts } = useAssistantKit();
   const isEmpty = useAuiState((s) => s.thread.isEmpty);
 
 
@@ -176,8 +188,10 @@ function EmptyState({ suggestions }: { suggestions?: AssistantSuggestion[] }) {
 
   return (
     <View style={{ flex: 1, justifyContent: 'center', paddingHorizontal: 24, paddingVertical: 32 }}>
-      <Text style={{ fontSize: 20, fontWeight: '700', color: colors.ink, marginBottom: 6 }}>{labels.emptyTitle}</Text>
-      <Text style={{ fontSize: 14, lineHeight: 20, color: colors.inkSoft }}>{labels.emptyBody}</Text>
+      <Text accessibilityRole="header" style={{ fontSize: 20, lineHeight: 26, ...typeface(fonts, 'bold'), color: colors.ink, marginBottom: 6 }}>
+        {labels.emptyTitle}
+      </Text>
+      <Text style={{ fontSize: 14, lineHeight: 20, ...typeface(fonts, 'regular'), color: colors.inkSoft }}>{labels.emptyBody}</Text>
       {suggestions && suggestions.length > 0 ? (
         <View style={{ marginTop: 20 }}>
           {suggestions.map((suggestion, index) => (
@@ -202,7 +216,9 @@ function EmptyState({ suggestions }: { suggestions?: AssistantSuggestion[] }) {
 // The floating "↓" over the list's bottom-right corner while
 // the reader is scrolled away from the tail. A glyph, not a
 // word, on screen — the host's label under it is what a screen
-// reader announces, since the glyph alone says nothing.
+// reader announces, since the glyph alone says nothing. The
+// disc stays a small 36pt; its hitSlop takes the target to the
+// 44pt floor.
 //
 // Used by:
 //   - MessageList (below)
@@ -216,6 +232,7 @@ function ScrollToLatest({ onPress }: { onPress: () => void }) {
       accessibilityRole="button"
       accessibilityLabel={labels.scrollToLatest}
       onPress={onPress}
+      hitSlop={4}
       style={{
         position: 'absolute',
         right: 16,
@@ -331,7 +348,7 @@ function MessageList({ suggestions }: { suggestions?: AssistantSuggestion[] }) {
 
 function LastMessageError() {
 
-  const { labels, colors } = useAssistantKit();
+  const { labels, colors, fonts } = useAssistantKit();
   const lastIndex = useAuiState((s) => s.thread.messages.length - 1);
 
 
@@ -340,7 +357,7 @@ function LastMessageError() {
 
   return (
     <MessageByIndexProvider index={lastIndex}>
-      <RetryBanner labels={labels} colors={colors} />
+      <RetryBanner labels={labels} colors={colors} fonts={fonts} />
     </MessageByIndexProvider>
   );
 }
@@ -363,9 +380,9 @@ function LastMessageError() {
 //   - LastMessageError (above)
 // -----------------------------------------------------------
 
-function RetryBanner({ labels, colors }: { labels: AssistantLabels; colors: AssistantColors }) {
+function RetryBanner({ labels, colors, fonts }: { labels: AssistantLabels; colors: AssistantColors; fonts: AssistantFonts }) {
   const aui = useAui();
-  return <AssistantErrorBanner labels={labels} colors={colors} onRetry={() => aui.message.reload()} />;
+  return <AssistantErrorBanner labels={labels} colors={colors} fonts={fonts} onRetry={() => aui.message.reload()} />;
 }
 
 
@@ -378,15 +395,23 @@ function RetryBanner({ labels, colors }: { labels: AssistantLabels; colors: Assi
 // KeyboardSafeColumn
 // -----------------------------------------------------------
 //
-// The keyboard pad, per platform. iOS is the platform's
-// avoiding view with 'padding' — it measures the column's own
-// frame against the keyboard and pads the overlap. Android
+// The keyboard pad, per platform, both off the column's frame
+// measured in the WINDOW (measureInWindow, redone on every
+// layout). iOS is the platform's avoiding view with 'padding'
+// — it reads its frame relative to its PARENT, so the
+// column's distance from the window top rides in as
+// keyboardVerticalOffset: a host header above the column is
+// accounted for, not paid for with a hidden composer. Android
 // under edge-to-edge (the platform default on its current
 // versions) keeps the window at full height while the keyboard
-// covers it, so the platform's view is inert there: this column
-// listens to the keyboard itself, and when a keyboard appears
-// while the window KEPT its height, pads the bottom by the
-// keyboard's height — where the window did resize (the
+// covers it, so the platform's view is inert there: this
+// column listens to the keyboard itself, and when a keyboard
+// appears while the window KEPT its height, pads the bottom by
+// the part of the column the keyboard actually covers (column
+// bottom minus the keyboard's top edge) — not the keyboard's
+// full height, which overshot whenever the column ended above
+// the window's bottom. Until a frame is measured it falls back
+// to the keyboard height. Where the window did resize (the
 // platform lifting on its own), it pads nothing, so the two
 // never stack. Detected per event: a device that resizes and
 // one that does not both work.
@@ -397,7 +422,21 @@ function RetryBanner({ labels, colors }: { labels: AssistantLabels; colors: Assi
 
 function KeyboardSafeColumn({ children }: { children: ReactNode }) {
 
-  const [androidPad, setAndroidPad] = useState(0);
+  const columnRef = useRef<View>(null);
+  // The column's window frame — its top for iOS, its bottom
+  // for Android; null until the first measure answers
+  const [frame, setFrame] = useState<{ y: number; height: number } | null>(null);
+  // Android only: the keyboard over a window that kept its
+  // height — its top edge and height; null while none is
+  const [androidKeyboard, setAndroidKeyboard] = useState<{ top: number; height: number } | null>(null);
+
+
+  const measure = useCallback(() => {
+    columnRef.current?.measureInWindow((_x, y, _width, height) => {
+      if (!(height > 0)) return;
+      setFrame((was) => (was && was.y === y && was.height === height ? was : { y, height }));
+    });
+  }, []);
 
 
   useEffect(() => {
@@ -411,20 +450,32 @@ function KeyboardSafeColumn({ children }: { children: ReactNode }) {
     const show = Keyboard.addListener('keyboardDidShow', (event) => {
       const keyboard = event.endCoordinates?.height ?? 0;
       const resized = bareHeight - Dimensions.get('window').height > keyboard * 0.5;
-      setAndroidPad(resized ? 0 : keyboard);
+      setAndroidKeyboard(resized ? null : { top: event.endCoordinates?.screenY ?? 0, height: keyboard });
+      measure();
     });
-    const hide = Keyboard.addListener('keyboardDidHide', () => setAndroidPad(0));
+    const hide = Keyboard.addListener('keyboardDidHide', () => setAndroidKeyboard(null));
     return () => {
       dims.remove();
       show.remove();
       hide.remove();
     };
-  }, []);
+  }, [measure]);
 
 
   if (Platform.OS === 'android') {
+    // The covered part of the column when both edges are known
+    // (a screenY of 0 is no edge at all), else the old
+    // full-height pad
+    const covered = androidKeyboard && frame && androidKeyboard.top > 0
+      ? Math.max(0, Math.round(frame.y + frame.height - androidKeyboard.top))
+      : androidKeyboard?.height ?? 0;
     return (
-      <View testID="assistantuikit-keyboard-column" style={{ flex: 1, paddingBottom: androidPad }}>
+      <View
+        ref={columnRef}
+        onLayout={measure}
+        testID="assistantuikit-keyboard-column"
+        style={{ flex: 1, paddingBottom: androidKeyboard ? covered : 0 }}
+      >
         {children}
       </View>
     );
@@ -432,13 +483,16 @@ function KeyboardSafeColumn({ children }: { children: ReactNode }) {
 
 
   return (
-    <KeyboardAvoidingView
-      testID="assistantuikit-keyboard-column"
-      style={{ flex: 1 }}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      {children}
-    </KeyboardAvoidingView>
+    <View ref={columnRef} onLayout={measure} testID="assistantuikit-keyboard-frame" style={{ flex: 1 }}>
+      <KeyboardAvoidingView
+        testID="assistantuikit-keyboard-column"
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={frame?.y ?? 0}
+      >
+        {children}
+      </KeyboardAvoidingView>
+    </View>
   );
 }
 
@@ -464,6 +518,7 @@ function KeyboardSafeColumn({ children }: { children: ReactNode }) {
 export default function AssistantThread({
   labels,
   colors = defaultColors,
+  fonts = defaultFonts,
   tools,
   suggestions,
   copyToClipboard,
@@ -475,6 +530,9 @@ export default function AssistantThread({
 }: {
   labels: AssistantLabels;
   colors?: AssistantColors;
+  // The host's loaded font families per weight — unset slots
+  // keep the system face
+  fonts?: AssistantFonts;
   // Tool-card renderers keyed by tool name; a name with no
   // entry falls to the generic card
   tools?: Record<string, ToolCardRenderer>;
@@ -492,7 +550,17 @@ export default function AssistantThread({
   contentPaddingBottom?: number;
 }) {
   return (
-    <AssistantKitProvider labels={labels} colors={colors} tools={tools} copyToClipboard={copyToClipboard} onPressLink={onPressLink} onFeedback={onFeedback} onComposerSend={onComposerSend} onAnswerSettled={onAnswerSettled}>
+    <AssistantKitProvider
+      labels={labels}
+      colors={colors}
+      fonts={fonts}
+      tools={tools}
+      copyToClipboard={copyToClipboard}
+      onPressLink={onPressLink}
+      onFeedback={onFeedback}
+      onComposerSend={onComposerSend}
+      onAnswerSettled={onAnswerSettled}
+    >
       <KeyboardSafeColumn>
         <ThreadPrimitive.Root
           testID="assistantuikit-thread"
@@ -500,7 +568,7 @@ export default function AssistantThread({
         >
           <MessageList suggestions={suggestions} />
           <LastMessageError />
-          <AssistantComposer labels={labels} colors={colors} onSend={onComposerSend} />
+          <AssistantComposer labels={labels} colors={colors} fonts={fonts} onSend={onComposerSend} />
         </ThreadPrimitive.Root>
       </KeyboardSafeColumn>
     </AssistantKitProvider>

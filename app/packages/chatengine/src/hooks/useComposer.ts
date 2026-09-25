@@ -28,7 +28,13 @@
 //  Pickers are the host's: attach(asset) takes an already
 //  picked asset (uri, kind, size, frame, duration, an optional
 //  poster) — the engine uploads (a video's poster first, then
-//  the clip) and sends.
+//  the clip) and sends. Uploads are NOT free — every stored file
+//  counts against the account's quota — so a retry reuses what
+//  an interrupted upload phase already stored (a gallery's first
+//  photos, a video's poster) instead of sending the bytes again,
+//  and a send that will never happen (refused for good, or its
+//  failed bubble discarded) hands the files it stored back
+//  through transport.deleteUpload.
 //
 //  Typing contract: re-emit at most every 2 s while keystrokes
 //  keep coming (useTyping expires a typer after 5 s), stop on
@@ -44,11 +50,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { normalizeAssetName } from '../core/assets';
 import { isRetryable, sendFailureCode, toTransportError } from '../core/errors';
-import { draftKey, draftReplyKey, readOutbox, writeOutbox, type OutboxEntry, type PickedAsset } from '../core/outbox';
+import { draftKey, draftReplyKey, readOutbox, writeOutbox, type OutboxEntry, type PickedAsset, type StoredUpload } from '../core/outbox';
 import { markEdited, normalizeForViewer } from '../core/reducers';
-import { getTaskQueue } from '../core/tasks';
-import type { OutgoingMessage } from '../core/transport';
-import { TEMP_ID_PREFIX, isTempId, type ChatMessage } from '../core/types';
+import { bumpTargetEpoch, getTaskQueue, serializeByTarget, targetEpoch, targetKey } from '../core/tasks';
+import type { OutgoingMessage, UploadResult } from '../core/transport';
+import { TEMP_ID_PREFIX, isTempId, type ChatGalleryItem, type ChatMessage } from '../core/types';
 import { useChatEngine } from '../provider';
 
 
@@ -227,15 +233,64 @@ export function useComposer(
   const rehydratedPendingRef = useRef(new Set<string>());
   // Temp ids currently on the wire
   const inFlightRef = useRef(new Set<string>());
+  // Per temp: the uploads an interrupted phase already stored,
+  // keyed by the picked uri they came from (a retry reuses them),
+  // and every url this send stored (handed back if it is dropped)
+  const storedRef = useRef(new Map<string, StoredUpload[]>());
+  const ownedRef = useRef(new Map<string, string[]>());
 
 
   const persistQueue = useCallback(() => {
     const record = new Map<string, OutboxEntry>();
     for (const [tempId, payload] of failedQueueRef.current) {
-      record.set(tempId, { ...payload, createdAt: messagesRef.current.find((m) => m.id === tempId)?.createdAt ?? payload.createdAt });
+      record.set(tempId, {
+        ...payload,
+        uploaded: storedRef.current.get(tempId) ?? payload.uploaded,
+        ownUploads: ownedRef.current.get(tempId) ?? payload.ownUploads,
+        createdAt: messagesRef.current.find((m) => m.id === tempId)?.createdAt ?? payload.createdAt,
+      });
     }
     void writeOutbox(storage, conversationId, record);
   }, [conversationId, storage]);
+
+
+  // The upload memos' three moves: record a stored file as this
+  // send's, forget them once the message owns its files, and hand
+  // them back when the send will never happen (best effort — the
+  // backend keeps a file another message still shows)
+  const ownUpload = useCallback((tempId: string, url: string) => {
+    const owned = ownedRef.current.get(tempId) ?? [];
+    if (!owned.includes(url)) ownedRef.current.set(tempId, [...owned, url]);
+  }, []);
+  const settleUploads = useCallback((tempId: string) => {
+    storedRef.current.delete(tempId);
+    ownedRef.current.delete(tempId);
+  }, []);
+  const abandonUploads = useCallback(
+    (tempId: string, extra: readonly string[] = []) => {
+      const owned = Array.from(new Set([...(ownedRef.current.get(tempId) ?? []), ...extra]));
+      settleUploads(tempId);
+      for (const url of owned) transport.deleteUpload?.(url).catch(() => {});
+    },
+    [settleUploads, transport],
+  );
+
+
+  // An image upload a retry may reuse — the memo first (keyed by
+  // the picked uri), the network otherwise; a fresh result is
+  // memoised and owned
+  const uploadImageOnce = useCallback(
+    async (tempId: string, sourceUri: string, upload: () => Promise<UploadResult>): Promise<ChatGalleryItem> => {
+      const memo = storedRef.current.get(tempId)?.find((u) => u.uri === sourceUri);
+      if (memo) return memo.item;
+      const result = await upload();
+      const item: ChatGalleryItem = { url: result.url, width: result.width ?? null, height: result.height ?? null, ...(result.preview ? { preview: result.preview } : {}) };
+      storedRef.current.set(tempId, [...(storedRef.current.get(tempId) ?? []), { uri: sourceUri, item }]);
+      ownUpload(tempId, result.url);
+      return item;
+    },
+    [ownUpload],
+  );
 
 
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -264,7 +319,11 @@ export function useComposer(
     [conversationId, storage],
   );
 
-  // Leaving the room flushes the final draft past the debounce
+  // Leaving the room flushes the final draft past the debounce.
+  // In edit mode the field holds the MESSAGE being edited, not
+  // the draft — the draft waits in parkedDraftRef, and that is
+  // what the room keeps (an edit abandoned by leaving is simply
+  // dropped, never reborn as the next send)
   useEffect(() => {
     return () => {
       if (draftTimerRef.current) {
@@ -272,7 +331,7 @@ export function useComposer(
         draftTimerRef.current = null;
       }
       const key = draftKey(conversationId);
-      const value = textRef.current;
+      const value = editingRef.current ? parkedDraftRef.current : textRef.current;
       (value ? storage.setItem(key, value) : storage.removeItem(key)).catch(() => {});
     };
   }, [conversationId, storage]);
@@ -288,6 +347,8 @@ export function useComposer(
     setText('');
     failedQueueRef.current.clear();
     rehydratedPendingRef.current.clear();
+    storedRef.current.clear();
+    ownedRef.current.clear();
     replyToRef.current = null;
     setReplyToState(null);
     editingRef.current = null;
@@ -326,6 +387,8 @@ export function useComposer(
           if (failedQueueRef.current.has(tempId)) continue;
           failedQueueRef.current.set(tempId, payload);
           rehydratedPendingRef.current.add(tempId);
+          if (payload.uploaded?.length) storedRef.current.set(tempId, payload.uploaded);
+          if (payload.ownUploads?.length) ownedRef.current.set(tempId, payload.ownUploads);
         }
       } catch {
         // Unreadable storage never blocks the composer
@@ -360,7 +423,9 @@ export function useComposer(
       const next = raw.length > limits.maxMessageLength ? raw.slice(0, limits.maxMessageLength) : raw;
       textRef.current = next;
       setText(next);
-      persistDraft(next);
+      // Keystrokes in edit mode rewrite the message, not the
+      // draft — the parked draft stays what storage holds
+      if (!editingRef.current) persistDraft(next);
 
       if (next.length === 0) {
         stopTyping();
@@ -452,6 +517,8 @@ export function useComposer(
         const outgoing: OutgoingMessage = { text: body, imageUrl, replyToId, clientId: tempId, ...(extra ?? {}) };
         const row = await transport.sendMessage(conversationId, outgoing);
         failedQueueRef.current.delete(tempId);
+        // The message owns its files now
+        settleUploads(tempId);
         clearAutoRetry(tempId);
         autoRetryCountRef.current.delete(tempId);
         persistQueue();
@@ -476,7 +543,11 @@ export function useComposer(
         if (isRetryable(err)) {
           failedQueueRef.current.set(tempId, { text: body, imageUrl, replyToId, extra });
           scheduleAutoRetry(tempId);
-        } else failedQueueRef.current.delete(tempId);
+        } else {
+          // Refused for good: the files it stored will never be shown
+          failedQueueRef.current.delete(tempId);
+          abandonUploads(tempId);
+        }
         persistQueue();
         setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: 'failed' } : m)));
         notify({ level: 'error', code: sendFailureCode(err) });
@@ -484,7 +555,7 @@ export function useComposer(
         inFlightRef.current.delete(tempId);
       }
     },
-    [conversationId, currentUser, transport, notify, persistQueue, clearAutoRetry, scheduleAutoRetry, setMessages],
+    [conversationId, currentUser, transport, notify, persistQueue, clearAutoRetry, scheduleAutoRetry, setMessages, settleUploads, abandonUploads],
   );
 
 
@@ -580,7 +651,9 @@ export function useComposer(
                 ? await makeVideoPoster(asset.uri)
                 : null;
             if (poster) {
-              const uploaded = await transport.upload({ uri: poster.uri, name: 'poster.jpg', mimeType: 'image/jpeg', kind: 'image' });
+              // Memoised on the VIDEO's uri — a regenerated poster
+              // file on a retry is the same poster
+              const uploaded = await uploadImageOnce(tempId, `poster:${asset.uri}`, () => transport.upload({ uri: poster.uri, name: 'poster.jpg', mimeType: 'image/jpeg', kind: 'image' }));
               posterUrl = uploaded.url;
               posterPreview = uploaded.preview ?? undefined;
               if (uploaded.width && uploaded.height) frame = { width: uploaded.width, height: uploaded.height };
@@ -590,6 +663,7 @@ export function useComposer(
             posterUrl = undefined;
           }
           const upload = await transport.upload({ uri: asset.uri, name: asset.name, mimeType: asset.mimeType, size: asset.size, kind: 'video' }, (f) => reportProgress(tempId, f));
+          ownUpload(tempId, upload.url);
           unmarkUploading(tempId);
           const extra: OutboxEntry['extra'] = {
             kind: 'video',
@@ -610,6 +684,7 @@ export function useComposer(
 
         if (kind === 'file') {
           const upload = await transport.upload({ uri: asset.uri, name: asset.name, mimeType: asset.mimeType, size: asset.size, kind: 'file' }, (f) => reportProgress(tempId, f));
+          ownUpload(tempId, upload.url);
           unmarkUploading(tempId);
           const extra: OutboxEntry['extra'] = { kind: 'file', attachment: { url: upload.url, name: upload.name, size: upload.size, mime: upload.mime } };
           setMessages((prev) =>
@@ -622,6 +697,7 @@ export function useComposer(
 
         if (kind === 'audio') {
           const upload = await transport.upload({ uri: asset.uri, name: asset.name, mimeType: asset.mimeType, size: asset.size, kind: 'audio' }, (f) => reportProgress(tempId, f));
+          ownUpload(tempId, upload.url);
           unmarkUploading(tempId);
           const extra: OutboxEntry['extra'] = {
             kind: 'audio',
@@ -637,6 +713,7 @@ export function useComposer(
         }
 
         const upload = await transport.upload({ uri: asset.uri, name: asset.name, mimeType: asset.mimeType, size: asset.size, kind: 'image' }, (f) => reportProgress(tempId, f));
+        ownUpload(tempId, upload.url);
         unmarkUploading(tempId);
         const frame = upload.width && upload.height ? { width: upload.width, height: upload.height } : undefined;
         const extra: OutboxEntry['extra'] | undefined = frame || upload.preview ? { media: { ...(frame ?? {}), ...(upload.preview ? { preview: upload.preview } : {}) } } : undefined;
@@ -649,7 +726,11 @@ export function useComposer(
         if (isRetryable(err)) {
           failedQueueRef.current.set(tempId, { text: '', replyToId, asset });
           scheduleAutoRetry(tempId);
-        } else failedQueueRef.current.delete(tempId);
+        } else {
+          // A refused clip leaves its poster behind — hand it back
+          failedQueueRef.current.delete(tempId);
+          abandonUploads(tempId);
+        }
         persistQueue();
         setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: 'failed', uploadProgress: undefined } : m)));
         const e = toTransportError(err);
@@ -660,14 +741,16 @@ export function useComposer(
         });
       }
     },
-    [deliver, makeVideoPoster, markUploading, notify, persistQueue, reportProgress, scheduleAutoRetry, setMessages, transport, unmarkUploading],
+    [deliver, makeVideoPoster, markUploading, notify, persistQueue, reportProgress, scheduleAutoRetry, setMessages, transport, unmarkUploading, ownUpload, uploadImageOnce, abandonUploads],
   );
 
 
   // A gallery: every photo uploaded in the order it was picked,
   // then ONE message carrying the stored list. A failure anywhere
-  // parks the whole picked set — the retry uploads them all again
-  // (uploads are cheap and stateless; half-done sets are not)
+  // parks the whole picked set — and the retry REUSES every photo
+  // that already made it (uploadImageOnce), uploading only the
+  // rest: each stored photo costs the sender's quota, so a flaky
+  // connection must not store a set three times over
   const uploadGalleryAndDeliver = useCallback(
     async (tempId: string, assets: PickedAsset[], replyToId?: string) => {
       if (inFlightRef.current.has(tempId)) return;
@@ -678,10 +761,13 @@ export function useComposer(
         const items: NonNullable<ChatMessage['gallery']> = [];
         for (const [index, asset] of assets.entries()) {
           // The bubble's ring walks the WHOLE set: photo i of n
-          const upload = await transport.upload(
-            { uri: asset.uri, name: asset.name, mimeType: asset.mimeType, size: asset.size, kind: 'image' },
-            (f) => reportProgress(tempId, (index + f) / assets.length),
+          const upload = await uploadImageOnce(tempId, asset.uri, () =>
+            transport.upload(
+              { uri: asset.uri, name: asset.name, mimeType: asset.mimeType, size: asset.size, kind: 'image' },
+              (f) => reportProgress(tempId, (index + f) / assets.length),
+            ),
           );
+          reportProgress(tempId, (index + 1) / assets.length);
           items.push({ url: upload.url, width: upload.width ?? asset.width, height: upload.height ?? asset.height, ...(upload.preview ? { preview: upload.preview } : {}) });
         }
         unmarkUploading(tempId);
@@ -695,7 +781,12 @@ export function useComposer(
         if (isRetryable(err)) {
           failedQueueRef.current.set(tempId, { text: '', replyToId, assets });
           scheduleAutoRetry(tempId);
-        } else failedQueueRef.current.delete(tempId);
+        } else {
+          // A photo refused for good sinks the set — the photos that
+          // made it go back
+          failedQueueRef.current.delete(tempId);
+          abandonUploads(tempId);
+        }
         persistQueue();
         setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: 'failed', uploadProgress: undefined } : m)));
         const e = toTransportError(err);
@@ -706,7 +797,7 @@ export function useComposer(
         });
       }
     },
-    [deliver, markUploading, notify, persistQueue, reportProgress, scheduleAutoRetry, setMessages, transport, unmarkUploading],
+    [deliver, markUploading, notify, persistQueue, reportProgress, scheduleAutoRetry, setMessages, transport, unmarkUploading, uploadImageOnce, abandonUploads],
   );
 
 
@@ -727,12 +818,25 @@ export function useComposer(
       parkedDraftRef.current = '';
       stopTyping();
       if (body === target.text) return;
-      const previous = target.text;
+      // A queued offline edit of this message is superseded by
+      // this one — which must still revert to the SERVER's text
+      // on a refusal, the queued entry's previousText, not the
+      // optimistic text on screen. The call waits for any
+      // replay in flight for the message and stales its answer
+      // (core/tasks.ts), so an older rewrite can never land last
+      const queue = getTaskQueue(storage, conversationId);
+      const queued = queue.list().find((task) => task.type === 'edit' && task.messageId === target.id);
+      const previous = queued?.type === 'edit' ? queued.previousText : target.text;
+      queue.remove({ type: 'edit', messageId: target.id });
+      const key = targetKey(conversationId, target.id);
+      const epoch = bumpTargetEpoch(key);
       const optimisticStamp = new Date().toISOString();
       setMessages((prev) => prev.map((m) => markEdited(m, target.id, body, optimisticStamp)));
-      transport
-        .editMessage(conversationId, target.id, body)
-        .then((saved) => setMessages((prev) => prev.map((m) => markEdited(m, target.id, saved.text, saved.editedAt))))
+      serializeByTarget(key, () => transport.editMessage(conversationId, target.id, body))
+        .then((saved) => {
+          if (targetEpoch(key) !== epoch) return;
+          setMessages((prev) => prev.map((m) => markEdited(m, target.id, saved.text, saved.editedAt)));
+        })
         .catch((err: unknown) => {
           // Offline: the rewrite stays on screen and replays on
           // restore (core/tasks.ts); a refusal reverts it
@@ -740,6 +844,8 @@ export function useComposer(
             getTaskQueue(storage, conversationId).add({ type: 'edit', messageId: target.id, text: body, previousText: previous, at: new Date().toISOString() });
             return;
           }
+          // A newer action on the message owns its state now
+          if (targetEpoch(key) !== epoch) return;
           setMessages((prev) => prev.map((m) => (m.id === target.id ? { ...m, text: previous, editedAt: target.editedAt ?? undefined } : m)));
           notify({ level: 'error', code: 'edit_failed' });
         });
@@ -783,8 +889,10 @@ export function useComposer(
     setEditingState(null);
     textRef.current = parkedDraftRef.current;
     setText(parkedDraftRef.current);
+    // Storage back in step at once, not at the next unmount
+    persistDraft(parkedDraftRef.current);
     parkedDraftRef.current = '';
-  }, []);
+  }, [persistDraft]);
 
 
   // The quick reaction on an EMPTY field only — any visible
@@ -987,15 +1095,19 @@ export function useComposer(
   }, [messages, persistQueue]);
 
 
+  // Discarding a failed bubble drops its send for good — the
+  // files it had already stored go back with it
   const discardMessage = useCallback(
     (messageId: string) => {
       if (!isTempId(messageId)) return;
+      const parked = failedQueueRef.current.get(messageId);
       failedQueueRef.current.delete(messageId);
       rehydratedPendingRef.current.delete(messageId);
+      abandonUploads(messageId, parked?.ownUploads ?? []);
       persistQueue();
       setMessages((prev) => prev.filter((m) => m.id !== messageId));
     },
-    [persistQueue, setMessages],
+    [abandonUploads, persistQueue, setMessages],
   );
 
 

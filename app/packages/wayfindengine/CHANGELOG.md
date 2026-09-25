@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased — 2026-09-25
+
+Contract hardening from the 2026-09-19 audit; nothing that worked
+changes meaning.
+
+- `routingKey` carries `RoutingOptions.at`, so a call's (or the
+  provider's) `at` survives the key both consumers rebuild the options
+  from, and two calls differing only in `at` are different keys — the
+  documented `closedUntil` time travel works through `useRoute`
+  (KNF-114).
+- `validateGraph` — a new error, `bad_coordinate` (a node whose `x` /
+  `y` is not a finite number: every length through it would be NaN and
+  the router would answer `no_path` on a connected map; the server's
+  publish validator emits the same code, KNF-024), and a new warning,
+  `outside_plan` (a node, or a room corner — once per room — off its
+  level's `viewBox`, KNF-176). Both are throw-free on malformed JSON.
+- `svgToGraph` reads tags quote-aware — a raw `>` inside a quoted value
+  is part of the value instead of ending the tag with a misleading
+  issue (KNF-177) — and reports every marked-up shape under a
+  transform (its own, or an enclosing group's) as the new error
+  `unsupported_transform` instead of filing it silently where it was
+  not drawn (KNF-176). The shapes are still read as written.
+- `searchRooms` searches a room's own `nameEn` beside its `name`, as
+  the `Room` type always promised — no localizer needed to find
+  "Dean's office".
+
 ## 1.1.0 — 2026-09-01
 
 The data model grows what an admin-authored, server-published building

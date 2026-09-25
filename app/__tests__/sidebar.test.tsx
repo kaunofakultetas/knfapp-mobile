@@ -213,6 +213,40 @@ describe('Sidebar', () => {
     expect(mockSetPinnedTabs).toHaveBeenCalledWith(['news', 'messages', 'id']);
     expect(isTabBarCollapsed()).toBe(false);
   });
+
+  it('the footer pads on an inner View — its SafeAreaView carries only the border and the bottom inset', async () => {
+    // SafeAreaView rewrites left/right padding from the insets
+    // and never reads NativeWind's start/end keys: px-* on it
+    // put the footer flush against both drawer edges on web
+    const { getByTestId } = await render(<Sidebar />);
+    const footer = getByTestId('sidebar-footer');
+    expect(footer.props.className).toContain('px-lg');
+
+    const safeArea = footer.parent;
+    expect(safeArea?.props.edges).toEqual(['bottom']);
+    expect(safeArea?.props.className).toBe('border-t border-line');
+  });
+
+  it('the footer pill groups may wrap — side by side they overflow a 320pt drawer', async () => {
+    const { getByTestId } = await render(<Sidebar />);
+    const row = getByTestId('sidebar-footer').children[0] as { props: { className?: string } };
+    expect(row.props.className).toContain('flex-wrap');
+  });
+
+  it("the guest card's sign-in pill reaches a 44pt touch target", async () => {
+    const { getByLabelText } = await render(<Sidebar />);
+    const pill = getByLabelText('settings.login');
+    const { top = 0, bottom = 0 } = pill.props.hitSlop ?? {};
+    // h-10 is 40pt tall
+    expect(40 + top + bottom).toBeGreaterThanOrEqual(44);
+  });
+
+  it('the always-pinned mark is an accessibility element a screen reader can reach', async () => {
+    const { getAllByLabelText } = await render(<Sidebar />);
+    for (const mark of getAllByLabelText('menu.alwaysPinned')) {
+      expect(mark.props.accessible).toBe(true);
+    }
+  });
 });
 
 

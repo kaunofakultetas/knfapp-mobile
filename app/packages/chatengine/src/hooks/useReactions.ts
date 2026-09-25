@@ -22,8 +22,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { isRetryable } from '../core/errors';
 import { reactionsForViewer, withSelfReaction } from '../core/reducers';
-import { getTaskQueue } from '../core/tasks';
-import type { ChatMessage, ReactionGroup } from '../core/types';
+import { bumpTargetEpoch, getTaskQueue, serializeByTarget, targetKey } from '../core/tasks';
+import { isTempId, type ChatMessage, type ReactionGroup } from '../core/types';
 import { useChatEngine } from '../provider';
 
 
@@ -75,6 +75,12 @@ export interface UseReactionsResult {
   // The same two actions aimed at an explicit message — for
   // accessibility actions that skip the picker
   reactTo: (messageId: string, emoji: string | null) => void;
+  // The one-tap toggle (a bubble's "React" accessibility
+  // action): the viewer's own reaction comes off when it IS
+  // this emoji, otherwise this emoji goes on — through reactTo,
+  // so it is optimistic, parked offline and rolled back on a
+  // refusal exactly like a picker pick. Stable identity
+  toggleReaction: (messageId: string, emoji: string) => void;
 }
 
 
@@ -87,9 +93,11 @@ export interface UseReactionsResult {
 // useReactions
 // -----------------------------------------------------------
 //
-// Guests are a no-op; a target that vanished mid-pick raises
-// 'reaction_target_gone'; a retryable failure parks the pick
-// in the conversation's task queue instead of reverting it.
+// Guests are a no-op, and so is a target the server does not
+// know (an optimistic temp) or no longer shows (unsent); a
+// target that vanished mid-pick raises 'reaction_target_gone';
+// a retryable failure parks the pick in the conversation's
+// task queue instead of reverting it.
 //
 // Used by:
 //   - the host's chat room screen (directly or via useChatRoom)
@@ -124,6 +132,9 @@ export function useReactions(
       if (event.type !== 'reactions' || event.conversationId !== conversationId) return;
       const epochs = epochRef.current;
       epochs.set(event.messageId, (epochs.get(event.messageId) ?? 0) + 1);
+      // The server's own word is newer than any replay answer
+      // still in flight for this message (core/tasks.ts)
+      bumpTargetEpoch(targetKey(conversationId, event.messageId));
     });
   }, [conversationId, transport]);
 
@@ -165,10 +176,19 @@ export function useReactions(
         notify({ level: 'error', code: 'reaction_target_gone' });
         return;
       }
+      // Nothing to react to: no server row yet, or unsent
+      if (isTempId(messageId) || target.deleted) return;
       const priorEmoji = target.reactions.find((r) => r.byUserIds.includes(userId))?.emoji ?? null;
       setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, reactions: withSelfReaction(m.reactions, userId, emoji) } : m)));
       const epoch = bumpEpoch(messageId);
-      const call = emoji ? transport.setReaction(conversationId, messageId, emoji) : transport.removeReaction(conversationId, messageId);
+      // This pick is the newest intent: it supersedes a queued
+      // offline pick for the message, stales a replay answer in
+      // flight, and reaches the server after any earlier call
+      // for the message (core/tasks.ts — KNF-121's chat twin)
+      const key = targetKey(conversationId, messageId);
+      bumpTargetEpoch(key);
+      getTaskQueue(storage, conversationId).remove({ type: 'reaction', messageId });
+      const call = serializeByTarget(key, () => (emoji ? transport.setReaction(conversationId, messageId, emoji) : transport.removeReaction(conversationId, messageId)));
       call
         .then((groups) => applyServer(messageId, groups, epoch))
         .catch((err: unknown) => {
@@ -202,6 +222,15 @@ export function useReactions(
     reactTo(messageId, null);
   }, [closePicker, pickerTargetId, reactTo]);
 
+  const toggleReaction = useCallback(
+    (messageId: string, emoji: string) => {
+      const viewerId = currentUser?.id;
+      const own = messagesRef.current.find((m) => m.id === messageId)?.reactions.find((r) => !!viewerId && r.byUserIds.includes(viewerId));
+      reactTo(messageId, own?.emoji === emoji ? null : emoji);
+    },
+    [currentUser, reactTo],
+  );
 
-  return { reactionOptions, pickerOpen, pickerTargetId, openPicker, closePicker, applyReaction, clearReaction, reactTo };
+
+  return { reactionOptions, pickerOpen, pickerTargetId, openPicker, closePicker, applyReaction, clearReaction, reactTo, toggleReaction };
 }

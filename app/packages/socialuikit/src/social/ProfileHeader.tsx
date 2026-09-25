@@ -99,7 +99,7 @@ function HeaderAvatar({ user }: { user: KitUser }) {
         backgroundColor: colors.brandSoft,
       }}
     >
-      <Text style={{ fontFamily: fonts.bold, fontSize: AVATAR_SIZE * 0.42, color: colors.brand }}>{initial}</Text>
+      <Text style={{ fontFamily: fonts.bold, fontSize: AVATAR_SIZE * 0.42, color: colors.brandText }}>{initial}</Text>
     </View>
   );
 }

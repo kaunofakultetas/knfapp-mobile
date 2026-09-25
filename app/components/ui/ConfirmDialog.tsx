@@ -162,15 +162,29 @@ export function ConfirmHost() {
   return (
     <Modal transparent visible animationType="fade" onRequestClose={() => finish(false)}>
 
-      {/* Scrim — tapping it cancels, like dismissing an alert */}
+      {/* Scrim — tapping it cancels, like dismissing an alert. It
+          is a pointer affordance only: keyboard and screen-reader
+          users have the Cancel button and Escape (onRequestClose),
+          and a focusable scrim labelled "Cancel" wrapped the
+          whole dialog in one mislabelled control */}
       <Pressable
         className="flex-1 items-center justify-center bg-scrim px-xl"
         onPress={() => finish(false)}
-        accessibilityLabel={pending.cancelLabel}
+        accessible={false}
       >
-        {/* The card claims its own presses so only the scrim dismisses */}
-        <Pressable className="w-full rounded-xl bg-surface p-lg" style={{ maxWidth: 400 }} onPress={() => {}}>
-          <Text className="font-raleway-bold text-lg text-ink">{pending.title}</Text>
+        {/* The card claims its own presses so only the scrim
+            dismisses; it is the modal dialog assistive tech
+            stays inside */}
+        <Pressable
+          className="w-full rounded-xl bg-surface p-lg"
+          style={{ maxWidth: 400 }}
+          onPress={() => {}}
+          accessible={false}
+          accessibilityViewIsModal
+        >
+          <Text accessibilityRole="header" className="font-raleway-bold text-lg text-ink">
+            {pending.title}
+          </Text>
           <Text className="mt-sm font-raleway text-base text-ink-soft">{pending.message}</Text>
           <View className="mt-lg flex-row justify-end gap-sm">
             <Button title={pending.cancelLabel} variant="ghost" fullWidth={false} onPress={() => finish(false)} />

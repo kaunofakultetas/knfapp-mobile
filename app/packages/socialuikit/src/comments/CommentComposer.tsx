@@ -131,6 +131,8 @@ function SignInPrompt({ onPressSignIn }: { onPressSignIn?: () => void }) {
 
       <Pressable
         onPress={() => onPressSignIn?.()}
+        // The ~30dp pill reaches the 44pt floor through its slop
+        hitSlop={{ top: 7, bottom: 7, left: 4, right: 4 }}
         accessibilityRole="button"
         accessibilityLabel={labels.signIn}
         style={{
@@ -278,6 +280,8 @@ export default function CommentComposer({
         testID="socialuikit-comment-send"
         onPress={() => void handleSend()}
         disabled={submitting || !hasDraft}
+        // The 38dp disc reaches the 44pt floor through its slop
+        hitSlop={3}
         accessibilityRole="button"
         accessibilityLabel={labels.commentSend}
         accessibilityState={{ disabled: submitting || !hasDraft, busy: submitting }}

@@ -2,9 +2,11 @@
 //  [*] UI kit — Badge
 //
 //  The brand count pill for unread counters and pending
-//  states. Renders nothing at zero or below; counts past
-//  `max` (default 99) collapse to "99+" so the pill never
-//  stretches across a tab icon.
+//  states. Renders nothing at zero or below — or for a count
+//  that is not a finite number (an unread total computed off
+//  a missing field reads NaN, and the pill used to print
+//  "NaN"); counts past `max` (default 99) collapse to "99+" so
+//  the pill never stretches across a tab icon.
 // -----------------------------------------------------------
 
 // Pill primitives
@@ -40,8 +42,9 @@ interface BadgeProps {
 
 export default function Badge({ count, max = 99 }: BadgeProps) {
 
-  // Hidden entirely at zero — an empty pill is visual noise
-  if (count <= 0) return null;
+  // Hidden entirely at zero — an empty pill is visual noise —
+  // and for NaN/Infinity, which no counter should ever show
+  if (!Number.isFinite(count) || count <= 0) return null;
 
 
   const label = count > max ? `${max}+` : String(count);

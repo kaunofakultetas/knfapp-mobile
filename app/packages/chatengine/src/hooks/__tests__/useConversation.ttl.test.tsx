@@ -2,9 +2,10 @@
 //  [*] Tests — disappearing messages on the client
 //
 //  The 'conversation' event merges the room's TTL into the
-//  held meta, and the half-minute sweep drops rows whose
-//  expires_at has passed (the server hard-deletes on its own
-//  clock; this keeps the SCREEN honest between fetches).
+//  held meta, and the deadline timer drops rows whose
+//  expires_at has passed — on the second, whatever stamp form
+//  the wire used (the server hard-deletes on its own clock;
+//  this keeps the SCREEN honest between fetches).
 // -----------------------------------------------------------
 
 import { act, renderHook } from '@testing-library/react-native';
@@ -12,8 +13,33 @@ import type { ReactNode } from 'react';
 
 import { ChatEngineProvider, fakeTransport, useConversation, type ChatMessage } from '../../index';
 
+
+// The signed-in viewer
 const SELF = { id: 'u1', displayName: 'Me' };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// row
+// -----------------------------------------------------------
+//
+// A foreign row, optionally carrying a disappearing deadline.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
+
 const row = (id: string, expiresAt?: string): ChatMessage => ({ id, conversationId: 'c1', senderId: 'u2', senderName: 'Ona', text: id, createdAt: '2026-08-29T10:00:00Z', isOwn: false, status: 'read', reactions: [], deleted: false, expiresAt });
+
+
+
+
+
+
 
 describe('useConversation disappearing messages', () => {
   beforeEach(() => jest.useFakeTimers());
@@ -41,6 +67,31 @@ describe('useConversation disappearing messages', () => {
 
     await act(async () => {
       jest.advanceTimersByTime(31_000);
+    });
+    expect(h.result.current.messages.map((m) => m.id)).toEqual(['stays']);
+  });
+
+  it('a row leaves at its own deadline, read from the naive wire stamp', async () => {
+    // The backend's shape: naive UTC with microseconds, no zone
+    const naive = (ms: number) => new Date(Date.now() + ms).toISOString().replace('Z', '') + '123';
+    const transport = fakeTransport({
+      self: SELF,
+      messages: [row('stays'), row('soon', naive(5_000)), row('later', naive(60_000))],
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => <ChatEngineProvider transport={transport} currentUser={SELF}>{children}</ChatEngineProvider>;
+    const h = await renderHook(() => useConversation('c1'), { wrapper });
+    await act(async () => {
+      for (let i = 0; i < 40; i++) await Promise.resolve();
+    });
+    expect(h.result.current.messages).toHaveLength(3);
+
+    await act(async () => {
+      jest.advanceTimersByTime(5_500);
+    });
+    expect(h.result.current.messages.map((m) => m.id).sort()).toEqual(['later', 'stays']);
+
+    await act(async () => {
+      jest.advanceTimersByTime(55_000);
     });
     expect(h.result.current.messages.map((m) => m.id)).toEqual(['stays']);
   });

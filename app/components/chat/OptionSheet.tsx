@@ -6,13 +6,18 @@
 //  active one) and the scrim to dismiss. Serves the
 //  disappearing-messages window, the forward-to-room picker
 //  and the seen-by list — anything that is "pick one row or
-//  close". Rows without onPick are read-only (seen-by).
+//  close". Rows without onPick are read-only (seen-by). Rows
+//  are 44pt targets, and a footer Close (plus the iOS escape
+//  gesture) dismisses without the scrim — hidden from screen
+//  readers, the scrim once left VoiceOver no way out of the
+//  read-only seen-by list.
 //
 //  Used by:
 //    - app/(main)/chat-room/index.tsx
 // -----------------------------------------------------------
 
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -87,6 +92,7 @@ export default function OptionSheet({
   onClose: () => void;
 }) {
 
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
 
@@ -102,7 +108,8 @@ export default function OptionSheet({
     >
       <View className="flex-1 justify-end">
 
-        {/* Scrim — tap outside the card to dismiss */}
+        {/* Scrim — tap outside the card to dismiss; hidden from
+            assistive tech, which dismisses via the footer Close */}
         <Pressable
           onPress={onClose}
           accessible={false}
@@ -114,6 +121,7 @@ export default function OptionSheet({
           className="mx-md rounded-2xl bg-surface p-md"
           style={{ marginBottom: insets.bottom + 24 }}
           accessibilityViewIsModal
+          onAccessibilityEscape={onClose}
           testID="option-sheet"
         >
 
@@ -134,7 +142,7 @@ export default function OptionSheet({
                   accessibilityLabel={row.detail ? `${row.label}, ${row.detail}` : row.label}
                   accessibilityState={row.active ? { selected: true } : undefined}
                   testID={`option-${row.id}`}
-                  className="flex-row items-center py-sm"
+                  className="min-h-11 flex-row items-center py-sm"
                 >
                   <View className="flex-1">
                     <Text className="font-raleway text-base text-ink" numberOfLines={1}>
@@ -151,6 +159,20 @@ export default function OptionSheet({
               ))}
             </ScrollView>
           )}
+
+          <View className="mt-sm items-end">
+            <Pressable
+              onPress={onClose}
+              accessibilityRole="button"
+              accessibilityLabel={t('common.close')}
+              testID="option-sheet-close"
+              className="h-11 items-center justify-center rounded-full bg-brand px-lg"
+            >
+              <Text className="font-raleway-bold text-base text-on-brand">
+                {t('common.close')}
+              </Text>
+            </Pressable>
+          </View>
 
         </View>
       </View>

@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- `useFeed` returns `patchItems(updater)`: the in-place write for live
+  server truth (socket echoes). Unlike `setItems` it does not move the
+  optimistic-mutation fence, so a refresh in flight is no longer voided
+  by an echo that overlaps it. Additive — `setItems` is unchanged.
+- `loadMore` splices a hole-filling page under the gap marker's ROW, not
+  only its captured index, so a same-batch optimistic delete above the
+  marker can no longer land the page inside the old section.
+- `DataEngineProvider` builds its env in a lazy state initializer and
+  `useFeedFreshness` resets its count during render — same behaviour,
+  no refs read during render, no effect-time state reset.
+
 ## 1.0.0 — 2026-08-30
 
 First cut, extracted from the KNF app's `hooks/useLoad.ts`,

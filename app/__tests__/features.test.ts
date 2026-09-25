@@ -9,7 +9,7 @@
 // -----------------------------------------------------------
 
 import { TABS } from '@/constants/tabs';
-import { ENABLED_TABS, FEATURES, TAB_FEATURES, isFeatureEnabled } from '@/services/features';
+import { DEFAULT_PINNED_TABS, ENABLED_TAB_KEYS, FEATURES, TAB_FEATURES, isFeatureEnabled } from '@/services/features';
 
 describe('the shipping flags', () => {
   it('the JSON carries exactly the module keys, all boolean', () => {
@@ -52,6 +52,25 @@ describe('the shipping flags', () => {
       const fresh = require('@/services/features') as typeof import('@/services/features');
       const keys = fresh.ENABLED_TABS.map((tab: { key: string }) => tab.key);
       expect(keys).toEqual(['news', 'schedule', 'id', 'map', 'settings']);
+    });
+  });
+
+  it('every default pinned tab is a module this build ships (KNF-171)', () => {
+    expect(DEFAULT_PINNED_TABS.length).toBeGreaterThan(0);
+    for (const key of DEFAULT_PINNED_TABS) {
+      expect(ENABLED_TAB_KEYS.has(key)).toBe(true);
+    }
+  });
+
+  it('the default pins follow the flags: a module switched on joins them, one switched off leaves', () => {
+    jest.isolateModules(() => {
+      jest.doMock('../features.json', () => ({
+        accounts: true, news: true, chat: true, social: true, schedule: false,
+        assistant: true, studentId: true, map: false,
+      }));
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- isolateModules needs a fresh graph
+      const fresh = require('@/services/features') as typeof import('@/services/features');
+      expect(fresh.DEFAULT_PINNED_TABS).toEqual(['news', 'messages', 'id']);
     });
   });
 });

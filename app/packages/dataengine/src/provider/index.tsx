@@ -22,7 +22,7 @@
 //    - hooks/useFeed.ts — the cache instance
 // -----------------------------------------------------------
 
-import { createContext, useContext, useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 
 import { createCache, type CacheHandle } from '../core/cache';
 import { alwaysOnline, type NetworkSource } from '../core/network';
@@ -70,12 +70,65 @@ const DataEngineContext = createContext<DataEngineEnv | null>(null);
 
 
 // -----------------------------------------------------------
+// createEnv
+// -----------------------------------------------------------
+//
+// Builds the context value exactly once: the two sources, a
+// cache over the storage, and the restore bus — a listener
+// set whose fan-out guards every listener, so one throwing
+// subscriber never blocks the rest.
+//
+// Used by:
+//   - DataEngineProvider (below) — its lazy state initializer
+// -----------------------------------------------------------
+
+function createEnv(storage: KeyValueStorage, network: NetworkSource): DataEngineEnv {
+
+  const listeners = new Set<() => void>();
+
+
+  // Guarded per listener: one throwing subscriber must not
+  // block the rest of the fan-out (a screen's refetch closure
+  // can throw on a half-unmounted tree)
+  const fire = () =>
+    listeners.forEach((fn) => {
+      try {
+        fn();
+      } catch {
+        // The restore bus reports nothing back — a bad listener
+        // is its owner's bug, not the other screens' outage
+      }
+    });
+
+
+  return {
+    storage,
+    network,
+    cache: createCache(storage),
+    onRestore(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    signalRestore: fire,
+  };
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // DataEngineProvider
 // -----------------------------------------------------------
 //
 // Props are captured on first render — swapping storage or
 // network mid-flight is not supported (a provider lives as
-// long as its subtree; remount to reconfigure).
+// long as its subtree; remount to reconfigure). The env is
+// built in a lazy useState initializer, the render-safe home
+// for one-time construction (the old refs-read-during-render
+// version tripped the compiler-era hook lint).
 //
 // Used by:
 //   - the host app's root layout
@@ -92,37 +145,9 @@ export function DataEngineProvider({
   children: ReactNode;
 }) {
 
-  const storageRef = useRef<KeyValueStorage | null>(null);
-  if (storageRef.current === null) storageRef.current = storage ?? memoryStorage();
-  const networkRef = useRef<NetworkSource | null>(null);
-  if (networkRef.current === null) networkRef.current = network ?? alwaysOnline();
-
-
-  const env = useMemo<DataEngineEnv>(() => {
-    const listeners = new Set<() => void>();
-    // Guarded per listener: one throwing subscriber must not
-    // block the rest of the fan-out (a screen's refetch closure
-    // can throw on a half-unmounted tree)
-    const fire = () =>
-      listeners.forEach((fn) => {
-        try {
-          fn();
-        } catch {
-          // The restore bus reports nothing back — a bad listener
-          // is its owner's bug, not the other screens' outage
-        }
-      });
-    return {
-      storage: storageRef.current as KeyValueStorage,
-      network: networkRef.current as NetworkSource,
-      cache: createCache(storageRef.current as KeyValueStorage),
-      onRestore(listener) {
-        listeners.add(listener);
-        return () => listeners.delete(listener);
-      },
-      signalRestore: fire,
-    };
-  }, []);
+  const [env] = useState<DataEngineEnv>(() =>
+    createEnv(storage ?? memoryStorage(), network ?? alwaysOnline()),
+  );
 
 
   // Offline→online transitions become restore events; the

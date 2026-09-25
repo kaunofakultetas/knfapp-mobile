@@ -242,10 +242,12 @@ export default function RoutePreview({
             accessibilityRole="button"
             accessibilityState={{ expanded: stepsOpen }}
             onPress={() => setStepsOpen((open) => !open)}
-            style={{ flexDirection: 'row', alignItems: 'center', marginTop: 12, paddingVertical: 6 }}
+            // ~30 pt of text row; the slop reaches the 44 pt floor
+            hitSlop={{ top: 8, bottom: 8 }}
+            style={{ flexDirection: 'row', alignSelf: 'flex-start', alignItems: 'center', marginTop: 12, paddingVertical: 6 }}
           >
-            <Text style={{ fontSize: 14, fontFamily: fonts.medium, color: colors.brand }}>{stepsOpen ? labels.stepsHide : labels.stepsShow}</Text>
-            <Ionicons name={stepsOpen ? 'chevron-up' : 'chevron-down'} size={16} color={colors.brand} style={{ marginLeft: 4 }} />
+            <Text style={{ fontSize: 14, fontFamily: fonts.medium, color: colors.brandText }}>{stepsOpen ? labels.stepsHide : labels.stepsShow}</Text>
+            <Ionicons name={stepsOpen ? 'chevron-up' : 'chevron-down'} size={16} color={colors.brandText} style={{ marginLeft: 4 }} />
           </Pressable>
         ) : null}
 

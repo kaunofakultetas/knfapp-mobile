@@ -142,10 +142,20 @@ describe('WeekGrid now', () => {
 });
 
 describe('WeekGrid content states', () => {
-  it('an all-empty week says so in the host’s language', async () => {
+  it('an all-empty week says so in the host’s language — over the TOP of the grid, not 700 px below it', async () => {
     const view = await renderGrid({ days: [[], [], [], [], [], [], []] });
     await layOut(view);
-    expect(view.getByTestId('timetableuikit-empty').props.children).toBe('Paskaitų nėra');
+    expect(view.getByTestId('timetableuikit-empty').props.children).toBe('Nėra paskaitų');
+    // Overlaid, absolutely placed near the top: in view, and
+    // taking no layout a neighbour page would not share
+    const pinned = [view.toJSON()].flat().flatMap(allStyles);
+    expect(pinned.some((s) => s.position === 'absolute' && s.top === 16 && s.left === 44 && s.right === 0)).toBe(true);
+  });
+
+  it('a host that knows WHY the week is empty says that instead', async () => {
+    const view = await renderGrid({ days: [[], [], [], [], [], [], []], emptyLabel: 'Nepaskelbta' });
+    await layOut(view);
+    expect(view.getByTestId('timetableuikit-empty').props.children).toBe('Nepaskelbta');
   });
 
   it('a skipped count surfaces the degradation notice', async () => {

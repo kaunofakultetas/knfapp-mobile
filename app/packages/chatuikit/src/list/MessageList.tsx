@@ -36,6 +36,7 @@
 //
 //  Split into (root component last):
 //
+//    arrivalAnnouncement — what a screen reader hears on arrival
 //    OlderMessagesRow — the web-only "load older" header
 //    MessageList      — the feed (default export)
 // -----------------------------------------------------------
@@ -47,10 +48,10 @@ import ScrollToLatestButton from './ScrollToLatestButton';
 import TimeSeparator from './TimeSeparator';
 import TypingBubble from './TypingBubble';
 import SystemMessage from '../message/SystemMessage';
+import { replySnippet } from '../message/ReplyQuote';
 import UnreadSeparator from './UnreadSeparator';
 import UnreadPill from './UnreadPill';
 import FloatingDay from './FloatingDay';
-import { useKitComponents } from '../provider';
 import { useScreenReaderEnabled, useScreenReaderEnabledRef } from '../hooks/a11y';
 import { type KitLabels } from '../provider/labels';
 import { LIST_INSET } from '../core/metrics';
@@ -59,7 +60,7 @@ import { messageKind } from '../core/types';
 import type { ContextTarget, KitMessage, TimelineItem } from '../core/types';
 
 // Theme
-import { useKitEnv, useKitLabels, useKitTheme } from '../provider';
+import { useKitComponents, useKitEnv, useKitLabels, useKitTheme } from '../provider';
 
 // Primitives
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
@@ -76,6 +77,12 @@ const AWAY_OFFSET = 240;
 // scrollToIndex attempts on rows the list has not measured yet
 // Deep targets climb the measured frontier a page at a time
 const MAX_INDEX_RETRIES = 12;
+
+// Web: the first pin to the newest end stays sticky until the
+// content has not grown for this long…
+const SETTLE_QUIET_MS = 400;
+// …or, at the latest, this long after the list got its rows
+const SETTLE_CAP_MS = 3000;
 
 // One platform read for the whole file — the web list keeps
 // its own bottom-pinning and outline mechanics
@@ -126,6 +133,37 @@ export const keyExtractor = (row: TimelineItem) => (row.type === 'message' ? row
 // -----------------------------------------------------------
 
 const rowId = (message: KitMessage) => message.clientId ?? message.id;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// arrivalAnnouncement
+// -----------------------------------------------------------
+//
+// What a screen reader hears when a message lands while the
+// reader is scrolled away: "Ona: <what it is>" — the text, or
+// for a caption-less row its KIND (video, voice message, the
+// file's name, photo; it once said "photo" for all of them) —
+// and a system line by its own worded event, no sender.
+//
+// Used by:
+//   - MessageList (below) — the arrival effect
+// -----------------------------------------------------------
+
+export function arrivalAnnouncement(message: KitMessage, labels: KitLabels): string {
+  if (messageKind(message) === 'system') {
+    return (message.system ? labels.systemMessage(message.system, message.senderName) : null) ?? message.text;
+  }
+  const what = replySnippet(
+    { id: message.id, senderId: message.senderId, senderName: message.senderName, text: message.text, imageUrl: message.imageUrl, deleted: !!message.deleted, kind: messageKind(message), fileName: message.file?.name },
+    labels,
+  );
+  return `${message.senderName}: ${what || labels.photo}`;
+}
 
 
 
@@ -241,7 +279,7 @@ function OlderMessagesRow({ loading, labels, onPress }: { loading: boolean; labe
       accessibilityLabel={labels.loadOlder}
       style={{ alignItems: 'center', paddingVertical: 8 }}
     >
-      <Text style={{ fontFamily: fonts.medium, fontSize: 14, color: colors.brand }}>{labels.loadOlder}</Text>
+      <Text style={{ fontFamily: fonts.medium, fontSize: 14, color: colors.brandText }}>{labels.loadOlder}</Text>
     </Pressable>
   );
 }
@@ -288,7 +326,7 @@ function NewerMessagesRow({ loading, labels, onPress }: { loading: boolean; labe
       testID="chatuikit-load-newer"
       style={{ alignItems: 'center', paddingVertical: 8 }}
     >
-      <Text style={{ fontFamily: fonts.medium, fontSize: 14, color: colors.brand }}>{labels.loadNewer}</Text>
+      <Text style={{ fontFamily: fonts.medium, fontSize: 14, color: colors.brandText }}>{labels.loadNewer}</Text>
     </Pressable>
   );
 }
@@ -457,6 +495,23 @@ const MessageList = memo(forwardRef<
   // grows and pushes it down
   const atBottomRef = useRef(true);
   const pinnedOnceRef = useRef(false);
+  // Web only: the opening pin is STICKY while the first page
+  // settles. A virtualized page renders in batches, each batch
+  // growing the content, and a scroll event landing between a
+  // growth and its re-pin used to read "not at the bottom" and
+  // strand the room a screen above its newest rows (and above
+  // the unread line). Settled = the content stopped growing
+  // (SETTLE_QUIET_MS), the reader's own wheel / touch / key, or
+  // SETTLE_CAP_MS
+  const settlingRef = useRef(isWeb);
+  const settleQuietTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const endSettling = useCallback(() => {
+    settlingRef.current = false;
+    if (settleQuietTimerRef.current) {
+      clearTimeout(settleQuietTimerRef.current);
+      settleQuietTimerRef.current = null;
+    }
+  }, []);
   const contentHeightRef = useRef(0);
   const viewportHeightRef = useRef(0);
   const retriesRef = useRef(0);
@@ -554,9 +609,9 @@ const MessageList = memo(forwardRef<
     // only while scrolled away — at the bottom the reader reaches
     // the new row by its own navigation
     if (newest?.type === 'message' && isFocused && awayRef.current && screenReaderRef.current) {
-      AccessibilityInfo.announceForAccessibility(`${newest.message.senderName}: ${newest.message.text || labels.photo}`);
+      AccessibilityInfo.announceForAccessibility(arrivalAnnouncement(newest.message, labels));
     }
-  }, [newestId, newestOwn, newest, items, isFocused, labels.photo, scrollToLatest, screenReaderRef]);
+  }, [newestId, newestOwn, newest, items, isFocused, labels, scrollToLatest, screenReaderRef]);
 
 
   const onAtLatestChangeRef = useRef(onAtLatestChange);
@@ -582,6 +637,29 @@ const MessageList = memo(forwardRef<
     }
   }, []);
   useEffect(() => clearRetryTimer, [clearRetryTimer]);
+
+
+  // Web: the settle's cap, and the reader's own input ending it at
+  // once (a wheel, a touch, a press, a key on the scroll node). An
+  // emptied list (a room switched in place) opens pinned again
+  const hasRows = items.length > 0;
+  useEffect(() => {
+    if (!isWeb) return undefined;
+    if (!hasRows) {
+      settlingRef.current = true;
+      atBottomRef.current = true;
+      return undefined;
+    }
+    const cap = setTimeout(endSettling, SETTLE_CAP_MS);
+    const node = (listRef.current as unknown as { getScrollableNode?: () => { addEventListener?: (type: string, fn: () => void, opts?: object) => void; removeEventListener?: (type: string, fn: () => void) => void } | null } | null)?.getScrollableNode?.();
+    const events = ['wheel', 'touchstart', 'mousedown', 'keydown'];
+    for (const type of events) node?.addEventListener?.(type, endSettling, { passive: true });
+    return () => {
+      clearTimeout(cap);
+      for (const type of events) node?.removeEventListener?.(type, endSettling);
+    };
+  }, [hasRows, endSettling]);
+  useEffect(() => endSettling, [endSettling]);
 
 
   // scrollToIndex on an index without a frame throws on some RN
@@ -632,6 +710,10 @@ const MessageList = memo(forwardRef<
   // stretch (another room, a re-open) starts over
   const [unreadSeen, setUnreadSeen] = useState(false);
   const [unreadDismissed, setUnreadDismissed] = useState(false);
+  // Which way the pill points: at the unread line, wherever it is
+  // relative to the viewport (it opens above the newest rows; a
+  // reader scrolled up into history has it BELOW)
+  const [unreadDirection, setUnreadDirection] = useState<'up' | 'down'>('up');
   const [unreadKey, setUnreadKey] = useState(unread?.firstUnreadId);
   if (unreadKey !== unread?.firstUnreadId) {
     setUnreadKey(unread?.firstUnreadId);
@@ -659,6 +741,17 @@ const MessageList = memo(forwardRef<
   useEffect(() => {
     dayLabelsRef.current = dayLabels;
   }, [dayLabels]);
+  // The orientation, for the same stable callback — it cannot
+  // close over `upright` directly
+  const uprightRef = useRef(upright);
+  useEffect(() => {
+    uprightRef.current = upright;
+  }, [upright]);
+  // The rows as rendered, for the same callback's unread lookup
+  const dataRef = useRef(data);
+  useEffect(() => {
+    dataRef.current = data;
+  }, [data]);
 
   // FlatList wants a stable pair; the callback reads refs so the
   // pair never has to change
@@ -669,10 +762,27 @@ const MessageList = memo(forwardRef<
       onViewableItemsChanged: ({ viewableItems }: { viewableItems: ViewToken<TimelineItem>[] }) => {
         if (viewableItems.length === 0) return;
         if (viewableItems.some((token) => token.item?.type === 'unread')) setUnreadSeen(true);
-        // Inverted: the highest index is the topmost row on screen
-        const top = viewableItems.reduce((best, token) =>
-          (token.index ?? -1) > (best.index ?? -1) ? token : best,
-        );
+        // The unread line off screen: above or below the viewport?
+        // Inverted, a higher index is further UP; upright, lower
+        const unreadIndex = dataRef.current.findIndex((row) => row.type === 'unread');
+        const seen = viewableItems.map((token) => token.index ?? -1).filter((i) => i >= 0);
+        if (unreadIndex >= 0 && seen.length > 0) {
+          const min = Math.min(...seen);
+          const max = Math.max(...seen);
+          const above = uprightRef.current ? unreadIndex < min : unreadIndex > max;
+          const below = uprightRef.current ? unreadIndex > max : unreadIndex < min;
+          if (above || below) setUnreadDirection(above ? 'up' : 'down');
+        }
+        // The topmost row on screen names the pill: inverted, that
+        // is the HIGHEST index; upright (web, a screen reader) the
+        // rows run oldest-first, so it is the LOWEST — picking the
+        // highest there named the bottom row's day instead
+        const top = viewableItems.reduce((best, token) => {
+          const a = token.index ?? -1;
+          const b = best.index ?? -1;
+          if (uprightRef.current) return a >= 0 && (b < 0 || a < b) ? token : best;
+          return a > b ? token : best;
+        });
         if (top.item) {
           const label = floatingDayFor(top.item, dayLabelsRef.current);
           setFloatingLabel((current) => (current === label ? current : label));
@@ -759,7 +869,14 @@ const MessageList = memo(forwardRef<
     if (!upright) return;
     contentHeightRef.current = h;
     if (!isWeb) return;
-    if (atBottomRef.current) {
+    if (settlingRef.current) {
+      // Still opening: every growth re-pins, and the quiet timer
+      // restarts — the settle ends once the growth stops
+      atBottomRef.current = true;
+      scrollToLatest(false);
+      if (settleQuietTimerRef.current) clearTimeout(settleQuietTimerRef.current);
+      settleQuietTimerRef.current = setTimeout(endSettling, SETTLE_QUIET_MS);
+    } else if (atBottomRef.current) {
       scrollToLatest(false);
     } else if (pendingOlderRef.current !== null && h > pendingOlderRef.current) {
       // An older page grew the content ABOVE the viewport — shift
@@ -769,7 +886,7 @@ const MessageList = memo(forwardRef<
       pendingOlderRef.current = h;
     }
     pinnedOnceRef.current = true;
-  }, [upright, scrollToLatest]);
+  }, [upright, scrollToLatest, endSettling]);
 
   const onScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
@@ -777,8 +894,10 @@ const MessageList = memo(forwardRef<
     const distance = upright
       ? contentSize.height - layoutMeasurement.height - contentOffset.y
       : contentOffset.y;
-    if (isWeb && pinnedOnceRef.current) atBottomRef.current = distance < 48;
-    setAwayState(distance > AWAY_OFFSET);
+    // While the opening pin settles, the programmatic scrolls are
+    // not the reader leaving the bottom
+    if (isWeb && pinnedOnceRef.current && !settlingRef.current) atBottomRef.current = distance < 48;
+    setAwayState(settlingRef.current ? false : distance > AWAY_OFFSET);
 
     // Floating day: show on activity, fade once the scroll settles
     // eslint-disable-next-line react-hooks/immutability -- reanimated shared value: `.value` is the documented mutable box
@@ -937,7 +1056,9 @@ const MessageList = memo(forwardRef<
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         removeClippedSubviews={false}
-        initialNumToRender={20}
+        // Web renders the whole first page at once, so the opening
+        // pin measures real rows instead of estimated ones
+        initialNumToRender={isWeb ? Math.max(20, data.length) : 20}
         maxToRenderPerBatch={12}
         windowSize={9}
       />
@@ -946,6 +1067,7 @@ const MessageList = memo(forwardRef<
       {unread && unread.count > 0 && !unreadSeen && !unreadDismissed ? (
         <Pill
           label={labels.newMessages(unread.count)}
+          direction={unreadDirection}
           onPress={() => {
             const index = data.findIndex((item) => item.key === 'unread');
             if (index >= 0) safeScrollToIndex({ index, animated: true, viewPosition: 0.5 });

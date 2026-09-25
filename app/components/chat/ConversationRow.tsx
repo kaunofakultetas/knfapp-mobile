@@ -31,6 +31,9 @@ import { Avatar, Badge } from '@/components/ui';
 // Conversation shape straight from the chat API + upload paths
 import { getUploadUrl, type ApiConversation } from '@/services/api';
 
+// The preview line, per message kind (pure, unit-tested)
+import { conversationPreview } from '@/components/chat/conversationList';
+
 // Relative "5 min" age of the last activity
 import { formatRelative } from '@/services/format';
 
@@ -250,28 +253,9 @@ function ConversationRow({
   };
 
 
-  // Previews: an unsent last message shows its placeholder; an
-  // own one is prefixed "You:"; group previews name the sender;
-  // a photo-only message gets a placeholder word instead of an
-  // empty line
+  // The preview line — see components/chat/conversationList.ts
   const last = item.lastMessage;
-  const body = last
-    ? last.deleted
-      ? t('messages.deletedPreview')
-      : last.text
-        || (last.kind === 'video' ? t('messages.videoMessage')
-          : last.kind === 'file' ? t('messages.fileMessage')
-          : t('messages.photoMessage'))
-    : '';
-  const preview = last
-    ? last.kind === 'system'
-      ? body
-      : last.senderId === user?.id
-        ? `${t('messages.youPrefix')} ${body}`
-        : item.type === 'group' && last.senderName
-          ? `${last.senderName}: ${body}`
-          : body
-    : t('messages.tapToStart');
+  const preview = conversationPreview(item, user?.id, t);
 
 
   // Screen readers get the whole row in one node: title,

@@ -1,23 +1,31 @@
 // -----------------------------------------------------------
 //  [*] chatuikit — Composer
 //
-//  The message input, Messenger-style: a media button (photo
-//  or video) and a paperclip (document) on the left, a rounded
-//  pill field that grows with the draft (up to five lines)
-//  with the emoji toggle tucked inside its right end, and a
-//  send slot that morphs — the quick-like thumb while the
-//  field is empty, a brand circle with an up-arrow once there
-//  is text, a check while editing — on a short spring. A strip
-//  above the field shows who is being answered (or that a
-//  message is being edited) and cancels with an ×. The bottom
-//  safe area is the composer's to pad.
+//  The message input, Messenger-style: one "+" on the left
+//  that opens the attachment tray (gallery, camera, file,
+//  memes — whichever the host offers), the mic beside it while
+//  the field is empty, a rounded pill field that grows with the
+//  draft (up to five lines) with the emoji toggle tucked inside
+//  its right end, and a send slot that morphs — the quick-like
+//  thumb while the field is empty, a brand circle with an
+//  up-arrow once there is text, a check while editing — on a
+//  short spring. The tray exists so the field keeps its width:
+//  with every action in the bar (gallery, paperclip, mic, a
+//  meme badge and a camera inside the field) a 390pt phone had
+//  the placeholder wrap and clip, a 320pt one had no field
+//  left. A strip above the field shows who is being answered
+//  (or that a message is being edited) and cancels with an ×.
+//  The bottom safe area is the composer's to pad.
 //
 //  Split into (root component last):
 //
-//    Strip        — the reply / editing bar above the field
-//    AttachButton — one of the two attach buttons
-//    SendSlot     — the morphing send / like / save button
-//    Composer     — the input bar (default export)
+//    Strip          — the reply / editing bar above the field
+//    AttachButton   — the mic (an icon in the bar's slot)
+//    TrayToggle     — the "+" that opens the attachment tray
+//    TrayItem       — one tile of the tray
+//    AttachmentTray — the tray row above the field
+//    SendSlot       — the morphing send / like / save button
+//    Composer       — the input bar (default export)
 // -----------------------------------------------------------
 
 // Theme + labels
@@ -85,6 +93,20 @@ const MORPH_SPRING = { damping: 18, stiffness: 320, mass: 0.7, overshootClamping
 // the native-only focus quirks
 const isWeb = Platform.OS === 'web';
 
+// One tile of the attachment tray, as the Composer builds it
+// from the host's callbacks (TrayItem draws it)
+interface TrayEntry {
+  key: string;
+  glyph: 'images-outline' | 'camera-outline' | 'document-attach-outline' | 'meme';
+  caption: string;
+  label: string;
+  busyLabel?: string;
+  busy?: boolean;
+  active?: boolean;
+  testID: string;
+  onPress: () => void;
+}
+
 
 
 
@@ -141,7 +163,7 @@ function Strip({
       <View style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: colors.brand, marginRight: 10 }} />
       <Ionicons name={icon} size={16} color={colors.brand} style={{ marginRight: 8 }} />
       <View style={{ flex: 1 }}>
-        <Text style={{ fontFamily: fonts.bold, fontSize: 13, lineHeight: 16, color: colors.brand }} numberOfLines={1}>
+        <Text style={{ fontFamily: fonts.bold, fontSize: 13, lineHeight: 16, color: colors.brandText }} numberOfLines={1}>
           {title}
         </Text>
         <Text style={{ fontFamily: fonts.regular, fontSize: 13, lineHeight: 16, color: colors.inkSoft }} numberOfLines={1}>
@@ -165,12 +187,12 @@ function Strip({
 // AttachButton
 // -----------------------------------------------------------
 //
-// One icon in a fixed 36×38 slot; `busy` swaps it for a
-// spinner (a11y label included), disabled dims it to 40%
-// so the bar keeps its shape.
+// One icon in a fixed 36×38 slot (the slop takes it to 44);
+// `busy` swaps it for a spinner (a11y label included),
+// disabled dims it to 40% so the bar keeps its shape.
 //
 // Used by:
-//   - Composer (below)
+//   - Composer (below) — the mic
 // -----------------------------------------------------------
 
 function AttachButton({
@@ -204,6 +226,149 @@ function AttachButton({
     >
       {busy ? <ActivityIndicator size="small" color={colors.brand} /> : <Ionicons name={icon} size={24} color={colors.brand} />}
     </Pressable>
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// TrayToggle
+// -----------------------------------------------------------
+//
+// The "+" that opens the attachment tray and turns into a
+// close × while it is open; `expanded` tells a screen reader
+// which. Inert (dimmed) while editing or for a guest.
+//
+// Used by:
+//   - Composer (below)
+// -----------------------------------------------------------
+
+function TrayToggle({ open, disabled, label, onPress }: { open: boolean; disabled: boolean; label: string; onPress: () => void }) {
+
+  const { colors } = useKitTheme();
+
+
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      hitSlop={6}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled, expanded: open }}
+      testID="chatuikit-attach-toggle"
+      style={{ width: 36, height: 38, alignItems: 'center', justifyContent: 'center', opacity: disabled ? 0.4 : 1 }}
+    >
+      <Ionicons name={open ? 'close-circle' : 'add-circle'} size={28} color={colors.brand} />
+    </Pressable>
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// TrayItem
+// -----------------------------------------------------------
+//
+// One tile of the tray: a 48pt brand-soft disc over a short
+// caption, the whole tile the tap target; `busy` swaps the
+// glyph for a spinner and makes the tile inert (its upload is
+// still going), `active` rings the disc (the meme panel is
+// open). The spoken name is the long label, not the caption.
+//
+// Used by:
+//   - AttachmentTray (below)
+// -----------------------------------------------------------
+
+function TrayItem({ entry, onPicked }: { entry: TrayEntry; onPicked: () => void }) {
+
+  const { colors, fonts } = useKitTheme();
+
+
+  return (
+    <Pressable
+      onPress={() => {
+        onPicked();
+        entry.onPress();
+      }}
+      disabled={entry.busy}
+      accessibilityRole="button"
+      accessibilityLabel={entry.busy && entry.busyLabel ? entry.busyLabel : entry.label}
+      accessibilityState={{ disabled: !!entry.busy, ...(entry.active !== undefined ? { expanded: entry.active } : {}) }}
+      testID={entry.testID}
+      style={{ minWidth: 64, alignItems: 'center', paddingVertical: 4, paddingHorizontal: 4 }}
+    >
+      <View
+        style={{
+          width: 48,
+          height: 48,
+          borderRadius: 24,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: colors.brandSoft,
+          borderWidth: entry.active ? 2 : 0,
+          borderColor: colors.brand,
+        }}
+      >
+        {entry.busy ? (
+          <ActivityIndicator size="small" color={colors.brand} />
+        ) : entry.glyph === 'meme' ? (
+          <View style={{ paddingHorizontal: 5, paddingVertical: 2, borderRadius: 6, borderWidth: 1.5, borderColor: colors.brand }}>
+            <Text style={{ fontFamily: fonts.bold, fontSize: 9, letterSpacing: 0.4, color: colors.brandText }}>MEME</Text>
+          </View>
+        ) : (
+          <Ionicons name={entry.glyph} size={24} color={colors.brand} />
+        )}
+      </View>
+      <Text style={{ marginTop: 4, fontFamily: fonts.medium, fontSize: 12, lineHeight: 15, color: colors.inkSoft }} numberOfLines={1}>
+        {entry.caption}
+      </Text>
+    </Pressable>
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// AttachmentTray
+// -----------------------------------------------------------
+//
+// The row the "+" opens above the field: one TrayItem per
+// action the host offers, spread evenly — four tiles fit a
+// 320pt screen. Picking a tile closes the tray first.
+//
+// Used by:
+//   - Composer (below)
+// -----------------------------------------------------------
+
+function AttachmentTray({ entries, onPicked }: { entries: TrayEntry[]; onPicked: () => void }) {
+
+  const { colors } = useKitTheme();
+
+
+  return (
+    <Animated.View
+      entering={FadeInDown.duration(140)}
+      exiting={FadeOutDown.duration(100)}
+      style={{ flexDirection: 'row', justifyContent: 'space-evenly', paddingHorizontal: 8, paddingTop: 10, paddingBottom: 2, borderTopWidth: 1, borderTopColor: colors.line }}
+      testID="chatuikit-attach-tray"
+    >
+      {entries.map((entry) => (
+        <TrayItem key={entry.key} entry={entry} onPicked={onPicked} />
+      ))}
+    </Animated.View>
   );
 }
 
@@ -266,6 +431,9 @@ function MentionStrip({ candidates, labels, onPick }: { candidates: KitMentionCa
           accessibilityRole="button"
           accessibilityLabel={labels.mentionUser(candidate.name)}
           testID={`chatuikit-mention-pick-${candidate.id}`}
+          // The chip is ~32pt tall — the slop takes it to 44 without
+          // reaching the neighbours (the row's gap is 6)
+          hitSlop={{ top: 6, bottom: 6, left: 3, right: 3 }}
           style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 16, backgroundColor: colors.surfaceSoft }}
         >
           <KitAvatar uri={candidate.avatarUrl} name={candidate.name} size={22} colorKey={candidate.id} />
@@ -322,6 +490,8 @@ function RecordingRow({ elapsedSeconds, labels, onCancel, onStop }: { elapsedSec
       </Pressable>
       <Pressable
         onPress={onStop}
+        // A 34pt disc — the slop takes it to 44, like its sibling
+        hitSlop={5}
         accessibilityRole="button"
         accessibilityLabel={labels.sendVoice}
         testID="chatuikit-recording-send"
@@ -405,14 +575,19 @@ function SendSlot({
       testID="chatuikit-send"
       style={{ width: 38, height: 38, alignItems: 'center', justifyContent: 'center', opacity: disabled ? 0.4 : 1 }}
     >
-      <Animated.View
-        style={[
-          { position: 'absolute', width: 34, height: 34, borderRadius: 17, backgroundColor: colors.bubbleOut, alignItems: 'center', justifyContent: 'center', opacity: editing && !hasText ? 0.4 : 1 },
-          sendStyle,
-        ]}
-      >
-        <Ionicons name={editing ? 'checkmark' : 'arrow-up'} size={20} color={colors.onBrand} />
-      </Animated.View>
+      {/* The can't-save dim sits on its own layer — on the morph
+          layer the animated opacity overrode it, and an emptied
+          edit looked saveable */}
+      <View style={{ position: 'absolute', opacity: editing && !hasText ? 0.4 : 1 }} testID="chatuikit-send-face">
+        <Animated.View
+          style={[
+            { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.bubbleOut, alignItems: 'center', justifyContent: 'center' },
+            sendStyle,
+          ]}
+        >
+          <Ionicons name={editing ? 'checkmark' : 'arrow-up'} size={20} color={colors.onBrand} />
+        </Animated.View>
+      </View>
       <Animated.View style={[{ position: 'absolute' }, likeStyle]}>
         <Ionicons name="thumbs-up" size={26} color={colors.brand} />
       </Animated.View>
@@ -518,6 +693,16 @@ export default function Composer({
   const insets = useSafeAreaInsets();
 
 
+  // The attachment tray behind the "+". It closes by itself when
+  // attachments stop making sense (editing, recording, a guest)
+  const [trayOpen, setTrayOpen] = useState(false);
+  const trayBlocked = !!editing || !!recording || !canSend;
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the blocking mode is the event; the tray closes with it
+    if (trayBlocked) setTrayOpen(false);
+  }, [trayBlocked]);
+
+
   // The home-indicator inset belongs under the bar only while the
   // keyboard is down — with it up, the bar sits flush on the keys
   const [keyboardUp, setKeyboardUp] = useState(false);
@@ -587,6 +772,16 @@ export default function Composer({
     onChangeText(head + value.slice(at));
     setCursorPos(head.length);
   };
+
+
+  // The tray's tiles — only what the host offers, in the order
+  // a phone's share sheet reads: library, camera, file, memes
+  const trayEntries: TrayEntry[] = [
+    { key: 'media', glyph: 'images-outline', caption: labels.trayGallery, label: labels.attachMedia, busyLabel: labels.uploadingMedia, busy: uploadingMedia, testID: 'chatuikit-attach-media', onPress: onAttachMedia },
+    ...(onAttachCamera ? [{ key: 'camera', glyph: 'camera-outline' as const, caption: labels.trayCamera, label: labels.attachCamera, testID: 'chatuikit-camera', onPress: onAttachCamera }] : []),
+    ...(onAttachFile ? [{ key: 'file', glyph: 'document-attach-outline' as const, caption: labels.trayFile, label: labels.attachFile, busyLabel: labels.uploadingFile, busy: uploadingFile, testID: 'chatuikit-attach-file', onPress: onAttachFile }] : []),
+    ...(onToggleMemes ? [{ key: 'memes', glyph: 'meme' as const, caption: labels.trayMemes, label: labels.openMemes, active: memesOpen, testID: 'chatuikit-memes-toggle', onPress: onToggleMemes }] : []),
+  ];
 
 
   // Choosing a reply or starting an edit brings the keyboard up
@@ -681,6 +876,8 @@ export default function Composer({
         <MentionStrip candidates={mentionMatches} labels={labels} onPick={insertMention} />
       ) : null}
 
+      {trayOpen && !trayBlocked ? <AttachmentTray entries={trayEntries} onPicked={() => setTrayOpen(false)} /> : null}
+
       {recording && canSend ? (
         <RecordingRow
           elapsedSeconds={recording.elapsedSeconds}
@@ -691,34 +888,33 @@ export default function Composer({
       ) : (
       <View style={{ flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: 8, paddingVertical: 8 }}>
 
-        {/* Attachments make no sense while editing a text — the
-            buttons dim instead of vanishing, so the bar keeps its shape */}
-        <AttachButton
-          icon="image-outline"
-          label={labels.attachMedia}
-          busyLabel={labels.uploadingMedia}
-          busy={uploadingMedia}
-          disabled={!!editing || !canSend}
-          onPress={onAttachMedia}
+        {/* Every attachment behind one "+"; it dims instead of
+            vanishing while editing, so the bar keeps its shape */}
+        <TrayToggle
+          open={trayOpen}
+          disabled={trayBlocked}
+          label={labels.openAttachments}
+          onPress={() => {
+            // The tray is its own mode — the emoji row and the
+            // meme panel step aside for it
+            if (!trayOpen && emojiOpen) onToggleEmoji();
+            if (!trayOpen && memesOpen) onToggleMemes?.();
+            setTrayOpen((open) => !open);
+          }}
         />
-        {onAttachFile ? (
-          <AttachButton
-            icon="attach-outline"
-            label={labels.attachFile}
-            busyLabel={labels.uploadingFile}
-            busy={uploadingFile}
-            disabled={!!editing || !canSend}
-            onPress={onAttachFile}
-          />
-        ) : null}
-        {onStartRecording ? (
+        {/* The mic only while there is nothing typed: a voice note
+            cannot carry the draft, and the field needs the room */}
+        {onStartRecording && !hasText && !editing ? (
           <AttachButton
             icon="mic-outline"
             label={labels.recordVoice}
             busyLabel={labels.recordVoice}
             busy={false}
-            disabled={!!editing || !canSend}
-            onPress={onStartRecording}
+            disabled={!canSend}
+            onPress={() => {
+              setTrayOpen(false);
+              onStartRecording();
+            }}
           />
         ) : null}
 
@@ -770,41 +966,16 @@ export default function Composer({
             maxLength={limit}
             textAlignVertical="center"
           />
-          {onToggleMemes && !hasText && !editing ? (
-            <Pressable
-              onPress={onToggleMemes}
-              hitSlop={6}
-              disabled={!canSend}
-              accessibilityRole="button"
-              accessibilityLabel={labels.openMemes}
-              accessibilityState={{ expanded: memesOpen }}
-              testID="chatuikit-memes-toggle"
-              style={{ height: FIELD_MIN, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 }}
-            >
-              <View style={{ paddingHorizontal: 5, paddingVertical: 2, borderRadius: 6, borderWidth: 1.5, borderColor: memesOpen ? colors.brand : colors.inkSoft }}>
-                <Text style={{ fontFamily: fonts.bold, fontSize: 9, letterSpacing: 0.4, color: memesOpen ? colors.brand : colors.inkSoft }}>MEME</Text>
-              </View>
-            </Pressable>
-          ) : null}
-          {onAttachCamera && !hasText && !editing ? (
-            <Pressable
-              onPress={onAttachCamera}
-              hitSlop={6}
-              disabled={!canSend}
-              accessibilityRole="button"
-              accessibilityLabel={labels.attachCamera}
-              testID="chatuikit-camera"
-              style={{ width: 34, height: FIELD_MIN, alignItems: 'center', justifyContent: 'center' }}
-            >
-              <Ionicons name="camera-outline" size={22} color={colors.inkSoft} />
-            </Pressable>
-          ) : null}
           <Pressable
-            onPress={onToggleEmoji}
+            onPress={() => {
+              setTrayOpen(false);
+              onToggleEmoji();
+            }}
             hitSlop={6}
+            disabled={!canSend}
             accessibilityRole="button"
             accessibilityLabel={labels.chooseEmoji}
-            accessibilityState={{ expanded: emojiOpen }}
+            accessibilityState={{ expanded: emojiOpen, disabled: !canSend }}
             style={{ width: 36, height: FIELD_MIN, alignItems: 'center', justifyContent: 'center' }}
           >
             <Ionicons name={emojiOpen ? 'happy' : 'happy-outline'} size={22} color={emojiOpen ? colors.brand : colors.inkSoft} />

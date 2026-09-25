@@ -25,12 +25,22 @@
 //  lazy-creation seam: the host mints the thread on the
 //  first send and just returns the id afterwards.
 //
+//  The body's history is WINDOWED on the way out: the last
+//  HISTORY_WINDOW messages at most, opening on a user turn,
+//  with tool results kept only on the newest
+//  TOOL_EVIDENCE_WINDOW (the container prunes older tool
+//  traffic before the model anyway). A long conversation used
+//  to die for good the day its history crossed the container's
+//  message-count or body-size ceiling — every send a 400, and
+//  Retry re-sent the same body.
+//
 //  Split into:
 //
 //    resolveFetch               — the seam or the global
 //    joinUrl                    — base + fixed path, no '//'
 //    buildAssistantHeaders      — the three faculty headers
-//    resolveThreadBody          — the threadId injection
+//    trimHistory                — the history window
+//    prepareRequestBody         — window + threadId injection
 //    createAssistantFetch       — the wrapped fetch
 //    createKnfAssistantTransport — the upstream transport built
 //                                 on it
@@ -41,15 +51,15 @@
 //      resolveFetch
 //    - testing/index.tsx — describeTransportContract builds
 //      the real transport for its rig
-//    - core/__tests__/transport.test.ts and both hook suites
-//    - the app's assistant screen wiring, once it lands —
-//      no app import yet
+//    - core/__tests__/transport.test.ts, transportThread.test.ts
+//      and both hook suites
+//    - app/(main)/tabs/assistant.tsx — createKnfAssistantTransport
 // -----------------------------------------------------------
 
 import { AssistantChatTransport } from '@assistant-ui/ai-sdk';
 import type { UIMessage } from 'ai';
 
-import { readFailureBody, toAssistantFailure } from './errors';
+import { readFailureBody, serverCodeOf, serverMessage, toAssistantFailure } from './errors';
 import {
   ASSISTANT_CHAT_PATH,
   ASSISTANT_CLIENT_HEADER,
@@ -63,6 +73,17 @@ import {
 // the streaming body itself is never time-boxed (a slow model
 // is not a dead network)
 const DEFAULT_FIRST_BYTE_TIMEOUT_MS = 30_000;
+
+// The most history messages one request carries — well under
+// the container's 60-message ceiling, and 20 exchanges is more
+// context than a faculty question needs
+const HISTORY_WINDOW = 40;
+
+// Only the newest this-many messages keep their tool parts —
+// the container prunes tool traffic older than its last ten
+// MODEL messages (fewer UI messages still), so an older result
+// is bytes toward the body ceiling and nothing to the model
+const TOOL_EVIDENCE_WINDOW = 10;
 
 
 
@@ -231,58 +252,199 @@ async function readToken(getAuthToken: AssistantTransportConfig['getAuthToken'])
 
 
 // -----------------------------------------------------------
-// resolveThreadBody
+// trimHistory
 // -----------------------------------------------------------
 //
-// The threadId injection: with a resolver configured and a
-// JSON string body in hand, ask the host which thread this
-// send persists into and stamp it as `threadId` next to the
-// upstream's own fields. Everything else passes through
-// untouched — no resolver, a null/undefined id, or a body
-// that is not a JSON object string (defensive: the upstream
-// only ever sends one). A THROWING resolver fails the
-// request as a network failure — the host was creating the
-// thread and could not, and a silently stateless turn would
-// lose the person's history.
+//   trimHistory(fiftyMessages) → the last ≤ 40, from a user
+//                                turn, old tool parts dropped
+//   trimHistory(fiveMessages)  → the SAME array, untouched
+//
+// The history window. A cut window never opens on an
+// assistant message — a reply with no question above it
+// reads to the model as talking to itself. Older than the
+// newest TOOL_EVIDENCE_WINDOW, an assistant message loses its
+// tool parts (`tool-*`, `dynamic-tool`); its text, and every
+// message's id and order, stay — the container persists only
+// the newest ten request messages, none of which is ever
+// touched here. Returns the input array itself when nothing
+// changed, so a short conversation's body goes out
+// byte-identical.
 //
 // Used by:
-//   - createAssistantFetch (above)
+//   - prepareRequestBody (below)
+//   - core/__tests__/transportThread.test.ts
 // -----------------------------------------------------------
 
-async function resolveThreadBody(
+export function trimHistory(messages: readonly unknown[]): unknown[] {
+  let start = Math.max(0, messages.length - HISTORY_WINDOW);
+  if (start > 0) {
+    while (start < messages.length - 1 && roleOf(messages[start]) !== 'user') start += 1;
+  }
+  const evidenceFrom = messages.length - TOOL_EVIDENCE_WINDOW;
+
+  let changed = start > 0;
+  const kept = messages.slice(start).map((message, offset) => {
+    if (start + offset >= evidenceFrom) return message;
+    const stripped = withoutToolParts(message);
+    if (stripped !== message) changed = true;
+    return stripped;
+  });
+  return changed ? kept : (messages as unknown[]);
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// roleOf
+// -----------------------------------------------------------
+//
+// A wire message's role, when it is shaped like one.
+//
+// Used by:
+//   - trimHistory (above), withoutToolParts (below)
+// -----------------------------------------------------------
+
+function roleOf(message: unknown): unknown {
+  return (message as { role?: unknown } | null)?.role;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// withoutToolParts
+// -----------------------------------------------------------
+//
+// An assistant message minus its tool parts — a NEW object
+// only when there was one to drop, the message itself
+// otherwise.
+//
+// Used by:
+//   - trimHistory (above)
+// -----------------------------------------------------------
+
+function withoutToolParts(message: unknown): unknown {
+  const parts = (message as { parts?: unknown } | null)?.parts;
+  if (roleOf(message) !== 'assistant' || !Array.isArray(parts)) return message;
+  const isTool = (part: unknown) => {
+    const type = (part as { type?: unknown } | null)?.type;
+    return typeof type === 'string' && (type.startsWith('tool-') || type === 'dynamic-tool');
+  };
+  if (!parts.some(isTool)) return message;
+  return { ...(message as Record<string, unknown>), parts: parts.filter((part) => !isTool(part)) };
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// resolverFailure
+// -----------------------------------------------------------
+//
+//   resolverFailure({ status: 429, data: {...} })
+//     → { code: 'quota', status: 429, serverCode?, message }
+//
+// A threadId resolver's rejection as the typed failure, its
+// HTTP identity KEPT: the host's HTTP client error carries
+// `status`, the answer body as `data` and maybe its own
+// `serverCode`/`code` — read by shape, the engine imports no
+// host class. 401/403 auth, 429 quota, 502-504 unavailable,
+// any other status server (a 500 on thread-create is no
+// connectivity problem); no status is the network, or the
+// timeout when the client said so. The message names the
+// step and then the server's own words, and the server's
+// machine code rides along — the banner's technical line
+// once read only "Thread could not be created".
+//
+// Used by:
+//   - prepareRequestBody (below)
+// -----------------------------------------------------------
+
+function resolverFailure(error: unknown): AssistantFailure {
+  const shaped = (error ?? {}) as { status?: unknown; data?: unknown; serverCode?: unknown; code?: unknown };
+  const status = typeof shaped.status === 'number' && shaped.status > 0 ? shaped.status : undefined;
+  const code: AssistantFailure['code'] =
+    status === 401 || status === 403 ? 'auth'
+    : status === 429 ? 'quota'
+    : status === 502 || status === 503 || status === 504 ? 'unavailable'
+    : status !== undefined ? 'server'
+    : shaped.code === 'timeout' ? 'timeout'
+    : 'network';
+  const words = serverMessage(shaped.data);
+  const serverCode = serverCodeOf(shaped.data) ?? (typeof shaped.serverCode === 'string' && shaped.serverCode ? shaped.serverCode : null);
+  return {
+    code,
+    ...(status !== undefined ? { status } : {}),
+    ...(serverCode ? { serverCode } : {}),
+    message: words ? `Thread could not be created — ${words}` : 'Thread could not be created',
+  };
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// prepareRequestBody
+// -----------------------------------------------------------
+//
+// The body seam, for a JSON string body: first the threadId
+// resolver (when one is configured) is asked which thread
+// this send persists into, then the body is parsed ONCE —
+// the history windowed (trimHistory) and the thread stamped
+// as `threadId` next to the upstream's own fields. A body
+// that is not a JSON object string passes through untouched
+// (defensive: the upstream only ever sends one), and so does
+// one where nothing changed. A THROWING resolver fails the
+// request — the host was creating the thread and could not,
+// and a silently stateless turn would lose the person's
+// history — with the refusal's identity kept
+// (resolverFailure).
+//
+// Used by:
+//   - createAssistantFetch (below)
+// -----------------------------------------------------------
+
+async function prepareRequestBody(
   config: AssistantTransportConfig,
   body: BodyInit | null | undefined,
   fail: (failure: AssistantFailure, cause?: unknown) => never,
 ): Promise<BodyInit | null | undefined> {
-  if (!config.threadId || typeof body !== 'string') return body;
+  if (typeof body !== 'string') return body;
 
   let threadId: string | null | undefined;
-  try {
-    threadId = await config.threadId();
-  } catch (error) {
-    // The resolver's failure keeps its HTTP identity — a 429
-    // on the lazy thread-create must read as quota, not as a
-    // connectivity problem
-    const status = (error as { status?: unknown })?.status;
-    const code =
-      status === 401 || status === 403 ? 'auth'
-      : status === 429 ? 'quota'
-      : status === 502 || status === 503 || status === 504 ? 'unavailable'
-      : 'network';
-    return fail(
-      { code, ...(typeof status === 'number' ? { status } : {}), message: 'Thread could not be created' },
-      error,
-    );
+  if (config.threadId) {
+    try {
+      threadId = await config.threadId();
+    } catch (error) {
+      return fail(resolverFailure(error), error);
+    }
   }
-  if (!threadId) return body;
 
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(body) as unknown;
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return body;
-    return JSON.stringify({ ...(parsed as Record<string, unknown>), threadId });
+    parsed = JSON.parse(body);
   } catch {
     return body;
   }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return body;
+
+  const fields = parsed as Record<string, unknown>;
+  const messages = Array.isArray(fields.messages) ? trimHistory(fields.messages) : fields.messages;
+  if (messages === fields.messages && !threadId) return body;
+  return JSON.stringify({ ...fields, messages, ...(threadId ? { threadId } : {}) });
 }
 
 
@@ -363,7 +525,7 @@ export function createAssistantFetch(config: AssistantTransportConfig): typeof f
     };
 
     const headers = await buildAssistantHeaders(config, init?.headers);
-    const body = await resolveThreadBody(config, init?.body, fail);
+    const body = await prepareRequestBody(config, init?.body, fail);
     if (callerSignal?.aborted) return fail({ code: 'aborted', message: 'Request aborted' });
     callerSignal?.addEventListener('abort', forwardAbort, { once: true });
 
@@ -417,9 +579,8 @@ export function createAssistantFetch(config: AssistantTransportConfig): typeof f
 //   - testing/index.tsx — the conformance rig, and through it
 //     every suite that mounts the probe over a fake wire
 //   - core/__tests__/transport.test.ts — the disciplines above
-//   - the app's assistant screen wiring, once it lands: one
-//     instance per session, memoized, handed to
-//     useKnfAssistantRuntime — no app import yet
+//   - app/(main)/tabs/assistant.tsx — one instance per chat
+//     mount, memoized, handed to useKnfAssistantRuntime
 // -----------------------------------------------------------
 
 export function createKnfAssistantTransport(config: AssistantTransportConfig): KnfAssistantTransport {

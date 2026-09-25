@@ -12,7 +12,8 @@
 //  part over; a name with no renderer falls to the generic
 //  card — the shell titled with the tool name, the raw input
 //  and output behind the toggle. The kit knows no tool by
-//  name; the registry is the host's.
+//  name; the registry is the host's. Text is drawn in the
+//  host's families; the show/hide toggle is a full 44pt row.
 //
 //  Split into (root component last):
 //
@@ -28,17 +29,20 @@
 // -----------------------------------------------------------
 
 import { useState, type ReactNode } from 'react';
-import { Platform, Pressable, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import type { ToolCallMessagePartProps } from '@assistant-ui/react-native';
 
 import { useAssistantKit } from './core/context';
-import { defaultColors, type AssistantColors, type AssistantLabels, type ToolCardPart, type ToolCardStatus } from './core/types';
-
-
-// Neither platform knows the other's family: iOS has no
-// generic 'monospace', Android no Menlo — an unknown family
-// silently falls back to the proportional system font
-const MONO = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' });
+import { monoFamily, typeface } from './core/typography';
+import {
+  defaultColors,
+  defaultFonts,
+  type AssistantColors,
+  type AssistantFonts,
+  type AssistantLabels,
+  type ToolCardPart,
+  type ToolCardStatus,
+} from './core/types';
 
 
 
@@ -131,7 +135,7 @@ export function toToolCardPart(part: ToolCallMessagePartProps): ToolCardPart {
 //   - ToolCard (below) — the fallback's details
 // -----------------------------------------------------------
 
-function RawBlock({ input, output, colors }: { input: unknown; output?: unknown; colors: AssistantColors }) {
+function RawBlock({ input, output, colors, fonts }: { input: unknown; output?: unknown; colors: AssistantColors; fonts: AssistantFonts }) {
   const pretty = (value: unknown) => {
     try {
       return JSON.stringify(value, null, 2) ?? String(value);
@@ -139,7 +143,7 @@ function RawBlock({ input, output, colors }: { input: unknown; output?: unknown;
       return String(value);
     }
   };
-  const mono = { fontFamily: MONO, fontSize: 12, lineHeight: 17, color: colors.ink };
+  const mono = { fontFamily: monoFamily(fonts), fontSize: 12, lineHeight: 17, color: colors.ink };
   return (
     <View>
       <Text style={mono}>{pretty(input)}</Text>
@@ -175,7 +179,7 @@ function RawBlock({ input, output, colors }: { input: unknown; output?: unknown;
 
 export function ToolCard(props: ToolCallMessagePartProps) {
 
-  const { labels, colors, tools } = useAssistantKit();
+  const { labels, colors, fonts, tools } = useAssistantKit();
   const part = toToolCardPart(props);
   const renderer = Object.prototype.hasOwnProperty.call(tools, part.toolName) ? tools[part.toolName] : undefined;
 
@@ -190,9 +194,12 @@ export function ToolCard(props: ToolCallMessagePartProps) {
           status={part.status}
           labels={labels}
           colors={colors}
-          details={<RawBlock input={part.input} output={part.output} colors={colors} />}
+          fonts={fonts}
+          details={<RawBlock input={part.input} output={part.output} colors={colors} fonts={fonts} />}
         >
-          {part.errorText ? <Text style={{ fontSize: 13, lineHeight: 18, color: colors.danger }}>{part.errorText}</Text> : null}
+          {part.errorText ? (
+            <Text style={{ fontSize: 13, lineHeight: 18, ...typeface(fonts, 'regular'), color: colors.danger }}>{part.errorText}</Text>
+          ) : null}
         </ToolCardShell>
       )}
     </View>
@@ -213,7 +220,8 @@ export function ToolCard(props: ToolCallMessagePartProps) {
 // danger when failed), title, status label, an optional body,
 // and an optional details block the reader opens with the
 // show/hide toggle — closed by default, so a card stays one
-// line tall until asked.
+// line tall until asked. The toggle row is 44pt tall: the
+// touch floor, not a 30pt strip of small text.
 //
 // Used by:
 //   - ToolCard (above) — the generic fallback
@@ -225,6 +233,7 @@ export default function ToolCardShell({
   status,
   labels,
   colors = defaultColors,
+  fonts = defaultFonts,
   children,
   details,
 }: {
@@ -232,6 +241,7 @@ export default function ToolCardShell({
   status: ToolCardStatus;
   labels: AssistantLabels;
   colors?: AssistantColors;
+  fonts?: AssistantFonts;
   children?: ReactNode;
   details?: ReactNode;
 }) {
@@ -255,10 +265,10 @@ export default function ToolCardShell({
 
       <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 9 }}>
         <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: dotColor, marginRight: 8 }} />
-        <Text style={{ flex: 1, fontSize: 13, fontWeight: '600', color: colors.ink }} numberOfLines={1}>
+        <Text style={{ flex: 1, fontSize: 13, ...typeface(fonts, 'semibold'), color: colors.ink }} numberOfLines={1}>
           {title}
         </Text>
-        <Text style={{ fontSize: 12, color: status === 'failed' ? colors.danger : colors.inkSoft, marginLeft: 8 }}>
+        <Text style={{ fontSize: 12, ...typeface(fonts, 'regular'), color: status === 'failed' ? colors.danger : colors.inkSoft, marginLeft: 8 }}>
           {statusLabel}
         </Text>
       </View>
@@ -273,9 +283,16 @@ export default function ToolCardShell({
             accessibilityRole="button"
             accessibilityState={{ expanded: open }}
             onPress={() => setOpen((was) => !was)}
-            style={{ paddingHorizontal: 12, paddingVertical: 8, borderTopWidth: 1, borderTopColor: colors.line }}
+            style={{
+              paddingHorizontal: 12,
+              paddingVertical: 8,
+              minHeight: 44,
+              justifyContent: 'center',
+              borderTopWidth: 1,
+              borderTopColor: colors.line,
+            }}
           >
-            <Text style={{ fontSize: 12, fontWeight: '600', color: colors.brand }}>
+            <Text style={{ fontSize: 12, ...typeface(fonts, 'semibold'), color: colors.brandText }}>
               {open ? labels.hideDetails : labels.showDetails}
             </Text>
           </Pressable>

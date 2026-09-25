@@ -2,12 +2,19 @@
 //  [*] Tests — API wrapper wire contracts
 //
 //  The exact URLs and body keys the backend routes expect —
-//  the seam where a silent rename (client_msg_id, user_id)
-//  turns a feature off without any type error.
+//  the seam where a silent rename (user_id) turns a feature
+//  off without any type error. The chat send's wire shape
+//  (client_msg_id) is pinned on the live path, in
+//  packages/chatengine/src/adapters/knf/__tests__/
+//  rest.wire.test.ts.
 // -----------------------------------------------------------
 
+// The HTTP verbs the mocked client routes to — each records
+// the path and body a wrapper sent
 const mockPost = jest.fn(async () => ({ data: {} }));
+// DELETE requests
 const mockDelete = jest.fn(async () => ({ data: {} }));
+// GET requests
 const mockGet = jest.fn(async () => ({ data: {} }));
 jest.mock('@/services/api/client', () => {
   class ApiError extends Error {
@@ -32,8 +39,8 @@ jest.mock('@/services/api/client', () => {
   };
 });
 
-import { sendMessageApi } from '@/services/api/chat';
 import { sharePostApi } from '@/services/api/news';
+import { deleteUploadApi } from '@/services/api/uploads';
 import { acceptFriendRequest, sendFriendRequest } from '@/services/api/social';
 
 
@@ -41,31 +48,6 @@ beforeEach(() => {
   mockPost.mockClear();
   mockDelete.mockClear();
   mockGet.mockClear();
-});
-
-
-describe('chat send wire shape', () => {
-  it('maps the optimistic clientId onto the snake_case idempotency key', async () => {
-    await sendMessageApi('conv 1', 'labas', undefined, undefined, 'temp-42');
-    expect(mockPost).toHaveBeenCalledWith('/chat/conversations/conv%201/messages', {
-      text: 'labas',
-      client_msg_id: 'temp-42',
-    });
-  });
-
-  it('omits every empty optional instead of sending null keys', async () => {
-    await sendMessageApi('c1', 'labas');
-    expect(mockPost).toHaveBeenCalledWith('/chat/conversations/c1/messages', { text: 'labas' });
-  });
-
-  it('sends image, reply target and nonce together when present', async () => {
-    await sendMessageApi('c1', '', '/api/uploads/p.jpg', 'msg-9', 'temp-1');
-    expect(mockPost).toHaveBeenCalledWith('/chat/conversations/c1/messages', {
-      imageUrl: '/api/uploads/p.jpg',
-      replyToId: 'msg-9',
-      client_msg_id: 'temp-1',
-    });
-  });
 });
 
 
@@ -115,5 +97,22 @@ describe('admin wire shape', () => {
     const { revokeInvitation } = require('@/services/api/admin');
     await revokeInvitation('code 9');
     expect(mockDelete).toHaveBeenCalledWith('/admin/invitations/code%209');
+  });
+});
+
+
+describe('uploads wire shape', () => {
+  it('deletes a stored upload by its bare name, from a url or the name itself', async () => {
+    const name = '0123456789abcdef0123456789abcdef.jpg';
+    await deleteUploadApi(`/api/uploads/${name}`);
+    await deleteUploadApi(`https://api.test/api/uploads/${name}?s=thumb`);
+    await deleteUploadApi(name);
+    expect(mockDelete.mock.calls).toEqual([[`/uploads/${name}`], [`/uploads/${name}`], [`/uploads/${name}`]]);
+  });
+
+  it('never sends a path that is not a stored upload', async () => {
+    await expect(deleteUploadApi('/api/memes/file/memas.jpg')).rejects.toBeTruthy();
+    await expect(deleteUploadApi('../../etc/passwd')).rejects.toBeTruthy();
+    expect(mockDelete).not.toHaveBeenCalled();
   });
 });

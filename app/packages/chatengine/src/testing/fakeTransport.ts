@@ -51,7 +51,7 @@ export interface FakeTransportOptions {
   guest?: boolean;
 }
 
-type Method = 'fetchMessages' | 'sendMessage' | 'editMessage' | 'deleteMessage' | 'setReaction' | 'removeReaction' | 'markRead' | 'upload' | 'fetchChanges' | 'pinMessage' | 'unpinMessage' | 'fetchPins' | 'setMessageTtl';
+type Method = 'fetchMessages' | 'sendMessage' | 'editMessage' | 'deleteMessage' | 'setReaction' | 'removeReaction' | 'markRead' | 'upload' | 'fetchChanges' | 'pinMessage' | 'unpinMessage' | 'fetchPins' | 'setMessageTtl' | 'deleteUpload';
 
 
 
@@ -348,6 +348,10 @@ export function fakeTransport(options: FakeTransportOptions = {}): FakeTransport
 
     async markRead(conversationId) {
       await gate('markRead', [conversationId]);
+    },
+
+    async deleteUpload(url: string) {
+      await gate('deleteUpload', [url]);
     },
 
     async upload(asset: UploadAsset, onProgress?: (fraction: number) => void): Promise<UploadResult> {

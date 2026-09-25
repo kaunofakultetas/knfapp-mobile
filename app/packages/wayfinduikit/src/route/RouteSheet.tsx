@@ -246,11 +246,14 @@ export default function RouteSheet({
   return (
     <View testID="wayfinduikit-sheet" style={sheetStyle}>
 
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Text testID="wayfinduikit-sheet-progress" style={{ fontSize: 13, fontFamily: fonts.medium, color: colors.inkSoft }}>
+      {/* Wraps rather than overflows: on a 320 pt phone, in
+          English or at a large text size the two halves do not
+          fit one line, and the remaining line drops below */}
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', columnGap: 8 }}>
+        <Text testID="wayfinduikit-sheet-progress" style={{ flexShrink: 1, fontSize: 13, fontFamily: fonts.medium, color: colors.inkSoft }}>
           {labels.stepOf(state.stepIndex + 1, state.stepCount)}
         </Text>
-        <Text testID="wayfinduikit-sheet-remaining" style={{ fontSize: 13, fontFamily: fonts.regular, color: colors.inkSoft }}>
+        <Text testID="wayfinduikit-sheet-remaining" style={{ flexShrink: 1, fontSize: 13, fontFamily: fonts.regular, color: colors.inkSoft }}>
           {remainingLine}
         </Text>
       </View>
@@ -268,7 +271,7 @@ export default function RouteSheet({
       ) : null}
 
       {reassuranceM != null ? (
-        <Text testID="wayfinduikit-sheet-reassurance" style={{ marginTop: 6, fontSize: 14, fontFamily: fonts.medium, color: colors.brand }}>
+        <Text testID="wayfinduikit-sheet-reassurance" style={{ marginTop: 6, fontSize: 14, fontFamily: fonts.medium, color: colors.brandText }}>
           {labels.reassurance(roundMetres(reassuranceM))}
         </Text>
       ) : null}
@@ -284,6 +287,9 @@ export default function RouteSheet({
           accessibilityRole="button"
           accessibilityLabel={labels.endRoute}
           onPress={onEnd}
+          // A text link ~28 pt tall; the slop takes it to the 44 pt
+          // touch floor without growing the sheet
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           style={{ alignSelf: 'center', marginTop: 10, paddingVertical: 6, paddingHorizontal: 12 }}
         >
           <Text style={{ fontSize: 13, fontFamily: fonts.medium, color: colors.inkSoft }}>{labels.endRoute}</Text>

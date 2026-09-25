@@ -274,8 +274,27 @@ export function describeTransportContract(name: string, makeHarness: () => Promi
       expect(changes.messages.find((m) => m.id === edited.id)?.text).toBe('naujas');
       expect(changes.messages.find((m) => m.id === gone.id)?.deleted).toBe(true);
       expect(typeof changes.cursor).toBe('string');
-      const nothing = await t.fetchChanges(conv, changes.cursor);
-      expect(nothing.messages).toEqual([]);
+      // A backend may backdate its cursor and re-deliver a change
+      // (applying one twice is harmless) — but never report a row
+      // that did not change
+      const again = await t.fetchChanges(conv, changes.cursor);
+      expect(again.messages.every((m) => ids.includes(m.id))).toBe(true);
+    });
+
+    it('a change row describes the row as the history page does — never placeholder receipts or reactions', async () => {
+      const t = h.transport;
+      if (!t.fetchChanges) return;
+      const conv = 'c-changes-shape';
+      const row = await t.sendMessage(conv, { text: 'labas', clientId: 'temp-cs-1' });
+      await t.setReaction(conv, row.id, '👍');
+      const since = (await t.fetchMessages(conv)).cursor as string;
+      await t.editMessage(conv, row.id, 'labas!');
+      const held = (await t.fetchMessages(conv)).messages.find((m) => m.id === row.id);
+      const change = (await t.fetchChanges(conv, since)).messages.find((m) => m.id === row.id);
+      expect(change?.text).toBe('labas!');
+      expect(change?.status).toBe(held?.status);
+      expect(change?.readBy ?? []).toEqual(held?.readBy ?? []);
+      expect(change?.reactions.map((r) => [r.emoji, [...r.byUserIds].sort()])).toEqual(held?.reactions.map((r) => [r.emoji, [...r.byUserIds].sort()]));
     });
 
     it('the pin trio, when offered, flips a pin and lists newest first', async () => {

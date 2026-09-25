@@ -98,7 +98,9 @@ function FallbackButton({
         justifyContent: 'center',
         backgroundColor: outline ? 'transparent' : pressed ? c.brandStrong : c.brand,
         borderWidth: outline ? 1 : 0,
-        borderColor: c.brand,
+        // Brand-AS-TEXT for the outline flavor: the fill pink
+        // read 3.9:1 on the dark canvas (KNF-131)
+        borderColor: c.brandText,
         opacity: outline && pressed ? 0.7 : 1,
       })}
     >
@@ -109,7 +111,7 @@ function FallbackButton({
         style={{
           fontFamily: fonts.medium,
           fontSize: 16,
-          color: outline ? c.brand : c.onBrand,
+          color: outline ? c.brandText : c.onBrand,
           textAlign: 'center',
           includeFontPadding: false,
           textAlignVertical: 'center',
@@ -211,6 +213,7 @@ export default function ErrorFallback({ error, resetErrorBoundary }: FallbackPro
       }}
     >
       <Text
+        accessibilityRole="header"
         style={{
           fontFamily: fonts.bold,
           fontSize: 24,

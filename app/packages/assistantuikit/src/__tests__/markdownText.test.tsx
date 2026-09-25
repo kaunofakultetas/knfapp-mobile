@@ -16,7 +16,11 @@
 //  [link]) renders rich with the plain suffix flowing on in
 //  the same paragraph or list item; the same text with its
 //  closer renders rich, and without isStreaming the whole
-//  text parses.
+//  text parses. A nested marker-kind switch paints each run
+//  with its OWN glyphs — a bullet is never numbered as a step
+//  (KNF-161) — and a long answer streamed delta by delta
+//  renders exactly what the finished text renders (the
+//  incremental parser under it, KNF-088).
 // -----------------------------------------------------------
 
 import { fireEvent, render } from '@testing-library/react-native';
@@ -157,7 +161,7 @@ describe('blocks and marks', () => {
     const view = await render(<MarkdownText text="Žr. [VU KnF](https://knf.vu.lt)." onPressLink={onPressLink} />);
     const link = view.getByText('VU KnF');
     expect(link.props.accessibilityRole).toBe('link');
-    expect(link).toHaveStyle({ color: defaultColors.brand, textDecorationLine: 'underline' });
+    expect(link).toHaveStyle({ color: defaultColors.brandText, textDecorationLine: 'underline' });
     await fireEvent.press(link);
     expect(onPressLink.mock.calls).toEqual([['https://knf.vu.lt']]);
   });
@@ -167,7 +171,7 @@ describe('blocks and marks', () => {
     const link = view.getByText('VU');
     expect(link.props.onPress).toBeUndefined();
     await fireEvent.press(link);
-    expect(link).toHaveStyle({ color: defaultColors.brand });
+    expect(link).toHaveStyle({ color: defaultColors.brandText });
   });
 
   it('lists draw bullets, and numbers counted from the start; a nested list sits under its item', async () => {
@@ -178,6 +182,30 @@ describe('blocks and marks', () => {
     expect(view.getByText('viduje')).toBeTruthy();
     expect(view.getByText('septyni')).toBeTruthy();
     expect(view.getByText('aštuoni')).toBeTruthy();
+  });
+
+  it('a nested run of the other kind keeps its own glyphs — bullets are never numbered as steps', async () => {
+    const view = await render(<MarkdownText text={'- Dokumentai:\n  1. prašymas\n  - pažyma apie studijas\n  - asmens dokumentas'} />);
+    const glyphs = view.getAllByText(/^(•|\d+\.)$/).map((node) => node.props.children);
+    // Top bullet, ONE numbered step, then two bullets — the
+    // audit saw "•, 1., 2., 3." here
+    expect(glyphs).toEqual(['•', '1.', '•', '•']);
+
+    const steps = await render(<MarkdownText text={'1. Žingsniai:\n  - vienas\n  2. du\n  3. trys'} />);
+    expect(steps.getAllByText(/^(•|\d+\.)$/).map((node) => node.props.children)).toEqual(['1.', '•', '2.', '3.']);
+  });
+
+  it('a long answer streamed delta by delta ends exactly as the finished text renders', async () => {
+    const answer = '# Tvarka\n\nPirma **pastraipa**.\n\n1. vienas\n\n1. du\n\n```\nkodas\n```\n\nPabaiga su [nuoroda](https://vu.lt).';
+    const view = await render(<MarkdownText text="" isStreaming />);
+    for (let end = 4; end <= answer.length; end += 4) {
+      await view.rerender(<MarkdownText text={answer.slice(0, end)} isStreaming />);
+    }
+    await view.rerender(<MarkdownText text={answer} isStreaming />);
+    const streamed = JSON.stringify(view.toJSON());
+    const finished = await render(<MarkdownText text={answer} isStreaming />);
+    expect(streamed).toEqual(JSON.stringify(finished.toJSON()));
+    expect(view.getByText('2.')).toBeTruthy();
   });
 
   it('a quote renders its blocks in the soft ink behind a left rule', async () => {
@@ -208,11 +236,16 @@ describe('blocks and marks', () => {
   });
 
   it('host colours reach the paragraph, the link, the code box and the quote', async () => {
-    const colors = { ...defaultColors, ink: '#101010', inkSoft: '#606060', brand: '#7B003F', surfaceSoft: '#EEEEEE', line: '#CCCCCC' };
+    const colors = {
+      ...defaultColors, ink: '#101010', inkSoft: '#606060', brand: '#7B003F', brandText: '#E07AA6',
+      surfaceSoft: '#EEEEEE', line: '#CCCCCC',
+    };
     const view = await render(
       <MarkdownText text={'Tekstas [n](https://x.lt)\n\n```\nk\n```\n\n> c'} colors={colors} />,
     );
-    expect(view.getByText('n')).toHaveStyle({ color: '#7B003F' });
+    // A link is TEXT — the brand text token, never the fill
+    // (the deep fill is illegible as text on a dark surface)
+    expect(view.getByText('n')).toHaveStyle({ color: '#E07AA6' });
     expect(view.getByTestId('assistantuikit-markdown-code')).toHaveStyle({ backgroundColor: '#EEEEEE', borderColor: '#CCCCCC' });
     expect(view.getByText('k')).toHaveStyle({ color: '#101010' });
     expect(view.getByText('c')).toHaveStyle({ color: '#606060' });

@@ -43,7 +43,18 @@
 //    - setItems(updater) mutates the list in place for
 //      optimistic updates (likes, deletes) without a refetch;
 //      a silent refresh whose response predates such a
-//      mutation is dropped rather than allowed to clobber it.
+//      mutation is dropped rather than allowed to clobber it;
+//    - patchItems(updater) is the same in-place write for
+//      LIVE SERVER TRUTH arriving out of band (a socket echo
+//      of a new message, an unsend): it never moves that
+//      fence, so a refresh in flight still lands. Routing
+//      echoes through setItems voided every refetch they
+//      overlapped — the Messages tab lost the very refresh
+//      that discovers a brand-new conversation (KNF-120). A
+//      refresh snapshot the server generated just BEFORE the
+//      echo's commit can still hide that echo until the next
+//      one or the next refresh — the server's own staleness,
+//      never a silently discarded refresh.
 //
 //  itemsRef shadows the items state at every mutation point,
 //  so async flows (error semantics, restore spinner mode) read
@@ -156,7 +167,7 @@ export interface UseFeedOptions<T = unknown> {
 //
 // What a screen renders from: the list, the four flags (see
 // the file header for which spinner covers what), the offline
-// copy's age, the gap marker, and the three actions.
+// copy's age, the gap marker, and the four actions.
 //
 // Used by:
 //   - useFeed (below)
@@ -176,7 +187,10 @@ export interface UseFeedResult<T> {
   gapAfterId: string | null;
   refresh: (strategy?: RefreshStrategy) => Promise<void>;
   loadMore: () => void;
+  // Optimistic local mutation — moves the refresh fence
   setItems: (updater: (items: T[]) => T[]) => void;
+  // Live server truth (a socket echo) — leaves the fence alone
+  patchItems: (updater: (items: T[]) => T[]) => void;
 }
 
 
@@ -203,6 +217,9 @@ export interface UseFeedResult<T> {
 //                         reader's place (newest-first feeds)
 //     loadMore()        — FlatList onEndReached
 //     setItems(updater) — optimistic updates with exact revert
+//     patchItems(updater)
+//                       — a live socket echo patched in place
+//                         without voiding a refresh in flight
 //
 // Used by:
 //   - the host's main feeds and sub-feeds (news, comments,
@@ -550,6 +567,7 @@ export function useFeed<T>(
         // The hole's coordinates, captured before setGap moves
         // them — the updater below splices against THESE
         const filling = gapAfterIdRef.current !== null;
+        const gapAfter = gapAfterIdRef.current;
         const gapIndex = gapIndexRef.current;
 
         if (filling) {
@@ -572,9 +590,16 @@ export function useFeed<T>(
 
         setItemsState((previous) => {
           const fresh = dedupe(previous);
-          // No hole: pages append at the tail as ever
+          // The hole is found by the id of its upper edge, the
+          // captured index only backs it up (that row itself
+          // deleted): a same-batch optimistic delete ABOVE the
+          // marker shifts every index by one, and a bare index
+          // splice then landed the page a row inside the old
+          // section. No hole: pages append at the tail as ever
+          const anchor = filling ? previous.findIndex((item) => idOf(item) === gapAfter) : -1;
+          const cut = anchor >= 0 ? anchor + 1 : Math.min(gapIndex, previous.length);
           const merged = filling
-            ? [...previous.slice(0, gapIndex), ...fresh, ...previous.slice(gapIndex)]
+            ? [...previous.slice(0, cut), ...fresh, ...previous.slice(cut)]
             : [...previous, ...fresh];
           itemsRef.current = merged;
           return merged;
@@ -614,10 +639,24 @@ export function useFeed<T>(
   }, []);
 
 
+  // Server-echo door (see the file header): the same in-place
+  // write, minus the fence — an echo is truth the server
+  // already holds, so the refresh racing it is no stale
+  // snapshot of a pending mutation and must still land
+  const patchItems = useCallback((updater: (current: T[]) => T[]): void => {
+    setItemsState((previous) => {
+      const next = updater(previous);
+      itemsRef.current = next;
+      return next;
+    });
+  }, []);
+
+
   // First page — full spinner — on mount and every deps
   // change; the caller owns the dependency list, exactly like
   // a bare useEffect, so the static check is opted out
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the deps change IS the event: the old list must clear and the spinner show before the new feed's page 1 lands
     void loadFirst('initial');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
@@ -652,5 +691,6 @@ export function useFeed<T>(
     refresh,
     loadMore,
     setItems,
+    patchItems,
   };
 }

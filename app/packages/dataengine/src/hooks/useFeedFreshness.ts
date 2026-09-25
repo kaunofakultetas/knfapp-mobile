@@ -78,7 +78,23 @@ export function useFeedFreshness(
   const intervalMs = options.intervalMs ?? 60_000;
   const enabled = options.enabled ?? true;
 
-  const [newCount, setNewCount] = useState(0);
+
+  // The latest verdict, stamped with the baseline it was
+  // measured against — a count belongs to ONE newest id
+  const [probe, setProbe] = useState<{ baseline: string | null; count: number }>({
+    baseline: newestId,
+    count: 0,
+  });
+
+
+  // The refresh landed (or the feed changed identity): current
+  // again by definition. Adjusted DURING render — the pattern
+  // React documents for state that follows a prop — instead of
+  // an effect-time reset that committed a stale count first
+  if (probe.baseline !== newestId) {
+    setProbe({ baseline: newestId, count: 0 });
+  }
+  const newCount = probe.baseline === newestId ? probe.count : 0;
 
 
   // The latest closure and baseline, without resubscribing the
@@ -100,13 +116,13 @@ export function useFeedFreshness(
       const ids = await peekRef.current();
       const baseline = newestIdRef.current;
       if (baseline === null) {
-        setNewCount(0);
+        setProbe({ baseline, count: 0 });
         return;
       }
       const at = ids.indexOf(baseline);
       // Baseline not in the window: everything peeked is newer
       // (bounded by the peek's own size)
-      setNewCount(at >= 0 ? at : ids.length);
+      setProbe({ baseline, count: at >= 0 ? at : ids.length });
     } catch {
       // Freshness is best-effort; the old count stands
     } finally {
@@ -115,11 +131,11 @@ export function useFeedFreshness(
   }, []);
 
 
-  // The refresh landed (or the feed changed identity): current
-  // again by definition
+  // The baseline a resolving probe measures against — the ref
+  // follows the prop after commit (the count itself resets
+  // during render, above)
   useEffect(() => {
     newestIdRef.current = newestId;
-    setNewCount(0);
   }, [newestId]);
 
 
@@ -137,7 +153,7 @@ export function useFeedFreshness(
   }, [enabled, intervalMs, checkNow]);
 
 
-  const clear = useCallback(() => setNewCount(0), []);
+  const clear = useCallback(() => setProbe((current) => ({ ...current, count: 0 })), []);
 
 
   return { newCount, checkNow, clear };

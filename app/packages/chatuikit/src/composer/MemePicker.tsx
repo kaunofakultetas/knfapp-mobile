@@ -6,9 +6,21 @@
 //  GIFs play on their own (expo-image), static memes just
 //  stand, the ~14px preview blurs each while its bytes come —
 //  a "+" tile for pushing into the shared library, and
-//  load-more at the bottom edge. Purely presentational — the
-//  host owns the data, the search round trip and the pick
-//  (usually the engine's sendStoredImage).
+//  load-more at the bottom edge. The grid never lies about
+//  why it is empty: a failed load says so with a retry, a
+//  search that matched nothing says THAT (not "no memes yet"),
+//  and only a truly empty library invites the first push. A
+//  meme the viewer pushed can be removed again (a long-press
+//  or the tile's accessibility action — the host confirms).
+//  Purely presentational — the host owns the data, the search
+//  round trip, the pick (usually the engine's
+//  sendStoredImage) and the removal.
+//
+//  Split into (root component last):
+//
+//    MemeTile   — one meme, with its removal door
+//    GridNotice — the empty / no-match / failed line
+//    MemePicker — the panel (default export)
 //
 //  Used by:
 //    - the host's chat room, above the Composer
@@ -20,8 +32,9 @@ import { useKitEnv, useKitLabels, useKitTheme } from '../provider';
 // Rendering
 import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
-import { ActivityIndicator, FlatList, Pressable, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, Text, TextInput, View, type AccessibilityActionEvent } from 'react-native';
 
+import type { KitLabels } from '../provider/labels';
 import type { KitMemeItem } from '../core/types';
 
 
@@ -32,6 +45,91 @@ const COLUMNS = 3;
 const PANEL_HEIGHT = 264;
 // Hairline between tiles
 const TILE_GAP = 4;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// MemeTile
+// -----------------------------------------------------------
+//
+// One tile of the grid: a tap sends it; an OWN meme also
+// answers a long-press and a named "remove" accessibility
+// action with onRemove (the host asks before it deletes).
+//
+// Used by:
+//   - MemePicker (below)
+// -----------------------------------------------------------
+
+function MemeTile({ item, labels, onPick, onRemove }: { item: KitMemeItem; labels: KitLabels; onPick: (item: KitMemeItem) => void; onRemove?: (item: KitMemeItem) => void }) {
+
+  const { colors } = useKitTheme();
+  const { resolveImageUrl } = useKitEnv();
+  const removable = !!item.own && !!onRemove;
+  const uri = item.url.startsWith('/') ? resolveImageUrl(item.url) ?? item.url : item.url;
+
+
+  return (
+    <Pressable
+      onPress={() => onPick(item)}
+      onLongPress={removable ? () => onRemove?.(item) : undefined}
+      delayLongPress={400}
+      accessibilityRole="imagebutton"
+      accessibilityLabel={item.title}
+      accessibilityActions={removable ? [{ name: 'remove', label: labels.removeMeme }] : undefined}
+      onAccessibilityAction={removable ? (e: AccessibilityActionEvent) => { if (e.nativeEvent.actionName === 'remove') onRemove?.(item); } : undefined}
+      testID={`chatuikit-meme-${item.id}`}
+      style={{ flex: 1 / COLUMNS, aspectRatio: 1, margin: TILE_GAP / 2, borderRadius: 10, overflow: 'hidden', backgroundColor: colors.surfaceSoft }}
+    >
+      <ExpoImage
+        source={{ uri }}
+        placeholder={item.preview ? { uri: item.preview } : undefined}
+        placeholderContentFit="cover"
+        style={{ width: '100%', height: '100%' }}
+        contentFit="cover"
+        cachePolicy="memory-disk"
+        recyclingKey={item.url}
+      />
+    </Pressable>
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// GridNotice
+// -----------------------------------------------------------
+//
+// The line an empty grid shows — and, for a failed load, a
+// retry beside it.
+//
+// Used by:
+//   - MemePicker (below)
+// -----------------------------------------------------------
+
+function GridNotice({ text, retryLabel, onRetry }: { text: string; retryLabel?: string; onRetry?: () => void }) {
+
+  const { colors, fonts } = useKitTheme();
+
+
+  return (
+    <View style={{ padding: 24, alignItems: 'center' }} accessibilityLiveRegion="polite">
+      <Text style={{ textAlign: 'center', fontFamily: fonts.regular, fontSize: 13, color: colors.inkSoft }}>{text}</Text>
+      {onRetry && retryLabel ? (
+        <Pressable onPress={onRetry} hitSlop={10} accessibilityRole="button" accessibilityLabel={retryLabel} testID="chatuikit-meme-retry" style={{ marginTop: 8, minHeight: 32, justifyContent: 'center' }}>
+          <Text style={{ fontFamily: fonts.medium, fontSize: 14, color: colors.brandText }}>{retryLabel}</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
 
 
 
@@ -62,6 +160,9 @@ export default function MemePicker({
   adding = false,
   loading = false,
   onEndReached,
+  error = false,
+  onRetry,
+  onRemove,
 }: {
   items: KitMemeItem[];
   query: string;
@@ -73,11 +174,16 @@ export default function MemePicker({
   adding?: boolean;
   loading?: boolean;
   onEndReached?: () => void;
+  // The last load failed — the empty grid says so, with a retry
+  error?: boolean;
+  onRetry?: () => void;
+  // An own meme's removal (items flagged `own`) — omitted, no
+  // tile offers it
+  onRemove?: (item: KitMemeItem) => void;
 }) {
 
   const labels = useKitLabels();
   const { colors, fonts } = useKitTheme();
-  const { resolveImageUrl } = useKitEnv();
 
 
   // The "+" tile leads the grid so pushing is always one tap away
@@ -110,10 +216,10 @@ export default function MemePicker({
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ paddingHorizontal: TILE_GAP, paddingBottom: TILE_GAP }}
         ListEmptyComponent={
-          loading ? null : (
-            <Text style={{ padding: 24, textAlign: 'center', fontFamily: fonts.regular, fontSize: 13, color: colors.inkSoft }}>
-              {labels.emptyMemes}
-            </Text>
+          loading ? null : error ? (
+            <GridNotice text={labels.memesLoadError} retryLabel={labels.tryAgain} onRetry={onRetry} />
+          ) : (
+            <GridNotice text={query.trim() ? labels.noMemeResults : labels.emptyMemes} />
           )
         }
         renderItem={({ item }) =>
@@ -128,23 +234,7 @@ export default function MemePicker({
               {adding ? <ActivityIndicator size="small" color={colors.brand} /> : <Ionicons name="add" size={26} color={colors.brand} />}
             </Pressable>
           ) : (
-            <Pressable
-              onPress={() => onPick(item as KitMemeItem)}
-              accessibilityRole="imagebutton"
-              accessibilityLabel={(item as KitMemeItem).title}
-              testID={`chatuikit-meme-${item.id}`}
-              style={{ flex: 1 / COLUMNS, aspectRatio: 1, margin: TILE_GAP / 2, borderRadius: 10, overflow: 'hidden', backgroundColor: colors.surfaceSoft }}
-            >
-              <ExpoImage
-                source={{ uri: (item as KitMemeItem).url.startsWith('/') ? resolveImageUrl((item as KitMemeItem).url) ?? (item as KitMemeItem).url : (item as KitMemeItem).url }}
-                placeholder={(item as KitMemeItem).preview ? { uri: (item as KitMemeItem).preview as string } : undefined}
-                placeholderContentFit="cover"
-                style={{ width: '100%', height: '100%' }}
-                contentFit="cover"
-                cachePolicy="memory-disk"
-                recyclingKey={(item as KitMemeItem).url}
-              />
-            </Pressable>
+            <MemeTile item={item as KitMemeItem} labels={labels} onPick={onPick} onRemove={onRemove} />
           )
         }
       />

@@ -1,16 +1,24 @@
 // -----------------------------------------------------------
 //  [*] socialuikit — NotificationRow
 //
-//  One (possibly grouped) activity row: up to five portraits
-//  stacked with a slight overlap, the sentence built from the
-//  kind map ('Ona ir dar 3 žmonės pamėgo jūsų įrašą' — the
-//  label functions carry the andOthers phrasing themselves,
-//  the row only hands them the first name and how many ride
-//  behind it), a one-line subject snippet, and the row's age
-//  right-aligned on the first line. An unrecognised kind never
-//  crashes the list — it answers labels.notifGeneric, so a
-//  server that grows a new activity type degrades to a generic
-//  line on old clients.
+//  One (possibly grouped) activity row: the actor's portrait
+//  (for a group, its first two people as a DUO — two smaller
+//  heads offset diagonally inside the same slot), the sentence
+//  built from the kind map ('Ona ir dar 3 žmonės pamėgo jūsų
+//  įrašą' — the label functions carry the andOthers phrasing
+//  themselves, the row only hands them the first name and how
+//  many ride behind it), a one-line subject snippet, and the
+//  row's age right-aligned on the first line. An unrecognised
+//  kind never crashes the list — it answers
+//  labels.notifGeneric, so a server that grows a new activity
+//  type degrades to a generic line on old clients.
+//
+//  The slot is one portrait wide on every row, so every
+//  sentence starts at the same edge. It used to be a stack of
+//  up to five heads — 160 dp of a phone's row, which cut a
+//  group's sentence to 'Ona ir dar 4 žmonės pamėgo jūsų …'
+//  and zig-zagged the text column down the list; the sentence
+//  already counts everyone, the faces are only a cue.
 //
 //  Unread rows take the unreadTint wash and a brand dot, and
 //  swap the testID suffix to '-unread' so a harness can count
@@ -22,7 +30,8 @@
 //
 //  Split into (root component last):
 //
-//    StackAvatar     — one portrait of the overlap stack
+//    StackAvatar     — one portrait of the slot
+//    ActorFaces      — the slot: one portrait, or the duo
 //    lineFor         — kind → the row's sentence
 //    NotificationRow — the row (default export)
 // -----------------------------------------------------------
@@ -46,18 +55,17 @@ import { useEffect, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 
-// Everyone past the fifth portrait rides in the sentence only
-const MAX_STACKED_AVATARS = 5;
-
-// Portrait geometry: each later head tucks under the previous
-// by the overlap; the ring is the row's own background so the
-// stack reads as separate heads, not one blob
+// A lone actor's portrait, in dp
 const AVATAR_SIZE = 36;
-// How far each later head tucks under the previous, in dp
-const AVATAR_OVERLAP = 10;
-// The ring around each stacked head — the row's own background
-// color, so the stack reads as separate heads
+// Each head of a group's duo — two of them, offset diagonally,
+// fit the lone portrait's slot
+const DUO_SIZE = 24;
+// The ring around each head — the row's own background color,
+// so the duo's front head reads as separate from the one
+// behind it, not one blob
 const RING_WIDTH = 2;
+// The slot every row keeps for its faces: one ringed portrait
+const SLOT_SIZE = AVATAR_SIZE + 2 * RING_WIDTH;
 
 // The subject snippet is one visual line anyway; the character
 // fold also keeps the row's combined accessibility sentence
@@ -74,17 +82,30 @@ const SNIPPET_LENGTH = 90;
 // StackAvatar
 // -----------------------------------------------------------
 //
-// One portrait of the stack: the host's components.Avatar when
-// one is mounted, else the photo through env.resolveImageUrl
-// (a dead URL falls back too), else the name's first glyph on
-// a brand-wash disc — all inside the ring that separates
-// overlapping heads.
+// One portrait of the slot, `size` dp across: the host's
+// components.Avatar when one is mounted, else the photo
+// through env.resolveImageUrl (a dead URL falls back too),
+// else the name's first glyph on a brand-wash disc — all
+// inside the ring that separates overlapping heads. `place`
+// pins a duo head to its corner of the slot.
 //
 // Used by:
-//   - NotificationRow (below) — one per stacked actor
+//   - ActorFaces (below) — the lone portrait or each duo head
 // -----------------------------------------------------------
 
-function StackAvatar({ user, index, ringColor }: { user: KitUser; index: number; ringColor: string }) {
+function StackAvatar({
+  user,
+  index,
+  size,
+  ringColor,
+  place,
+}: {
+  user: KitUser;
+  index: number;
+  size: number;
+  ringColor: string;
+  place?: { top?: number; left?: number; right?: number; bottom?: number };
+}) {
 
   const { colors, fonts } = useKitTheme();
   const { Avatar } = useKitComponents();
@@ -96,11 +117,12 @@ function StackAvatar({ user, index, ringColor }: { user: KitUser; index: number;
   useEffect(() => setFailed(false), [user.avatarUrl]);
 
 
+  const outer = size + 2 * RING_WIDTH;
   const frame = {
-    marginLeft: index === 0 ? 0 : -AVATAR_OVERLAP,
-    width: AVATAR_SIZE + 2 * RING_WIDTH,
-    height: AVATAR_SIZE + 2 * RING_WIDTH,
-    borderRadius: (AVATAR_SIZE + 2 * RING_WIDTH) / 2,
+    ...(place ? { position: 'absolute' as const, ...place } : null),
+    width: outer,
+    height: outer,
+    borderRadius: outer / 2,
     borderWidth: RING_WIDTH,
     borderColor: ringColor,
     overflow: 'hidden' as const,
@@ -110,7 +132,7 @@ function StackAvatar({ user, index, ringColor }: { user: KitUser; index: number;
   if (Avatar) {
     return (
       <View testID={`socialuikit-notification-avatar-${index}`} style={frame}>
-        <Avatar user={user} size={AVATAR_SIZE} />
+        <Avatar user={user} size={size} />
       </View>
     );
   }
@@ -121,7 +143,7 @@ function StackAvatar({ user, index, ringColor }: { user: KitUser; index: number;
       <View testID={`socialuikit-notification-avatar-${index}`} style={frame}>
         <ExpoImage
           source={{ uri: resolveImageUrl(user.avatarUrl) }}
-          style={{ width: AVATAR_SIZE, height: AVATAR_SIZE, borderRadius: AVATAR_SIZE / 2 }}
+          style={{ width: size, height: size, borderRadius: size / 2 }}
           contentFit="cover"
           accessibilityIgnoresInvertColors
           onError={() => setFailed(true)}
@@ -141,7 +163,46 @@ function StackAvatar({ user, index, ringColor }: { user: KitUser; index: number;
       testID={`socialuikit-notification-avatar-${index}`}
       style={[frame, { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.brandSoft }]}
     >
-      <Text style={{ fontFamily: fonts.bold, fontSize: AVATAR_SIZE * 0.42, color: colors.brand }}>{initial}</Text>
+      <Text style={{ fontFamily: fonts.bold, fontSize: size * 0.42, color: colors.brandText }}>{initial}</Text>
+    </View>
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ActorFaces
+// -----------------------------------------------------------
+//
+// The row's portrait slot — one ringed portrait wide, always:
+// a lone actor's portrait fills it; a group's first person
+// sits top-left and the second bottom-right, in front, each
+// head a size down. Everyone else rides in the sentence only.
+// An empty actor list (a malformed row) keeps the empty slot,
+// so its sentence still lines up with the rest.
+//
+// Used by:
+//   - NotificationRow (below)
+// -----------------------------------------------------------
+
+function ActorFaces({ actors, ringColor }: { actors: KitUser[]; ringColor: string }) {
+
+  const [first, second] = actors;
+
+
+  return (
+    <View style={{ width: SLOT_SIZE, height: SLOT_SIZE }}>
+      {first && !second ? <StackAvatar user={first} index={0} size={AVATAR_SIZE} ringColor={ringColor} /> : null}
+      {first && second ? (
+        <>
+          <StackAvatar user={first} index={0} size={DUO_SIZE} ringColor={ringColor} place={{ top: 0, left: 0 }} />
+          <StackAvatar user={second} index={1} size={DUO_SIZE} ringColor={ringColor} place={{ bottom: 0, right: 0 }} />
+        </>
+      ) : null}
     </View>
   );
 }
@@ -161,6 +222,12 @@ function StackAvatar({ user, index, ringColor }: { user: KitUser; index: number;
 // malformed row) still answers a sentence instead of '-1
 // others'. The default arm is the forward-compatibility valve:
 // KitNotification.kind is an open string union on purpose.
+// 'reply' and 'mention' are dormant on the KNF backend (its
+// activity table's CHECK admits only like / comment /
+// connect_request / connect_accept — there are no threaded
+// replies or @mentions in the news app) and stay on purpose:
+// the kit is backend-agnostic, and a backend that has them
+// gets its sentence without a kit release.
 //
 // Used by:
 //   - NotificationRow (below)
@@ -246,11 +313,7 @@ export default function NotificationRow({
       })}
     >
 
-      <View style={{ flexDirection: 'row' }}>
-        {notification.actors.slice(0, MAX_STACKED_AVATARS).map((actor, index) => (
-          <StackAvatar key={`${actor.id}:${index}`} user={actor} index={index} ringColor={ground} />
-        ))}
-      </View>
+      <ActorFaces actors={notification.actors} ringColor={ground} />
 
       <View style={{ flex: 1, marginLeft: 10 }}>
         <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>

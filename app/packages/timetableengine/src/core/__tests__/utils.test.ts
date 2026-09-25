@@ -2,7 +2,7 @@
 //  [*] Tests — small utilities
 // -----------------------------------------------------------
 
-import { formatMinutes, newestSemester, newestSemesterKey, posToSlot, semesterRank } from '../utils';
+import { formatMinutes, newestSemester, newestSemesterKey, posToSlot, semesterRank, termKeyOf } from '../utils';
 import type { TimetableEntry } from '../types';
 
 const L = (id: string, termKey?: string): TimetableEntry => ({
@@ -10,12 +10,25 @@ const L = (id: string, termKey?: string): TimetableEntry => ({
 });
 
 describe('formatMinutes', () => {
-  it('24h, no leading zero on the hour, padded minutes', () => {
-    expect(formatMinutes(545)).toBe('9:05');
-    expect(formatMinutes(0)).toBe('0:00');
+  // This case used to pin "9:05" — the unpadded hour was the
+  // grid's odd one out (KNF-184): the list, the sheet and the
+  // scraped strings all read "09:05"
+  it('24h, zero-padded on both parts — the one clock of every timetable surface', () => {
+    expect(formatMinutes(545)).toBe('09:05');
+    expect(formatMinutes(0)).toBe('00:00');
     expect(formatMinutes(605)).toBe('10:05');
     expect(formatMinutes(1439)).toBe('23:59');
     expect(formatMinutes(1440)).toBe('24:00');
+  });
+});
+
+describe('termKeyOf', () => {
+  it("mirrors the scraper's label rule — August opens the autumn, January is spring", () => {
+    expect(termKeyOf('2026-09-25')).toBe('2026-R');
+    expect(termKeyOf('2026-08-31')).toBe('2026-R');
+    expect(termKeyOf('2026-07-31')).toBe('2025-P');
+    expect(termKeyOf('2027-01-07')).toBe('2026-P');
+    expect(termKeyOf('2026-12-28')).toBe('2026-R');
   });
 });
 

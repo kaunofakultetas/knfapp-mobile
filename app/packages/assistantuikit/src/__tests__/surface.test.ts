@@ -25,13 +25,21 @@ describe('@knf/assistantuikit surface', () => {
       'ToolCardShell',
       'TypingIndicator',
       'defaultColors',
+      'defaultFonts',
       'parseMarkdown',
     ]);
+  });
+
+  it('ships an EMPTY font map — a host that loads no fonts keeps the system faces', () => {
+    expect(pkg.defaultFonts).toEqual({});
+    const fonts: pkg.AssistantFonts = { regular: 'R', medium: 'M', semibold: 'S', bold: 'B', mono: 'C' };
+    expect(Object.keys(fonts).sort()).toEqual(['bold', 'medium', 'mono', 'regular', 'semibold']);
   });
 
   it('ships the neutral palette with every token', () => {
     expect(Object.keys(pkg.defaultColors).sort()).toEqual([
       'brand',
+      'brandText',
       'danger',
       'ink',
       'inkSoft',

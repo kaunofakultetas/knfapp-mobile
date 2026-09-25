@@ -23,6 +23,7 @@
 //    TAB_FEATURES     — tab key → the flag that gates it
 //    ENABLED_TABS     — the tab roster this build shows
 //    ENABLED_TAB_KEYS — the same roster, set-shaped for the bar
+//    DEFAULT_PINNED_TABS — a fresh install's bar, enabled only
 //    isFeatureEnabled — the one question everything asks
 //
 //  Used by:
@@ -30,6 +31,7 @@
 //    - components/Sidebar.tsx — drawer rows follow the same list
 //    - components/FeatureGate.tsx — the route-level gate
 //    - services/notifyRouting.ts — drops taps into off modules
+//    - context/AppContext.tsx — the default pinned tabs
 // -----------------------------------------------------------
 
 import { TABS, type TabDef } from '@/constants/tabs';
@@ -149,6 +151,36 @@ export const ENABLED_TABS: TabDef[] = TABS.filter((tab) => {
 // route for EVERY file in the tabs folder, declared or not,
 // so the bar cannot trust the layout's screen list)
 export const ENABLED_TAB_KEYS: ReadonlySet<string> = new Set(ENABLED_TABS.map((tab) => tab.key));
+
+// The bar a fresh install is designed around, in bar order —
+// narrowed below to what this build actually ships
+const PREFERRED_PINNED_TABS = ['news', 'messages', 'schedule', 'id'];
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// DEFAULT_PINNED_TABS
+// -----------------------------------------------------------
+//
+// The pinned set a fresh install (and a settings reset) starts
+// with: the preferred bar narrowed to the ENABLED modules. A
+// literal list pinned the Student ID tab in a build that ships
+// without the module (KNF-171) — persisted into every new
+// settings record for a tab that does not exist; derived here,
+// the pin appears by itself the day its flag flips on.
+//
+// Used by:
+//   - context/AppContext.tsx — initialState, RESET, hydration
+//   - __tests__/features.test.ts — every default pin is enabled
+// -----------------------------------------------------------
+
+export const DEFAULT_PINNED_TABS: readonly string[] = PREFERRED_PINNED_TABS.filter((key) =>
+  ENABLED_TAB_KEYS.has(key),
+);
 
 
 

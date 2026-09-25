@@ -17,6 +17,10 @@
 //  (env.now) once per render, so a frozen test clock freezes
 //  the poll; the footer countdown itself is a RelativeTime with
 //  hasFuture, which keeps itself honest on the same clock.
+//  The small text links (see results, refresh, show more, the
+//  guest hint) and the submit capsule keep their slim faces
+//  and reach the 44pt touch floor through hitSlop; brand-ink
+//  TEXT uses the theme's brandText (AA on the dark ground).
 //
 //  Split into (root component last):
 //
@@ -181,10 +185,11 @@ function VoteRow({
 //
 // One tallied row: the wash bar underneath is the exact share,
 // the trailing figure the rounded one, and the viewer's own
-// pick carries the check glyph named labels.pollYourVote so a
-// screen reader hears which row is theirs. Leaders read bold
-// in the brand ink over the brand wash; the rest sit on the
-// neutral chip ground.
+// pick carries the check glyph. Leaders read bold in the brand
+// text ink over the brand wash; the rest sit on the neutral
+// chip ground. The row is ONE screen-reader stop that speaks
+// the option, its share and — on the viewer's pick —
+// labels.pollYourVote, instead of three loose fragments.
 //
 // Used by:
 //   - PollBlock (below) — the results face
@@ -198,7 +203,12 @@ function ResultRow({ option, poll, leading }: { option: KitPollOption; poll: Kit
 
 
   return (
-    <View testID={`socialuikit-poll-option-${option.id}`} style={{ borderRadius: radii.chip, overflow: 'hidden', marginTop: 8, backgroundColor: colors.bg }}>
+    <View
+      testID={`socialuikit-poll-option-${option.id}`}
+      accessible
+      accessibilityLabel={`${option.text}, ${Math.round(percent)}%${option.votedByMe ? `, ${labels.pollYourVote}` : ''}`}
+      style={{ borderRadius: radii.chip, overflow: 'hidden', marginTop: 8, backgroundColor: colors.bg }}
+    >
 
       <View
         testID={`socialuikit-poll-bar-${option.id}`}
@@ -221,7 +231,7 @@ function ResultRow({ option, poll, leading }: { option: KitPollOption; poll: Kit
             fontSize: 15,
             fontFamily: leading ? fonts.bold : fonts.regular,
             fontWeight: leading ? '700' : '400',
-            color: leading ? colors.brand : colors.ink,
+            color: leading ? colors.brandText : colors.ink,
           }}
         >
           {option.text}
@@ -235,7 +245,7 @@ function ResultRow({ option, poll, leading }: { option: KitPollOption; poll: Kit
             fontSize: 13,
             fontFamily: leading ? fonts.bold : fonts.regular,
             fontWeight: leading ? '700' : '400',
-            color: leading ? colors.brand : colors.inkSoft,
+            color: leading ? colors.brandText : colors.inkSoft,
           }}
         >
           {`${Math.round(percent)}%`}
@@ -361,8 +371,8 @@ export default function PollBlock({
           ))}
 
       {hiddenCount > 0 ? (
-        <Pressable testID="socialuikit-poll-more" accessibilityRole="button" onPress={() => setExpanded(true)} style={{ paddingVertical: 8, alignItems: 'center' }}>
-          <Text style={{ fontSize: 13, fontFamily: fonts.medium, color: colors.brand }}>{labels.pollShowMore(hiddenCount)}</Text>
+        <Pressable testID="socialuikit-poll-more" accessibilityRole="button" onPress={() => setExpanded(true)} hitSlop={{ top: 6, bottom: 6 }} style={{ paddingVertical: 8, alignItems: 'center' }}>
+          <Text style={{ fontSize: 13, fontFamily: fonts.medium, color: colors.brandText }}>{labels.pollShowMore(hiddenCount)}</Text>
         </Pressable>
       ) : null}
 
@@ -380,6 +390,8 @@ export default function PollBlock({
           accessibilityRole="button"
           accessibilityState={{ disabled: submitDisabled }}
           disabled={submitDisabled}
+          // The 40dp capsule reaches the 44pt floor through its slop
+          hitSlop={2}
           onPress={() => {
             if (!submitDisabled) onVote(selectedIds);
           }}
@@ -404,23 +416,24 @@ export default function PollBlock({
         <Pressable
           accessibilityRole="button"
           onPress={() => onPressSignIn?.()}
+          hitSlop={{ top: 6, bottom: 6 }}
           style={{ marginTop: 10, paddingVertical: 8, alignItems: 'center', borderRadius: radii.chip, backgroundColor: colors.brandSoft }}
         >
-          <Text style={{ fontSize: 13, fontFamily: fonts.medium, color: colors.brand }}>{labels.pollSignInToVote}</Text>
+          <Text style={{ fontSize: 13, fontFamily: fonts.medium, color: colors.brandText }}>{labels.pollSignInToVote}</Text>
         </Pressable>
       ) : null}
 
       {/* Pre-vote on an open poll only — and hidden while a vote
           is in flight, so the faces cannot flip mid-submit */}
       {!showResults && !submitting ? (
-        <Pressable accessibilityRole="button" onPress={() => setRevealedLocally(true)} style={{ marginTop: 8, paddingVertical: 4, alignItems: 'center' }}>
+        <Pressable accessibilityRole="button" onPress={() => setRevealedLocally(true)} hitSlop={{ top: 10, bottom: 10 }} style={{ marginTop: 8, paddingVertical: 4, alignItems: 'center' }}>
           <Text style={{ fontSize: 13, fontFamily: fonts.regular, color: colors.inkSoft }}>{labels.pollSeeResults}</Text>
         </Pressable>
       ) : null}
 
       {showResults && onRefreshResults ? (
-        <Pressable accessibilityRole="button" onPress={onRefreshResults} style={{ marginTop: 8, paddingVertical: 4, alignItems: 'center' }}>
-          <Text style={{ fontSize: 13, fontFamily: fonts.regular, color: colors.brand }}>{labels.pollRefresh}</Text>
+        <Pressable accessibilityRole="button" onPress={onRefreshResults} hitSlop={{ top: 10, bottom: 10 }} style={{ marginTop: 8, paddingVertical: 4, alignItems: 'center' }}>
+          <Text style={{ fontSize: 13, fontFamily: fonts.regular, color: colors.brandText }}>{labels.pollRefresh}</Text>
         </Pressable>
       ) : null}
 

@@ -81,7 +81,9 @@ export default function ReplyQuote({
 
 
   const snippet = replySnippet(reply, labels);
-  const nameColor = own ? colors.onBrand : colors.brand;
+  // The brand TEXT hue — the fill pink reads under AA as text
+  // on the quote wash in dark mode
+  const nameColor = own ? colors.onBrand : colors.brandText;
   const textColor = own ? colors.onBrand : colors.ink;
 
 
@@ -94,22 +96,33 @@ export default function ReplyQuote({
       // No button role: the bubble around it is the button, and
       // nested buttons are invalid on web
       accessible={!!onPress}
-      accessibilityLabel={`${reply.senderName}: ${snippet}`}
+      // A ghost quote (the quoted row expired away) has no sender
+      // left to name — it reads as the snippet alone
+      accessibilityLabel={reply.senderName ? `${reply.senderName}: ${snippet}` : snippet}
       accessibilityHint={onPress ? labels.jumpToQuoted : undefined}
+      // maxWidth 100%: the one-line snippet's natural width must
+      // never size the bubble — a long quoted question once pushed
+      // an incoming reply past the screen edge
       style={{
         flexDirection: 'row',
         overflow: 'hidden',
         borderRadius: 10,
         marginBottom: 6,
         minWidth: 150,
+        maxWidth: '100%',
         backgroundColor: own ? colors.onBrandWash : colors.quoteWash,
       }}
     >
       <View style={{ width: 3, backgroundColor: own ? colors.onBrand : colors.brand }} />
-      <View style={{ flex: 1, paddingHorizontal: 8, paddingVertical: 5 }}>
-        <Text style={{ fontFamily: fonts.bold, fontSize: 12, lineHeight: 15, color: nameColor }} numberOfLines={1}>
-          {reply.senderName}
-        </Text>
+      {/* Grow/shrink, never flex:1 — Fabric mis-measures a text
+          column with flex:1 in an intrinsic-width bubble; minWidth
+          0 lets the one-line texts shrink to an ellipsis */}
+      <View style={{ flexGrow: 1, flexShrink: 1, minWidth: 0, paddingHorizontal: 8, paddingVertical: 5 }}>
+        {reply.senderName ? (
+          <Text style={{ fontFamily: fonts.bold, fontSize: 12, lineHeight: 15, color: nameColor }} numberOfLines={1}>
+            {reply.senderName}
+          </Text>
+        ) : null}
         <Text
           // Full-strength white: at 0.9 the snippet dropped under
           // AA contrast on the dark own-bubble wash

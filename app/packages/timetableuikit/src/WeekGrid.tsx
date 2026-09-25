@@ -28,6 +28,7 @@ import { ScrollView, Text, View, type LayoutChangeEvent } from 'react-native';
 
 import type { LessonFrame, PlacedLesson, TimeWindow, TimetableLesson } from './core/types';
 import DayColumn from './grid/DayColumn';
+import EmptyNotice from './grid/EmptyNotice';
 import HourAxis, { AXIS_WIDTH } from './grid/HourAxis';
 import { useNow, type NowPoint } from './hooks/useNow';
 import { usePagePan } from './hooks/usePagePan';
@@ -96,6 +97,9 @@ export interface WeekGridProps {
   weekLabel?: string;
   // The normalizer's dropped-row count — shown as a notice
   skippedCount?: number;
+  // What an all-empty week says instead of labels.noLessons —
+  // a host that knows WHY it is empty ("not published yet")
+  emptyLabel?: string;
   // False renders a headerless BODY for a host that pins one
   // WeekDaysHeader over several pager pages
   showHeader?: boolean;
@@ -220,7 +224,8 @@ export function WeekDaysHeader({
 //
 // Day-name chips over one DayColumn per visible day, each
 // dayWidth wide (floored, see the header); the empty notice
-// shows only when EVERY visible day's bucket is empty.
+// shows only when EVERY visible day's bucket is empty, pinned
+// over the top of the grid (EmptyNotice).
 //
 // Used by:
 //   - components/schedule/TimetableView.tsx — week mode
@@ -237,6 +242,7 @@ export default function WeekGrid({
   hourHeight = DEFAULT_HOUR_HEIGHT,
   weekLabel,
   skippedCount = 0,
+  emptyLabel,
   showHeader = true,
   scrollEnabled = true,
 }: WeekGridProps) {
@@ -323,16 +329,9 @@ export default function WeekGrid({
                 renderLesson={renderLesson}
               />
             ))}
-          </View>
-        ) : null}
 
-        {empty ? (
-          <Text
-            testID="timetableuikit-empty"
-            style={[theme.text.day, { color: theme.colors.inkFaint, textAlign: 'center', marginTop: 32 }]}
-          >
-            {labels.noLessons}
-          </Text>
+            {empty ? <EmptyNotice label={emptyLabel ?? labels.noLessons} /> : null}
+          </View>
         ) : null}
       </Body>
 

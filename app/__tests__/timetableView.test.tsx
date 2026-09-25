@@ -123,6 +123,55 @@ describe('TimetableView', () => {
     expect(onChangeWeek).toHaveBeenCalledWith(1);
   });
 
+  it("the week pages keep their first hour label whole — the top air sits inside each page", async () => {
+    // The label hangs 7 px above the grid's top line; air above
+    // the PAGER got clipped by the pager's own scroller
+    const view = await render(
+      <TimetableView
+        entries={ENTRIES}
+        skipped={0}
+        scope={{ scope: 'group', groupFilterActive: false }}
+        mode="week"
+        day={0}
+        weeks={{ prev: [], next: [] }}
+        onChangeDay={jest.fn()}
+        onChangeWeek={jest.fn()}
+        onPressLesson={jest.fn()}
+      />,
+    );
+    await fireEvent(view.getByTestId('timetableuikit-snappager-frame'), 'layout', {
+      nativeEvent: { layout: { width: 390, height: 900 } },
+    });
+    const page = view.getByTestId('timetableuikit-snappage-0');
+    const wrapper = (page.children[0] ?? null) as { props?: { style?: unknown } } | null;
+    expect(Object.assign({}, ...[wrapper?.props?.style].flat())).toMatchObject({ paddingTop: 12 });
+  });
+
+  it('an empty page on screen speaks the host\'s reason; its neighbours keep the kit\'s copy', async () => {
+    const view = await render(
+      <TimetableView
+        entries={[]}
+        skipped={0}
+        scope={{ scope: 'group', groupFilterActive: false }}
+        mode="week"
+        day={0}
+        weeks={{ prev: [], next: [] }}
+        emptyLabel="Nepaskelbta"
+        onChangeDay={jest.fn()}
+        onChangeWeek={jest.fn()}
+        onPressLesson={jest.fn()}
+      />,
+    );
+    await fireEvent(view.getByTestId('timetableuikit-snappager-frame'), 'layout', {
+      nativeEvent: { layout: { width: 390, height: 900 } },
+    });
+    for (const grid of view.getAllByTestId('timetableuikit-week')) {
+      await fireEvent(grid, 'layout', { nativeEvent: { layout: { width: 390, height: 900 } } });
+    }
+    const notices = view.getAllByTestId('timetableuikit-empty').map((notice) => notice.props.children);
+    expect(notices.sort()).toEqual(['Nepaskelbta', 'No lectures', 'No lectures']);
+  });
+
   it('day mode pages too: a settled swipe reports through onChangeDay, side pages drawing the neighbour week', async () => {
     const onChangeDay = jest.fn();
     const view = await render(
@@ -272,8 +321,10 @@ describe('TimetableView', () => {
     // ('Overlaps another lesson' in the provider-less default)
     const flagged = view.getByTestId('timetableuikit-lesson-x').props.accessibilityLabel as string;
     const calm = view.getByTestId('timetableuikit-lesson-z').props.accessibilityLabel as string;
-    expect(flagged).toContain('Overlaps another lesson');
-    expect(calm).not.toContain('Overlaps another lesson');
+    // The kit says "lecture" throughout now, like the app's own
+    // screens ("lesson" was the one odd word out)
+    expect(flagged).toContain('Overlaps another lecture');
+    expect(calm).not.toContain('Overlaps another lecture');
   });
 
   it('the scope prop decides — the same double-booking stays calm under an inactive group scope', async () => {

@@ -5,9 +5,14 @@
 //  (newest post first — none of a chat list's inverted-list
 //  mechanics) over host-shaped rows the kit never inspects.
 //  Every cell is sealed in its own RowErrorBoundary, and the
-//  host's renderItem is EVALUATED inside that boundary through
-//  a thunk — even a renderItem that throws synchronously fails
-//  one row, never the list.
+//  host's renderItem is EVALUATED inside that boundary by the
+//  memoised RowBody — even a renderItem that throws
+//  synchronously fails one row, never the list, and a cell the
+//  list re-renders for a reason of its own (windowing, a gap
+//  marker moving) skips its row entirely while the row and the
+//  host's renderItem are unchanged (KNF-137 — a fresh thunk
+//  per cell used to re-run every mounted card on every list
+//  prop change).
 //
 //  Paging: onEndReached fires only while hasMore && !loadingMore,
 //  and never on the zero/negative distances the mount and layout
@@ -27,7 +32,9 @@
 //
 //  Split into (root component last):
 //
-//    RowBody       — evaluates renderItem inside the boundary
+//    RowBodyFace   — evaluates renderItem inside the boundary
+//                    (memoised as RowBody on the row and the
+//                    renderer)
 //    FooterSpinner — the loading-more footer
 //    FeedList      — the list (default export)
 // -----------------------------------------------------------
@@ -40,7 +47,7 @@ import { useKitTheme } from '../provider';
 
 // Primitives
 import type { ReactNode } from 'react';
-import { useCallback, useRef } from 'react';
+import { memo, useCallback, useRef } from 'react';
 import { ActivityIndicator, FlatList, Platform, RefreshControl, View, useWindowDimensions, type FlatListProps, type ListRenderItemInfo, type StyleProp, type ViewStyle } from 'react-native';
 
 
@@ -108,20 +115,27 @@ export interface FeedListProps<T> {
 
 
 // -----------------------------------------------------------
-// RowBody
+// RowBodyFace
 // -----------------------------------------------------------
 //
-// The thunk seam: renderItem is CALLED here, inside the
+// The render seam: renderItem is CALLED here, inside the
 // boundary's subtree — called directly in the cell renderer,
 // its throw would climb past the boundary and fell the list.
+// It takes the row and the renderer as two stable props (never
+// a fresh closure), so the memo below can skip a cell whose
+// row and renderer did not move.
 //
 // Used by:
 //   - FeedList (below), one per cell
 // -----------------------------------------------------------
 
-function RowBody({ render }: { render: () => ReactNode }) {
-  return <>{render()}</>;
+function RowBodyFace({ item, render }: { item: unknown; render: (item: never) => ReactNode }) {
+  return <>{render(item as never)}</>;
 }
+
+// Default shallow compare is exactly right: item and render
+// are the only inputs
+const RowBody = memo(RowBodyFace);
 
 
 
@@ -200,7 +214,7 @@ export default function FeedList<T>({
     ({ item }: ListRenderItemInfo<T>) => (
       <>
         <RowErrorBoundary>
-          <RowBody render={() => renderItem(item)} />
+          <RowBody item={item} render={renderItem} />
         </RowErrorBoundary>
         {gapAfterKey !== null && keyOf(item) === gapAfterKey ? <GapRow filling={fillingGap} onPress={onFillGap} /> : null}
       </>

@@ -64,6 +64,7 @@ jest.mock('@/hooks/useTheme', () => ({
   }),
 }));
 
+// The post-registration redirect, observed
 const mockReplace = jest.fn();
 jest.mock('expo-router', () => ({
   useLocalSearchParams: () => ({}),
@@ -75,14 +76,15 @@ jest.mock('expo-router', () => ({
 jest.mock('@/components/ui', () => {
   const React = require('react');
   const { Pressable, Text, TextInput, View } = require('react-native');
-  const Input = React.forwardRef(
-    ({ label, error, ...rest }: { label?: string; error?: string }, ref: unknown) => (
+  const Input = React.forwardRef(function MockInput(
+    { label, error, ...rest }: { label?: string; error?: string }, ref: unknown) {
+    return (
       <View>
         <TextInput ref={ref} accessibilityLabel={label} {...rest} />
         {error ? <Text>{error}</Text> : null}
       </View>
-    ),
-  );
+    );
+  });
   const Button = ({ title, onPress, disabled }: { title: string; onPress: () => void; disabled?: boolean }) => (
     <Pressable accessibilityRole="button" accessibilityLabel={title} onPress={onPress} disabled={disabled}>
       <Text>{title}</Text>
@@ -92,16 +94,19 @@ jest.mock('@/components/ui', () => {
   return { Input, Button, Screen: Plain, EmptyState: () => null };
 });
 
+// The auth action, observed and scripted per test
 const mockRegister = jest.fn(async (_params: unknown) => {});
 jest.mock('@/context/AuthContext', () => ({
   useAuth: () => ({ register: (params: unknown) => mockRegister(params), loading: false }),
 }));
 
+// Toasts, observed — a field error must NOT be one
 const mockShowToast = jest.fn();
 jest.mock('@/context/NetworkContext', () => ({
   showToast: (...args: unknown[]) => mockShowToast(...args),
 }));
 
+// The live invitation-code check
 const mockValidateCode = jest.fn(async (_code: string) => ({ valid: true }));
 jest.mock('@/services/api', () => ({
   ApiError: jest.requireActual('@/services/api/client').ApiError,
@@ -114,6 +119,7 @@ import RegisterScreen from '@/app/register';
 import { ApiError } from '@/services/api/client';
 
 
+// A form the backend accepts as-is
 const VALID = {
   username: 'ona.k',
   displayName: 'Ona K',
@@ -121,9 +127,24 @@ const VALID = {
   password: 'slaptas1',
 };
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// submit
+// -----------------------------------------------------------
+//
 // Fill the five account fields (the invitation code stays
 // blank — guest registration) and press the submit button.
 // RNTL 14 events are asynchronous — every one is awaited
+//
+// Used by:
+//   - the field-rule and 400-routing tests below
+// -----------------------------------------------------------
+
 async function submit(overrides: Partial<typeof VALID> = {}) {
   const values = { ...VALID, ...overrides };
   const screen = await render(<RegisterScreen />);
@@ -142,6 +163,40 @@ async function submit(overrides: Partial<typeof VALID> = {}) {
 describe('RegisterScreen account-field rules', () => {
   beforeEach(() => jest.clearAllMocks());
 
+  it("mirrors the server's password policy on the field, before any request", async () => {
+    // Contains the username
+    let screen = await submit({ password: 'xona.k99' });
+    await waitFor(() => expect(screen.getByText('errors.codes.password_contains_username')).toBeTruthy());
+    // Contains the e-mail's name part
+    screen = await submit({ username: 'kita', email: 'onute@knf.lt', password: 'onute2026' });
+    await waitFor(() => expect(screen.getByText('errors.codes.password_contains_email')).toBeTruthy());
+    // 40 Lithuanian letters are 80 UTF-8 bytes — past bcrypt's 72
+    screen = await submit({ password: 'ą'.repeat(40) });
+    await waitFor(() => expect(screen.getByText('errors.codes.password_too_long')).toBeTruthy());
+    expect(mockRegister).not.toHaveBeenCalled();
+  });
+
+  it('a double submit sends ONE registration', async () => {
+    let finish: () => void = () => {};
+    mockRegister.mockImplementationOnce(() => new Promise<void>((resolve) => (finish = resolve)));
+    const screen = await render(<RegisterScreen />);
+    await fireEvent.changeText(screen.getByLabelText('register.usernameLabel'), VALID.username);
+    await fireEvent.changeText(screen.getByLabelText('register.displayNameLabel'), VALID.displayName);
+    await fireEvent.changeText(screen.getByLabelText('register.emailLabel'), VALID.email);
+    await fireEvent.changeText(screen.getByLabelText('register.passwordLabel'), VALID.password);
+    await fireEvent.changeText(screen.getByLabelText('register.confirmPasswordLabel'), VALID.password);
+    // Two submits inside ONE frame (the keyboard's Done twice,
+    // or Done plus the button) — before any re-render, so only
+    // the ref latch can stop the second
+    const confirm = screen.getByLabelText('register.confirmPasswordLabel');
+    await act(async () => {
+      confirm.props.onSubmitEditing();
+      confirm.props.onSubmitEditing();
+    });
+    await act(async () => finish());
+    expect(mockRegister).toHaveBeenCalledTimes(1);
+  });
+
   it("refuses a username outside the backend's shape on the field, before any request", async () => {
     const screen = await submit({ username: 'ona$k' });
     await waitFor(() => expect(screen.getByText('register.errors.usernameInvalid')).toBeTruthy());
@@ -158,6 +213,11 @@ describe('RegisterScreen account-field rules', () => {
     const screen = await submit({ email: `${'a'.repeat(250)}@x.lt` });
     await waitFor(() => expect(screen.getByText('register.errors.emailMax')).toBeTruthy());
     expect(mockRegister).not.toHaveBeenCalled();
+  });
+
+  it('states the password rules before the first attempt', async () => {
+    const screen = await render(<RegisterScreen />);
+    expect(screen.getByLabelText('register.passwordLabel').props.helperText).toBe('register.passwordHint');
   });
 
   it('caps the username and e-mail inputs at the backend limits', async () => {
@@ -183,10 +243,20 @@ describe('RegisterScreen 400 routing', () => {
   beforeEach(() => jest.clearAllMocks());
 
   it('a 400 invalid_username reads as the username rule — never as an invitation-code problem', async () => {
+    // It lands ON the username field now, not in a toast that is
+    // gone before the student finds the culprit (the old
+    // assertion pinned the toast)
     mockRegister.mockRejectedValueOnce(new ApiError('Username must be…', 400, 'http', undefined, 'invalid_username'));
-    await submit();
-    await waitFor(() => expect(mockShowToast).toHaveBeenCalled());
-    expect(mockShowToast).toHaveBeenCalledWith('error', 'register.errorTitle', 'errors.codes.invalid_username');
+    const screen = await submit();
+    await waitFor(() => expect(screen.getByText('errors.codes.invalid_username')).toBeTruthy());
+    expect(mockShowToast).not.toHaveBeenCalled();
+  });
+
+  it('a server password refusal lands on the password field', async () => {
+    mockRegister.mockRejectedValueOnce(new ApiError('Password is too common', 400, 'http', undefined, 'password_too_common'));
+    const screen = await submit();
+    await waitFor(() => expect(screen.getByText('errors.codes.password_too_common')).toBeTruthy());
+    expect(mockShowToast).not.toHaveBeenCalled();
   });
 
   it('a 400 with a machine code the catalog does not know falls to the generic 400 copy', async () => {

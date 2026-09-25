@@ -13,9 +13,21 @@
 //  No network, no storage — the buffer lives and dies with
 //  the JS process, and logging itself can never throw.
 //
+//  Two severities. logError is a real fault (a 5xx, a dead
+//  network, a crash) and mirrors to console.error in dev.
+//  logExpected is an outcome the UI already handles — a wrong
+//  password's 401, a validation 400, a 403/404/409/429 the
+//  screen translates — and mirrors to console.info: on
+//  console.error the dev build's LogBox popped a red error
+//  toast over every mistyped password. Both land in the
+//  trail; expected ones are marked so a report reader can
+//  tell them from the faults.
+//
 //  Split into:
 //
-//    logError    — record one failure (console in dev)
+//    record      — the shared sink behind both severities
+//    logError    — record one failure (console.error in dev)
+//    logExpected — record one handled outcome (console.info)
 //    getErrorLog — the buffered trail, oldest first
 // -----------------------------------------------------------
 
@@ -35,8 +47,45 @@ const entries: string[] = [];
 // every screen. The [scope] prefix is logError's signature,
 // so genuine unexpected errors still pop the pill.
 if (__DEV__) {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   require('react-native').LogBox.ignoreLogs([/^\[[\w-]+\]/]);
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// record
+// -----------------------------------------------------------
+//
+// Appends one line to the ring buffer (oldest entry dropped
+// past MAX_ENTRIES) and mirrors it to the dev console at the
+// severity's level — a fault as console.error with the whole
+// error object, an expected outcome as a one-line
+// console.info. Never throws — the logger must not become a
+// failure of its own inside the catch blocks that call it.
+//
+// Used by:
+//   - logError, logExpected (below)
+// -----------------------------------------------------------
+
+function record(expected: boolean, scope: string, err: unknown, extra?: string): void {
+  try {
+    const message =
+      err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    entries.push(
+      `${new Date().toISOString()} [${scope}]${expected ? ' (expected)' : ''} ${message}${extra ? ` — ${extra}` : ''}`,
+    );
+    if (entries.length > MAX_ENTRIES) entries.shift();
+    if (!__DEV__) return;
+    if (expected) console.info(`[${scope}] ${message}`, extra ?? '');
+    else console.error(`[${scope}]`, err, extra ?? '');
+  } catch {
+    // Nothing left to do — see the banner
+  }
 }
 
 
@@ -52,29 +101,45 @@ if (__DEV__) {
 //   logError('api', err)                — scope + error
 //   logError('api', err, '/news/7')     — with extra context
 //
-// Appends one line to the ring buffer (oldest entry dropped
-// past MAX_ENTRIES) and mirrors it to the console in dev.
-// Never throws — the logger must not become a failure of its
-// own inside the catch blocks that call it.
+// A real fault — something went wrong that the user did not
+// cause and the screen can only apologise for.
 //
 // Used by:
-//   - services/api/client.ts — every normalized request failure
+//   - services/api/client.ts — 5xx, network, timeout and any
+//     non-HTTP request failure
 //   - services/socket.ts — socket connect_error
+//   - services/notifyEngine.ts, components/notify/
+//     NotifyEngineHost.tsx — the push engine's failures
 //   - app/_layout.tsx — the root ErrorBoundary's onError
+//   - app/(main)/tabs/map.tsx, app/(main)/map-editor — plan
+//     loads
 // -----------------------------------------------------------
 
 export function logError(scope: string, err: unknown, extra?: string): void {
-  try {
-    const message =
-      err instanceof Error ? `${err.name}: ${err.message}` : String(err);
-    entries.push(
-      `${new Date().toISOString()} [${scope}] ${message}${extra ? ` — ${extra}` : ''}`,
-    );
-    if (entries.length > MAX_ENTRIES) entries.shift();
-    if (__DEV__) console.error(`[${scope}]`, err, extra ?? '');
-  } catch {
-    // Nothing left to do — see the banner
-  }
+  record(false, scope, err, extra);
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// logExpected
+// -----------------------------------------------------------
+//
+//   logExpected('api', err, '/auth/login')  — a handled 4xx
+//
+// An outcome the UI answers on its own (see the file header)
+// — kept in the trail for context, never a red dev toast.
+//
+// Used by:
+//   - services/api/client.ts — every normalized 4xx
+// -----------------------------------------------------------
+
+export function logExpected(scope: string, err: unknown, extra?: string): void {
+  record(true, scope, err, extra);
 }
 
 

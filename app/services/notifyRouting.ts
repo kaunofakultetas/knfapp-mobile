@@ -97,12 +97,17 @@ export type NotifyRouter = Pick<ImperativeRouter, 'replace' | 'push' | 'navigate
 //
 //   chat_message | chat_mention (with data.conversationId)
 //     → messages tab, then the chat room pushed on top
+//   news (with data.postId — a faculty post names itself)
+//     → news tab, then that post pushed on top, so back
+//       lands on the feed it belongs to
 //   news | admin_announcement → the news tab
 //   schedule_update           → the schedule tab
 //   anything else             → false, no navigation
 //
 // A chat type WITHOUT a conversationId is "anything else" — a
-// room push with no id would open an empty screen.
+// room push with no id would open an empty screen. The
+// scrapers' news pushes carry no postId (one push, several
+// articles), so they stay on the feed.
 //
 // Used by:
 //   - components/notify/NotifyEngineHost.tsx — the resolver
@@ -132,6 +137,11 @@ export function routeNotificationIntent(intent: RouteIntent, router: NotifyRoute
     if (!isFeatureEnabled('news')) return false;
     if (coldStart) router.replace('/(main)/tabs/news');
     else router.navigate('/(main)/tabs/news');
+    // The post the push announced, on top of its feed — the
+    // payload has carried the id all along
+    if (type === 'news' && data.postId) {
+      router.push({ pathname: '/(main)/news-post', params: { postId: data.postId } });
+    }
     return true;
   }
 

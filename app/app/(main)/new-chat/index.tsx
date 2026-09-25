@@ -25,6 +25,7 @@
 //  Split into (root component last):
 //
 //    GROUP_EMOJIS  — the random group avatar pool
+//    GROUP_TITLE_MAX — the backend's group title limit
 //    Separator     — stable result-list row separator
 //    SelectedChips — removable chips of the picked people
 //    UserRow       — one search hit with checkbox semantics
@@ -59,7 +60,10 @@ import {
 
 // Navigation, keyboard offset, i18n and primitives
 import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
+
+// Deep-link params, distrusted (array / missing safe)
+import { useRouteParam } from '@/hooks/useRouteParam';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -75,6 +79,9 @@ import {
 
 // A fresh group gets a random face from this pool
 const GROUP_EMOJIS = ['💬', '👥', '📚', '🧑‍🏫', '🧪', '🖥️', '🧠'];
+
+// The backend's group title limit (create_conversation: 100)
+const GROUP_TITLE_MAX = 100;
 
 
 
@@ -245,10 +252,10 @@ function NewChatForm() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const keyboardUp = useKeyboardVisible();
-  const { prefillUserId, prefillName } = useLocalSearchParams<{
-    prefillUserId?: string;
-    prefillName?: string;
-  }>();
+  // Through useRouteParam: a repeated query key arrives as an
+  // array, which the old type cast passed on as one "a,b" id
+  const prefillUserId = useRouteParam('prefillUserId');
+  const prefillName = useRouteParam('prefillName');
 
 
   // Full user objects, seeded from the prefill params when a
@@ -350,10 +357,15 @@ function NewChatForm() {
   const createChat = async () => {
     if (selected.length === 0 || creating) return;
 
-    const fallbackTitle = selected
+    // The unnamed group is named after its first three people —
+    // cut to the backend's 100-character title limit, or three
+    // long names (Aleksandravičiūtė-Vaitkevičienė…) would earn a
+    // 400 and a bare "could not create" instead of a group
+    const joined = selected
       .map((user) => user.displayName)
       .slice(0, 3)
       .join(', ');
+    const fallbackTitle = joined.length > GROUP_TITLE_MAX ? `${joined.slice(0, GROUP_TITLE_MAX - 1).trimEnd()}…` : joined;
     const title = isGroup ? name.trim() || fallbackTitle : undefined;
 
     setCreating(true);
@@ -367,12 +379,12 @@ function NewChatForm() {
           : undefined,
       });
       // Straight into the fresh room; `creating` stays true so
-      // the button keeps its spinner through the transition
+      // the button keeps its spinner through the transition. No
+      // title param: the room names itself from its own row
       router.replace({
         pathname: '/(main)/chat-room',
         params: {
           conversationId,
-          title: isGroup ? (title ?? fallbackTitle) : selected[0].displayName,
           // Without the type a fresh group renders as a direct
           // chat until its first page lands
           type: isGroup ? 'group' : 'direct',

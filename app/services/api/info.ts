@@ -61,7 +61,11 @@ export interface InfoContact {
 //
 // `category` is the already-translated group heading — the
 // grouping and its order are decided in the content file, the
-// screen renders the groups exactly as served.
+// screen renders the groups exactly as served. `nameLang` is
+// set when the group was BORROWED from another language's
+// scrape (English borrows the Lithuanian one): its heading and
+// names stay in that language, and the screen says so and
+// hands them to a matching screen-reader voice.
 //
 // Used by:
 //   - FacultyInfoResponse (below)
@@ -71,6 +75,7 @@ export interface InfoContact {
 export interface InfoContactCategory {
   category: string;
   items: InfoContact[];
+  nameLang?: string;
 }
 
 
@@ -136,9 +141,15 @@ export interface InfoHours {
 // InfoProgram
 // -----------------------------------------------------------
 //
-// Three display strings straight from the content file —
-// `duration` included ("3,5 metų"), it is prose, not a number
-// with a unit.
+// Display strings straight from the handbook. `duration` is
+// prose ("4 metai" / "4 years"), not a number with a unit, and
+// OPTIONAL: the scraper writes it only when a programme card
+// states one, so the wire omits it for most scraped entries
+// (it was typed required and rendered as a blank line —
+// KNF-124). `note` is an extra line in the answer's language
+// ("Taught in English"); `nameLang` marks a registered name
+// kept in another language than the answer's (English
+// borrows the Lithuanian scrape).
 //
 // Used by:
 //   - FacultyInfoResponse (below)
@@ -148,7 +159,9 @@ export interface InfoHours {
 export interface InfoProgram {
   name: string;
   degree: string;
-  duration: string;
+  duration?: string;
+  note?: string;
+  nameLang?: string;
 }
 
 

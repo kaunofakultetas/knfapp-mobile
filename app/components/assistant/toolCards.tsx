@@ -9,7 +9,8 @@
 //  natural-language summary of what was asked (the group
 //  and range, the search words). A failed call shows its
 //  error text in the danger ink: errors stay VISIBLE on
-//  purpose, screenshots are how problems reach us.
+//  purpose, screenshots are how problems reach us. Text is
+//  set in the app's Raleway families, like the kit around it.
 //
 //  The renderers are PLAIN FUNCTIONS by the kit's contract
 //  (the card shell calls them, they may not hold hooks), so
@@ -26,10 +27,11 @@
 //    createAssistantToolCards  — the registry factory
 // -----------------------------------------------------------
 
-// The kit's renderer contract and the app's icon set
+// The kit's renderer contract, the app's icon set and faces
 import { Ionicons } from '@expo/vector-icons';
 import { Text, View } from 'react-native';
 
+import { fonts } from '@/constants/theme';
 import type { AssistantColors, ToolCardPart, ToolCardRenderer } from '@knf/assistantuikit';
 
 
@@ -180,16 +182,18 @@ function ToolCardFrame({ icon, title, summary, part, colors }: {
         <Ionicons name={icon} size={16} color={part.status === 'failed' ? colors.danger : colors.brand} />
       </View>
       <View style={{ flexShrink: 1 }}>
-        <Text style={{ fontSize: 13, fontWeight: '600', color: part.status === 'failed' ? colors.danger : colors.ink }}>
+        <Text style={{ fontSize: 13, fontFamily: fonts.semiBold, color: part.status === 'failed' ? colors.danger : colors.ink }}>
           {title}
         </Text>
         {summary ? (
-          <Text style={{ fontSize: 12, color: colors.inkSoft }} numberOfLines={1}>
+          <Text style={{ fontSize: 12, fontFamily: fonts.regular, color: colors.inkSoft }} numberOfLines={1}>
             {summary}
           </Text>
         ) : null}
         {part.status === 'failed' && part.errorText ? (
-          <Text style={{ fontSize: 12, lineHeight: 16, color: colors.danger }}>{part.errorText}</Text>
+          <Text selectable style={{ fontSize: 12, lineHeight: 16, fontFamily: fonts.regular, color: colors.danger }}>
+            {part.errorText}
+          </Text>
         ) : null}
       </View>
     </View>

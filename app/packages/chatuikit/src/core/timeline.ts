@@ -22,6 +22,7 @@
 //
 //  Split into:
 //
+//    normalizeStamp    — the stamp string Date is handed
 //    parseStamp        — zone-safe Date from a backend stamp
 //    messageStamp      — per-message cached parsed time
 //    GROUP_GAP_MS      — the run-breaking silence
@@ -91,15 +92,49 @@ const DAY_KEY_CACHE = new WeakMap<KitMessage, string>();
 
 
 // -----------------------------------------------------------
+// normalizeStamp
+// -----------------------------------------------------------
+//
+//   normalizeStamp('2026-09-19T17:50:28.149882')
+//     → '2026-09-19T17:50:28.149Z'
+//
+// The one zoneless-UTC rule, as the STRING Date is handed:
+// SQLite space-form stamps ("2026-08-27 10:05:00") become the
+// T form, a zoneless stamp gets its UTC Z, and a fraction past
+// three digits is cut to milliseconds — the KNF wire sends
+// microseconds and the JS Date string grammar only promises
+// three, so the rule never leans on one engine's leniency.
+// Exported from this module only (not the kit's surface) so
+// tests pin the normalized string; chatengine's core/time.ts
+// carries the same rule, held to it by the app's
+// __tests__/stampParity.test.ts.
+//
+// Used by:
+//   - parseStamp (below)
+// -----------------------------------------------------------
+
+// An explicit zone suffix (Z or ±HH:MM) — such stamps are
+// trusted as-is; only zoneless ones get the appended Z
+const HAS_ZONE_RE = /(Z|[+-]\d{2}:?\d{2})$/i;
+export function normalizeStamp(iso: string): string {
+  const t = iso.includes('T') ? iso : iso.replace(' ', 'T');
+  const zoned = t.includes('T') && !HAS_ZONE_RE.test(t) ? t + 'Z' : t;
+  return zoned.replace(/(\.\d{3})\d+/, '$1');
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // parseStamp
 // -----------------------------------------------------------
 //
-// Zone-safe Date from a backend stamp, or null. Zoneless
-// stamps are UTC — same rule as services/format. SQLite
-// space-form stamps ("2026-08-27 10:05:00") are normalized to
-// the T form first so they get the same UTC treatment, and a
-// microsecond fraction is truncated to milliseconds — Hermes
-// does not parse six fractional digits.
+// Zone-safe Date from a backend stamp (normalizeStamp above),
+// or null instead of an Invalid Date. Zoneless stamps are UTC
+// — same rule as services/format.
 //
 // Used by:
 //   - dayKey / messageStamp (below)
@@ -107,13 +142,8 @@ const DAY_KEY_CACHE = new WeakMap<KitMessage, string>();
 //   - app/(main)/tabs/messages.tsx — conversation row times
 // -----------------------------------------------------------
 
-// An explicit zone suffix (Z or ±HH:MM) — such stamps are
-// trusted as-is; only zoneless ones get the appended Z
-const HAS_ZONE_RE = /(Z|[+-]\d{2}:?\d{2})$/i;
 export function parseStamp(iso: string): Date | null {
-  const t = iso.includes('T') ? iso : iso.replace(' ', 'T');
-  const zoned = t.includes('T') && !HAS_ZONE_RE.test(t) ? t + 'Z' : t;
-  const date = new Date(zoned.replace(/(\.\d{3})\d+/, '$1'));
+  const date = new Date(normalizeStamp(iso));
   return Number.isNaN(date.getTime()) ? null : date;
 }
 

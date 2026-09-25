@@ -8,18 +8,24 @@
 //  tab's consumed-once param works every time), the session
 //  kind picks which listing the service runs, delete asks
 //  FIRST and only a confirmed tap reaches the server (then
-//  the list reloads), and a failed load shows the error
+//  the list reloads, a success toast says so), a failed
+//  delete keeps the row and toasts the failure, a second trash
+//  tap while one delete is in flight is ignored, a pull
+//  refreshes the list, a row without an answer shows its age
+//  ONCE, the screen reader hears title + preview + age and a
+//  named trash button, and a failed load shows the error
 //  state whose retry refetches. The threads service is
 //  faked at its seam; useLoad is a faithful mini
 //  implementation (the real one is pinned by its own suite
 //  and needs the dataengine provider).
 // -----------------------------------------------------------
 
-import { fireEvent, render, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 
 import AssistantThreadsScreen from '@/app/(main)/assistant-threads/index';
 
 jest.mock('@/services/features', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- a mock factory runs before the module graph loads; only require() can reach the roster
   const { TABS } = require('@/constants/tabs');
   return {
     isFeatureEnabled: () => true,
@@ -46,12 +52,21 @@ jest.mock('@/services/format', () => ({ formatRelativeAgo: () => 'prieš 2 val.'
 let mockAuth: { isAuthenticated: boolean } = { isAuthenticated: false };
 jest.mock('@/context/AuthContext', () => ({ useAuth: () => mockAuth }));
 
+const mockShowToast = jest.fn();
+jest.mock('@/context/NetworkContext', () => ({ showToast: (...args: unknown[]) => mockShowToast(...args) }));
+
 // The ui barrel: passthrough chrome, an observable ErrorState
 // retry, and the confirm seam the delete flow rides
 const mockConfirm = jest.fn(async () => true);
 jest.mock('@/components/ui', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- a mock factory runs before the module graph loads; only require() can reach the primitives
   const { Pressable, Text, View } = require('react-native');
   return {
+    // The pull is a pressable here — the gesture itself is the
+    // platform's, the screen's job is what onRefresh does
+    RefreshSpinner: ({ onRefresh, refreshing }: { onRefresh?: () => void; refreshing?: boolean }) => (
+      <Pressable testID="pull-to-refresh" accessibilityState={{ busy: refreshing }} onPress={onRefresh} />
+    ),
     Screen: ({ children }: { children?: unknown }) => <View>{children as never}</View>,
     LoadingSpinner: () => <Text>loading</Text>,
     EmptyState: ({ title }: { title: string }) => <Text>{title}</Text>,
@@ -67,6 +82,7 @@ jest.mock('@/components/ui', () => {
 
 const mockNavigate = jest.fn();
 jest.mock('expo-router', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- a mock factory runs before the module graph loads
   const React = require('react');
   return {
     useRouter: () => ({ navigate: mockNavigate }),
@@ -80,6 +96,7 @@ jest.mock('expo-router', () => {
 // suite and demands the dataengine provider this screen test
 // does not need
 jest.mock('@knf/dataengine', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- a mock factory runs before the module graph loads
   const React = require('react');
   return {
     useLoad: (fetcher: () => Promise<unknown>, deps: unknown[]) => {
@@ -128,7 +145,9 @@ beforeEach(() => {
   mockNavigate.mockClear();
   mockConfirm.mockClear();
   mockConfirm.mockResolvedValue(true);
-  mockDeleteThread.mockClear();
+  mockShowToast.mockClear();
+  mockDeleteThread.mockReset();
+  mockDeleteThread.mockResolvedValue(undefined);
   mockListThreads.mockReset();
   mockListThreads.mockResolvedValue([
     thread('t-1', 'Kada paskaitos?', 'Rytoj 9:00, 215 aud.'),
@@ -174,16 +193,67 @@ describe('the conversation history screen', () => {
     await loaded(view, 'Kada paskaitos?');
     mockListThreads.mockResolvedValue([thread('t-2', 'Stipendija')]);
 
-    await fireEvent.press(view.getAllByLabelText('assistant.threadsDelete')[0]);
+    await fireEvent.press(view.getAllByLabelText('assistant.threadsDeleteNamed')[0]);
 
     await waitFor(() => expect(mockDeleteThread).toHaveBeenCalledWith('t-1'));
     expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({
       title: 'assistant.threadsDeleteConfirmTitle',
       destructive: true,
     }));
-    // The reload happened and the row is gone
+    // The reload happened and the row is gone — and it was said
     await waitFor(() => expect(view.queryByText('Kada paskaitos?')).toBeNull());
     expect(view.getByText('Stipendija')).toBeTruthy();
+    expect(mockShowToast).toHaveBeenCalledWith('success', 'assistant.threadsDeleted');
+  });
+
+  it('a failed delete keeps the row and says so', async () => {
+    mockDeleteThread.mockRejectedValueOnce(new Error('502'));
+    const view = await render(<AssistantThreadsScreen />);
+    await loaded(view, 'Kada paskaitos?');
+
+    await fireEvent.press(view.getAllByLabelText('assistant.threadsDeleteNamed')[0]);
+    await waitFor(() => expect(mockShowToast).toHaveBeenCalledWith('error', 'assistant.threadsDeleteFailed'));
+    expect(view.getByText('Kada paskaitos?')).toBeTruthy();
+    expect(mockShowToast).not.toHaveBeenCalledWith('success', expect.anything());
+  });
+
+  it('a second trash tap while a delete is in flight is ignored', async () => {
+    let answer: (confirmed: boolean) => void = () => {};
+    mockConfirm.mockImplementationOnce(() => new Promise<boolean>((resolve) => {
+      answer = resolve;
+    }));
+    const view = await render(<AssistantThreadsScreen />);
+    await loaded(view, 'Kada paskaitos?');
+
+    // The second tap lands while the first still waits on its
+    // confirm — the first holds the guard across its whole chain
+    const trash = view.getAllByLabelText('assistant.threadsDeleteNamed');
+    await fireEvent.press(trash[0]);
+    await fireEvent.press(trash[1]);
+    await act(async () => answer(true));
+    await waitFor(() => expect(mockDeleteThread).toHaveBeenCalledTimes(1));
+    expect(mockConfirm).toHaveBeenCalledTimes(1);
+    expect(mockDeleteThread).toHaveBeenCalledWith('t-1');
+  });
+
+  it('a pull refreshes the list in place', async () => {
+    const view = await render(<AssistantThreadsScreen />);
+    await loaded(view, 'Kada paskaitos?');
+    mockListThreads.mockResolvedValue([thread('t-9', 'Naujas klausimas', 'Atsakymas')]);
+
+    await fireEvent.press(view.getByTestId('pull-to-refresh'));
+    await loaded(view, 'Naujas klausimas');
+    expect(view.queryByText('Kada paskaitos?')).toBeNull();
+  });
+
+  it('a row without an answer shows its age once; the reader hears title, preview and age', async () => {
+    const view = await render(<AssistantThreadsScreen />);
+    await loaded(view, 'Stipendija');
+    // t-1 has a preview (age beside the title), t-2 none (age
+    // on the second line only) — two ages, never three
+    expect(view.getAllByText('prieš 2 val.')).toHaveLength(2);
+    expect(view.getByLabelText('Kada paskaitos?, Rytoj 9:00, 215 aud., prieš 2 val.')).toBeTruthy();
+    expect(view.getByLabelText('Stipendija, prieš 2 val.')).toBeTruthy();
   });
 
   it('a declined confirm deletes NOTHING', async () => {
@@ -191,7 +261,7 @@ describe('the conversation history screen', () => {
     const view = await render(<AssistantThreadsScreen />);
     await loaded(view, 'Kada paskaitos?');
 
-    await fireEvent.press(view.getAllByLabelText('assistant.threadsDelete')[0]);
+    await fireEvent.press(view.getAllByLabelText('assistant.threadsDeleteNamed')[0]);
     await waitFor(() => expect(mockConfirm).toHaveBeenCalled());
     expect(mockDeleteThread).not.toHaveBeenCalled();
     expect(view.getByText('Kada paskaitos?')).toBeTruthy();

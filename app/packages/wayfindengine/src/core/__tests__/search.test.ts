@@ -2,8 +2,10 @@
 //  [*] Tests — @knf/wayfindengine search
 //
 //  The fold (Lithuanian diacritics, case, whitespace runs),
-//  every-token-in-any-order matching across name, localised
-//  name, aliases and id, the three-tier rank (exact id, then
+//  every-token-in-any-order matching across name, the room's
+//  own second-language nameEn (its type promises it is
+//  searched beside the name), localised name, aliases and id,
+//  the three-tier rank (exact id, then
 //  a field or word start, then anywhere inside), the browse
 //  order of the empty query, the limit, and a room on an
 //  unknown level staying out. Then the nearest-by-category
@@ -27,46 +29,6 @@ import { foldForSearch, nearestRoomByCategory, searchRooms } from '../search';
 import type { BuildingGraph, GraphEdge, GraphNode, NodeKind, Room } from '../types';
 
 
-const node = (id: string, level: string, x: number, y: number, kind: NodeKind = 'corridor'): GraphNode => ({ id, level, x, y, kind });
-const hallway = (a: string, b: string): GraphEdge => ({ a, b, kind: 'hallway' });
-
-const building = (rooms: Room[]): BuildingGraph => ({
-  version: 1,
-  building: 'test',
-  levels: [
-    { id: 'L2', label: '2', viewBox: [0, 0, 100, 100], metersPerPixel: 1, ordinal: 2 },
-    { id: 'L1', label: '1', viewBox: [0, 0, 100, 100], metersPerPixel: 1, ordinal: 1 },
-  ],
-  nodes: [
-    node('s', 'L1', 0, 0),
-    node('w2', 'L1', 15, 0, 'door'),
-    node('k', 'L1', 30, 0),
-    node('k2', 'L1', 30, 5),
-    node('w1', 'L1', 0, 5, 'door'),
-    node('wA', 'L1', 0, 10, 'door'),
-    node('st1', 'L1', 0, -10, 'stairs'),
-    node('st2', 'L2', 0, -10, 'stairs'),
-    node('w3', 'L2', 5, -10, 'door'),
-    node('island', 'L1', 90, 90),
-    node('gate', 'L1', -10, 0, 'door'),
-  ],
-  edges: [
-    hallway('s', 'w2'),
-    hallway('w2', 'k'),
-    hallway('k', 'k2'),
-    hallway('k2', 'w1'),
-    hallway('s', 'wA'),
-    hallway('s', 'st1'),
-    { a: 'st1', b: 'st2', kind: 'stairs', lengthM: 6 },
-    hallway('st2', 'w3'),
-    // Exit-only: walkable gate → s, never s → gate
-    { a: 'gate', b: 's', kind: 'door', oneWay: true },
-  ],
-  rooms,
-  entranceNodeId: 's',
-});
-
-
 // The search fixture: names with diacritics, an alias, a
 // localised name, three rooms sharing '101' three different
 // ways, and a room on a level nobody defined
@@ -82,7 +44,119 @@ const ROOMS: Room[] = [
   { id: 'ghost', name: 'Auditorija 999', level: 'L9', nodeId: 'k' },
 ];
 
+// The fixture indexed once, for every search spec
 const index = indexGraph(building(ROOMS));
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// node
+// -----------------------------------------------------------
+//
+// One graph node, a corridor unless told.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
+
+function node(id: string, level: string, x: number, y: number, kind: NodeKind = 'corridor'): GraphNode {
+  return { id, level, x, y, kind };
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// hallway
+// -----------------------------------------------------------
+//
+// One two-way hallway edge.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
+
+function hallway(a: string, b: string): GraphEdge {
+  return { a, b, kind: 'hallway' };
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// building
+// -----------------------------------------------------------
+//
+// The two-level plan the header draws, with the rooms a
+// spec hands in.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
+
+function building(rooms: Room[]): BuildingGraph {
+  return {
+    version: 1,
+    building: 'test',
+    levels: [
+      { id: 'L2', label: '2', viewBox: [0, 0, 100, 100], metersPerPixel: 1, ordinal: 2 },
+      { id: 'L1', label: '1', viewBox: [0, 0, 100, 100], metersPerPixel: 1, ordinal: 1 },
+    ],
+    nodes: [
+      node('s', 'L1', 0, 0),
+      node('w2', 'L1', 15, 0, 'door'),
+      node('k', 'L1', 30, 0),
+      node('k2', 'L1', 30, 5),
+      node('w1', 'L1', 0, 5, 'door'),
+      node('wA', 'L1', 0, 10, 'door'),
+      node('st1', 'L1', 0, -10, 'stairs'),
+      node('st2', 'L2', 0, -10, 'stairs'),
+      node('w3', 'L2', 5, -10, 'door'),
+      node('island', 'L1', 90, 90),
+      node('gate', 'L1', -10, 0, 'door'),
+    ],
+    edges: [
+      hallway('s', 'w2'),
+      hallway('w2', 'k'),
+      hallway('k', 'k2'),
+      hallway('k2', 'w1'),
+      hallway('s', 'wA'),
+      hallway('s', 'st1'),
+      { a: 'st1', b: 'st2', kind: 'stairs', lengthM: 6 },
+      hallway('st2', 'w3'),
+      // Exit-only: walkable gate → s, never s → gate
+      { a: 'gate', b: 's', kind: 'door', oneWay: true },
+    ],
+    rooms,
+    entranceNodeId: 's',
+  };
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ids
+// -----------------------------------------------------------
+//
+// A result list as its room ids, in rank order.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
 
 const ids = (matches: { room: Room }[]): string[] => matches.map((m) => m.room.id);
 
@@ -120,6 +194,12 @@ describe('searchRooms — matching', () => {
   it('matches through the id', () => {
     expect(ids(searchRooms(index, 'wc-a'))).toEqual(['wc-a']);
     expect(ids(searchRooms(index, 'S-3101'))).toEqual(['s-3101']);
+  });
+
+  it("matches through the room's own nameEn, with no localizer needed", () => {
+    const rooms: Room[] = [{ id: 'dek', name: 'Dekanatas', nameEn: "Dean's office", level: 'L1', nodeId: 'k' }];
+    expect(ids(searchRooms(indexGraph(building(rooms)), 'dean'))).toEqual(['dek']);
+    expect(ids(searchRooms(indexGraph(building(rooms)), 'dekanat'))).toEqual(['dek']);
   });
 
   it("matches through the host's localised name", () => {

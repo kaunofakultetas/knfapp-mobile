@@ -7,8 +7,10 @@
 //  misfires and stays inert without hasMore or during a page,
 //  the new-posts pill hides at zero and its press both scrolls
 //  to the top and reports to the host, pull-to-refresh mounts
-//  only when wired, the footer spinner tracks loadingMore, and
-//  the kit's own FlatList props win over flatListProps.
+//  only when wired, the footer spinner tracks loadingMore, the
+//  kit's own FlatList props win over flatListProps, and a list
+//  prop change never re-renders a row whose item and renderer
+//  did not move (KNF-137).
 // -----------------------------------------------------------
 
 import { act, fireEvent, render } from '@testing-library/react-native';
@@ -20,13 +22,89 @@ import RowErrorBoundary from '../RowErrorBoundary';
 
 
 type Item = { id: string; body: string };
-const makeItems = (n: number): Item[] => Array.from({ length: n }, (_, i) => ({ id: `p${i}`, body: `post ${i}` }));
-const keyOf = (item: Item) => item.id;
-const renderRow = (item: Item) => <Text>{item.body}</Text>;
+
+// The props every list case starts from: three rows keyed by
+// id (the helpers below are hoisted declarations)
 const baseProps = { items: makeItems(3), keyOf, renderItem: renderRow };
 
-// React logs every boundary-caught throw through console.error —
-// noise here, signal nowhere
+
+
+
+
+
+
+// -----------------------------------------------------------
+// makeItems
+// -----------------------------------------------------------
+//
+// n fixture rows, p0 … p(n-1).
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
+
+function makeItems(n: number): Item[] {
+  return Array.from({ length: n }, (_, i) => ({ id: `p${i}`, body: `post ${i}` }));
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// keyOf
+// -----------------------------------------------------------
+//
+// A row's key: its id.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
+
+function keyOf(item: Item) {
+  return item.id;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// renderRow
+// -----------------------------------------------------------
+//
+// A row as its body text.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
+
+function renderRow(item: Item) {
+  return <Text>{item.body}</Text>;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// silenced
+// -----------------------------------------------------------
+//
+// Mutes console.error for a boundary test — React logs every
+// boundary-caught throw through it: noise here, signal
+// nowhere. Callers restore the spy.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
+
 const silenced = (): jest.SpyInstance => jest.spyOn(console, 'error').mockImplementation(() => {});
 
 
@@ -207,5 +285,32 @@ describe('FeedList', () => {
       <FeedList items={items} keyOf={(item) => item.id} renderItem={(item) => <Text testID={`row-${item.id}`}>{item.id}</Text>} gapAfterKey={null} />,
     );
     expect(r.queryByTestId('socialuikit-gap-row')).toBeNull();
+  });
+});
+
+
+
+describe('row rendering cost', () => {
+  it('a list prop change never re-renders a row whose item and renderer did not move', async () => {
+    const items = makeItems(4);
+    const seen: string[] = [];
+    const renderItem = (item: Item) => {
+      seen.push(item.id);
+      return <Text>{item.body}</Text>;
+    };
+    const r = await render(<FeedList items={items} keyOf={keyOf} renderItem={renderItem} newCount={0} />);
+    const mounted = seen.length;
+    expect(mounted).toBeGreaterThanOrEqual(4);
+
+    // The pill count moves (the freshness poll) — the rows stay put
+    await r.rerender(<FeedList items={items} keyOf={keyOf} renderItem={renderItem} newCount={2} />);
+    await r.rerender(<FeedList items={items} keyOf={keyOf} renderItem={renderItem} newCount={3} loadingMore />);
+    expect(seen).toHaveLength(mounted);
+
+    // A row whose DATA changed renders again — and only that row
+    const next = items.map((item) => (item.id === 'p2' ? { ...item, body: 'edited' } : item));
+    await r.rerender(<FeedList items={next} keyOf={keyOf} renderItem={renderItem} newCount={3} />);
+    expect(seen.slice(mounted)).toEqual(['p2']);
+    expect(r.getByText('edited')).toBeTruthy();
   });
 });

@@ -75,7 +75,13 @@ describe('createKnfSocket', () => {
     const statuses: string[] = [];
     client.onStatus((s) => statuses.push(s));
     await client.connect();
-    mockInstances[0].fire('connect_error', Object.assign(new Error('bad token'), { data: {} }));
+    // The session verdict is the explicit reason the backend
+    // sends. This case once used a free-form 'bad token' and
+    // pinned that ANY refusal meant an expired session — the
+    // rule that turned the server library's "Unable to connect"
+    // (an empty message here) into dead realtime; unknown
+    // reasons now retry (see the refusal cases below)
+    mockInstances[0].fire('connect_error', Object.assign(new Error('unauthorized'), { data: {} }));
     expect(client.status()).toBe('unauthorized');
     expect(mockInstances[0].disconnected).toBe(true);
     await client.connect();
@@ -333,5 +339,92 @@ describe('createKnfSocket', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  it.each([
+    ['an empty reason — python-socketio\'s "Unable to connect" arrives as one', ''],
+    ['the server library\'s own wording', 'Unable to connect'],
+    ['any reason the backend never publishes', 'bad token'],
+  ])('%s is retried like "try again", never painted as an expired session', async (_label, reason) => {
+    jest.useFakeTimers();
+    const random = jest.spyOn(Math, 'random').mockReturnValue(0);
+    try {
+      const client = createKnfSocket({ url: 'http://host', getToken: async () => 'tok', followAppState: false });
+      await client.connect();
+      mockInstances[0].fire('connect_error', Object.assign(new Error(reason), { data: {} }));
+      expect(client.status()).toBe('disconnected');
+      expect(mockInstances[0].disconnected).toBe(true);
+
+      await jest.advanceTimersByTimeAsync(1_000);
+      await settle();
+      expect(mockInstances).toHaveLength(2);
+      expect(client.status()).toBe('connecting');
+    } finally {
+      random.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+});
+
+
+describe('one handshake at a time', () => {
+  beforeEach(() => {
+    mockInstances.length = 0;
+  });
+
+  // socket.io-client's own flag: true from connect() until a
+  // suspend, a server cut or a client disconnect retires the
+  // socket — the fixture models it on the instance under test
+  const activate = (instance: MockSocket) => {
+    (instance as MockSocket & { active: boolean }).active = true;
+    return jest.spyOn(instance, 'connect');
+  };
+
+  it('a second connect() while the first handshake is still in flight sends no second CONNECT', async () => {
+    const client = createKnfSocket({ url: 'http://host', getToken: async () => 'tok', followAppState: false });
+    await client.connect();
+    const reopen = activate(mockInstances[0]);
+    // `disconnected` reads true for the whole handshake — the
+    // old guard re-opened on it and the server refused the
+    // duplicate, destroying the live socket
+    mockInstances[0].disconnected = true;
+
+    await client.connect();
+    await client.connect();
+    expect(reopen).not.toHaveBeenCalled();
+    expect(mockInstances).toHaveLength(1);
+    expect(client.status()).toBe('connecting');
+
+    // ...nor while the manager is reconnecting on its own
+    mockInstances[0].io.handlers.get('reconnect_attempt')?.();
+    await client.connect();
+    expect(reopen).not.toHaveBeenCalled();
+  });
+
+  it('an instance a suspend retired IS re-opened — the same one, no rebuild', async () => {
+    const client = createKnfSocket({ url: 'http://host', getToken: async () => 'tok', followAppState: false });
+    await client.connect();
+    const reopen = activate(mockInstances[0]);
+    mockInstances[0].fire('connect');
+
+    client.suspend();
+    (mockInstances[0] as MockSocket & { active: boolean }).active = false;
+    await client.connect();
+    expect(reopen).toHaveBeenCalledTimes(1);
+    expect(mockInstances).toHaveLength(1);
+  });
+
+  it('a manager that gave up (reconnect_failed) is re-opened by the next connect()', async () => {
+    const client = createKnfSocket({ url: 'http://host', getToken: async () => 'tok', followAppState: false });
+    await client.connect();
+    const reopen = activate(mockInstances[0]);
+    mockInstances[0].disconnected = true;
+
+    // Still subscribed (active), but nothing is under way any more
+    mockInstances[0].io.handlers.get('reconnect_failed')?.();
+    expect(client.status()).toBe('disconnected');
+    await client.connect();
+    expect(reopen).toHaveBeenCalledTimes(1);
+    expect(client.status()).toBe('connecting');
   });
 });

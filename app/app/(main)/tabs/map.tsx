@@ -18,15 +18,20 @@
 //  so the three small mappers below turn instructions, the
 //  route and the navigation state into the kit's shapes —
 //  exactly the pairing the kit's README prescribes. Room
-//  names come through i18n where a room carries a nameKey.
+//  names come through i18n where a room carries a nameKey,
+//  else in English from the room's own nameEn when it has one.
 //
 //  Works fully logged out and offline — the seed ships with
 //  the app; the plan view follows the walker's floor unless a
-//  floor was pinned by hand.
+//  floor was pinned by hand. Routing is synchronous, so a
+//  picked room with no route is said at once, with the way
+//  out that fits: back to the list, or — when the step-free
+//  switch is what ruled the route out — the stairs route.
 //
 //  Split into (root component last):
 //
 //    kitStep / kitSummary / kitState — engine → kit mappers
+//    planPolygon     — a room outline the plan can draw, or null
 //    RoomRow         — one destination row
 //    DestinationList — search field + grouped room list
 //    ViewToggle      — the photo / plan chips over the stage
@@ -57,7 +62,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { BackHandler, FlatList, Keyboard, Platform, Pressable, Text, TextInput, View, type LayoutChangeEvent } from 'react-native';
+import { BackHandler, FlatList, Keyboard, Platform, Pressable, ScrollView, Text, TextInput, View, type LayoutChangeEvent } from 'react-native';
 import { SvgXml } from 'react-native-svg';
 
 import {
@@ -221,6 +226,32 @@ function kitState(state: NavigationState, route: Route, names: Names, place: str
 
 
 // -----------------------------------------------------------
+// planPolygon
+// -----------------------------------------------------------
+//
+// A room's outline as the plan may draw it — three or more
+// [x, y] pairs of finite numbers — else null. The graph is
+// server data a phone caches for months, so a malformed
+// outline is left undrawn instead of taking the whole tab's
+// render down with it.
+//
+// Used by:
+//   - PlanStage (below) — the rooms handed to the plan
+// -----------------------------------------------------------
+
+function planPolygon(polygon: unknown): [number, number][] | null {
+  if (!Array.isArray(polygon) || polygon.length < 3) return null;
+  const drawable = polygon.every((point) => Array.isArray(point) && point.length === 2 && Number.isFinite(point[0]) && Number.isFinite(point[1]));
+  return drawable ? (polygon as [number, number][]) : null;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // RoomRow
 // -----------------------------------------------------------
 //
@@ -342,7 +373,7 @@ function DestinationList({
             className="ml-sm flex-1 py-0 font-raleway text-base text-ink"
           />
           {query.length > 0 ? (
-            <Pressable onPress={() => setQuery('')} hitSlop={12} accessibilityRole="button" accessibilityLabel={t('navigation.clearSearch')}>
+            <Pressable onPress={() => setQuery('')} hitSlop={13} accessibilityRole="button" accessibilityLabel={t('navigation.clearSearch')}>
               <Ionicons name="close-circle" size={18} color={colors.inkFaint} />
             </Pressable>
           ) : null}
@@ -379,7 +410,8 @@ function DestinationList({
 //
 // Two chips over the stage: the photo at the node, or the
 // plan of the floor. Hidden when the node has no photo — the
-// plan is then the only view.
+// plan is then the only view. A chip is ~28 pt tall; the slop
+// takes each to the 44 pt touch floor.
 //
 // Used by:
 //   - MapScreen (below)
@@ -398,6 +430,7 @@ function ViewToggle({ view, onChange }: { view: 'photo' | 'plan'; onChange: (vie
         onPress={() => onChange(which)}
         accessibilityRole="button"
         accessibilityState={{ selected: active }}
+        hitSlop={8}
         testID={`map-view-${which}`}
         style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, backgroundColor: active ? colors.brand : colors.scrim }}
       >
@@ -484,13 +517,15 @@ function PhotoStage({
 // deferred past the render; from then on the drawing is not
 // mounted again for that text, otherwise every re-render
 // would re-parse and re-log the same broken plan. A new text
-// gets a fresh attempt.
+// gets a fresh attempt. Memoised on its two props: the walk
+// re-renders the plan on every step, and a real floor's
+// drawing is thousands of shapes that have not changed.
 //
 // Used by:
 //   - PlanStage (below)
 // -----------------------------------------------------------
 
-function PlanDrawing({ xml, reference }: { xml: string; reference: string | null | undefined }) {
+const PlanDrawing = memo(function PlanDrawing({ xml, reference }: { xml: string; reference: string | null | undefined }) {
 
   const { t } = useTranslation();
   const [failedXml, setFailedXml] = useState<string | null>(null);
@@ -512,7 +547,7 @@ function PlanDrawing({ xml, reference }: { xml: string; reference: string | null
   );
   if (failedXml === xml) return notice;
   return <SvgXml xml={xml} width="100%" height="100%" onError={onError} fallback={notice} />;
-}
+});
 
 
 
@@ -524,10 +559,16 @@ function PlanDrawing({ xml, reference }: { xml: string; reference: string | null
 // PlanStage
 // -----------------------------------------------------------
 //
-// The floor plan of the shown level with the route's stretch
-// on it, the start and end pins, the walker's dot (followed by
-// the camera) and the floor switcher. Points name their level,
-// so a dot on another floor simply is not drawn.
+// The floor plan of the shown level with every stretch of the
+// route on it — the whole floor list goes to the kit, which
+// draws the ones on this level, so a route that leaves a
+// floor and comes back keeps its line to the destination pin
+// — the start and end pins, the walker's dot (followed by the
+// camera) and the floor switcher, which scrolls once the floors
+// outgrow the stage (three already do on a 320 pt phone under
+// the route sheet — clipped pills could not be reached). Points
+// name their level, so a dot on another floor simply is not
+// drawn.
 //
 // Used by:
 //   - MapScreen (below)
@@ -556,11 +597,16 @@ function PlanStage({
   const level = env.index.levels.get(shownLevel) ?? env.index.orderedLevels[0];
   const xml = usePlanXml(level?.plan);
   const rooms = useMemo(
-    () => (level ? env.graph.rooms.filter((room) => room.level === level.id && room.polygon).map((room) => ({ id: room.id, polygon: room.polygon as [number, number][], label: localize(room) })) : []),
+    () =>
+      level
+        ? env.graph.rooms.flatMap((room) => {
+            const polygon = room.level === level.id ? planPolygon(room.polygon) : null;
+            return polygon ? [{ id: room.id, polygon, label: localize(room) }] : [];
+          })
+        : [],
     [env, level, localize],
   );
   if (!level) return null;
-  const segment = route.floors.find((floor) => floor.level === level.id) ?? null;
 
 
   return (
@@ -569,20 +615,24 @@ function PlanStage({
         level={level}
         plan={xml ? <PlanDrawing xml={xml} reference={level.plan} /> : null}
         rooms={rooms}
-        route={segment}
+        route={route.floors}
         start={summary.start}
         end={summary.end}
         youAreHere={kit.position}
         focus={kit.position}
         style={{ height }}
       />
-      <FloorSwitcher
-        levels={env.index.orderedLevels}
-        current={level.id}
-        enabled={route.levels}
-        onSelect={onSelectLevel}
-        style={{ position: 'absolute', right: 12, top: 56 }}
-      />
+      {/* The padding leaves the switcher's shadow room inside the
+          scroll's bounds; the pills still sit 12 pt from the right
+          and 56 pt from the top */}
+      <ScrollView
+        style={{ position: 'absolute', right: 2, top: 46, maxHeight: Math.max(0, height - 56) }}
+        contentContainerStyle={{ padding: 10 }}
+        showsVerticalScrollIndicator={false}
+        testID="map-floor-scroll"
+      >
+        <FloorSwitcher levels={env.index.orderedLevels} current={level.id} enabled={route.levels} onSelect={onSelectLevel} />
+      </ScrollView>
     </View>
   );
 }
@@ -606,7 +656,7 @@ function PlanStage({
 
 function MapScreenInner() {
 
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { colors } = useTheme();
   const env = useWayfind();
 
@@ -619,9 +669,11 @@ function MapScreenInner() {
   const [stageHeight, setStageHeight] = useState(0);
 
 
-  // Names: a room through its i18n key when it carries one, a
-  // level through its label. The language flip re-creates them
-  const localize = useCallback((room: Room) => (room.nameKey ? t(room.nameKey) : room.name), [t]);
+  // Names: a room through its i18n key when it carries one, else
+  // its second-language name in English, else its own; a level
+  // through its label. The language flip re-creates them
+  const english = i18n.language === 'en';
+  const localize = useCallback((room: Room) => (room.nameKey ? t(room.nameKey) : (english && room.nameEn) || room.name), [t, english]);
   const names = useMemo<Names>(
     () => ({
       roomName: (id) => {
@@ -637,7 +689,7 @@ function MapScreenInner() {
   // The route from the entrance to the room's node, under the
   // accessible switch; the cursor over it
   const toNode = roomId ? nodeForRoom(env.index, roomId) : null;
-  const { route, reason } = useRoute(roomId ? (env.graph.entranceNodeId ?? null) : null, toNode, { accessibility: accessible ? 'accessible' : 'shortest' });
+  const { route } = useRoute(roomId ? (env.graph.entranceNodeId ?? null) : null, toNode, { accessibility: accessible ? 'accessible' : 'shortest' });
   const nav = useNavigation(route);
   const state = nav.state;
 
@@ -691,6 +743,14 @@ function MapScreenInner() {
   }, [nav]);
 
 
+  // Arrival is felt as well as seen: one success tap when the
+  // walk reaches the room (iOS, like the selection ticks)
+  const arrived = walking && Boolean(state?.arrived);
+  useEffect(() => {
+    if (arrived && Platform.OS === 'ios') void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  }, [arrived]);
+
+
   // Android back ends the route instead of leaving the screen
   // — the same pattern the Sidebar drawer uses
   useEffect(() => {
@@ -730,10 +790,26 @@ function MapScreenInner() {
   if (!roomId) {
     body = <DestinationList localize={localize} onSelect={pickRoom} />;
   } else if (!route || !summary || !kit) {
-    body = <EmptyState icon="navigate-outline" title={t(reason === 'idle' ? 'navigation.loadingRoute' : 'navigation.noRoute')} />;
+    // Routing is synchronous: no route here is an answer, never
+    // a wait ('idle' only means an end is missing — a building
+    // without an entrance, a room without a node). The way out
+    // fits the cause: the step-free switch can be undone right
+    // here, anything else goes back to the list
+    body = accessible ? (
+      <EmptyState
+        icon="accessibility-outline"
+        title={t('navigation.noAccessibleRoute')}
+        hint={t('navigation.noAccessibleRouteHint')}
+        action={{ label: t('navigation.allowStairs'), onPress: () => setAccessible(false) }}
+      />
+    ) : (
+      <EmptyState icon="navigate-outline" title={t('navigation.noRoute')} hint={t('navigation.noRouteHint')} action={{ label: t('navigation.backToRooms'), onPress: endRoute }} />
+    );
   } else if (!walking) {
+    // Scrolls: an unfolded step list on a 320 pt phone would
+    // push Start off the bottom of the screen
     body = (
-      <View className="flex-1 px-md pt-md">
+      <ScrollView className="flex-1" contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 24 }} testID="map-preview">
         <RoutePreview
           roomName={destinationName}
           summary={summary}
@@ -743,7 +819,7 @@ function MapScreenInner() {
           onStart={startWalk}
           onClose={endRoute}
         />
-      </View>
+      </ScrollView>
     );
   } else {
     const showPhoto = view === 'photo' && hasPhoto && state;

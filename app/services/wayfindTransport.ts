@@ -111,6 +111,10 @@ export interface CaptureStatusAnswer {
     hfovDeg: number;
     vfovDeg: number;
     centreYawDeg: number | null;
+    // The captured band's centre above the horizon — the stitch
+    // stores the band only, so the stage needs it to hang the
+    // photo at the right pitch (absent from an older server)
+    vOffsetDeg?: number | null;
   };
 }
 
@@ -250,16 +254,25 @@ const formFor = async (file: UploadFile, fields: Record<string, string>): Promis
 // A server without the building yet is the normal first-run
 // answer — accepted as a status, so it never reaches the error
 // log (in development every logged failure surfaces as an
-// on-screen notice).
+// on-screen notice). Every other failure leaves as an ApiError,
+// normalised and logged exactly the way request() hands out
+// any call's failure, so the screen can tell a refusal (401 /
+// 403) and a broken server from a phone with no network — only
+// the last one is offered the bundled seed.
 //
 // Used by:
 //   - app/(main)/map-editor/index.tsx — the editor's load
 // -----------------------------------------------------------
 
 export const fetchDraft = async (buildingId: string): Promise<DraftAnswer | null> => {
-  const response = await api.get<DraftAnswer>(`/wayfind/buildings/${encodeURIComponent(buildingId)}/draft`, {
-    validateStatus: (status) => status === 200 || status === 404,
-  });
+  let response;
+  try {
+    response = await api.get<DraftAnswer>(`/wayfind/buildings/${encodeURIComponent(buildingId)}/draft`, {
+      validateStatus: (status) => status === 200 || status === 404,
+    });
+  } catch (error) {
+    return request<DraftAnswer>(Promise.reject(error));
+  }
   return response.status === 404 ? null : response.data;
 };
 

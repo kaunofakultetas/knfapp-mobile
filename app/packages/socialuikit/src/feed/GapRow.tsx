@@ -57,6 +57,8 @@ export default function GapRow({ filling, onPress }: { filling?: boolean; onPres
       testID="socialuikit-gap-row"
       onPress={onPress}
       disabled={!onPress}
+      // The ~28pt chip reaches the 44pt floor through its slop
+      hitSlop={8}
       accessibilityRole="button"
       accessibilityLabel={labels.gapRow}
       style={{

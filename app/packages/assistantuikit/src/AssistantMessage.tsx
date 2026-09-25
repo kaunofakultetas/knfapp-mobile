@@ -17,10 +17,13 @@
 //  dimmed at their edge. A message that settled with NOTHING
 //  in it renders no bubble at all — the thread's error strip
 //  owns that moment.
-//  Labels, colours, the tool registry and the host callbacks
-//  come from the kit context; the part components are
-//  propless by upstream contract, which is why the table can
-//  stay one constant and no part ever remounts on a re-render.
+//  Labels, colours, fonts, the tool registry and the host
+//  callbacks come from the kit context; the part components
+//  are propless by upstream contract, which is why the table
+//  can stay one constant and no part ever remounts on a
+//  re-render. Both bubbles cap their width off the LIVE window
+//  width, so a rotation or a split-screen resize re-flows
+//  them.
 //
 //  Split into (root component last):
 //
@@ -42,7 +45,7 @@
 // -----------------------------------------------------------
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Dimensions, Pressable, Text, View } from 'react-native';
+import { Pressable, Text, useWindowDimensions, View } from 'react-native';
 import {
   ActionBarPrimitive,
   BranchPickerPrimitive,
@@ -54,17 +57,19 @@ import {
 } from '@assistant-ui/react-native';
 
 import { useAssistantKit } from './core/context';
+import { typeface } from './core/typography';
 import MarkdownText from './MarkdownText';
 import { ToolCard } from './ToolCardShell';
 import TypingIndicator from './TypingIndicator';
 
 
 // Both bubble kinds cap at this share of the row, so a long
-// answer never touches the opposite edge. Computed in POINTS
-// off the window at load, not a yoga percentage — percent
+// answer never touches the opposite edge. Applied in POINTS
+// off the live window width (useWindowDimensions, so rotation
+// and split-screen re-flow), not a yoga percentage — percent
 // maxWidth inside a virtualized list row is an iOS
 // measurement trap
-const BUBBLE_MAX_WIDTH = Math.round(Dimensions.get('window').width * 0.86);
+const BUBBLE_MAX_SHARE = 0.86;
 
 
 // Static objects on purpose: a style FUNCTION on a Pressable is
@@ -112,9 +117,9 @@ const ASSISTANT_PARTS = { Text: TextPart, Reasoning: ReasoningPart, Empty: Empty
 // -----------------------------------------------------------
 
 function UserTextPart({ text }: TextMessagePartProps) {
-  const { colors } = useAssistantKit();
+  const { colors, fonts } = useAssistantKit();
   return (
-    <Text selectable style={{ fontSize: 15, lineHeight: 21, color: colors.onBrand }}>
+    <Text selectable style={{ fontSize: 15, lineHeight: 21, ...typeface(fonts, 'regular'), color: colors.onBrand }}>
       {text}
     </Text>
   );
@@ -139,8 +144,8 @@ function UserTextPart({ text }: TextMessagePartProps) {
 // -----------------------------------------------------------
 
 function TextPart({ text, status }: TextMessagePartProps) {
-  const { colors, onPressLink } = useAssistantKit();
-  return <MarkdownText text={text} colors={colors} onPressLink={onPressLink} isStreaming={status.type === 'running'} />;
+  const { colors, fonts, onPressLink } = useAssistantKit();
+  return <MarkdownText text={text} colors={colors} fonts={fonts} onPressLink={onPressLink} isStreaming={status.type === 'running'} />;
 }
 
 
@@ -164,7 +169,7 @@ function TextPart({ text, status }: TextMessagePartProps) {
 
 function ReasoningPart({ text }: ReasoningMessagePartProps) {
 
-  const { labels, colors } = useAssistantKit();
+  const { labels, colors, fonts } = useAssistantKit();
   const [open, setOpen] = useState(false);
 
 
@@ -181,10 +186,12 @@ function ReasoningPart({ text }: ReasoningMessagePartProps) {
         style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 4, minHeight: 32 }}
       >
         <Text style={{ fontSize: 12, color: colors.inkSoft, marginRight: 6 }}>{open ? '▾' : '▸'}</Text>
-        <Text style={{ fontSize: 12, fontWeight: '600', color: colors.inkSoft }}>{labels.thinking}</Text>
+        <Text style={{ fontSize: 12, ...typeface(fonts, 'semibold'), color: colors.inkSoft }}>{labels.thinking}</Text>
       </Pressable>
       {open ? (
-        <Text style={{ fontSize: 13, lineHeight: 18, color: colors.inkSoft, paddingLeft: 14, paddingBottom: 4 }}>{text}</Text>
+        <Text style={{ fontSize: 13, lineHeight: 18, ...typeface(fonts, 'regular'), color: colors.inkSoft, paddingLeft: 14, paddingBottom: 4 }}>
+          {text}
+        </Text>
       ) : null}
     </View>
   );
@@ -241,7 +248,7 @@ function EmptyPart({ status }: EmptyMessagePartProps) {
 
 function BranchPicker() {
 
-  const { labels, colors } = useAssistantKit();
+  const { labels, colors, fonts } = useAssistantKit();
   const branchCount = useAuiState((s) => s.message.branchCount);
   const previousDisabled = useAuiState(
     (s) => s.message.branchNumber <= 1 || (s.thread.isRunning && !s.thread.capabilities.switchBranchDuringRun),
@@ -263,7 +270,7 @@ function BranchPicker() {
       >
         <Text style={arrow}>‹</Text>
       </BranchPickerPrimitive.Previous>
-      <Text style={{ fontSize: 12, color: colors.inkSoft }}>
+      <Text style={{ fontSize: 12, ...typeface(fonts, 'regular'), color: colors.inkSoft }}>
         <BranchPickerPrimitive.Number />
         {' / '}
         <BranchPickerPrimitive.Count />
@@ -294,9 +301,13 @@ function BranchPicker() {
 // [1], [2] inline. Each row is a button: a tap expands the
 // entry's EXCERPT in place (accordion, one open at a time),
 // so a citation is verifiable without leaving the thread.
-// Reads the message's tool parts straight from the upstream
-// state, so it needs no new wire shape; hidden while the
-// message still runs and when no entries exist.
+// Rows are 44pt touch targets showing the entry's TITLE only
+// (up to two lines): the wire's `section` is a retrieval
+// label — "faq", "contacts", a source domain — never words
+// for a reader, and printing it cited "Kontaktai — contacts"
+// (KNF-150). Reads the message's tool parts straight from the
+// upstream state, so it needs no new wire shape; hidden while
+// the message still runs and when no entries exist.
 //
 // Used by:
 //   - AssistantBubble (below) — inside the bubble, under parts
@@ -304,7 +315,7 @@ function BranchPicker() {
 
 function SourcesFooter() {
 
-  const { labels, colors } = useAssistantKit();
+  const { labels, colors, fonts } = useAssistantKit();
   const running = useAuiState((s) => s.message.status?.type === 'running');
   // The selector must answer a STABLE snapshot — the parts
   // array reference is one; the derived list is memoized off it
@@ -332,28 +343,29 @@ function SourcesFooter() {
 
   return (
     <View testID="assistantuikit-sources" style={{ marginTop: 8, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 6 }}>
-      <Text style={{ fontSize: 11, fontWeight: '700', color: colors.inkSoft, marginBottom: 2 }}>
+      <Text style={{ fontSize: 11, ...typeface(fonts, 'bold'), color: colors.inkSoft, marginBottom: 2 }}>
         {labels.sourcesTitle}
       </Text>
       {entries.map((entry, index) => (
-        <View key={`${entry.id ?? index}`}>
+        // Position first: two searchHandbook calls in one turn
+        // can return the same chunk, and a bare id would repeat
+        <View key={`${index}:${entry.id}`}>
           <Pressable
             testID={`assistantuikit-source-${index}`}
             accessibilityRole="button"
             accessibilityLabel={`[${index + 1}] ${entry.title}`}
             accessibilityState={{ expanded: openIndex === index }}
             onPress={() => setOpenIndex((was) => (was === index ? null : index))}
-            style={{ paddingVertical: 6, justifyContent: 'center' }}
+            style={{ paddingVertical: 6, minHeight: 44, justifyContent: 'center' }}
           >
-            <Text style={{ fontSize: 12, color: colors.inkSoft, lineHeight: 17 }} numberOfLines={1}>
+            <Text style={{ fontSize: 12, ...typeface(fonts, 'regular'), color: colors.inkSoft, lineHeight: 17 }} numberOfLines={2}>
               {openIndex === index ? '▾' : '▸'} [{index + 1}] {entry.title}
-              {entry.section ? ` — ${entry.section}` : ''}
             </Text>
           </Pressable>
           {openIndex === index && entry.excerpt ? (
             <Text
               testID={`assistantuikit-source-excerpt-${index}`}
-              style={{ fontSize: 12, lineHeight: 17, color: colors.inkSoft, paddingLeft: 14, paddingBottom: 4 }}
+              style={{ fontSize: 12, lineHeight: 17, ...typeface(fonts, 'regular'), color: colors.inkSoft, paddingLeft: 14, paddingBottom: 4 }}
             >
               {entry.excerpt}
             </Text>
@@ -387,7 +399,7 @@ function SourcesFooter() {
 
 function FeedbackButtons() {
 
-  const { labels, colors, onFeedback } = useAssistantKit();
+  const { labels, colors, fonts, onFeedback } = useAssistantKit();
   const messageId = useAuiState((s) => s.message.id);
   const [chosen, setChosen] = useState<1 | -1 | 0>(0);
 
@@ -403,8 +415,8 @@ function FeedbackButtons() {
 
   const label = (selected: boolean) => ({
     fontSize: 12,
-    fontWeight: '600' as const,
-    color: selected ? colors.brand : colors.inkSoft,
+    ...typeface(fonts, 'semibold'),
+    color: selected ? colors.brandText : colors.inkSoft,
   });
   return (
     <>
@@ -458,7 +470,7 @@ function FeedbackButtons() {
 
 function ActionBar() {
 
-  const { labels, colors, copyToClipboard } = useAssistantKit();
+  const { labels, colors, fonts, copyToClipboard } = useAssistantKit();
   const isLast = useAuiState((s) => s.message.isLast);
   const running = useAuiState((s) => s.message.status?.type === 'running');
   const copyDisabled = useAuiState(
@@ -473,7 +485,7 @@ function ActionBar() {
   if (running) return null;
 
 
-  const label = { fontSize: 12, fontWeight: '600' as const, color: colors.inkSoft };
+  const label = { fontSize: 12, ...typeface(fonts, 'semibold'), color: colors.inkSoft };
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, marginLeft: 4 }}>
       {copyToClipboard ? (
@@ -516,6 +528,7 @@ function ActionBar() {
 
 function UserBubble() {
   const { colors } = useAssistantKit();
+  const { width } = useWindowDimensions();
   return (
     <MessagePrimitive.Root
       testID="assistantuikit-message-user"
@@ -523,7 +536,7 @@ function UserBubble() {
     >
       <View
         style={{
-          maxWidth: BUBBLE_MAX_WIDTH,
+          maxWidth: Math.round(width * BUBBLE_MAX_SHARE),
           paddingHorizontal: 14,
           paddingVertical: 10,
           borderRadius: 18,
@@ -564,6 +577,7 @@ function UserBubble() {
 function AssistantBubble() {
 
   const { colors, onAnswerSettled } = useAssistantKit();
+  const { width } = useWindowDimensions();
   const settledEmpty = useAuiState(
     (s) => s.message.parts.length === 0 && s.message.status?.type !== 'running' && s.message.status?.type !== 'requires-action',
   );
@@ -602,7 +616,7 @@ function AssistantBubble() {
     >
       <View
         style={{
-          maxWidth: BUBBLE_MAX_WIDTH,
+          maxWidth: Math.round(width * BUBBLE_MAX_SHARE),
           paddingHorizontal: 14,
           paddingVertical: 10,
           borderRadius: 18,

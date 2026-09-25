@@ -19,11 +19,27 @@
 //       retry / continue-without-poll choice instead of
 //       discarding the composed poll behind an info toast.
 //
+//  Publishing (and the poll retry) is single-flight behind a
+//  ref latch: the button's loading state commits a render too
+//  late to stop a same-frame double tap, which would publish
+//  the post twice.
+//
+//  A member picks who sees the post — everyone, or friends
+//  only (the backend's is_public: a friends-only wall post
+//  shows to the author and their friends). Staff publish as
+//  the faculty, whose private posts are staff drafts — an
+//  admin-panel concern, so their posts stay public here. A
+//  poll may carry a length (1, 3 or 7 days from publishing);
+//  the backend closes it then, and refuses an end date that
+//  is not in the future.
+//
 //  Split into (root component last):
 //
+//    POLL_LENGTHS      — the poll length choices, in days
 //    AuthorRow         — avatar + display name + role line
 //    ImageAttachment   — picker row, or preview with remove
-//    PollForm          — question + 2–10 option fields
+//    ChoiceChips       — one labelled row of exclusive chips
+//    PollForm          — question, 2–10 options, the length
 //    PollRetryPanel    — step-3 failure: retry or continue
 //    uploadErrorKey    — step-1 rejection → translation key
 //    useKeyboardReveal — scroll the focused field clear of
@@ -100,6 +116,13 @@ const MAX_POLL_OPTIONS = 10;
 
 // These roles publish as the faculty, not as themselves
 const STAFF_ROLES: readonly User['role'][] = ['admin', 'curator', 'teacher'];
+
+// The poll length choices, in days from publishing — null is
+// "no end" (the backend's end_date left out)
+const POLL_LENGTHS: readonly (number | null)[] = [null, 1, 3, 7];
+
+// One day, for the poll's end stamp
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 // A poll option keeps a stable id from creation, so React
 // keys and the update/remove handlers never lean on the array
@@ -232,13 +255,79 @@ function ImageAttachment({ asset, onPick, onRemove }: ImageAttachmentProps) {
 
 
 // -----------------------------------------------------------
+// ChoiceChips
+// -----------------------------------------------------------
+//
+// One labelled row of mutually exclusive chips (who sees the
+// post, how long the poll runs): the chosen one fills with the
+// brand wash, each is a 44pt radio with its own spoken state.
+// The row wraps on a narrow phone rather than clipping.
+//
+// Used by:
+//   - PollForm (below) — the poll length
+//   - CreatePostScreen (below) — the visibility choice
+// -----------------------------------------------------------
+
+function ChoiceChips<T extends string | number | null>({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: readonly { value: T; label: string; icon?: keyof typeof Ionicons.glyphMap }[];
+  value: T;
+  onChange: (value: T) => void;
+}) {
+
+  const { colors } = useTheme();
+
+
+  return (
+    <View className="mb-md" accessibilityRole="radiogroup" accessibilityLabel={label}>
+      <Text className="mb-xs font-raleway-medium text-sm text-ink">{label}</Text>
+      <View className="flex-row flex-wrap gap-sm">
+        {options.map((option) => {
+          const selected = option.value === value;
+          return (
+            <Pressable
+              key={String(option.value)}
+              className={`min-h-11 flex-row items-center gap-xs rounded-full border px-md ${
+                selected ? 'border-brand bg-brand-soft' : 'border-line-strong active:bg-surface-soft'
+              }`}
+              onPress={() => onChange(option.value)}
+              accessibilityRole="radio"
+              accessibilityState={{ selected, checked: selected }}
+              accessibilityLabel={option.label}
+            >
+              {option.icon ? (
+                <Ionicons name={option.icon} size={16} color={selected ? colors.brandText : colors.inkSoft} />
+              ) : null}
+              <Text className={`font-raleway-medium text-sm ${selected ? 'text-brand-text' : 'text-ink-soft'}`}>
+                {option.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // PollForm
 // -----------------------------------------------------------
 //
-// The poll draft: question plus option rows. The h-12 side
-// columns (number disc, remove button) match the Input field
-// height, so they stay centered on the field regardless of the
-// Input container's own bottom margin.
+// The poll draft: question plus option rows, then its length.
+// The h-12 side columns (number disc, remove button) match the
+// Input field height, so they stay centered on the field
+// regardless of the Input container's own bottom margin.
 //
 // Used by:
 //   - CreatePostScreen (below)
@@ -247,19 +336,23 @@ function ImageAttachment({ asset, onPick, onRemove }: ImageAttachmentProps) {
 interface PollFormProps {
   title: string;
   options: PollOptionDraft[];
+  lengthDays: number | null;
   onChangeTitle: (text: string) => void;
   onChangeOption: (id: string, text: string) => void;
   onAddOption: () => void;
   onRemoveOption: (id: string) => void;
+  onChangeLength: (days: number | null) => void;
 }
 
 function PollForm({
   title,
   options,
+  lengthDays,
   onChangeTitle,
   onChangeOption,
   onAddOption,
   onRemoveOption,
+  onChangeLength,
 }: PollFormProps) {
 
   const { t } = useTranslation();
@@ -320,12 +413,25 @@ function PollForm({
           accessibilityRole="button"
           accessibilityLabel={t('createPost.pollAddOption')}
         >
-          <Ionicons name="add-circle-outline" size={20} color={colors.brand} />
-          <Text className="font-raleway-medium text-sm text-brand">
+          <Ionicons name="add-circle-outline" size={20} color={colors.brandText} />
+          <Text className="font-raleway-medium text-sm text-brand-text">
             {t('createPost.pollAddOption')}
           </Text>
         </Pressable>
       )}
+
+      {/* How long the poll runs — counted from publishing */}
+      <View className="mt-sm">
+        <ChoiceChips
+          label={t('createPost.pollDuration')}
+          options={POLL_LENGTHS.map((days) => ({
+            value: days,
+            label: days === null ? t('createPost.pollNoEnd') : t('createPost.pollDays', { count: days }),
+          }))}
+          value={lengthDays}
+          onChange={onChangeLength}
+        />
+      </View>
     </View>
   );
 }
@@ -535,6 +641,8 @@ function usePollDraft() {
 
   const [showPoll, setShowPoll] = useState(false);
   const [pollTitle, setPollTitle] = useState('');
+  // Days from publishing, or null for a poll that never closes
+  const [lengthDays, setLengthDays] = useState<number | null>(null);
   const [pollOptions, setPollOptions] = useState<PollOptionDraft[]>(() => [
     makePollOption(),
     makePollOption(),
@@ -566,6 +674,7 @@ function usePollDraft() {
     if (showPoll) {
       setPollTitle('');
       setPollOptions([makePollOption(), makePollOption()]);
+      setLengthDays(null);
     }
     setShowPoll((visible) => !visible);
   };
@@ -576,6 +685,8 @@ function usePollDraft() {
     pollTitle,
     setPollTitle,
     pollOptions,
+    lengthDays,
+    setLengthDays,
     validOptions,
     updateOption,
     addOption,
@@ -742,6 +853,12 @@ function CreatePostScreen() {
   const [content, setContent] = useState('');
   const [imageAsset, setImageAsset] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Who sees a member's post — see the file header
+  const [visibility, setVisibility] = useState<'public' | 'friends'>('public');
+
+  // The synchronous twin of submitting/retryingPoll — see the
+  // file header
+  const inFlightRef = useRef(false);
 
 
   // ---- edit mode ------------------------------------------
@@ -816,7 +933,8 @@ function CreatePostScreen() {
     if (!editing || editOriginal) return;
 
     if (editLoad.error || (!editLoad.loading && !editLoad.data)) {
-      showToast('error', t('createPost.error'));
+      // A LOAD failure — not "could not publish"
+      showToast('error', t('newsPost.loadError'));
       guard.allowLeave();
       router.back();
       return;
@@ -863,7 +981,15 @@ function CreatePostScreen() {
   };
 
 
-  const attachPoll = (postId: string) => createPollApi(postId, poll.pollTitle.trim(), poll.validOptions);
+  // The end stamp is taken when the poll is attached (a retry
+  // counts its days from the retry), explicit UTC
+  const attachPoll = (postId: string) =>
+    createPollApi(
+      postId,
+      poll.pollTitle.trim(),
+      poll.validOptions,
+      poll.lengthDays === null ? undefined : new Date(Date.now() + poll.lengthDays * DAY_MS).toISOString(),
+    );
 
 
   // The three-step publish flow from the file header
@@ -881,6 +1007,8 @@ function CreatePostScreen() {
       showToast('error', t('createPost.pollMinOptions'));
       return;
     }
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
 
     // Edit mode: one PUT, no image step, no poll step. Title
     // rides along even when blank — the backend re-derives it
@@ -898,6 +1026,7 @@ function CreatePostScreen() {
           showToast('error', t('createPost.error'));
         }
       } finally {
+        inFlightRef.current = false;
         setSubmitting(false);
       }
       return;
@@ -937,6 +1066,9 @@ function CreatePostScreen() {
         content: trimmedContent,
         title: title.trim() || undefined,
         image_url: imageUrl,
+        // Staff posts stay public (a private faculty post is a
+        // staff draft — the admin panel's business)
+        is_public: isStaff ? true : visibility === 'public',
       });
 
       // Step 3 — the poll; the post is live now, so a failure
@@ -967,13 +1099,15 @@ function CreatePostScreen() {
         showToast('error', t('createPost.error'));
       }
     } finally {
+      inFlightRef.current = false;
       setSubmitting(false);
     }
   };
 
 
   const retryPoll = async () => {
-    if (!pollFailedPostId) return;
+    if (!pollFailedPostId || inFlightRef.current) return;
+    inFlightRef.current = true;
 
     setRetryingPoll(true);
     try {
@@ -990,6 +1124,7 @@ function CreatePostScreen() {
       }
       showToast('error', t('createPost.pollError'));
     } finally {
+      inFlightRef.current = false;
       setRetryingPoll(false);
     }
   };
@@ -1070,6 +1205,20 @@ function CreatePostScreen() {
                 />
                 )}
 
+                {/* Who sees it — a member's choice (staff publish
+                    as the faculty, always public here) */}
+                {!editing && !isStaff && (
+                  <ChoiceChips
+                    label={t('createPost.visibilityLabel')}
+                    options={[
+                      { value: 'public', label: t('createPost.visibilityPublic'), icon: 'globe-outline' },
+                      { value: 'friends', label: t('createPost.visibilityFriends'), icon: 'people-outline' },
+                    ]}
+                    value={visibility}
+                    onChange={setVisibility}
+                  />
+                )}
+
                 {/* Poll toggle — switching off clears the draft */}
                 {!editing && <PollToggleRow active={poll.showPoll} onToggle={poll.toggle} />}
 
@@ -1077,10 +1226,12 @@ function CreatePostScreen() {
                   <PollForm
                     title={poll.pollTitle}
                     options={poll.pollOptions}
+                    lengthDays={poll.lengthDays}
                     onChangeTitle={poll.setPollTitle}
                     onChangeOption={poll.updateOption}
                     onAddOption={poll.addOption}
                     onRemoveOption={poll.removeOption}
+                    onChangeLength={poll.setLengthDays}
                   />
                 )}
 

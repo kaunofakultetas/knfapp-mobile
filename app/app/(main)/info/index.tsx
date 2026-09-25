@@ -18,14 +18,27 @@
 //
 //  Section arrays are read defensively — an older cached
 //  payload may omit whole sections, and an empty section is
-//  simply not rendered. Backend strings arrive as raw JSON —
-//  nothing is escaped on output and nothing is decoded on the
-//  way in; React escapes at render.
+//  simply not rendered; optional fields (a programme's
+//  duration, an opening-hours address) drop their line
+//  instead of leaving a blank one. Backend strings arrive as
+//  raw JSON — nothing is escaped on output and nothing is
+//  decoded on the way in; React escapes at render.
+//
+//  Honest in every language: the English handbook borrows the
+//  Lithuanian scrape, and entries whose registered names stay
+//  Lithuanian arrive flagged (nameLang). Their section says
+//  so in one quiet line, and the names are handed to a
+//  Lithuanian screen-reader voice (iOS accessibilityLanguage)
+//  instead of being read with English phonetics (KNF-127/129).
 //
 //  Split into (root component last):
 //
 //    ICON_MAP        — backend icon names → Ionicons glyphs
+//    telUrl / mailtoUrl / mapsUrl — strict link builders
+//    copyValue       — link → clipboard text
+//    foreignLang     — a flagged language that is not the UI's
 //    Section         — SectionTitle + spacing wrapper
+//    LanguageNote    — the "given in Lithuanian" footnote
 //    FacultyCard     — burgundy header card + general contact
 //    ContactsSection — grouped contact cards, tel/mailto rows
 //    HoursSection    — opening-hours cards
@@ -45,8 +58,9 @@ import { Card, ErrorState, LoadingSpinner, RefreshSpinner, Screen, SectionTitle 
 // Active language drives fetch, cache key and refetch
 import { useApp } from '@/context/AppContext';
 
-// Non-blocking feedback for failed link opens
-import { showToast } from '@/context/NetworkContext';
+// Non-blocking feedback for failed link opens; the offline
+// flavor of the error state
+import { showToast, useNetwork } from '@/context/NetworkContext';
 
 // Refetch when connectivity returns
 import { useDataEngine, useNetworkRestore } from '@knf/dataengine';
@@ -78,6 +92,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Linking,
+  Platform,
   Pressable,
   ScrollView,
   Text,
@@ -180,6 +195,51 @@ const mailtoUrl = (email: string | undefined): string => {
 
 
 // -----------------------------------------------------------
+// mapsUrl
+// -----------------------------------------------------------
+//
+// The faculty address as a maps search — an https URL, so it
+// passes openLink's scheme allowlist: Apple Maps' universal
+// link on iOS, Google Maps' (which Android hands to the Maps
+// app) everywhere else.
+//
+// Used by:
+//   - FacultyCard (below) — the tappable address row
+// -----------------------------------------------------------
+
+const mapsUrl = (address: string): string =>
+  Platform.OS === 'ios'
+    ? `https://maps.apple.com/?q=${encodeURIComponent(address)}`
+    : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// foreignLang
+// -----------------------------------------------------------
+//
+// The entry's flagged language when it is NOT the language
+// the screen renders in — the only case worth a footnote and
+// a different screen-reader voice; undefined otherwise.
+//
+// Used by:
+//   - ContactsSection, ProgramsSection (below)
+// -----------------------------------------------------------
+
+const foreignLang = (entryLang: string | undefined, uiLang: string): string | undefined =>
+  entryLang && entryLang !== uiLang ? entryLang : undefined;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // copyValue
 // -----------------------------------------------------------
 //
@@ -239,13 +299,37 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 
 
 // -----------------------------------------------------------
+// LanguageNote
+// -----------------------------------------------------------
+//
+// One quiet line under a section title saying its names are
+// given in another language — the honest version of an
+// English screen showing Lithuanian registered names.
+//
+// Used by:
+//   - ContactsSection, ProgramsSection (below)
+// -----------------------------------------------------------
+
+function LanguageNote({ text }: { text: string }) {
+  return <Text className="mb-sm px-xs font-raleway text-xs text-ink-soft">{text}</Text>;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // FacultyCard
 // -----------------------------------------------------------
 //
 // The page opener: a burgundy strip with the university and
 // faculty names over the general contact block. The address
 // falls back to the bundled i18n string when the payload
-// carries no general contact.
+// carries no general contact, and opens the maps app; phone
+// and e-mail open the dialer and the mail app, each announced
+// as the action it performs, not just the bare value.
 //
 // Used by:
 //   - InfoScreen (below) — first card of the page
@@ -263,6 +347,10 @@ function FacultyCard({
   const { colors } = useTheme();
 
 
+  // The bundled address stands in when the payload has none
+  const address = general?.address || t('info.address');
+
+
   return (
     <Card padding="none" className="overflow-hidden">
 
@@ -277,12 +365,18 @@ function FacultyCard({
 
       <View className="gap-sm px-lg py-md">
 
-        <View className="flex-row items-center gap-sm">
+        {/* The address opens the maps app — the one row a
+            first-week student most wants to act on */}
+        <Pressable
+          className="flex-row items-center gap-sm"
+          onPress={() => onOpen(mapsUrl(address))}
+          hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
+          accessibilityRole="link"
+          accessibilityLabel={t('info.openInMapsA11y', { address })}
+        >
           <Ionicons name="location-outline" size={16} color={colors.inkSoft} />
-          <Text className="flex-1 font-raleway text-sm text-ink-soft">
-            {general?.address || t('info.address')}
-          </Text>
-        </View>
+          <Text className="flex-1 font-raleway text-sm text-ink-soft underline">{address}</Text>
+        </Pressable>
 
         {general?.phone ? (
           <Pressable
@@ -290,9 +384,9 @@ function FacultyCard({
             onPress={() => onOpen(telUrl(general.phone))}
             hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
             accessibilityRole="link"
-            accessibilityLabel={general.phone}
+            accessibilityLabel={t('info.callA11y', { phone: general.phone })}
           >
-            <Ionicons name="call-outline" size={16} color={colors.brand} />
+            <Ionicons name="call-outline" size={16} color={colors.brandText} />
             <Text className="font-raleway-medium text-sm text-brand">{general.phone}</Text>
           </Pressable>
         ) : null}
@@ -303,9 +397,9 @@ function FacultyCard({
             onPress={() => onOpen(mailtoUrl(general.email))}
             hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
             accessibilityRole="link"
-            accessibilityLabel={general.email}
+            accessibilityLabel={t('info.emailA11y', { email: general.email })}
           >
-            <Ionicons name="mail-outline" size={16} color={colors.brand} />
+            <Ionicons name="mail-outline" size={16} color={colors.brandText} />
             <Text className="font-raleway-medium text-sm text-brand">{general.email}</Text>
           </Pressable>
         ) : null}
@@ -328,7 +422,10 @@ function FacultyCard({
 //
 // Categories of contact cards. Keys are index-composited —
 // staff lists can realistically repeat a name within one
-// category, and content fields alone would collide.
+// category, and content fields alone would collide. A group
+// borrowed from another language's scrape carries nameLang:
+// its heading, names and positions get that screen-reader
+// voice, and the section opens with the language note.
 //
 // Used by:
 //   - InfoScreen (below)
@@ -342,71 +439,83 @@ function ContactsSection({
   onOpen: (url: string) => void;
 }) {
 
+  const { t, i18n } = useTranslation();
   const { colors } = useTheme();
+  const borrowed = contacts.some((category) => foreignLang(category.nameLang, i18n.language));
 
 
   return (
     <View>
-      {contacts.map((category, categoryIndex) => (
-        <View
-          key={`${categoryIndex}-${category.category}`}
-          className={categoryIndex > 0 ? 'mt-md' : undefined}
-        >
+      {borrowed ? <LanguageNote text={t('info.contactNamesNote')} /> : null}
 
-          <Text className="mb-sm px-xs font-raleway-semibold text-sm text-ink-soft">
-            {category.category}
-          </Text>
+      {contacts.map((category, categoryIndex) => {
+        const nameLang = foreignLang(category.nameLang, i18n.language);
+        return (
+          <View
+            key={`${categoryIndex}-${category.category}`}
+            className={categoryIndex > 0 ? 'mt-md' : undefined}
+          >
 
-          <View className="gap-sm">
-            {(category.items ?? []).map((contact, contactIndex) => (
-              <Card key={`${contactIndex}-${contact.name}`}>
+            <Text
+              className="mb-sm px-xs font-raleway-semibold text-sm text-ink-soft"
+              accessibilityLanguage={nameLang}
+            >
+              {category.category}
+            </Text>
 
-                <Text className="font-raleway-bold text-base text-ink">{contact.name}</Text>
-                {contact.position ? (
-                  <Text className="mt-xs font-raleway text-sm text-ink-soft">
-                    {contact.position}
+            <View className="gap-sm">
+              {(category.items ?? []).map((contact, contactIndex) => (
+                <Card key={`${contactIndex}-${contact.name}`}>
+
+                  <Text className="font-raleway-bold text-base text-ink" accessibilityLanguage={nameLang}>
+                    {contact.name}
                   </Text>
-                ) : null}
+                  {contact.position ? (
+                    <Text className="mt-xs font-raleway text-sm text-ink-soft" accessibilityLanguage={nameLang}>
+                      {contact.position}
+                    </Text>
+                  ) : null}
 
-                {contact.room ? (
-                  <View className="mt-sm flex-row items-center gap-xs">
-                    <Ionicons name="location-outline" size={14} color={colors.inkSoft} />
-                    <Text className="font-raleway text-sm text-ink-soft">{contact.room}</Text>
-                  </View>
-                ) : null}
+                  {contact.room ? (
+                    <View className="mt-sm flex-row items-center gap-xs">
+                      <Ionicons name="location-outline" size={14} color={colors.inkSoft} />
+                      <Text className="font-raleway text-sm text-ink-soft">{contact.room}</Text>
+                    </View>
+                  ) : null}
 
-                {contact.phone ? (
-                  <Pressable
-                    className="mt-sm flex-row items-center gap-xs"
-                    onPress={() => onOpen(telUrl(contact.phone))}
-                    hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
-                    accessibilityRole="link"
-                    accessibilityLabel={contact.phone}
-                  >
-                    <Ionicons name="call-outline" size={14} color={colors.brand} />
-                    <Text className="font-raleway-medium text-sm text-brand">{contact.phone}</Text>
-                  </Pressable>
-                ) : null}
+                  {contact.phone ? (
+                    <Pressable
+                      className="mt-sm flex-row items-center gap-xs"
+                      onPress={() => onOpen(telUrl(contact.phone))}
+                      hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
+                      accessibilityRole="link"
+                      accessibilityLabel={t('info.callA11y', { phone: contact.phone })}
+                    >
+                      <Ionicons name="call-outline" size={14} color={colors.brandText} />
+                      <Text className="font-raleway-medium text-sm text-brand">{contact.phone}</Text>
+                    </Pressable>
+                  ) : null}
 
-                {contact.email ? (
-                  <Pressable
-                    className="mt-sm flex-row items-center gap-xs"
-                    onPress={() => onOpen(mailtoUrl(contact.email))}
-                    hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
-                    accessibilityRole="link"
-                    accessibilityLabel={contact.email}
-                  >
-                    <Ionicons name="mail-outline" size={14} color={colors.brand} />
-                    <Text className="font-raleway-medium text-sm text-brand">{contact.email}</Text>
-                  </Pressable>
-                ) : null}
+                  {contact.email ? (
+                    <Pressable
+                      className="mt-sm flex-row items-center gap-xs"
+                      onPress={() => onOpen(mailtoUrl(contact.email))}
+                      hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
+                      accessibilityRole="link"
+                      accessibilityLabel={t('info.emailA11y', { email: contact.email })}
+                    >
+                      <Ionicons name="mail-outline" size={14} color={colors.brandText} />
+                      <Text className="font-raleway-medium text-sm text-brand">{contact.email}</Text>
+                    </Pressable>
+                  ) : null}
 
-              </Card>
-            ))}
+                </Card>
+              ))}
+            </View>
+
           </View>
-
-        </View>
-      ))}
+        );
+      })}
     </View>
   );
 }
@@ -439,7 +548,9 @@ function HoursSection({ hours }: { hours: InfoHours[] }) {
       {hours.map((entry, index) => (
         <Card key={`${index}-${entry.place}`}>
           <Text className="font-raleway-bold text-base text-ink">{entry.place}</Text>
-          <Text className="mt-xs font-raleway text-sm text-ink-soft">{entry.address}</Text>
+          {entry.address ? (
+            <Text className="mt-xs font-raleway text-sm text-ink-soft">{entry.address}</Text>
+          ) : null}
           <View className="mt-sm flex-row items-center gap-xs">
             <Ionicons name="time-outline" size={14} color={colors.brand} />
             <Text className="font-raleway-medium text-sm text-ink">{entry.schedule}</Text>
@@ -463,10 +574,11 @@ function HoursSection({ hours }: { hours: InfoHours[] }) {
 // LinksSection
 // -----------------------------------------------------------
 //
-// The whole Card is the press target for each link; the icon
-// tile resolves through ICON_MAP with link-outline as the
-// fallback, so an unknown backend icon name still renders a
-// sensible glyph instead of nothing.
+// The whole Card is the press target for each link — announced
+// as a LINK with a hint that it leaves the app, not as an
+// in-app button; the icon tile resolves through ICON_MAP with
+// link-outline as the fallback, so an unknown backend icon
+// name still renders a sensible glyph instead of nothing.
 //
 // Used by:
 //   - InfoScreen (below)
@@ -480,13 +592,20 @@ function LinksSection({
   onOpen: (url: string) => void;
 }) {
 
+  const { t } = useTranslation();
   const { colors } = useTheme();
 
 
   return (
     <View className="gap-sm">
       {links.map((link, index) => (
-        <Card key={`${index}-${link.url}`} onPress={() => onOpen(link.url)}>
+        <Card
+          key={`${index}-${link.url}`}
+          onPress={() => onOpen(link.url)}
+          accessibilityRole="link"
+          accessibilityLabel={link.title}
+          accessibilityHint={t('info.opensInBrowser')}
+        >
           <View className="flex-row items-center gap-md">
             <View className="h-9 w-9 items-center justify-center rounded-md bg-brand-soft">
               <Ionicons name={ICON_MAP[link.icon] ?? 'link-outline'} size={20} color={colors.brand} />
@@ -511,25 +630,46 @@ function LinksSection({
 // -----------------------------------------------------------
 //
 // Static Cards: the degree rides a brand-soft chip beside the
-// duration line. Purely informational — the handbook links no
-// program pages, so nothing is tappable.
+// duration line — which exists only when the handbook states
+// a duration (most scraped programmes do not; a blank line
+// used to sit there, KNF-124), then the optional note ("Taught
+// in English"). A name flagged in another language gets that
+// screen-reader voice, and the section opens with the language
+// note. Purely informational — nothing is tappable.
 //
 // Used by:
 //   - InfoScreen (below)
 // -----------------------------------------------------------
 
 function ProgramsSection({ programs }: { programs: InfoProgram[] }) {
+
+  const { t, i18n } = useTranslation();
+  const borrowed = programs.some((program) => foreignLang(program.nameLang, i18n.language));
+
+
   return (
     <View className="gap-sm">
+      {borrowed ? <LanguageNote text={t('info.programNamesNote')} /> : null}
+
       {programs.map((program, index) => (
         <Card key={`${index}-${program.name}`}>
-          <Text className="font-raleway-bold text-base text-ink">{program.name}</Text>
-          <View className="mt-sm flex-row items-center gap-sm">
+          <Text
+            className="font-raleway-bold text-base text-ink"
+            accessibilityLanguage={foreignLang(program.nameLang, i18n.language)}
+          >
+            {program.name}
+          </Text>
+          <View className="mt-sm flex-row flex-wrap items-center gap-sm">
             <View className="rounded-md bg-brand-soft px-sm py-xs">
               <Text className="font-raleway-bold text-xs text-brand">{program.degree}</Text>
             </View>
-            <Text className="font-raleway text-sm text-ink-soft">{program.duration}</Text>
+            {program.duration ? (
+              <Text className="font-raleway text-sm text-ink-soft">{program.duration}</Text>
+            ) : null}
           </View>
+          {program.note ? (
+            <Text className="mt-xs font-raleway text-sm text-ink-soft">{program.note}</Text>
+          ) : null}
         </Card>
       ))}
     </View>
@@ -682,6 +822,7 @@ export default function InfoScreen() {
 
   const { t } = useTranslation();
   const { language, hydrated } = useApp();
+  const { isConnected } = useNetwork();
 
 
   const [data, setData] = useState<FacultyInfoResponse | null>(null);
@@ -809,6 +950,7 @@ export default function InfoScreen() {
       <Screen>
         <ErrorState
           message={t('info.loadError')}
+          offline={!isConnected}
           onRetry={() => {
             setLoading(true);
             void load();

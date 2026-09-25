@@ -160,6 +160,71 @@ describe('PermissionGate', () => {
     expect(view.queryByTestId('gate-child')).toBeNull();
   });
 
+  it('the button label sets in onBrand — never the surface color, which misses AA on a dark brand fill', async () => {
+    const engine = createStubEngine(UNDETERMINED);
+    // The dark scheme's lifted pink with its dark surface — the
+    // pair the old label color put at 3.6:1
+    const dark = { ink: '#F3EEF0', inkSoft: '#A99FA4', line: '#352E32', brand: '#C2447C', surface: '#201B1E', onBrand: '#FFFFFF' };
+    const view = await render(
+      <PermissionGate engine={engine} labels={LABELS} onOpenSettings={jest.fn()} colors={dark}>
+        <Text>unused</Text>
+      </PermissionGate>,
+    );
+    const label = view.getByText(LABELS.promptButton);
+    expect(Object.assign({}, ...[label.props.style].flat()).color).toBe('#FFFFFF');
+  });
+
+  it('a palette without onBrand still paints the label white', async () => {
+    const engine = createStubEngine(DENIED_FOREVER);
+    const view = await render(
+      <PermissionGate
+        engine={engine}
+        labels={LABELS}
+        onOpenSettings={jest.fn()}
+        colors={{ ink: '#111', inkSoft: '#444', line: '#ddd', brand: '#7B003F', surface: '#FAFAFA' }}
+      >
+        <Text>unused</Text>
+      </PermissionGate>,
+    );
+    expect(Object.assign({}, ...[view.getByText(LABELS.blockedButton).props.style].flat()).color).toBe('#FFFFFF');
+  });
+
+  it('the action is a full 44pt touch target', async () => {
+    const { view } = await setup(UNDETERMINED);
+    const action = view.getByTestId('notifyuikit-gate-action');
+    const style = Object.assign({}, ...[action.props.style].flat(Infinity).filter(Boolean));
+    expect(style.minHeight).toBeGreaterThanOrEqual(44);
+  });
+
+  it("the host's fonts reach every text — family instead of weight — and absent fonts keep the platform face", async () => {
+    const fonts = { regular: 'Raleway-Regular', medium: 'Raleway-Medium', bold: 'Raleway-Bold' };
+    const styleOf = (node: { props: Record<string, unknown> }) =>
+      Object.assign({}, ...[node.props.style].flat(Infinity).filter(Boolean));
+
+    const prompt = await render(
+      <PermissionGate engine={createStubEngine(UNDETERMINED)} labels={LABELS} onOpenSettings={jest.fn()} fonts={fonts}>
+        <Text>unused</Text>
+      </PermissionGate>,
+    );
+    expect(styleOf(prompt.getByText(LABELS.promptTitle))).toMatchObject({ fontFamily: 'Raleway-Bold' });
+    expect(styleOf(prompt.getByText(LABELS.promptTitle)).fontWeight).toBeUndefined();
+    expect(styleOf(prompt.getByText(LABELS.promptBody))).toMatchObject({ fontFamily: 'Raleway-Regular' });
+    expect(styleOf(prompt.getByText(LABELS.promptButton))).toMatchObject({ fontFamily: 'Raleway-Bold' });
+
+    // The note a runtime without push shows — the line that set
+    // in the system font next to Raleway everywhere else
+    const note = await render(
+      <PermissionGate engine={createStubEngine(UNSUPPORTED)} labels={LABELS} onOpenSettings={jest.fn()} fonts={fonts}>
+        <Text>unused</Text>
+      </PermissionGate>,
+    );
+    expect(styleOf(note.getByText(LABELS.unsupportedBody))).toMatchObject({ fontFamily: 'Raleway-Regular' });
+
+    const bare = await setup(UNDETERMINED);
+    expect(styleOf(bare.view.getByText(LABELS.promptTitle))).toMatchObject({ fontWeight: '600' });
+    expect(styleOf(bare.view.getByText(LABELS.promptTitle)).fontFamily).toBeUndefined();
+  });
+
   it('a store emission flips prompt → children live, without a remount', async () => {
     const { view, engine } = await setup(UNDETERMINED);
     expect(view.getByTestId('notifyuikit-prompt')).toBeTruthy();

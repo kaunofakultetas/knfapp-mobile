@@ -403,14 +403,20 @@ writeFileSync('building.json', JSON.stringify(graph));
 `svgToGraph` throws nothing and no issue stops the parse — an authoring
 tool shows everything wrong at once, so the result carries the shapes it
 could read beside the issues it found (`unsnapped_edge`, `self_edge`,
-`unsupported_path`, `unknown_node_ref`, `room_without_node`,
-`bad_attribute`, `duplicate_id`, `missing_viewbox`). `mergeLevels` joins
-the levels with the connectors the author names, runs `validateGraph`
-over the whole and folds its issues in (so an issue's `code` is either
-one of the tool's or one of `validateGraph`'s). Parsing is a pair of
-regexes over the SVG text, not an XML parser: comments are stripped
-first, transforms are ignored, shapes are read in plan coordinates as
-written, and every attribute value the tool reads — ids, numbers,
+`unsupported_path`, `unsupported_transform`, `unknown_node_ref`,
+`room_without_node`, `bad_attribute`, `duplicate_id`,
+`missing_viewbox`). `mergeLevels` joins the levels with the connectors
+the author names, runs `validateGraph` over the whole and folds its
+issues in (so an issue's `code` is either one of the tool's or one of
+`validateGraph`'s). Parsing is a handful of regexes over the SVG text,
+not an XML parser: comments are stripped first, tags are read
+quote-aware (a `>` inside a quoted value belongs to the value, as XML
+allows), transforms are NOT applied — shapes are read in plan
+coordinates as written, and a marked-up shape under a transform (its own
+`transform`, or an enclosing `<g>`'s — what an editor writes the moment
+a layer is nudged) is reported `unsupported_transform` at error severity
+so a build script stops instead of shipping a displaced graph; flatten
+the layer in the editor first. Every attribute value the tool reads — ids, numbers,
 `viewBox` and each `data-*` text — has its XML entities decoded: the
 five named ones (`&amp;` `&lt;` `&gt;` `&quot;` `&apos;`, case-sensitive)
 and numeric references in decimal (`&#279;`) or hexadecimal (`&#x117;`),
@@ -444,6 +450,10 @@ Errors —
   never both.
 - `room_without_node` — a room pointing at a missing node.
 - `missing_entrance` — an `entranceNodeId` that is not a node.
+- `bad_coordinate` — a node whose `x` or `y` is not a finite number (a
+  string, `null`, NaN — plain JSON lets all three through the types);
+  every length through it would be NaN and the router would answer
+  `no_path` on a connected map.
 
 Warnings —
 
@@ -460,6 +470,9 @@ Warnings —
   Not raised across levels, on a bad length, or on an unknown level.
 - `unreachable_node` — a node the entrance cannot reach (almost always a
   forgotten edge).
+- `outside_plan` — a node, or a room corner (one warning per room),
+  lying outside its level's `viewBox` — a moved layer, or a hand edit
+  that ran off the canvas.
 
 To prove a building, call `describeGraphContract` in a jest file:
 

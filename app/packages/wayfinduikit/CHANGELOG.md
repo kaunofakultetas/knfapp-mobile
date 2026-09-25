@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased — 2026-09-25
+
+- `FloorPlan`'s `route` takes one segment or the route's whole list;
+  `routePath` joins every stretch on the shown level as its own
+  subpath, so a route that leaves a floor and comes back draws both
+  stretches and reaches the destination pin (KNF-113). A single
+  segment behaves as before.
+- The room polygons render in a memoised layer — a walker's step, a
+  node drag or a rubber band no longer re-renders every room.
+- A new colour token, `brandText` (light `#7B003F`, dark `#E07AA6`):
+  brand-coloured TEXT — the route sheet's reassurance line and the
+  preview's steps fold — which in dark mode read under AA in the fill
+  pink.
+- Touch floor: *End route*, the steps fold and the hotspot discs reach
+  44 pt through their `hitSlop`; the route sheet's step counter and
+  remaining line wrap onto two rows instead of overflowing a narrow
+  phone.
+
 ## 1.4.0 — 2026-09-02
 
 `FloorPlan` learns to draw a rectangle — the gesture the map editor's

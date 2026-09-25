@@ -8,9 +8,11 @@
 //  the status text and the status text over the fixed
 //  fallback, the one body read that never throws, and the
 //  thrown side — a cancel by NAME or by signal, our deadline
-//  by name, everything else the network. Presence of `status`
-//  and `retryAfterMs` is asserted by exact shape: a screen
-//  keys on them, an extra undefined key would still be a key.
+//  by name, everything else the network. Presence of `status`,
+//  `retryAfterMs` and `serverCode` is asserted by exact shape:
+//  a screen keys on them, an extra undefined key would still
+//  be a key. The server's machine code rides along from both
+//  envelope shapes and into the error message.
 // -----------------------------------------------------------
 
 import { isAssistantTransportError, parseRetryAfter, readFailureBody, toAssistantFailure } from '../errors';
@@ -44,6 +46,11 @@ describe('AssistantTransportError', () => {
 
     const statusless: AssistantFailure = { code: 'network', message: 'refused' };
     expect(new AssistantTransportError(statusless).message).toBe('network: refused');
+
+    // The server's machine code rides after the status — two
+    // 429s of different origin must read apart on a screenshot
+    const coded: AssistantFailure = { code: 'quota', status: 429, serverCode: 'RATE_LIMITED', message: 'slow down' };
+    expect(new AssistantTransportError(coded).message).toBe('quota 429 RATE_LIMITED: slow down');
   });
 });
 
@@ -207,6 +214,25 @@ describe('toAssistantFailure — the message', () => {
   it('with neither body words nor status text the message is HTTP <status>', () => {
     expect(toAssistantFailure(response(500), '').message).toBe('HTTP 500');
     expect(toAssistantFailure(response(502, { statusText: '' })).message).toBe('HTTP 502');
+  });
+
+  it('the container envelope\'s error.code and a flat `code` both ride as serverCode', () => {
+    const envelope = { message: 'Conversation too large', error: { code: 'INPUT_TOO_LARGE', message: 'Conversation too large' } };
+    expect(toAssistantFailure(response(400, { statusText: 'Bad Request' }), envelope))
+      .toEqual({ code: 'server', status: 400, serverCode: 'INPUT_TOO_LARGE', message: 'Conversation too large' });
+    expect(toAssistantFailure(response(404), { error: 'Thread not found', code: 'not_found' }))
+      .toEqual({ code: 'server', status: 404, serverCode: 'not_found', message: 'Thread not found' });
+    expect(toAssistantFailure(response(503), { message: 'down', error: { code: 'PROMPT_NOT_CONFIGURED' } }))
+      .toMatchObject({ code: 'unavailable', serverCode: 'PROMPT_NOT_CONFIGURED' });
+  });
+
+  it.each([
+    ['no code at all', { error: 'x' }],
+    ['an empty code', { error: { code: '' } }],
+    ['a numeric code', { code: 7 }],
+    ['a text body', 'plain'],
+  ])('%s leaves serverCode absent', (_label, body) => {
+    expect(Object.keys(toAssistantFailure(response(500, { statusText: 'Internal' }), body))).not.toContain('serverCode');
   });
 
   it('a real Response maps the same way as the hand-made shape', () => {

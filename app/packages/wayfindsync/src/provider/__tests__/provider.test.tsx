@@ -6,6 +6,10 @@
 //  uploads once, exposes the counts — re-derived even while a
 //  drain is in flight — and merges a stored queue under an
 //  enqueue that lands before load resolves (the seed bootstrap).
+//  clearUploads empties the upload queue and nothing else: a
+//  write that went out offline keeps its queued op, in memory
+//  and on disk (KNF-112 — the capture screen's Close once
+//  wiped it through clearAll).
 // -----------------------------------------------------------
 
 import { act, renderHook } from '@testing-library/react-native';
@@ -14,6 +18,21 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import type { OpsAnswer, SyncStorage, SyncTransport } from '../../core/types';
 import { WayfindSyncProvider, useWayfindSync } from '../index';
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// memory
+// -----------------------------------------------------------
+//
+// An in-memory SyncStorage whose dump a spec can read.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
 
 const memory = (): SyncStorage & { dump: Record<string, string> } => {
   const dump: Record<string, string> = {};
@@ -166,5 +185,51 @@ describe('WayfindSyncProvider', () => {
     expect(flat.filter((id) => id === 'S')).toHaveLength(1);
     expect(flat.filter((id) => id === 'P')).toHaveLength(1);
     expect(result.current.status.pendingOps).toBe(0);
+  });
+
+  it('clearUploads drops the upload queue and keeps a queued op, in memory and on disk', async () => {
+    const storage = memory();
+    const transport: SyncTransport = {
+      // The ops endpoint is unreachable; uploads are too, so the
+      // frame stays queued for clearUploads to find
+      postOps: async () => {
+        throw new Error('offline');
+      },
+      publish: async () => ({ ok: false, reason: 'unchanged' }),
+      uploadPanorama: async () => {
+        throw new Error('offline');
+      },
+      uploadPlan: async () => {
+        throw new Error('offline');
+      },
+      uploadFrame: async () => {
+        throw new Error('offline');
+      },
+    };
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <WayfindSyncProvider buildingId="knf" storage={storage} transport={transport} keyPrefix="wayfind-capture">
+        {children}
+      </WayfindSyncProvider>
+    );
+    const { result } = await renderHook(() => useWayfindSync(), { wrapper });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      result.current.enqueueOps([{ id: 'op-assign', type: 'upsert', kind: 'node', entityId: 'n1', data: { pano: '/p.jpg' }, baseRevision: 4 }]);
+      result.current.enqueueUpload({ id: 'fr-1', kind: 'frame', file: { uri: 'file:///f', name: 'f.jpg', type: 'image/jpeg' }, fields: { captureId: 'c', targetId: 't' }, target: 't' });
+      for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(result.current.status.pendingOps).toBe(1);
+    expect(result.current.status.uploads).toHaveLength(1);
+
+    await act(async () => {
+      result.current.clearUploads();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(result.current.status.uploads).toHaveLength(0);
+    expect(result.current.status.pendingOps).toBe(1);
+    const persisted = JSON.parse(storage.dump['wayfind-capture:ops:knf']) as { op: { id: string }; status: string }[];
+    expect(persisted.map((entry) => [entry.op.id, entry.status])).toEqual([['op-assign', 'queued']]);
   });
 });

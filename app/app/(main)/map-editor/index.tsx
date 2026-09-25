@@ -12,19 +12,31 @@
 //  panorama block, the level's label / scale / north / plan
 //  upload and the validator's findings — still exists, folded
 //  under a collapsed "Daugiau" expander so the everyday face
-//  stays the drawing. Every edit is one undo step (a drag is
+//  stays the drawing. The validator's findings read in the
+//  admin's language, each naming its node / room / floor by
+//  what a person calls it. Every edit is one undo step (a drag is
 //  one, a drawn room is one, a stairs connector is one),
 //  reaches the server through the sync package's outbox as
 //  soon as the phone is online — and waits, persisted, when it
 //  is not — and comes back as the entities' new revisions so
 //  the next edits carry the right base. Another editor's
 //  change to the same entity is a conflict the sheet shows
-//  with two answers: keep mine, take theirs. Publish validates
-//  on the server and hands students the new revision.
+//  with two answers: keep mine, take theirs (a change the
+//  server refused outright offers retry / discard instead).
+//  Publish validates on the server and hands students the new
+//  revision; a refusal's own findings join the issue list.
+//
+//  The capture and alignment screens pushed over the editor
+//  hand their node edits BACK to it (services/wayfind/
+//  editorHandoff): the editor applies them as ordinary edits,
+//  so its copy of the node is never stale and the write rides
+//  this screen's outbox, conflict row and undo like any other.
 //
 //  First run: a server without the building offers to create
 //  it from the bundled seed (the building row, then every seed
-//  entity as an op). A server out of reach offers the bundled
+//  entity as an op). A refusal (401 / 403) is the no-access
+//  face and a failing server an error with a retry; only a
+//  phone with no network is offered the bundled
 //  seed to edit with the edits queued — behind a confirmation,
 //  because the seed is not the server's draft: every edit made
 //  on it goes out stamped base 0 and comes back as a conflict
@@ -41,7 +53,7 @@
 //
 //  Split into (root component last):
 //
-//    helpers          — ids, plan shapes, seed ops
+//    helpers          — ids, plan shapes, seed ops, issue subjects
 //    Chip             — one pill button
 //    ToolRail         — the tool picker
 //    Field            — a labelled numeric / text input
@@ -71,21 +83,23 @@ import { useTranslation } from 'react-i18next';
 import { Pressable, ScrollView, Switch, Text, View, type LayoutChangeEvent } from 'react-native';
 import { Svg, Circle, Line, SvgXml } from 'react-native-svg';
 
+import { WayfindKitHost } from '@/components/map/WayfindHost';
 import { Button, EmptyState, Input, LoadingSpinner, Screen, confirmAction } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { showToast } from '@/context/NetworkContext';
 import { usePlanXml } from '@/hooks/usePlanXml';
 import { useTheme } from '@/hooks/useTheme';
-import { ApiError } from '@/services/api';
+import { ApiError, apiErrorKey } from '@/services/api';
 import { logError } from '@/services/log';
+import { registerNodeEditSink } from '@/services/wayfind/editorHandoff';
 import { KNF_BUILDING_ID, KNF_GRAPH } from '@/services/wayfind/seed';
 import { createBuilding, fetchDraft, wayfindTransport } from '@/services/wayfindTransport';
 import { useDataEngine } from '@knf/dataengine';
 import { parsePanoMetadata, type PanoMetadata } from '@knf/wayfindcapture';
-import { changesToOps, panoAttachPatch, useEditor, type Change, type EditorActions, type EditorIssue, type EditorState } from '@knf/wayfindeditor';
+import { changesToOps, issueId, panoAttachPatch, useEditor, type Change, type EditorActions, type EditorIssue, type EditorState, type NodeLike, type Patch } from '@knf/wayfindeditor';
 import { bearingDeg, validateGraph, type BuildingGraph, type GraphEdge, type GraphNode, type NodeKind } from '@knf/wayfindengine';
 import { WayfindSyncProvider, useWayfindSync, type OutboxEntry, type UploadItem } from '@knf/wayfindsync';
-import { FloorPlan, FloorSwitcher, WayfindUiKitProvider, type PlanNode, type PlanRoom } from '@knf/wayfinduikit';
+import { FloorPlan, FloorSwitcher, type PlanNode, type PlanRoom } from '@knf/wayfinduikit';
 
 
 type Tool = 'select' | 'node' | 'link' | 'room' | 'stairs';
@@ -255,11 +269,47 @@ const nodeName = (doc: BuildingGraph, node: GraphNode | undefined, t: (key: stri
 
 
 // -----------------------------------------------------------
+// issueSubject
+// -----------------------------------------------------------
+//
+// What a validator issue (or a refused op) is about, in a
+// person's words: a node by nodeName, a room by its name, a
+// floor by its label, a link by its two ends — the ref is an
+// id ("n-lz3k2", "a-b" for a link) nobody should have to read.
+// An id the document does not hold stays as it is.
+//
+// Used by:
+//   - IssuesPanel, EditorBody (below)
+// -----------------------------------------------------------
+
+const issueSubject = (doc: BuildingGraph, ref: string, t: (key: string) => string): string => {
+  const node = doc.nodes.find((n) => n.id === ref);
+  if (node) return nodeName(doc, node, t);
+  const room = doc.rooms.find((r) => r.id === ref);
+  if (room) return room.name;
+  const level = doc.levels.find((l) => l.id === ref);
+  if (level) return level.label;
+  const edge = doc.edges.find((e) => edgeId(e) === ref || `${e.a}-${e.b}` === ref);
+  if (edge) {
+    const end = (id: string) => nodeName(doc, doc.nodes.find((n) => n.id === id), t) || id;
+    return `${end(edge.a)} – ${end(edge.b)}`;
+  }
+  return ref;
+};
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // Chip
 // -----------------------------------------------------------
 //
 // One pill button — the tool picker's unit, reused wherever
-// the editor needs a small labeled action.
+// the editor needs a small labeled action. Touch-floor slop
+// included, so no host has to remember it.
 //
 // Used by:
 //   - ToolRail, NodeSheet, ConflictRow, EditorBody (below)
@@ -272,6 +322,8 @@ function Chip({ label, active, onPress, testID }: { label: string; active?: bool
       onPress={onPress}
       accessibilityRole="button"
       accessibilityState={{ selected: !!active }}
+      // A ~30 pt pill; the slop takes it to the 44 pt touch floor
+      hitSlop={7}
       testID={testID}
       style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: active ? colors.brand : colors.surfaceSoft, marginRight: 6 }}
     >
@@ -377,6 +429,7 @@ function MoreSection({ children, testID }: { children: ReactNode; testID?: strin
         accessibilityState={{ expanded: open }}
         testID={testID}
         className="flex-row items-center justify-between py-xs"
+        style={{ minHeight: 44 }}
       >
         <Text className="font-raleway-medium text-sm text-ink-soft">{open ? t('mapEditor.less') : t('mapEditor.more')}</Text>
         <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={18} color={colors.inkSoft} />
@@ -415,6 +468,7 @@ function MoreSection({ children, testID }: { children: ReactNode; testID?: strin
 function NodeSheet({ state, actions, nodeId, fresh, onPickPanorama, onCapture, onAlign, uploads, onRetryUpload, onRemoveUpload }: { state: EditorState<BuildingGraph>; actions: EditorActions; nodeId: string; fresh: boolean; onPickPanorama: (nodeId: string) => void; onCapture: (nodeId: string) => void; onAlign: (nodeId: string) => void; uploads: readonly UploadItem[]; onRetryUpload: (id: string) => void; onRemoveUpload: (id: string) => void }) {
 
   const { t } = useTranslation();
+  const { colors } = useTheme();
   const node = state.document.nodes.find((n) => n.id === nodeId);
   const room = node?.roomId ? state.document.rooms.find((r) => r.id === node.roomId) : null;
   if (!node) return null;
@@ -459,9 +513,14 @@ function NodeSheet({ state, actions, nodeId, fresh, onPickPanorama, onCapture, o
 
       <View className="mt-sm flex-row items-center justify-between">
         <Text className="font-raleway text-sm text-ink">{t('mapEditor.entrance')}</Text>
-        <Switch value={isEntrance} onValueChange={(on) => {
+        <Switch
+          value={isEntrance}
+          onValueChange={(on) => {
             actions.setBuilding({ entranceNodeId: on ? nodeId : null });
-          }} testID="editor-entrance" />
+          }}
+          accessibilityLabel={t('mapEditor.entrance')}
+          testID="editor-entrance"
+        />
       </View>
 
       <Text className="mt-sm font-raleway-medium text-xs uppercase text-ink-soft">{t('mapEditor.links')}</Text>
@@ -471,8 +530,8 @@ function NodeSheet({ state, actions, nodeId, fresh, onPickPanorama, onCapture, o
         return (
         <View key={edgeId(edge)} className="flex-row items-center justify-between py-xs">
           <Text className="flex-1 font-raleway text-sm text-ink" numberOfLines={1}>{nodeName(state.document, other, t)}{otherLevel ? ` · ${otherLevel}` : ''}</Text>
-          <Pressable onPress={() => actions.deleteEdge(edgeId(edge))} accessibilityRole="button" accessibilityLabel={t('mapEditor.deleteLink')} hitSlop={8} testID={`editor-delete-link-${edgeId(edge)}`}>
-            <Ionicons name="trash-outline" size={18} color="#DC2626" />
+          <Pressable onPress={() => actions.deleteEdge(edgeId(edge))} accessibilityRole="button" accessibilityLabel={t('mapEditor.deleteLink')} hitSlop={13} testID={`editor-delete-link-${edgeId(edge)}`}>
+            <Ionicons name="trash-outline" size={18} color={colors.danger} />
           </Pressable>
         </View>
         );
@@ -504,7 +563,10 @@ function NodeSheet({ state, actions, nodeId, fresh, onPickPanorama, onCapture, o
         <Text className="mb-xs font-raleway text-xs text-ink-faint" numberOfLines={1}>{inFlight ? t('mapEditor.uploadQueued') : (node.pano ?? '—')}</Text>
         {failed ? (
           <View className="mb-xs flex-row items-center" testID="editor-upload-failed">
-            <Text className="flex-1 font-raleway text-xs" style={{ color: '#DC2626' }} numberOfLines={1}>{t('mapEditor.uploadFailed')}</Text>
+            {/* The server's refusal code, in words, when it gave one */}
+            <Text className="flex-1 font-raleway text-xs" style={{ color: colors.danger }} numberOfLines={2}>
+              {failed.error ? t(`mapEditor.uploadErrors.${failed.error}`, { defaultValue: t('mapEditor.uploadFailed') }) : t('mapEditor.uploadFailed')}
+            </Text>
             <Chip label={t('mapEditor.retry')} onPress={() => onRetryUpload(failed.id)} testID="editor-upload-retry" />
             <Chip label={t('common.clear')} onPress={() => onRemoveUpload(failed.id)} testID="editor-upload-remove" />
           </View>
@@ -537,13 +599,14 @@ function NodeSheet({ state, actions, nodeId, fresh, onPickPanorama, onCapture, o
 // files → the upload queue → the stored url lands on the
 // level) and the validator's findings. With nothing selected
 // the bottom area is just the hint and this expander — a new
-// level is the '+' pill beside the floor switcher now.
+// level is the '+' pill beside the floor switcher now. A scale
+// that is not a positive number keeps the old one.
 //
 // Used by:
 //   - EditorBody (below)
 // -----------------------------------------------------------
 
-function LevelSheet({ state, actions, levelId, onPickPlan }: { state: EditorState<BuildingGraph>; actions: EditorActions; levelId: string; onPickPlan: (levelId: string) => void }) {
+function LevelSheet({ state, actions, levelId, issues, onPickPlan }: { state: EditorState<BuildingGraph>; actions: EditorActions; levelId: string; issues: EditorIssue[]; onPickPlan: (levelId: string) => void }) {
 
   const { t } = useTranslation();
   const level = state.document.levels.find((l) => l.id === levelId);
@@ -556,12 +619,24 @@ function LevelSheet({ state, actions, levelId, onPickPlan }: { state: EditorStat
       <MoreSection key={levelId} testID="editor-level-more">
         <Text className="mb-xs font-raleway-bold text-base text-ink">{t('mapEditor.level')} · {level.id}</Text>
         <Field label={t('mapEditor.levelLabel')} value={level.label} onCommit={(text) => actions.updateLevel(levelId, { label: text.trim() || level.label })} testID="editor-level-label" />
-        <Field label={t('mapEditor.metersPerPixel')} value={String(level.metersPerPixel)} numeric onCommit={(text) => actions.updateLevel(levelId, { metersPerPixel: numberOr(text, level.metersPerPixel) ?? level.metersPerPixel })} />
+        {/* Only a positive scale: 0 or a negative one would price
+            every walk on the floor at nothing or less (and the
+            server refuses it) — the old value stays instead */}
+        <Field
+          label={t('mapEditor.metersPerPixel')}
+          value={String(level.metersPerPixel)}
+          numeric
+          onCommit={(text) => {
+            const scale = numberOr(text, level.metersPerPixel);
+            actions.updateLevel(levelId, { metersPerPixel: scale != null && scale > 0 ? scale : level.metersPerPixel });
+          }}
+          testID="editor-level-scale"
+        />
         <Field label={t('mapEditor.northDeg')} value={level.northDeg == null ? '' : String(level.northDeg)} numeric onCommit={(text) => actions.updateLevel(levelId, { northDeg: numberOr(text, level.northDeg ?? null) })} />
         <Text className="mb-xs font-raleway text-xs text-ink-faint" numberOfLines={1}>{level.plan ?? '—'}</Text>
         <Button title={t('mapEditor.uploadPlan')} variant="outline" size="sm" leftIcon="document-outline" onPress={() => onPickPlan(levelId)} />
         <Text className="mt-sm mb-xs font-raleway-medium text-xs uppercase text-ink-soft">{t('mapEditor.issues')}</Text>
-        <IssuesPanel issues={state.issues} ignored={state.ignoredIssues} onIgnore={actions.ignoreIssue} />
+        <IssuesPanel issues={issues} ignored={state.ignoredIssues} onIgnore={actions.ignoreIssue} document={state.document} />
       </MoreSection>
     </View>
   );
@@ -579,25 +654,32 @@ function LevelSheet({ state, actions, levelId, onPickPlan }: { state: EditorStat
 //
 // Filters the ignored ids out first and renders the no-issues
 // line when nothing remains; only WARNINGS carry the ignore
-// action — an error row stays until the graph is fixed.
+// action — an error row stays until the graph is fixed. Each
+// row reads in the app's language off its code, naming its
+// subject the way a person does (issueSubject); a code the
+// catalog does not know falls back to the validator's own
+// sentence.
 //
 // Used by:
 //   - LevelSheet (above) — under the level's "Daugiau"
 //   - EditorBody (below) — the toolbar's issues toggle
 // -----------------------------------------------------------
 
-function IssuesPanel({ issues, ignored, onIgnore }: { issues: EditorIssue[]; ignored: string[]; onIgnore: (id: string) => void }) {
+function IssuesPanel({ issues, ignored, onIgnore, document }: { issues: EditorIssue[]; ignored: string[]; onIgnore: (id: string) => void; document: BuildingGraph }) {
   const { t } = useTranslation();
+  const { colors } = useTheme();
   const shown = issues.filter((issue) => !ignored.includes(issue.id));
   if (shown.length === 0) return <Text className="font-raleway text-sm text-ink-soft" testID="editor-no-issues">{t('mapEditor.noIssues')}</Text>;
   return (
     <View testID="editor-issues">
       {shown.map((issue) => (
-        <View key={issue.id} className="flex-row items-center py-xs">
-          <Ionicons name={issue.severity === 'error' ? 'alert-circle' : 'warning-outline'} size={16} color={issue.severity === 'error' ? '#DC2626' : '#D97706'} />
-          <Text className="ml-sm flex-1 font-raleway text-sm text-ink">{issue.message}</Text>
+        <View key={issue.id} className="flex-row items-center py-xs" testID={`editor-issue-${issue.id}`}>
+          <Ionicons name={issue.severity === 'error' ? 'alert-circle' : 'warning-outline'} size={16} color={issue.severity === 'error' ? colors.danger : colors.warning} />
+          <Text className="ml-sm flex-1 font-raleway text-sm text-ink">
+            {t(`mapEditor.issueCodes.${issue.code}`, { subject: issueSubject(document, issue.ref, t), defaultValue: issue.message })}
+          </Text>
           {issue.severity === 'warning' ? (
-            <Pressable onPress={() => onIgnore(issue.id)} accessibilityRole="button" hitSlop={8}>
+            <Pressable onPress={() => onIgnore(issue.id)} accessibilityRole="button" hitSlop={15}>
               <Text className="font-raleway-medium text-xs text-brand">{t('mapEditor.ignore')}</Text>
             </Pressable>
           ) : null}
@@ -617,22 +699,28 @@ function IssuesPanel({ issues, ignored, onIgnore }: { issues: EditorIssue[]; ign
 // ConflictRow
 // -----------------------------------------------------------
 //
-// A rejected op: keep mine re-sends without the stale base
-// (the server's copy is overwritten); take theirs drops the op
-// and applies the server's entity to the document.
+// A rejected op. A conflict offers keep mine (re-sent stamped
+// at the revision the server showed, so exactly that copy is
+// overwritten) or take theirs (the op dropped, the server's
+// entity applied to the document). A change the server refused
+// outright (its reason is not a conflict) offers retry or
+// discard, with the server's reason under the sentence — there
+// is no "theirs" to take.
 //
 // Used by:
 //   - EditorBody (below)
 // -----------------------------------------------------------
 
-function ConflictRow({ entry, onKeep, onTake }: { entry: OutboxEntry; onKeep: () => void; onTake: () => void }) {
+function ConflictRow({ entry, subject, onKeep, onTake }: { entry: OutboxEntry; subject: string; onKeep: () => void; onTake: () => void }) {
   const { t } = useTranslation();
+  const conflict = entry.reason === 'conflict';
   return (
     <View className="mb-xs rounded-xl bg-surface-soft px-md py-sm" testID={`editor-conflict-${entry.op.id}`}>
-      <Text className="font-raleway text-sm text-ink">{entry.reason === 'conflict' ? t('mapEditor.conflict', { ref: `${entry.op.kind ?? ''} ${entry.op.entityId ?? ''}`.trim() }) : `${entry.op.entityId ?? ''}: ${entry.reason ?? ''}`}</Text>
+      <Text className="font-raleway text-sm text-ink">{t(conflict ? 'mapEditor.conflict' : 'mapEditor.rejectedChange', { ref: subject })}</Text>
+      {!conflict && entry.reason ? <Text className="mt-xs font-raleway text-xs text-ink-faint">{entry.reason}</Text> : null}
       <View className="mt-xs flex-row">
-        <Chip label={t('mapEditor.keepMine')} onPress={onKeep} testID={`editor-keep-${entry.op.id}`} />
-        <Chip label={t('mapEditor.takeTheirs')} onPress={onTake} testID={`editor-take-${entry.op.id}`} />
+        <Chip label={t(conflict ? 'mapEditor.keepMine' : 'mapEditor.retry')} onPress={onKeep} testID={`editor-keep-${entry.op.id}`} />
+        <Chip label={t(conflict ? 'mapEditor.takeTheirs' : 'mapEditor.discard')} onPress={onTake} testID={`editor-take-${entry.op.id}`} />
       </View>
     </View>
   );
@@ -738,7 +826,11 @@ function PlanDrawing({ xml, reference }: { xml: string; reference: string | null
 // links the pair with one stairs edge. Owns the editor hook;
 // every closed checkpoint goes to the outbox, every drain
 // report re-stamps revisions, every finished upload writes
-// its url.
+// its url, and a node edit handed back by the capture or
+// alignment screen lands as an ordinary edit on the live
+// node (the handoff sink). A publish the server refuses adds
+// the server's own findings to the issue list for as long as
+// the document stands as it was refused.
 //
 // Used by:
 //   - MapEditorScreen (below)
@@ -825,6 +917,25 @@ function EditorBody({ draft }: { draft: Draft }) {
   }, [sync.status.uploads, acknowledgeUpload]);
 
 
+  // The capture and align screens' edits come back through the
+  // handoff: judged against the node as the editor holds it NOW
+  // and applied as an ordinary edit — one undo step, the op on
+  // this outbox with this editor's base, the document current.
+  // A node that is gone, or an edit that declines it, answers
+  // 'declined' — the screen reports it rather than writing
+  // around the editor
+  useEffect(
+    () =>
+      registerNodeEditSink((nodeId, edit) => {
+        const node = documentRef.current.nodes.find((n) => n.id === nodeId);
+        const patch = node ? edit(node) : null;
+        if (!patch) return 'declined';
+        return actionsRef.current.updateNode(nodeId, patch as Patch<NodeLike>).blocked ? 'declined' : 'applied';
+      }),
+    [],
+  );
+
+
   const [tool, setTool] = useState<Tool>('select');
   const [linkFrom, setLinkFrom] = useState<string | null>(null);
   // The stairs tool's pending start — a node already placed on
@@ -836,6 +947,11 @@ function EditorBody({ draft }: { draft: Draft }) {
   // The node a drawn box just created — its name field takes
   // the focus once, with the placeholder selected
   const [freshNodeId, setFreshNodeId] = useState<string | null>(null);
+  // The server's findings on the last refused publish, with the
+  // document they were found on — shown only while that
+  // document stands (any edit since may have fixed them, and
+  // the local validator speaks for the edited one)
+  const [refusal, setRefusal] = useState<{ issues: EditorIssue[]; document: BuildingGraph } | null>(null);
 
   const levelId = state.shownLevel ?? state.document.levels[0]?.id ?? null;
   const level = levelId ? (state.document.levels.find((l) => l.id === levelId) ?? null) : null;
@@ -844,8 +960,13 @@ function EditorBody({ draft }: { draft: Draft }) {
 
 
   // The plan's shapes on the shown level; links are drawn in
-  // the plan slot because the viewer knows nothing of edges
-  const planNodes = useMemo<PlanNode[]>(() => state.document.nodes.filter((n) => n.level === levelId).map((n) => ({ id: n.id, x: n.x, y: n.y, label: n.landmark ?? n.roomId ?? n.id })), [state.document.nodes, levelId]);
+  // the plan slot because the viewer knows nothing of edges. A
+  // node is announced by what a person calls it (nodeName), not
+  // by its minted id
+  const planNodes = useMemo<PlanNode[]>(
+    () => state.document.nodes.filter((n) => n.level === levelId).map((n) => ({ id: n.id, x: n.x, y: n.y, label: nodeName(state.document, n, t) })),
+    [state.document, levelId, t],
+  );
   const planRooms = useMemo<PlanRoom[]>(() => state.document.rooms.filter((r) => r.level === levelId && r.polygon).map((r) => ({ id: r.id, polygon: r.polygon as [number, number][], label: r.name })), [state.document.rooms, levelId]);
   const byId = useMemo(() => new Map(state.document.nodes.map((n) => [n.id, n])), [state.document.nodes]);
   const links = useMemo(
@@ -1000,6 +1121,16 @@ function EditorBody({ draft }: { draft: Draft }) {
     [tool, linkFrom, stairsFrom, byId, actions, t],
   );
 
+  // A room tap picks its node. Stable, so the plan's memoised
+  // rooms layer skips the re-render every drag move causes
+  const pressRoom = useCallback(
+    (id: string) => {
+      const room = documentRef.current.rooms.find((r) => r.id === id);
+      if (room) actions.select({ kind: 'node', id: room.nodeId });
+    },
+    [actions],
+  );
+
   // A drag is one gesture: begin on the first move, end when
   // the viewer says the drag is over — a release, but also a
   // second finger landing, a responder terminate or a level
@@ -1109,13 +1240,17 @@ function EditorBody({ draft }: { draft: Draft }) {
 
 
   // The '+' pill beside the floor switcher: a fresh level with
-  // the seed's canvas, shown at once so the admin lands on it
+  // the seed's canvas, shown at once so the admin lands on it.
+  // Its label is a starting point in the admin's language (the
+  // level sheet renames it); 'L<ordinal>' is the id unless an
+  // older floor already holds it
   const addLevel = useCallback(() => {
     const ordinal = Math.max(0, ...state.document.levels.map((l) => l.ordinal)) + 1;
-    const id = `L${ordinal}`;
-    actions.addLevel({ id, label: `${ordinal} aukštas`, viewBox: [0, 0, 1000, 600], metersPerPixel: 0.05, ordinal, plan: null });
+    const wanted = `L${ordinal}`;
+    const id = state.document.levels.some((l) => l.id === wanted) ? mint('L') : wanted;
+    actions.addLevel({ id, label: t('mapEditor.newLevelLabel', { number: ordinal }), viewBox: [0, 0, 1000, 600], metersPerPixel: 0.05, ordinal, plan: null });
     actions.showLevel(id);
-  }, [state.document.levels, actions]);
+  }, [state.document.levels, actions, t]);
 
 
   const publish = useCallback(async () => {
@@ -1123,14 +1258,21 @@ function EditorBody({ draft }: { draft: Draft }) {
     await sync.drain();
     try {
       const answer = await sync.publish();
-      if (answer.ok) showToast('success', t('mapEditor.published'), `#${answer.revision}`);
-      else if (answer.reason === 'unchanged') showToast('info', t('mapEditor.publishUnchanged'));
+      if (answer.ok) {
+        setRefusal(null);
+        showToast('success', t('mapEditor.published'), `#${answer.revision}`);
+      } else if (answer.reason === 'unchanged') showToast('info', t('mapEditor.publishUnchanged'));
       else {
+        // The server's validator may see what this one does not
+        // (a row another editor wrote) — its findings join the
+        // list, so "the draft has errors" never points at an
+        // empty panel
+        setRefusal({ issues: answer.issues.map((issue) => ({ ...issue, id: issueId(issue) })), document: documentRef.current });
         showToast('error', t('mapEditor.publishInvalid'));
         setPanel('issues');
       }
     } catch (error) {
-      showToast('error', error instanceof ApiError ? error.message : String(error));
+      showToast('error', t(apiErrorKey(error)));
     }
   }, [sync, t]);
 
@@ -1148,7 +1290,11 @@ function EditorBody({ draft }: { draft: Draft }) {
   );
 
 
-  const openIssues = state.issues.filter((issue) => !state.ignoredIssues.includes(issue.id));
+  // The local validator's findings, plus the refused publish's
+  // own for as long as the refused document stands
+  const serverIssues = refusal && refusal.document === state.document ? refusal.issues.filter((issue) => !state.issues.some((local) => local.id === issue.id)) : [];
+  const issues = serverIssues.length > 0 ? [...state.issues, ...serverIssues] : state.issues;
+  const openIssues = issues.filter((issue) => !state.ignoredIssues.includes(issue.id));
   // The stack header carries the title and back — the editor's
   // own actions sit in a toolbar beside the tool rail
   const actionBar = (
@@ -1161,7 +1307,7 @@ function EditorBody({ draft }: { draft: Draft }) {
       </Pressable>
       <Pressable onPress={() => setPanel(panel === 'issues' ? 'sheet' : 'issues')} accessibilityRole="button" accessibilityLabel={t('mapEditor.issues')} hitSlop={6} testID="editor-issues-toggle" style={{ padding: 8 }}>
         <Ionicons name={openIssues.some((i) => i.severity === 'error') ? 'alert-circle' : 'checkmark-circle-outline'} size={22} color={colors.ink} />
-        {openIssues.length > 0 ? <Text style={{ position: 'absolute', right: 0, top: 0, fontSize: 10, color: colors.brand, fontWeight: '700' }}>{openIssues.length}</Text> : null}
+        {openIssues.length > 0 ? <Text style={{ position: 'absolute', right: 0, top: 0, fontSize: 10, color: colors.brandText, fontWeight: '700' }}>{openIssues.length}</Text> : null}
       </Pressable>
       <Pressable onPress={publish} accessibilityRole="button" accessibilityLabel={t('mapEditor.publish')} hitSlop={6} testID="editor-publish" style={{ padding: 8 }}>
         <Ionicons name="cloud-upload-outline" size={22} color={colors.brand} />
@@ -1228,14 +1374,7 @@ function EditorBody({ draft }: { draft: Draft }) {
               // is no touch target, so the finger falls through
               // to the viewport — a node (or a stairs start, or a
               // drawn box) can land inside a room
-              onPressRoom={
-                tool === 'node' || tool === 'room' || tool === 'stairs'
-                  ? undefined
-                  : (id) => {
-                      const room = state.document.rooms.find((r) => r.id === id);
-                      if (room) actions.select({ kind: 'node', id: room.nodeId });
-                    }
-              }
+              onPressRoom={tool === 'node' || tool === 'room' || tool === 'stairs' ? undefined : pressRoom}
               onDragNode={tool === 'select' ? onDrag : undefined}
               onDragNodeEnd={tool === 'select' ? onDragEnd : undefined}
               style={{ height: planHeight }}
@@ -1260,7 +1399,8 @@ function EditorBody({ draft }: { draft: Draft }) {
                 accessibilityRole="button"
                 accessibilityLabel={t('mapEditor.addLevel')}
                 testID="editor-add-level"
-                style={{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface, elevation: 3, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } }}
+                hitSlop={2}
+                style={{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface, elevation: 3, shadowColor: colors.shadow, shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } }}
               >
                 <Ionicons name="add" size={22} color={colors.brand} />
               </Pressable>
@@ -1290,14 +1430,20 @@ function EditorBody({ draft }: { draft: Draft }) {
 
       <ScrollView style={{ maxHeight: 300 }} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 16 }} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
         {sync.status.rejectedOps.map((entry) => (
-          <ConflictRow key={entry.op.id} entry={entry} onKeep={() => sync.resolveConflict(entry.op.id, 'keep-mine')} onTake={() => takeTheirs(entry)} />
+          <ConflictRow
+            key={entry.op.id}
+            entry={entry}
+            subject={entry.op.entityId ? issueSubject(state.document, entry.op.entityId, t) : t('mapEditor.building')}
+            onKeep={() => sync.resolveConflict(entry.op.id, 'keep-mine')}
+            onTake={() => takeTheirs(entry)}
+          />
         ))}
         {panel === 'issues' ? (
-          <IssuesPanel issues={state.issues} ignored={state.ignoredIssues} onIgnore={actions.ignoreIssue} />
+          <IssuesPanel issues={issues} ignored={state.ignoredIssues} onIgnore={actions.ignoreIssue} document={state.document} />
         ) : selectedNodeId ? (
           <NodeSheet state={state} actions={actions} nodeId={selectedNodeId} fresh={selectedNodeId === freshNodeId} onPickPanorama={pickPanorama} onCapture={openCapture} onAlign={openAlign} uploads={sync.status.uploads} onRetryUpload={sync.retryUpload} onRemoveUpload={sync.removeUpload} />
         ) : levelId ? (
-          <LevelSheet state={state} actions={actions} levelId={levelId} onPickPlan={pickPlan} />
+          <LevelSheet state={state} actions={actions} levelId={levelId} issues={issues} onPickPlan={pickPlan} />
         ) : null}
       </ScrollView>
     </Screen>
@@ -1318,8 +1464,12 @@ function EditorBody({ draft }: { draft: Draft }) {
 // fallbacks (create from the seed; edit the seed offline — an
 // offer the admin must accept first, since every edit on the
 // seed comes back from the server as a conflict to settle; a
-// declined offer is a dead end with a retry, nothing editable),
-// and the providers the body needs.
+// declined offer is a dead end with a retry, nothing editable)
+// — made only when the phone could not reach the server: a
+// refusal (401 / 403) is the no-access face, and a server that
+// answered with a failure is an error with a retry, since
+// edits queued against it would fail the same way — and the
+// providers the body needs, the kit themed from the app.
 //
 // Used by:
 //   - expo-router — the (main)/map-editor route
@@ -1336,6 +1486,9 @@ function MapEditorScreen() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [missing, setMissing] = useState(false);
   const [loading, setLoading] = useState(true);
+  // Why the last load failed, when it failed with an answer:
+  // 'denied' for a 401 / 403, else the i18n key of the failure
+  const [failure, setFailure] = useState<string | null>(null);
   // The offline seed was offered and turned down — no editor
   // mounts until a retried load reaches the server or the offer
   // is taken
@@ -1351,6 +1504,7 @@ function MapEditorScreen() {
     setLoading(true);
     setMissing(false);
     setDeclined(false);
+    setFailure(null);
     try {
       const answer = await fetchDraft(KNF_BUILDING_ID);
       if (!answer) {
@@ -1358,7 +1512,13 @@ function MapEditorScreen() {
         return;
       }
       setDraft({ document: answer.document, revision: answer.revision, revisions: answer.revisions, offline: false });
-    } catch {
+    } catch (error) {
+      // The server answered: a refusal or a failure, never a
+      // reason to hand over the seed
+      if (error instanceof ApiError && error.code === 'http') {
+        setFailure(error.status === 401 || error.status === 403 ? 'denied' : apiErrorKey(error));
+        return;
+      }
       // Out of reach: the bundled seed is offered, never handed
       // over. It is not the server's draft — every edit made on
       // it goes out stamped base 0 and comes back as a conflict
@@ -1385,14 +1545,14 @@ function MapEditorScreen() {
       await createBuilding(KNF_BUILDING_ID, 'VU KNF');
     } catch (error) {
       if (!(error instanceof ApiError && error.status === 409)) {
-        showToast('error', error instanceof ApiError ? error.message : String(error));
+        showToast('error', t(apiErrorKey(error)));
         return;
       }
     }
     setSeedQueued(seedOps(KNF_GRAPH, KNF_BUILDING_ID));
     setDraft({ document: KNF_GRAPH, revision: 0, revisions: {}, offline: false });
     setMissing(false);
-  }, []);
+  }, [t]);
 
   const onSeedSent = useCallback(() => {
     setSeedQueued(null);
@@ -1407,10 +1567,17 @@ function MapEditorScreen() {
       </Screen>
     );
   }
-  if (!allowed) {
+  if (!allowed || failure === 'denied') {
     return (
       <Screen>
         <EmptyState icon="lock-closed-outline" title={t('mapEditor.noAccess')} />
+      </Screen>
+    );
+  }
+  if (failure) {
+    return (
+      <Screen>
+        <EmptyState icon="alert-circle-outline" title={t('mapEditor.loadFailed')} hint={t(failure)} action={{ label: t('common.tryAgain'), onPress: () => void load() }} />
       </Screen>
     );
   }
@@ -1431,12 +1598,12 @@ function MapEditorScreen() {
 
 
   return (
-    <WayfindUiKitProvider>
+    <WayfindKitHost>
       <WayfindSyncProvider buildingId={KNF_BUILDING_ID} storage={AsyncStorage} transport={wayfindTransport} onRestore={onRestore}>
         <SeedSender ops={seedQueued} onSent={onSeedSent} />
         <EditorBody draft={draft} />
       </WayfindSyncProvider>
-    </WayfindUiKitProvider>
+    </WayfindKitHost>
   );
 }
 

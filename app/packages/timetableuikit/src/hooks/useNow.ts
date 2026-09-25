@@ -10,7 +10,11 @@
 //  enabled: false and NO interval ever runs. Even enabled, a
 //  tick that lands on the same displayed minute returns the
 //  PREVIOUS state object, so React bails and nothing
-//  re-renders until the minute actually turns.
+//  re-renders until the minute actually turns. A clock
+//  switched ON (back to this week after browsing another)
+//  reads the wall clock at once — its last sample may be
+//  hours old, and the now line must not sit there for the
+//  next half minute.
 //
 //  Used by:
 //    - WeekGrid.tsx / DayTimeline.tsx — the default clock
@@ -116,15 +120,16 @@ export function useNow(options: UseNowOptions = {}): NowPoint {
 
   useEffect(() => {
     if (!enabled) return undefined;
-    const timer = setInterval(
-      () =>
-        setNow((prev) => {
-          const fresh = read();
-          // Same displayed minute → same object → no re-render
-          return prev.day === fresh.day && prev.minutes === fresh.minutes ? prev : fresh;
-        }),
-      intervalMs,
-    );
+    // Same displayed minute → same object → no re-render
+    const tick = () =>
+      setNow((prev) => {
+        const fresh = read();
+        return prev.day === fresh.day && prev.minutes === fresh.minutes ? prev : fresh;
+      });
+    // Switching the clock on is the event: a stale sample is
+    // replaced at once, never half a minute later
+    tick();
+    const timer = setInterval(tick, intervalMs);
     return () => clearInterval(timer);
   }, [intervalMs, enabled]);
 

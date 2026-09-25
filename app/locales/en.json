@@ -1,4 +1,6 @@
 {
   "NSCameraUsageDescription": "The camera is needed to scan invitation QR codes.",
-  "NSPhotoLibraryUsageDescription": "Photo library access is needed to share images in posts and messages."
+  "NSPhotoLibraryUsageDescription": "Photo library access is needed to share images in posts and messages.",
+  "NSMicrophoneUsageDescription": "The microphone is needed to record voice messages.",
+  "NSMotionUsageDescription": "Motion sensors are used to capture building panoramas in the map editor."
 }

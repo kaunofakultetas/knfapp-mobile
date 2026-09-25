@@ -8,11 +8,24 @@
 //  and render as structured blocks; community/faculty/app
 //  posts pass markdown=false and render as one plain text
 //  block, so a member literally typing ** never sees it
-//  eaten. Links open in the system browser and only http(s)
-//  targets are tappable — anything else renders as plain
-//  text. Unknown or torn markdown (a cap can cut a body) is
+//  eaten — only their bare http(s) addresses turn into links
+//  (a pasted form or event page is the commonest thing a
+//  student shares). Links open in the system browser and only
+//  http(s) targets are tappable — anything else renders as
+//  plain text; they are drawn in the AA-checked brand TEXT
+//  ink. Unknown or torn markdown (a cap can cut a body) is
 //  never an error: whatever fails to parse stays visible as
-//  the literal characters.
+//  the literal characters. The body is selectable, so a
+//  reader can copy a phone number or an address out of it.
+//
+//  Split into:
+//
+//    Segment / INLINE_RE / BARE_URL_RE — the parse vocabulary
+//    parseInline    — markdown inline → segments
+//    parsePlainLinks — a typed post's bare URLs → segments
+//    LinkText       — one tappable link span
+//    InlineText     — one markdown block as nested Text
+//    NewsBody       — the body (default export)
 // -----------------------------------------------------------
 
 // Link taps go to the system browser
@@ -34,6 +47,11 @@ interface Segment {
 // Links, then bold, then italic — longest markers first so
 // ** is never half-eaten by the italic branch
 const INLINE_RE = /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)|\*\*([^*\n]+)\*\*|\*([^*\n]+)\*/g;
+
+// A bare http(s) address in typed text — up to whitespace;
+// trailing sentence punctuation is peeled off in
+// parsePlainLinks ("žr. https://vu.lt." links vu.lt)
+const BARE_URL_RE = /https?:\/\/[^\s<>"]+/gi;
 
 
 
@@ -81,14 +99,93 @@ function parseInline(text: string): Segment[] {
 
 
 // -----------------------------------------------------------
+// parsePlainLinks
+// -----------------------------------------------------------
+//
+// A hand-written post's text as plain segments with its bare
+// http(s) addresses cut out as links. Trailing punctuation a
+// sentence puts after an address stays text, and a closing
+// parenthesis stays with the link only when the address
+// opened one itself (a Wikipedia-style path).
+//
+// Used by:
+//   - NewsBody (below) — the markdown=false branch
+// -----------------------------------------------------------
+
+export function parsePlainLinks(text: string): Segment[] {
+
+  const segments: Segment[] = [];
+  let last = 0;
+
+  for (const match of text.matchAll(BARE_URL_RE)) {
+    const index = match.index ?? 0;
+    let url = match[0];
+    // Peel sentence punctuation; a ')' only when unbalanced
+    while (url.length > 0) {
+      const tail = url[url.length - 1];
+      if ('.,;:!?\'"'.includes(tail)) url = url.slice(0, -1);
+      else if (tail === ')' && (url.match(/\(/g) ?? []).length < (url.match(/\)/g) ?? []).length) url = url.slice(0, -1);
+      else break;
+    }
+    if (!/^https?:\/\/[^/\s]+\.[^/\s]/i.test(url)) continue;
+
+    if (index > last) segments.push({ text: text.slice(last, index) });
+    segments.push({ text: url, url });
+    last = index + url.length;
+  }
+
+  if (last < text.length) segments.push({ text: text.slice(last) });
+  return segments;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// LinkText
+// -----------------------------------------------------------
+//
+// One tappable link span inside a Text: brand text ink,
+// underlined, announced as a link; openURL rejection is
+// swallowed — no browser is not a crash.
+//
+// Used by:
+//   - InlineText, NewsBody (below)
+// -----------------------------------------------------------
+
+function LinkText({ url, children }: { url: string; children: string }) {
+  return (
+    <Text
+      className="text-brand-text underline"
+      accessibilityRole="link"
+      onPress={() => {
+        Linking.openURL(url).catch(() => {
+          // No handler for the URL — nothing more to do
+        });
+      }}
+    >
+      {children}
+    </Text>
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // InlineText
 // -----------------------------------------------------------
 //
 // One block rendered as nested Text: bold spans go semibold,
 // italics ride fontStyle (synthesized where Raleway lacks a
 // face — a silent no-op on platforms that refuse, never a
-// crash), links are brand-tinted, underlined and tappable.
-// openURL rejection is swallowed: no browser is not a crash.
+// crash), links are LinkText spans.
 //
 // Used by:
 //   - NewsBody (below) — paragraphs and list items
@@ -97,23 +194,13 @@ function parseInline(text: string): Segment[] {
 function InlineText({ text, className }: { text: string; className: string }) {
 
   return (
-    <Text className={className}>
+    <Text className={className} selectable>
       {parseInline(text).map((segment, index) => {
         if (segment.url) {
-          const url = segment.url;
           return (
-            <Text
-              key={index}
-              className="text-brand underline"
-              accessibilityRole="link"
-              onPress={() => {
-                Linking.openURL(url).catch(() => {
-                  // No handler for the URL — nothing more to do
-                });
-              }}
-            >
+            <LinkText key={index} url={segment.url}>
               {segment.text}
-            </Text>
+            </LinkText>
           );
         }
         if (segment.bold) {
@@ -160,9 +247,22 @@ export default function NewsBody({ text, markdown }: { text: string; markdown: b
   const paragraphClasses = 'font-raleway text-base leading-6 text-ink';
 
 
-  // A hand-written post renders exactly as typed
+  // A hand-written post renders exactly as typed — its bare
+  // addresses tappable, nothing else touched
   if (!markdown) {
-    return <Text className={`px-md pt-sm ${paragraphClasses}`}>{text}</Text>;
+    return (
+      <Text className={`px-md pt-sm ${paragraphClasses}`} selectable>
+        {parsePlainLinks(text).map((segment, index) =>
+          segment.url ? (
+            <LinkText key={index} url={segment.url}>
+              {segment.text}
+            </LinkText>
+          ) : (
+            segment.text
+          ),
+        )}
+      </Text>
+    );
   }
 
 

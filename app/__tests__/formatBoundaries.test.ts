@@ -19,10 +19,28 @@ jest.mock('@/i18n', () => ({
   },
 }));
 
-import { formatRelative, formatRelativeAgo, formatTime } from '@/services/format';
+import { formatDate, formatDateTime, formatRelative, formatRelativeAgo, formatTime, parseIso } from '@/services/format';
 
 
+// The frozen "now" every relative age is measured from
 const NOW = Date.parse('2026-08-29T12:00:00Z');
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// secondsAgo
+// -----------------------------------------------------------
+//
+// An ms-epoch instant the given seconds before NOW
+//
+// Used by:
+//   - the relative-time tests below
+// -----------------------------------------------------------
+
 const secondsAgo = (s: number) => NOW - s * 1000;
 
 beforeEach(() => {
@@ -86,5 +104,16 @@ describe('formatTime', () => {
 
   it('returns garbage input untouched instead of Invalid Date', () => {
     expect(formatTime('nonsense')).toBe('nonsense');
+  });
+});
+
+
+describe('a timestamp the API sent as null', () => {
+  it('renders as nothing — never throws inside a list row', () => {
+    const missing = null as unknown as string;
+    expect(parseIso(missing)).toBeNull();
+    expect(formatDate(missing)).toBe('');
+    expect(formatTime(undefined as unknown as string)).toBe('');
+    expect(formatDateTime(missing)).toBe('');
   });
 });

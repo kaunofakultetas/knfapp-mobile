@@ -71,12 +71,17 @@ export interface Palette {
   brandHeader: string;   // the burgundy top bar
   brandText: string;     // brand-colored text on surfaces (AA in both schemes)
   accent: string;        // likes, highlights
+  // The four status colors are TEXT and ICON colors: tuned to
+  // clear AA on every surface, never a fill under onBrand text
+  // (in dark mode that pairing lands at 1.7–3.5:1) — a red
+  // fill under a white label is dangerFill's job
   success: string;
   successSoft: string;
   warning: string;
   warningSoft: string;
   danger: string;
   dangerSoft: string;
+  dangerFill: string;    // red fills under onBrand labels (danger buttons, the offline strip)
   info: string;
   scrim: string;         // modal overlays
   chatCanvas: string;    // the conversation feed's ground
@@ -124,12 +129,16 @@ export const palettes: Record<'light' | 'dark', Palette> = {
     brandHeader: '#7B003F',
     brandText: '#7B003F',
     accent: '#C62B4C',
-    success: '#2E7D32',
+    // A shade under the Material green: #2E7D32 missed AA on
+    // its own successSoft wash (4.44:1, the register code-valid
+    // banner) and on the soft surfaces
+    success: '#2B762F',
     successSoft: '#E5F2E6',
     warning: '#8A5200',
     warningSoft: '#F7EEDF',
     danger: '#C62828',
     dangerSoft: '#F9E5E5',
+    dangerFill: '#C62828',
     info: '#1565C0',
     scrim: 'rgba(0, 0, 0, 0.45)',
     chatCanvas: '#FFFFFF',
@@ -146,7 +155,9 @@ export const palettes: Record<'light' | 'dark', Palette> = {
     surfaceSoft: '#2A2428',
     ink: '#F3EEF0',
     inkSoft: '#A99FA4',
-    inkFaint: '#948A8F',
+    // Lifted from #948A8F, which fell under AA on the raised
+    // surfaces — menus, received bubbles, brand-soft chips
+    inkFaint: '#999095',
     onBrand: '#FFFFFF',
     line: '#352E32',
     lineStrong: '#857A80',
@@ -163,8 +174,13 @@ export const palettes: Record<'light' | 'dark', Palette> = {
     successSoft: '#1E2F20',
     warning: '#FFB74D',
     warningSoft: '#332A1A',
-    danger: '#EF5350',
+    // Danger as TEXT, lifted from #EF5350 to clear AA on the
+    // raised surfaces (context menus 4.12:1, bubbles, chips);
+    // fills under a white label take the deeper dangerFill —
+    // onBrand on the text red would sit near 3:1
+    danger: '#F16462',
     dangerSoft: '#351B1B',
+    dangerFill: '#D32F2F',
     info: '#64B5F6',
     scrim: 'rgba(0, 0, 0, 0.6)',
     // The feed sits on the darker canvas so received bubbles

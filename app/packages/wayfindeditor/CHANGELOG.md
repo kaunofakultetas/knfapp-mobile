@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased — 2026-09-25
+
+- `useEditor` normalises the loaded document once, in a lazy
+  initialiser, instead of re-walking every edge on every render a drag
+  causes.
+
 ## 1.0.1 — 2026-09-01
 
 Commit-loss fixes — every closed checkpoint now reaches `onCommit`

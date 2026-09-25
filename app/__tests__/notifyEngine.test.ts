@@ -196,12 +196,47 @@ describe('NOTIFY_CHANNELS', () => {
 
 
 describe('NOTIFY_PRESENTATION', () => {
-  it('shows every push in the foreground with no suppress predicate yet', () => {
-    expect(service.NOTIFY_PRESENTATION).toEqual({
-      rules: {},
-      default: { banner: true, list: true, sound: true, badge: true },
-    });
-    expect(service.NOTIFY_PRESENTATION.suppress).toBeUndefined();
+  // This case once pinned "no suppress predicate yet" — the
+  // predicate was only waiting for the active-conversation
+  // signal, which now exists; the cases below pin it
+  it('shows every push in the foreground by default', () => {
+    expect(service.NOTIFY_PRESENTATION.rules).toEqual({});
+    expect(service.NOTIFY_PRESENTATION.default).toEqual({ banner: true, list: true, sound: true, badge: true });
+  });
+
+  it('silences a chat push only for the room the reader has open', () => {
+    const { setActiveConversation, clearActiveConversation } = jest.requireActual('@knf/chatengine');
+    const suppress = service.NOTIFY_PRESENTATION.suppress as (type: string, data: Record<string, string>) => boolean;
+    setActiveConversation('room-open');
+    try {
+      expect(suppress('chat_message', { conversationId: 'room-open' })).toBe(true);
+      expect(suppress('chat_mention', { conversationId: 'room-open' })).toBe(true);
+      // Another room, no room, another type — all show
+      expect(suppress('chat_message', { conversationId: 'room-other' })).toBe(false);
+      expect(suppress('chat_message', {})).toBe(false);
+      expect(suppress('news', { conversationId: 'room-open' })).toBe(false);
+    } finally {
+      clearActiveConversation('room-open');
+    }
+    // Nothing open: nothing is silenced
+    expect(suppress('chat_message', { conversationId: 'room-open' })).toBe(false);
+  });
+
+  it('the engine keeps the badge for a silenced push, and shows everything else', async () => {
+    const { createForegroundHandler } = jest.requireActual('@knf/notifyengine/core/presentation');
+    const { setActiveConversation, clearActiveConversation } = jest.requireActual('@knf/chatengine');
+    const handle = createForegroundHandler(service.NOTIFY_PRESENTATION);
+    setActiveConversation('room-open');
+    try {
+      await expect(handle({ type: 'chat_message', data: { conversationId: 'room-open' } })).resolves.toEqual({
+        banner: false, list: false, sound: false, badge: true,
+      });
+      await expect(handle({ type: 'chat_message', data: { conversationId: 'room-other' } })).resolves.toEqual({
+        banner: true, list: true, sound: true, badge: true,
+      });
+    } finally {
+      clearActiveConversation('room-open');
+    }
   });
 });
 

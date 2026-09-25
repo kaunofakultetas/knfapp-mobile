@@ -25,15 +25,49 @@
 //  offers the bundled seed behind a confirmation (declined:
 //  nothing editable mounts); every edit on it goes out stamped
 //  base 0, draws the server's conflict, and keep-mine lands it
-//  at the revision the server showed.
+//  at the revision the server showed. A server that ANSWERED
+//  — a refusal (403) or a failure (500) — gets no seed offer:
+//  the no-access face, or an error with a retry. A node edit
+//  handed back by the capture / align screen (editorHandoff)
+//  lands as an ordinary edit with the editor's own base and
+//  undoes; a publish refusal's findings join the issue list
+//  (named for a person, until the document moves on); a change
+//  refused outright offers retry / discard with the server's
+//  reason; the '+' floor is labelled in the admin's language
+//  and never reuses a taken id; a scale that is not positive
+//  keeps the old one; and the kit inside speaks the app's
+//  language and paints with its palette (KNF-128).
 // -----------------------------------------------------------
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { act, fireEvent, render } from '@testing-library/react-native';
+import { act, fireEvent, render, within } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 
 import MapEditorScreen from '@/app/(main)/map-editor/index';
 import { logError } from '@/services/log';
+import { deliverNodeEdit } from '@/services/wayfind/editorHandoff';
 import { SyncRejected } from '@knf/wayfindsync';
+
+
+// The language is mutable so a test can switch the app to English
+const mockI18n = { language: 'lt' };
+
+// Every toast the screen raised, for the specs to read
+const mockToast = jest.fn();
+
+// The seed's levels carry no plan; a test hands the editor a
+// plan text through this slot when the drawing is the subject
+const mockPlanXml: { value: string | null } = { value: null };
+
+// The server's op endpoint: every batch applied at revision 4
+// unless a spec answers otherwise
+const mockPostOps = jest.fn(async (_b: string, ops: SentOp[]): Promise<{ revision: number; results: Record<string, unknown>[] }> => ({ revision: 4, results: ops.map((op) => ({ id: op.id, status: 'applied' as const })) }));
+
+// The publish endpoint: a clean publish at revision 4 by default
+const mockPublish = jest.fn(async () => ({ ok: true as const, revision: 4, etag: 'e', publishedAt: 'now' }));
+
+// The panorama upload, reset per spec
+const mockUploadPanorama = jest.fn();
 
 
 // This suite pins its module's BEHAVIOR, so the shipping
@@ -62,7 +96,17 @@ jest.mock('@/components/ui', () => {
         {right as never}
       </View>
     ),
-    EmptyState: ({ title }: { title: string }) => <Text>{title}</Text>,
+    EmptyState: ({ title, hint, action }: { title: string; hint?: string; action?: { label: string; onPress: () => void } }) => (
+      <View>
+        <Text>{title}</Text>
+        {hint ? <Text>{hint}</Text> : null}
+        {action ? (
+          <Pressable onPress={action.onPress} testID="empty-action">
+            <Text>{action.label}</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    ),
     LoadingSpinner: () => <Text>loading</Text>,
     Button: ({ title, onPress }: { title: string; onPress: () => void }) => (
       <Pressable onPress={onPress} accessibilityRole="button">
@@ -78,17 +122,13 @@ jest.mock('@/components/ui', () => {
     confirmAction: jest.fn(async () => true),
   };
 });
-jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string, opts?: Record<string, unknown>) => (opts && 'count' in opts ? `${key}:${opts.count}` : key) }) }));
+jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: mockT, i18n: mockI18n }) }));
 jest.mock('@/hooks/useTheme', () => ({
   useTheme: () => ({ colors: { surface: '#fff', surfaceSoft: '#eee', ink: '#111', inkSoft: '#666', inkFaint: '#999', brand: '#7B003F', onBrand: '#fff' }, scheme: 'light' }),
 }));
 jest.mock('@/context/AuthContext', () => ({ useAuth: () => ({ user: { id: 'a1', role: 'admin' }, hydrated: true }) }));
-const mockToast = jest.fn();
 jest.mock('@/context/NetworkContext', () => ({ showToast: (...args: unknown[]) => mockToast(...args) }));
 jest.mock('@knf/dataengine', () => ({ useDataEngine: () => ({ onRestore: () => () => undefined, cache: { get: async () => null, set: async () => undefined } }) }));
-// The seed's levels carry no plan; a test hands the editor a
-// plan text through this slot when the drawing is the subject
-const mockPlanXml: { value: string | null } = { value: null };
 jest.mock('@/hooks/usePlanXml', () => ({ usePlanXml: () => mockPlanXml.value }));
 jest.mock('@/services/log', () => ({ logError: jest.fn() }));
 jest.mock('expo-image-picker', () => ({ launchImageLibraryAsync: jest.fn(async () => ({ canceled: true })) }));
@@ -96,19 +136,16 @@ jest.mock('expo-document-picker', () => ({ getDocumentAsync: jest.fn(async () =>
 jest.mock('@/services/api', () => ({
   ApiError: class ApiError extends Error {
     status: number;
-    constructor(message: string, status: number) {
+    code: string;
+    constructor(message: string, status: number, code = 'http') {
       super(message);
       this.status = status;
+      this.code = code;
     }
   },
+  apiErrorKey: (error: { status?: number }) => (error && error.status ? `errors.http.${error.status}` : 'errors.generic'),
+  getUploadUrl: (path: string) => path,
 }));
-
-// The op shape as the wire sees it, loose enough to filter by
-type SentOp = { id: string; type?: string; kind?: string; entityId?: string; data?: Record<string, unknown>; baseRevision?: number };
-
-const mockPostOps = jest.fn(async (_b: string, ops: SentOp[]): Promise<{ revision: number; results: Record<string, unknown>[] }> => ({ revision: 4, results: ops.map((op) => ({ id: op.id, status: 'applied' as const })) }));
-const mockPublish = jest.fn(async () => ({ ok: true as const, revision: 4, etag: 'e', publishedAt: 'now' }));
-const mockUploadPanorama = jest.fn();
 jest.mock('@/services/wayfindTransport', () => ({
   fetchDraft: jest.fn(async () => ({
     revision: 3,
@@ -127,15 +164,77 @@ jest.mock('@/services/wayfindTransport', () => ({
   },
 }));
 
+// The op shape as the wire sees it, loose enough to filter by
+type SentOp = { id: string; type?: string; kind?: string; entityId?: string; data?: Record<string, unknown>; baseRevision?: number };
 
 type Rendered = Awaited<ReturnType<typeof render>>;
 type Handler = (e: unknown) => unknown;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// mockT
+// -----------------------------------------------------------
+//
+// The stand-in translator: the key itself, with the one
+// interpolation a spec cares about appended (count,
+// subject, ref or number).
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
+
+function mockT(key: string, opts?: Record<string, unknown>): string {
+  if (!opts) return key;
+  for (const name of ['count', 'subject', 'ref', 'number']) {
+    if (name in opts) return `${key}:${String(opts[name])}`;
+  }
+  return key;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// settle
+// -----------------------------------------------------------
+//
+// One macrotask inside act — lets the outbox's drain and
+// the screen's effects land before a spec looks.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
 
 const settle = async () => {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// gesture
+// -----------------------------------------------------------
+//
+// A responder event with a hand-built touch history, the
+// way the responder system itself would feed the plan.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
 
 const gesture = (fingers: { x: number; y: number }[], t: number) => ({
   nativeEvent: { touches: fingers.map((f) => ({ pageX: f.x, pageY: f.y })), timestamp: t },
@@ -147,7 +246,23 @@ const gesture = (fingers: { x: number; y: number }[], t: number) => ({
   },
 });
 
-// Lay the plan area and the viewport out, then tap the drawing
+
+
+
+
+
+
+// -----------------------------------------------------------
+// layOutPlan
+// -----------------------------------------------------------
+//
+// Lay the plan area and the kit's viewport out — the kit
+// draws nothing inside it until it knows its size.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
+
 const layOutPlan = async (r: Rendered) => {
   await act(async () => {
     fireEvent(r.getByTestId('editor-plan-area'), 'layout', { nativeEvent: { layout: { x: 0, y: 0, width: 400, height: 400 } } });
@@ -156,6 +271,23 @@ const layOutPlan = async (r: Rendered) => {
     (r.getByTestId('wayfinduikit-plan').props.onLayout as Handler)({ nativeEvent: { layout: { x: 0, y: 0, width: 400, height: 240 } } });
   });
 };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// tapPlan
+// -----------------------------------------------------------
+//
+// One finger down and up on the viewport: a bare tap on
+// the drawing, through the camera.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
 
 const tapPlan = async (r: Rendered, x: number, y: number) => {
   const vp = r.getByTestId('wayfinduikit-plan').props as Record<string, Handler>;
@@ -168,7 +300,23 @@ const tapPlan = async (r: Rendered, x: number, y: number) => {
   });
 };
 
-// One finger down, one move, release — the room tool's box
+
+
+
+
+
+
+// -----------------------------------------------------------
+// dragPlan
+// -----------------------------------------------------------
+//
+// One finger down, one move, release — the room tool's
+// rubber-band box.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
+
 const dragPlan = async (r: Rendered, from: { x: number; y: number }, to: { x: number; y: number }) => {
   const vp = r.getByTestId('wayfinduikit-plan').props as Record<string, Handler>;
   await act(async () => {
@@ -184,8 +332,29 @@ const dragPlan = async (r: Rendered, from: { x: number; y: number }, to: { x: nu
 };
 
 
-// Every op the mocked server saw, flattened across batches
+
+
+
+
+
+// -----------------------------------------------------------
+// sentOps
+// -----------------------------------------------------------
+//
+// Every op the mocked server saw, flattened across
+// batches.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
+
 const sentOps = (): SentOp[] => mockPostOps.mock.calls.flatMap(([, ops]) => ops);
+
+
+
+
+
+
 
 
 describe('MapEditorScreen', () => {
@@ -789,5 +958,223 @@ describe('MapEditorScreen', () => {
     });
     expect(r.queryByTestId('editor-plan-failed')).toBeNull();
     expect(logError).toHaveBeenCalledTimes(1);
+  });
+
+
+  it('a node edit handed back by the capture / align screen lands as an ordinary edit with the editor’s base, and undoes', async () => {
+    const r = await render(<MapEditorScreen />);
+    await settle();
+    let answer = '';
+    await act(async () => {
+      // Judged against the LIVE node: the seed's stairs photo is
+      // replaced, so the facing measured on it is cleared
+      answer = deliverNodeEdit('n-stairs1', (node) => ({ pano: '/api/wayfind/panoramas/new.jpg', panoYaw: node.pano === 'pano:1.1.00' ? null : node.panoYaw }));
+    });
+    await settle();
+    expect(answer).toBe('applied');
+    const [op] = sentOps();
+    expect(op).toMatchObject({
+      type: 'upsert',
+      kind: 'node',
+      entityId: 'n-stairs1',
+      baseRevision: 2,
+      data: { level: 'L1', kind: 'stairs', landmark: 'Laiptai', pano: '/api/wayfind/panoramas/new.jpg', panoYaw: null },
+    });
+
+    // One undo step, reverted on the wire like any edit
+    await act(async () => {
+      fireEvent.press(r.getByTestId('editor-undo'));
+    });
+    await settle();
+    expect(sentOps()[1]).toMatchObject({ entityId: 'n-stairs1', data: { pano: 'pano:1.1.00', panoYaw: 260 } });
+
+    // A node the editor does not hold declines; with the editor
+    // gone nobody takes the edit at all
+    let missing = '';
+    await act(async () => {
+      missing = deliverNodeEdit('n-nowhere', () => ({ pano: 'x' }));
+    });
+    expect(missing).toBe('declined');
+    expect(sentOps()).toHaveLength(2);
+    await r.unmount();
+    expect(deliverNodeEdit('n-stairs1', () => ({ pano: 'x' }))).toBe('absent');
+  });
+
+
+  it("a publish the server refuses lists the server's findings, named for a person, until the document moves on", async () => {
+    mockPublish.mockResolvedValueOnce({ ok: false, reason: 'invalid', issues: [{ severity: 'error', code: 'bad_coordinate', ref: 'n-stairs1', message: "node 'n-stairs1' has coordinates (x, null)" }] } as never);
+    const r = await render(<MapEditorScreen />);
+    await settle();
+    await act(async () => {
+      fireEvent.press(r.getByTestId('editor-publish'));
+    });
+    await settle();
+    expect(mockToast).toHaveBeenCalledWith('error', 'mapEditor.publishInvalid');
+    const row = r.getByTestId('editor-issue-bad_coordinate:n-stairs1');
+    expect(within(row).getByText('mapEditor.issueCodes.bad_coordinate:Laiptai')).toBeTruthy();
+
+    // An edit moves the document on — the server spoke about the
+    // old one, and the local validator speaks for the new
+    await layOutPlan(r);
+    await act(async () => {
+      fireEvent.press(r.getByTestId('wayfinduikit-plan-node-n-stairs1'));
+    });
+    await act(async () => {
+      fireEvent.press(r.getByTestId('editor-node-more'));
+    });
+    await act(async () => {
+      fireEvent.press(r.getByTestId('editor-kind-door'));
+    });
+    await settle();
+    await act(async () => {
+      fireEvent.press(r.getByTestId('editor-issues-toggle'));
+    });
+    expect(r.queryByTestId('editor-issue-bad_coordinate:n-stairs1')).toBeNull();
+  });
+
+
+  it('a server that answered — a refusal or a failure — is not offered the seed: no access, or an error with a retry', async () => {
+    const transport = require('@/services/wayfindTransport') as { fetchDraft: jest.Mock };
+    const ui = require('@/components/ui') as { confirmAction: jest.Mock };
+    const { ApiError } = require('@/services/api') as { ApiError: new (message: string, status: number, code?: string) => Error };
+    ui.confirmAction.mockClear();
+
+    transport.fetchDraft.mockRejectedValueOnce(new ApiError('forbidden', 403));
+    const denied = await render(<MapEditorScreen />);
+    await settle();
+    expect(denied.getByText('mapEditor.noAccess')).toBeTruthy();
+    await denied.unmount();
+
+    transport.fetchDraft.mockRejectedValueOnce(new ApiError('boom', 500));
+    const failed = await render(<MapEditorScreen />);
+    await settle();
+    expect(failed.getByText('mapEditor.loadFailed')).toBeTruthy();
+    expect(failed.getByText('errors.http.500')).toBeTruthy();
+    expect(ui.confirmAction).not.toHaveBeenCalled();
+
+    // The retry asks the server again, and the draft opens
+    await act(async () => {
+      fireEvent.press(failed.getByTestId('empty-action'));
+    });
+    await settle();
+    expect(failed.getByTestId('editor-plan-area')).toBeTruthy();
+  });
+
+
+  it("a change the server refuses outright offers retry and discard, with the server's reason", async () => {
+    mockPostOps.mockImplementationOnce(async (_b: string, ops: SentOp[]) => ({
+      revision: 4,
+      results: ops.map((op) => ({ id: op.id, status: 'rejected' as const, reason: 'x and y must be finite numbers' })),
+    }));
+    const r = await render(<MapEditorScreen />);
+    await settle();
+    await layOutPlan(r);
+    await act(async () => {
+      fireEvent.press(r.getByTestId('wayfinduikit-plan-node-n-stairs1'));
+    });
+    await act(async () => {
+      fireEvent.press(r.getByTestId('editor-node-more'));
+    });
+    await act(async () => {
+      fireEvent.press(r.getByTestId('editor-kind-door'));
+    });
+    await settle();
+
+    const [op] = sentOps();
+    const row = r.getByTestId(`editor-conflict-${op.id}`);
+    expect(within(row).getByText('mapEditor.rejectedChange:Laiptai')).toBeTruthy();
+    expect(within(row).getByText('x and y must be finite numbers')).toBeTruthy();
+    expect(within(row).getByText('mapEditor.retry')).toBeTruthy();
+    expect(within(row).getByText('mapEditor.discard')).toBeTruthy();
+    await act(async () => {
+      fireEvent.press(r.getByTestId(`editor-take-${op.id}`));
+    });
+    expect(r.queryByTestId(`editor-conflict-${op.id}`)).toBeNull();
+  });
+
+
+  it("the '+' floor is labelled in the admin's language and never reuses a taken id", async () => {
+    const transport = require('@/services/wayfindTransport') as { fetchDraft: jest.Mock };
+    const seed = require('@/services/wayfind/seed').KNF_GRAPH;
+    // A basement already holds 'L3' at ordinal 0: the next floor is
+    // ordinal 3, and its natural id is taken
+    transport.fetchDraft.mockResolvedValueOnce({
+      revision: 3,
+      publishedRevision: null,
+      building: { id: 'knf', name: 'KNF', northDeg: null, entranceNodeId: 'n-entrance' },
+      document: { ...seed, levels: [...seed.levels, { id: 'L3', label: 'Rūsys', viewBox: [0, 0, 1000, 600], metersPerPixel: 0.05, ordinal: 0, plan: null }] },
+      revisions: {},
+      issues: [],
+    });
+    const r = await render(<MapEditorScreen />);
+    await settle();
+    await layOutPlan(r);
+    await act(async () => {
+      fireEvent.press(r.getByTestId('editor-add-level'));
+    });
+    await settle();
+    const level = sentOps().find((op) => op.kind === 'level');
+    expect(level?.data).toMatchObject({ label: 'mapEditor.newLevelLabel:3', ordinal: 3 });
+    expect(level?.entityId).not.toBe('L3');
+    expect(level?.entityId).toMatch(/^L-/);
+  });
+
+
+  it('a scale that is not a positive number keeps the old one', async () => {
+    const r = await render(<MapEditorScreen />);
+    await settle();
+    await act(async () => {
+      fireEvent.press(r.getByTestId('editor-level-more'));
+    });
+    for (const typed of ['0', '-2']) {
+      await act(async () => {
+        fireEvent.changeText(r.getByTestId('editor-level-scale'), typed);
+      });
+      await act(async () => {
+        fireEvent(r.getByTestId('editor-level-scale'), 'blur');
+      });
+      await settle();
+    }
+    await act(async () => {
+      fireEvent.changeText(r.getByTestId('editor-level-scale'), '0,08');
+    });
+    await act(async () => {
+      fireEvent(r.getByTestId('editor-level-scale'), 'blur');
+    });
+    await settle();
+    const scales = sentOps().filter((op) => op.kind === 'level').map((op) => op.data?.metersPerPixel);
+    expect(scales.length).toBeGreaterThan(0);
+    expect(scales.every((scale) => typeof scale === 'number' && scale > 0)).toBe(true);
+    expect(scales[scales.length - 1]).toBe(0.08);
+  });
+
+
+  it('the kit inside the editor speaks the app language and paints with its palette (KNF-128)', async () => {
+    mockI18n.language = 'en';
+    try {
+      const r = await render(<MapEditorScreen />);
+      await settle();
+      await layOutPlan(r);
+      // The bare provider once answered Lithuanian and the kit's own
+      // light paper whatever the app said
+      expect(r.getByTestId('wayfinduikit-floor-switcher').props.accessibilityLabel).toBe('Floor switcher, showing 1 aukštas');
+      expect(StyleSheet.flatten(r.getByTestId('wayfinduikit-plan').props.style).backgroundColor).toBe('#fff');
+    } finally {
+      mockI18n.language = 'lt';
+    }
+  });
+
+
+  it('names what a screen reader meets: plan nodes by what a person calls them, the entrance switch by its label', async () => {
+    const r = await render(<MapEditorScreen />);
+    await settle();
+    await layOutPlan(r);
+    // The stairs node carries its landmark, the entrance its room
+    expect(r.getByTestId('wayfinduikit-plan-node-n-stairs1').props.accessibilityLabel).toBe('Laiptai');
+    expect(r.getByTestId('wayfinduikit-plan-node-n-entrance').props.accessibilityLabel).toBe('Viešųjų ryšių skyrius');
+    await act(async () => {
+      fireEvent.press(r.getByTestId('wayfinduikit-plan-node-n-stairs1'));
+    });
+    expect(r.getByTestId('editor-entrance').props.accessibilityLabel).toBe('mapEditor.entrance');
   });
 });

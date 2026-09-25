@@ -15,25 +15,31 @@
 //  status card polls the stitch until the panorama is done
 //  or failed.
 //
-//  The wiring back to the editor is deliberately editor-less:
-//  this screen cannot reach the map editor's useEditor
-//  actions (it is a separate route), so the NodeSheet hands
-//  it the node's whole JSON and its current base revision as
-//  route params, and "Priskirti taškui" enqueues ONE node
-//  upsert — the node's data plus the pano fields, stamped
-//  with that base — through this screen's own outbox, then
-//  AWAITS the drain: a conflict (another editor bumped the
-//  node past that base) surfaces as a confirm dialog right
-//  here — overwrite or discard — because no other screen ever
-//  shows this outbox. The editor underneath keeps its older
-//  copy until its next draft load.
+//  "Priskirti taškui" hands the panorama BACK to the map
+//  editor underneath (services/wayfind/editorHandoff): the
+//  editor attaches it to its live copy of the node as an
+//  ordinary edit — its undo, its outbox (sent now or on the
+//  next network restore), its base revision and conflict row
+//  — so the editor never keeps a stale copy a later keep-mine
+//  could write back over the new photo. Only with no editor
+//  mounted (a deep link) does the screen write on its own: the
+//  NodeSheet's route params carry the node's whole JSON and
+//  base revision, ONE node upsert goes through this screen's
+//  own outbox, and the drain is AWAITED — a conflict is a
+//  confirm dialog right here (overwrite or discard), since no
+//  other screen shows this outbox, and a drain that could not
+//  reach the server says so and keeps the op queued (it goes
+//  out on the next restore while the screen is open, or on its
+//  next mount) instead of claiming a success.
 //
 //  The queues here live under their own storage prefix
 //  ('wayfind-capture'), so this screen's drains never race
-//  the editor's provider over the same persisted items — and
-//  the screen owns their whole lifecycle: leftovers from an
-//  earlier session are dropped on mount, and a delivered (or
-//  abandoned) capture clears both queues on the way out.
+//  the editor's provider over the same persisted items. The
+//  screen owns its FRAME uploads: leftovers from an earlier
+//  session are dropped on mount, and a delivered or abandoned
+//  capture empties the upload queue on the way out. Its ops it
+//  never wipes — an assign still queued deserves its drain
+//  (KNF-112: Close once erased it through clearAll).
 //
 //  Sensor plumbing: expo's Gyroscope answers rad/s in the
 //  tracker's device frame on both platforms, so it passes
@@ -70,19 +76,21 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Platform, Pressable, Text, View, type LayoutChangeEvent } from 'react-native';
 
+import { WayfindKitHost } from '@/components/map/WayfindHost';
 import { Button, EmptyState, LoadingSpinner, Screen, confirmAction } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { showToast } from '@/context/NetworkContext';
 import { useRouteParam } from '@/hooks/useRouteParam';
 import { useTheme } from '@/hooks/useTheme';
-import { ApiError } from '@/services/api';
+import { ApiError, apiErrorKey } from '@/services/api';
+import { deliverNodeEdit } from '@/services/wayfind/editorHandoff';
 import { KNF_BUILDING_ID } from '@/services/wayfind/seed';
 import { createCapture, finishCapture, getCapture, wayfindTransport, type CaptureStatusAnswer } from '@/services/wayfindTransport';
 import { createCaptureSession, createPoseTracker, planTargets, useCaptureSession, type CaptureSession, type PlanMode, type Pose, type PoseTracker, type TrackerSample, type Vec3 } from '@knf/wayfindcapture';
 import { useDataEngine } from '@knf/dataengine';
 import { panoAttachPatch } from '@knf/wayfindeditor';
 import { WayfindSyncProvider, useWayfindSync, type DrainReport, type SyncEnv } from '@knf/wayfindsync';
-import { CaptureHud, WayfindUiKitProvider } from '@knf/wayfinduikit';
+import { CaptureHud } from '@knf/wayfinduikit';
 
 
 type Stage = 'setup' | 'capture' | 'sending' | 'stitch' | 'done' | 'failed';
@@ -222,9 +230,11 @@ const poseFields = (pose: Pose): Record<string, string> => ({
 // not reach the server leaves the op queued for a later
 // mount's drain → 'queued'; a keep-mine the server still
 // refuses (bad data, not a stale base) is dropped → 'refused'.
+// Only the no-editor fallback runs it — with the editor mounted
+// the write is the editor's (see the header).
 //
 // Used by:
-//   - CaptureBody (below) — the assign write
+//   - CaptureBody (below) — the assign write's fallback
 //   - app/(main)/map-editor/align.tsx keeps its own copy for
 //     the facing write (separate route, separate outbox)
 // -----------------------------------------------------------
@@ -265,7 +275,8 @@ async function settleUpsert(sync: SyncEnv, opId: string, labels: { title: string
 // One pill of the mode row: brand fill while active,
 // surface-soft otherwise, with the selection exposed through
 // accessibilityState. Colors come from useTheme via a plain
-// style OBJECT — never a style function on a Pressable.
+// style OBJECT — never a style function on a Pressable. A
+// ~36 pt pill; the slop reaches the 44 pt touch floor.
 //
 // Used by:
 //   - CaptureBody (below)
@@ -281,6 +292,7 @@ function ModeChip({ label, active, onPress, testID }: { label: string; active: b
       onPress={onPress}
       accessibilityRole="button"
       accessibilityState={{ selected: active }}
+      hitSlop={5}
       testID={testID}
       style={{ paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999, backgroundColor: active ? colors.brand : colors.surfaceSoft, marginRight: 8 }}
     >
@@ -430,7 +442,7 @@ function CaptureBody({ nodeId, nodeData, baseRevision }: { nodeId: string; nodeD
     try {
       await createCapture(KNF_BUILDING_ID, { id, nodeId, mode, frameHfovDeg: FRAME_HFOV_DEG, targets });
     } catch (error) {
-      showToast('error', t('mapEditor.capture.startFailed'), error instanceof ApiError ? error.message : undefined);
+      showToast('error', t('mapEditor.capture.startFailed'), t(apiErrorKey(error)));
       return;
     }
     trackerRef.current = createPoseTracker();
@@ -586,12 +598,15 @@ function CaptureBody({ nodeId, nodeData, baseRevision }: { nodeId: string; nodeD
           setStage('stitch');
           return;
         }
-        showToast('error', error instanceof ApiError ? error.message : String(error));
+        // Too few frames arrived (some upload was refused for
+        // good) is the one refusal with its own words here
+        const tooFew = error instanceof ApiError && error.serverCode === 'too_few_frames';
+        showToast('error', tooFew ? t('mapEditor.capture.needFrames', { count: MIN_FRAMES }) : t(apiErrorKey(error)));
         finishingRef.current = false;
         setStage('capture');
       }
     })();
-  }, [stage, captureId, session, framesPending]);
+  }, [stage, captureId, session, framesPending, t]);
 
 
   // The stitch poll, every 3 s until the server says done or
@@ -619,23 +634,43 @@ function CaptureBody({ nodeId, nodeData, baseRevision }: { nodeId: string; nodeD
   }, [stage, captureId]);
 
 
-  // The editor-less write: the node's data from the params,
-  // the pano fields from the stitch, one upsert on the outbox,
-  // then the drain's verdict (settleUpsert — a conflict is a
-  // dialog, not a silent parked op). A NEW photo does not know
-  // which plan direction it faces, so a panoYaw aligned on the
-  // previous photo is cleared with it — panoHeading 'auto', an
-  // honest machine guess — while re-assigning the unchanged
-  // photo keeps the alignment: the editor package's
-  // panoAttachPatch is that rule, shared with the import path.
-  // Success (applied, or queued for an offline drain) toasts
-  // and leaves; a delivered write also clears this screen's
-  // queues — op delivered, frames consumed
+  // The assign. A NEW photo does not know which plan direction
+  // it faces, so a panoYaw aligned on the previous photo is
+  // cleared with it — panoHeading 'auto', an honest machine
+  // guess — while re-assigning the unchanged photo keeps the
+  // alignment: the editor package's panoAttachPatch is that
+  // rule, shared with the import path. The geometry is the
+  // stored band's, vOffsetDeg included (without it the stage
+  // would hang an above-the-horizon band on the horizon). The
+  // editor underneath takes it as its own edit; only with no
+  // editor mounted does this screen write through its own
+  // outbox and await the verdict (settleUpsert — a conflict is
+  // a dialog, not a silent parked op; an unreachable server is
+  // said, and the op stays queued). Frames are consumed either
+  // way, so a delivered assign empties the upload queue — and
+  // never the ops
   const assigningRef = useRef(false);
   const assign = useCallback(async () => {
     const pano = status?.pano;
     if (!pano || assigningRef.current) return;
     assigningRef.current = true;
+    const geometry = { hfovDeg: pano.hfovDeg, vfovDeg: pano.vfovDeg, centreYawDeg: pano.centreYawDeg ?? null, vOffsetDeg: pano.vOffsetDeg ?? null };
+
+
+    const handed = deliverNodeEdit(nodeId, (node) => panoAttachPatch(node, pano.url, { geometry }));
+    if (handed !== 'absent') {
+      assigningRef.current = false;
+      if (handed === 'declined') {
+        showToast('error', t('mapEditor.nodeChanged'));
+        return;
+      }
+      sync.clearUploads();
+      showToast('success', t('mapEditor.capture.assigned'));
+      router.back();
+      return;
+    }
+
+
     const opId = mintId('op');
     sync.enqueueOps([
       {
@@ -643,10 +678,7 @@ function CaptureBody({ nodeId, nodeData, baseRevision }: { nodeId: string; nodeD
         type: 'upsert',
         kind: 'node',
         entityId: nodeId,
-        data: {
-          ...nodeData,
-          ...panoAttachPatch(nodeData, pano.url, { geometry: { hfovDeg: pano.hfovDeg, vfovDeg: pano.vfovDeg, centreYawDeg: pano.centreYawDeg ?? null } }),
-        },
+        data: { ...nodeData, ...panoAttachPatch(nodeData, pano.url, { geometry }) },
         ...(baseRevision != null ? { baseRevision } : {}),
       },
     ]);
@@ -662,16 +694,23 @@ function CaptureBody({ nodeId, nodeData, baseRevision }: { nodeId: string; nodeD
       return;
     }
     if (settled === 'dropped') return;
-    if (settled === 'applied') sync.clearAll();
+    if (settled === 'queued') {
+      // Not a success yet: the op waits in this outbox for the
+      // network — say so and stay, the restore drains it
+      showToast('info', t('mapEditor.savedOffline'));
+      return;
+    }
+    sync.clearUploads();
     showToast('success', t('mapEditor.capture.assigned'));
     router.back();
   }, [status, sync, nodeId, nodeData, baseRevision, t, router]);
 
 
-  // The way out of a failed (or abandoned) capture: this
-  // screen owns its queues, so nothing may stay behind
+  // The way out of a failed (or abandoned) capture: its frames
+  // are no use to anyone, so the upload queue goes — the ops
+  // stay, an earlier assign still queued is owed its drain
   const close = useCallback(() => {
-    sync.clearAll();
+    sync.clearUploads();
     router.back();
   }, [sync, router]);
 
@@ -721,6 +760,10 @@ function CaptureBody({ nodeId, nodeData, baseRevision }: { nodeId: string; nodeD
             <CaptureHud
               targets={snap.targets}
               currentId={snap.currentId}
+              // Read in render on purpose: the session re-renders
+              // this screen on every fed sensor frame, and the ref
+              // is written just before each feed — the HUD always
+              // draws the pose the session just judged
               pose={lastPoseRef.current}
               fovDeg={FRAME_HFOV_DEG}
               aligned={snap.aim?.aligned ?? false}
@@ -771,9 +814,11 @@ function CaptureBody({ nodeId, nodeData, baseRevision }: { nodeId: string; nodeD
 //
 // The gate (admin / curator), the params (nodeId, the node's
 // JSON, its base revision — all minted by the NodeSheet), and
-// the providers: the kit for the HUD, the sync package under
-// its own storage prefix for the frame queue and the final
-// upsert.
+// the providers: the kit for the HUD, themed from the app (its
+// language and scheme — the bare provider once drew a light,
+// Lithuanian HUD in a dark English screen), the sync package
+// under its own storage prefix for the frame queue and the
+// fallback upsert.
 //
 // Used by:
 //   - expo-router — the (main)/map-editor/capture route
@@ -826,11 +871,11 @@ function CaptureScreen() {
 
   return (
     <Screen>
-      <WayfindUiKitProvider>
+      <WayfindKitHost>
         <WayfindSyncProvider buildingId={KNF_BUILDING_ID} storage={AsyncStorage} transport={wayfindTransport} onRestore={onRestore} keyPrefix="wayfind-capture">
           <CaptureBody nodeId={nodeId} nodeData={nodeData} baseRevision={baseRevision} />
         </WayfindSyncProvider>
-      </WayfindUiKitProvider>
+      </WayfindKitHost>
     </Screen>
   );
 }

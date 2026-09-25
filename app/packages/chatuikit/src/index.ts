@@ -59,4 +59,4 @@ export { linkify, type LinkKind, type TextSegment } from './core/linkify';
 export { DEFAULT_ASPECT, EXTREME_MAX_ASPECT, EXTREME_MIN_ASPECT, MAX_ASPECT, MIN_ASPECT, fitMedia, formatBytes, formatDuration, isExtremeAspect, mediaBoxFor, type MediaBox } from './core/media';
 export { buildTimeline, dayKey, dayLabel, floatingDayFor, GROUP_GAP_MS, parseStamp, SEPARATOR_GAP_MS, type TimelineLabels, type TimelineOptions } from './core/timeline';
 export { KNOWN_KINDS, messageKind } from './core/types';
-export type { BubbleFrame, ContextTarget, GroupPosition, KitAudio, KitFile, KitGalleryItem, KitIconName, KitLinkPreview, KitMediaSize, KitMemeItem, KitMentionCandidate, KitMessage, KitMessageAction, KitMessageKind, KitMessageStatus, KitReaction, KitReply, KitVideo, TimelineItem } from './core/types';
+export type { BubbleFrame, ContextTarget, GroupPosition, KitAudio, KitFile, KitGalleryItem, KitIconName, KitLinkPreview, KitMediaSize, KitMemeItem, KitMentionCandidate, KitMessage, KitMessageAction, KitMessageKind, KitMessageStatus, KitReaction, KitReply, KitSystemEvent, KitVideo, TimelineItem } from './core/types';

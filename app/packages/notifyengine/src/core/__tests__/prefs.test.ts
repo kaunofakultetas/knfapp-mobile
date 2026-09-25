@@ -12,7 +12,9 @@
 //  client-only master switch (hydrated from disk once, never
 //  reverted by a refresh that was already in flight), and the
 //  chat-preview flag's optimistic/revert/answer-commit dance
-//  with its confirmed/reverted verdict.
+//  with its confirmed/reverted verdict — its PUT queued on the
+//  same wire lock, only the newest write painting, a failure
+//  snapping back to server truth.
 // -----------------------------------------------------------
 
 import { createPrefsMachine, type PrefsMachine } from '../prefs';
@@ -420,5 +422,96 @@ describe('chat preview (scenario 47)', () => {
 
     expect(machine.store.get().chatPreview).toBe(false);
     expect(transport.chatPreview).toBe(false);
+  });
+
+  it('a preview flip made while a GET is on the wire queues its PUT behind it — the older body never reverts the flag', async () => {
+    const { transport, machine } = setup();
+    // The GET answers from the state it had when it ARRIVED,
+    // released by hand — the same model the channel race uses
+    const order: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    transport.getChatPreview = async () => {
+      transport.calls.push({ method: 'getChatPreview', payload: null });
+      const body = transport.chatPreview;
+      order.push('GET arrived');
+      await gate;
+      order.push('GET answered');
+      return body;
+    };
+    const put = transport.putChatPreview;
+    transport.putChatPreview = async (on) => {
+      order.push('PUT committed');
+      return put(on);
+    };
+
+    const flight = machine.refresh();
+    await jest.advanceTimersByTimeAsync(0);
+    const saving = machine.setChatPreview(false);
+    // Optimistic at once; the PUT waits its turn
+    expect(machine.store.get().chatPreview).toBe(false);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(order).toEqual(['GET arrived']);
+
+    release();
+    await flight;
+    // The GET's pre-PUT `true` landed while the write was still
+    // queued — the switch never flickered back
+    expect(machine.store.get().chatPreview).toBe(false);
+
+    await expect(saving).resolves.toBe(true);
+    expect(order).toEqual(['GET arrived', 'GET answered', 'PUT committed']);
+    expect(transport.chatPreview).toBe(false);
+    expect(machine.store.get().chatPreview).toBe(false);
+  });
+
+  it('two quick flips that both land: only the newest paints — the older answer never flickers the switch back', async () => {
+    const { transport, machine } = setup();
+    const seen: boolean[] = [];
+    machine.store.subscribe((snapshot) => seen.push(snapshot.chatPreview));
+
+    // OFF, then straight back ON — both PUTs succeed
+    const first = machine.setChatPreview(false);
+    const second = machine.setChatPreview(true);
+    await expect(first).resolves.toBe(true);
+    await expect(second).resolves.toBe(true);
+
+    // The first write's `false` answer landed while the second
+    // was pending, and painted nothing: OFF, ON, and it stayed
+    expect(seen).toEqual([true, false, true]);
+    expect(transport.calls.filter((c) => c.method === 'putChatPreview').map((c) => c.payload)).toEqual([false, true]);
+    expect(transport.chatPreview).toBe(true);
+  });
+
+  it('two quick flips that both fail: the switch snaps back to SERVER truth, never to the first flip\'s optimistic guess', async () => {
+    const { transport, machine } = setup();
+    transport.overrides.putChatPreview = async () => {
+      throw new TransportFailure('network');
+    };
+
+    // Server holds ON. OFF, then back ON — the second flip's
+    // "before" is the first flip's unconfirmed OFF
+    const first = machine.setChatPreview(false);
+    const second = machine.setChatPreview(true);
+    await expect(first).resolves.toBe(false);
+    await expect(second).resolves.toBe(false);
+
+    expect(transport.chatPreview).toBe(true);
+    expect(machine.store.get().chatPreview).toBe(true);
+  });
+
+  it('a lone failed flip reverts to what the last GET confirmed', async () => {
+    const { transport, machine } = setup();
+    transport.chatPreview = false;
+    await machine.refresh();
+    expect(machine.store.get().chatPreview).toBe(false);
+
+    transport.overrides.putChatPreview = async () => {
+      throw new TransportFailure('network');
+    };
+    await expect(machine.setChatPreview(true)).resolves.toBe(false);
+    expect(machine.store.get().chatPreview).toBe(false);
   });
 });

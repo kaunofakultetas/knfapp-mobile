@@ -5,7 +5,16 @@
 //  dedupe by id, markAllRead flips optimistically and a wire
 //  refusal restores the flags and notifies. useUnreadBadge:
 //  capping, the AppState gate and the poll cadence on fake
-//  timers, overlapping probes sharing one request.
+//  timers, overlapping probes sharing one request. Together:
+//  the list's mark-all-read zeroes the badge at once through
+//  the provider's unread signal, and a refused one re-probes.
+//  And a list that first renders with no viewer (the session
+//  re-hydrating under a mounted screen) loads once the viewer
+//  arrives — its callbacks must not keep the viewer-less
+//  closure that never asks the wire; a loaded list survives a
+//  moment with no viewer (hidden, never emptied) and is back
+//  at once for the same account, while a different account
+//  never sees it.
 //
 //  Modules are imported directly (not through the barrel) so
 //  this suite runs before the package's other hooks exist.
@@ -22,10 +31,26 @@ import { useNotifications } from '../useNotifications';
 import { useUnreadBadge } from '../useUnreadBadge';
 
 
+// The frozen "now" every fixture row is dated back from
 const BASE = Date.parse('2026-03-01T12:00:00.000Z');
 
-// The like/poll core is required by the transport interface but
-// never touched here
+
+
+
+
+
+
+// -----------------------------------------------------------
+// baseTransport
+// -----------------------------------------------------------
+//
+// The like/poll core the transport interface requires — never
+// touched here.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
+
 const baseTransport = (): SocialTransport => ({
   setLiked: async () => ({ liked: false, likeCount: 0 }),
   fetchPoll: async () => null,
@@ -34,8 +59,24 @@ const baseTransport = (): SocialTransport => ({
   },
 });
 
-// Distinct subjects + a non-groupable kind keep groups 1:1 with
-// rows, so group keys read as row ids
+
+
+
+
+
+
+// -----------------------------------------------------------
+// row
+// -----------------------------------------------------------
+//
+// One comment row, minutesBack before BASE. Distinct subjects
+// and a non-groupable kind keep groups 1:1 with rows, so group
+// keys read as row ids.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
+
 const row = (id: string, minutesBack: number, over: Partial<SocialNotification> = {}): SocialNotification => ({
   id,
   kind: 'comment',
@@ -45,6 +86,23 @@ const row = (id: string, minutesBack: number, over: Partial<SocialNotification> 
   subjectId: `subject-${id}`,
   ...over,
 });
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// makeWrapper
+// -----------------------------------------------------------
+//
+// The provider around a hook under test, signed in, with its
+// notices collected into the given array.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
 
 const makeWrapper = (transport: SocialTransport, notices: SocialNotice[] = []) => {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -56,10 +114,42 @@ const makeWrapper = (transport: SocialTransport, notices: SocialNotice[] = []) =
   };
 };
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// flush
+// -----------------------------------------------------------
+//
+// Drains the microtask chains a page load settles through.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
+
 const flush = () =>
   act(async () => {
     for (let i = 0; i < 40; i++) await Promise.resolve();
   });
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// deferred
+// -----------------------------------------------------------
+//
+// A promise settled by hand, for holding a page in flight.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -71,8 +161,24 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-// The hook registers exactly one AppState listener; the last
-// 'change' registration on the shared mock is it
+
+
+
+
+
+
+// -----------------------------------------------------------
+// lastChangeHandler
+// -----------------------------------------------------------
+//
+// The badge hook's AppState 'change' listener: it registers
+// exactly one, and the last 'change' registration on the
+// shared mock is it.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
+
 const lastChangeHandler = (): ((state: string) => void) => {
   const calls = (AppState.addEventListener as unknown as jest.Mock).mock.calls.filter((c) => c[0] === 'change');
   return calls[calls.length - 1][1];
@@ -410,5 +516,114 @@ describe('useUnreadBadge', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+});
+
+
+
+describe('the unread signal — the list and the badge in one provider', () => {
+  it('mark-all-read zeroes the badge at once; a refusal makes it re-ask the server', async () => {
+    let unread = 3;
+    let refuse = false;
+    const fetchUnreadCount = jest.fn(async () => unread);
+    const markNotificationsRead = jest.fn(async () => {
+      if (refuse) throw Object.assign(new Error('down'), { status: 503 });
+      unread = 0;
+    });
+    const page: NotificationsPage = { notifications: [row('n1', 0), row('n2', 1)], hasMore: false };
+    const transport = { ...baseTransport(), fetchNotifications: jest.fn(async () => page), markNotificationsRead, fetchUnreadCount };
+    const h = await renderHook(() => ({ list: useNotifications(), badge: useUnreadBadge() }), { wrapper: makeWrapper(transport) });
+    await flush();
+    expect(h.result.current.badge.badge).toBe('3');
+
+    // The badge does not wait out its 30 s interval
+    await act(async () => {
+      await h.result.current.list.markAllRead();
+    });
+    expect(h.result.current.badge.badge).toBe('');
+    expect(fetchUnreadCount).toHaveBeenCalledTimes(1);
+
+    // A refused mark-read: the server still counts them
+    unread = 2;
+    refuse = true;
+    await act(async () => {
+      await h.result.current.list.markAllRead();
+    });
+    await flush();
+    expect(fetchUnreadCount).toHaveBeenCalledTimes(2);
+    expect(h.result.current.badge.badge).toBe('2');
+    h.unmount();
+  });
+});
+
+
+
+describe('a viewer arriving after the first render', () => {
+  it('loads the list once the viewer is there — never stuck on the empty viewer-less state', async () => {
+    const page: NotificationsPage = { notifications: [row('n1', 0), row('n2', 1)], hasMore: false };
+    const fetchNotifications = jest.fn(async () => page);
+    const transport = { ...baseTransport(), fetchNotifications };
+    let viewer: { id: string; displayName: string } | null = null;
+    const Wrapper = ({ children }: { children: ReactNode }) => (
+      <SocialEngineProvider transport={transport} currentUser={viewer}>
+        {children}
+      </SocialEngineProvider>
+    );
+    const h = await renderHook(() => useNotifications(), { wrapper: Wrapper });
+    await flush();
+    expect(fetchNotifications).not.toHaveBeenCalled();
+    expect(h.result.current.groups).toEqual([]);
+
+    // The session is back: the same mounted hook asks the wire
+    viewer = { id: 'u1', displayName: 'Aš' };
+    await h.rerender({});
+    await flush();
+    expect(fetchNotifications).toHaveBeenCalledTimes(1);
+    expect(h.result.current.groups.map((g) => g.key)).toEqual(['n1', 'n2']);
+    h.unmount();
+  });
+
+  it('a moment with no viewer hides the list; the same account gets it back at once, another never sees it', async () => {
+    const page: NotificationsPage = { notifications: [row('n1', 0), row('n2', 1)], hasMore: false };
+    const gate = deferred<NotificationsPage>();
+    let calls = 0;
+    const fetchNotifications = jest.fn(async () => {
+      calls += 1;
+      return calls === 1 ? page : gate.promise;
+    });
+    const transport = { ...baseTransport(), fetchNotifications };
+    let viewer: { id: string; displayName: string } | null = { id: 'u1', displayName: 'Aš' };
+    const Wrapper = ({ children }: { children: ReactNode }) => (
+      <SocialEngineProvider transport={transport} currentUser={viewer}>
+        {children}
+      </SocialEngineProvider>
+    );
+    const h = await renderHook(() => useNotifications(), { wrapper: Wrapper });
+    await flush();
+    expect(h.result.current.groups.map((g) => g.key)).toEqual(['n1', 'n2']);
+
+    // The session re-hydrates: nobody for a moment — nothing shown
+    viewer = null;
+    await h.rerender({});
+    await flush();
+    expect(h.result.current.groups).toEqual([]);
+
+    // Back as the same account: the rows are there at once, while
+    // the re-read is still on the wire
+    viewer = { id: 'u1', displayName: 'Aš' };
+    await h.rerender({});
+    await flush();
+    expect(fetchNotifications).toHaveBeenCalledTimes(2);
+    expect(h.result.current.groups.map((g) => g.key)).toEqual(['n1', 'n2']);
+
+    // A different account never sees them, even before its own list lands
+    viewer = { id: 'u2', displayName: 'Kitas' };
+    await h.rerender({});
+    await flush();
+    expect(h.result.current.groups).toEqual([]);
+    gate.resolve({ notifications: [row('m1', 0)], hasMore: false });
+    await flush();
+    expect(h.result.current.groups.map((g) => g.key)).toEqual(['m1']);
+    h.unmount();
   });
 });

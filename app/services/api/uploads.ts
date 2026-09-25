@@ -16,6 +16,7 @@
 //    MAX_VIDEO_UPLOAD_BYTES — the 50 MB video cap
 //    uploadImageApi    — multipart upload of a local image
 //    uploadFileApi     — a document or a video (kind=file|video)
+//    deleteUploadApi   — give back an upload nothing will use
 // -----------------------------------------------------------
 
 // Shared client core
@@ -57,6 +58,9 @@ export interface UploadResponse {
   // Photos only: the stored pixel size after the re-encode
   width?: number | null;
   height?: number | null;
+  // Photos only: a ~14px data-URI blur of the stored image — a
+  // placeholder to paint while the real bytes download
+  preview?: string | null;
 }
 
 
@@ -226,3 +230,39 @@ export async function uploadFileApi(
     }),
   );
 }
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// deleteUploadApi
+// -----------------------------------------------------------
+//
+//   deleteUploadApi('/api/uploads/<name>.jpg')  — url or bare name
+//
+// DELETE /api/uploads/<name> — hands back an upload the caller
+// will never reference (a send refused for good, an abandoned
+// pick), so it stops counting against the account's 100 MB
+// quota at once instead of waiting for the server's orphan
+// sweep (KNF-118). The route answers 409 still_referenced when
+// a record shows the file and 403/404 for someone else's —
+// both a no-op for this purpose, so callers may treat any
+// failure as "leave it to the sweep". Anything that is not a
+// stored upload path is refused locally, never sent.
+//
+// Used by:
+//   - nothing yet — the chat composer's refused-send and
+//     re-upload paths are its intended callers
+// -----------------------------------------------------------
+
+export async function deleteUploadApi(url: string): Promise<void> {
+  const name = url.split('?')[0].split('/').pop() ?? '';
+  if (!/^[0-9a-f]{32}\.[a-z0-9]{2,5}$/.test(name)) {
+    throw new ApiError('Not a stored upload', 400, 'http', undefined, 'bad_filename');
+  }
+  await request(api.delete(`/uploads/${name}`));
+}
+

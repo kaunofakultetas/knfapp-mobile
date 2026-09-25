@@ -9,7 +9,9 @@
 //  refresh this screen fires must therefore REPLACE the list:
 //  the useFeed options carry no merge mode, and neither the
 //  focus-return refresh nor the pill ever call refresh('merge')
-//  — on either feed mode.
+//  — on either feed mode. An empty feed says how to go on
+//  (pull to refresh, another source) and the list under it
+//  stays pullable.
 // -----------------------------------------------------------
 
 jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'));
@@ -32,7 +34,7 @@ jest.mock('@/components/ui', () => {
   return {
     Screen: ({ children }: { children?: unknown }) => <View>{children as never}</View>,
     Header: ({ title }: { title: string }) => <Text>{title}</Text>,
-    EmptyState: ({ title }: { title: string }) => <Text>{`empty:${title}`}</Text>,
+    EmptyState: ({ title, hint }: { title: string; hint?: string }) => <Text>{`empty:${title}${hint ? `|${hint}` : ''}`}</Text>,
     ErrorState: ({ message }: { message: string }) => <Text>{`error:${message}`}</Text>,
     LoadingSpinner: () => <Text>loading</Text>,
     RefreshSpinner: () => null,
@@ -83,6 +85,8 @@ jest.mock('expo-router', () => ({
 // and every refresh call are observed here; the freshness
 // probe always reports waiting posts so the pill renders
 const mockRefresh = jest.fn(async () => {});
+// useFeed itself — its options are read back, its answer set
+// per test
 const mockUseFeed = jest.fn();
 jest.mock('@knf/dataengine', () => ({
   useFeed: (...args: unknown[]) => mockUseFeed(...(args as [])),
@@ -91,20 +95,26 @@ jest.mock('@knf/dataengine', () => ({
 jest.mock('@knf/socialengine', () => ({
   useLikeToggle: () => ({ liked: false, likeCount: 0, pending: false, toggle: jest.fn() }),
 }));
-// The kit list: only the pill's door matters here
+// The kit list: the pill's door, the empty body, and the props
+// the pull gesture needs (captured for the empty-list test)
+let mockListProps: Record<string, unknown> = {};
 jest.mock('@knf/socialuikit', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- see above
   const { Pressable, Text, View } = require('react-native');
   return {
-    FeedList: ({ onPressNew, newCount }: { onPressNew?: () => void; newCount?: number }) => (
-      <View>
-        {newCount ? (
-          <Pressable accessibilityRole="button" testID="new-posts-pill" onPress={onPressNew}>
-            <Text>{`new:${newCount}`}</Text>
-          </Pressable>
-        ) : null}
-      </View>
-    ),
+    FeedList: (props: { onPressNew?: () => void; newCount?: number; items: unknown[]; ListEmptyComponent?: unknown }) => {
+      mockListProps = props;
+      return (
+        <View>
+          {props.items.length === 0 ? (props.ListEmptyComponent as never) : null}
+          {props.newCount ? (
+            <Pressable accessibilityRole="button" testID="new-posts-pill" onPress={props.onPressNew}>
+              <Text>{`new:${props.newCount}`}</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      );
+    },
   };
 });
 
@@ -112,6 +122,21 @@ import { act, fireEvent, render } from '@testing-library/react-native';
 
 import NewsScreen from '@/app/(main)/tabs/news';
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// post
+// -----------------------------------------------------------
+//
+// One scraped feed row with the given id (also its title).
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
 
 const post = (id: string) => ({ id, title: id, content: '', createdAt: '2026-09-20T10:00:00Z', likes: 0, comments: 0, shares: 0, source: 'knf.vu.lt' });
 
@@ -131,6 +156,22 @@ beforeEach(() => {
     setItems: jest.fn(),
   });
 });
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// focusOptions
+// -----------------------------------------------------------
+//
+// The options the screen handed useFeed on its first render.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
 
 const focusOptions = () => mockUseFeed.mock.calls[0][1] as Record<string, unknown>;
 
@@ -172,5 +213,35 @@ describe('the news tab refreshes by REPLACING the ranked list', () => {
     expect(mockRefresh).toHaveBeenCalledTimes(1);
     expect(mockRefresh).toHaveBeenCalledWith();
     expect(mockRefresh).not.toHaveBeenCalledWith('merge');
+  });
+});
+
+
+
+describe('the empty news feed', () => {
+  it('names the ways on and stays pullable', async () => {
+    mockUseFeed.mockReturnValue({
+      items: [],
+      loading: false,
+      refreshing: false,
+      error: false,
+      cachedAt: null,
+      loadingMore: false,
+      gapAfterId: null,
+      refresh: mockRefresh,
+      loadMore: jest.fn(),
+      setItems: jest.fn(),
+    });
+    const view = await render(<NewsScreen />);
+    expect(view.getByText('empty:news.empty|news.emptyHint')).toBeTruthy();
+
+    // The pull gesture is wired on the empty list, and the empty
+    // body fills the viewport (flexGrow) so there is something to pull
+    expect(typeof mockListProps.onRefresh).toBe('function');
+    expect((mockListProps.contentContainerStyle as { flexGrow?: number }).flexGrow).toBe(1);
+    await act(async () => {
+      (mockListProps.onRefresh as () => void)();
+    });
+    expect(mockRefresh).toHaveBeenCalledWith();
   });
 });

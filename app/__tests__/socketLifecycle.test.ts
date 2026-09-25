@@ -312,6 +312,43 @@ describe('status machine', () => {
 });
 
 
+describe('startup with several connect triggers (the seeded-sandbox race)', () => {
+  it('a second connectSocket() during the first handshake sends no duplicate CONNECT', async () => {
+    mockTokens.standing = 'tok';
+    await socketService.connectSocket();
+    const { socket } = mockIoCalls[0];
+    // socket.io-client's view mid-handshake: subscribed, not yet
+    // connected — `disconnected` alone once read as "idle"
+    (socket as FakeSocket & { active?: boolean }).active = true;
+
+    // Auth restore, the unread badge, a network restore — all
+    // at startup, before the server has answered
+    await socketService.connectSocket();
+    await socketService.connectSocket();
+    expect(socket.connect).not.toHaveBeenCalled();
+    expect(mockIoCalls).toHaveLength(1);
+  });
+
+  it('an empty-message refusal (the duplicate CONNECT answer) is retried — never the session-expired face', async () => {
+    jest.useFakeTimers();
+    const random = jest.spyOn(Math, 'random').mockReturnValue(0);
+    try {
+      mockTokens.standing = 'tok';
+      await socketService.connectSocket();
+      mockIoCalls[0].socket.fire('connect_error', Object.assign(new Error(''), { data: 'Unable to connect' }));
+      expect(socketService.getSocketStatus()).toBe('disconnected');
+
+      await jest.advanceTimersByTimeAsync(1_000);
+      for (let i = 0; i < 5; i += 1) await Promise.resolve();
+      expect(mockIoCalls).toHaveLength(2);
+    } finally {
+      random.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+});
+
+
 describe('registry and emits', () => {
   it('isolates a throwing subscriber from later ones', async () => {
     mockTokens.standing = 'tok';

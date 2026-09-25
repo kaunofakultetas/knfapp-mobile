@@ -15,6 +15,7 @@
 //
 //  Split into:
 //
+//    NewsPoll                — a poll as the backend serves it
 //    NewsPost                — a feed article / community post
 //    UserRole                — the backend role enum
 //    User                    — the signed-in account shape
@@ -25,6 +26,41 @@
 //    Chat model              — @knf/chatengine's message types,
 //                              re-exported under the app's names
 // -----------------------------------------------------------
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// NewsPoll
+// -----------------------------------------------------------
+//
+// A poll as the backend serves it — inline on a poll card's
+// feed row and on the single-post answer, and as the answer
+// of the poll routes. totalVotes is derived from the option
+// rows at response time; userVote is the viewer's option id
+// (null for guests and non-voters); endDate null means the
+// poll never closes.
+//
+// Used by:
+//   - NewsPost (below) — the inline `poll`
+//   - services/api/news.ts — PollResponse is this shape
+//   - components/news/PollWidget.tsx — mapped (knfToPoll) into
+//     the seed usePoll renders with no fetch
+// -----------------------------------------------------------
+
+export interface NewsPoll {
+  id: string;
+  postId: string;
+  title: string;
+  endDate: string | null;
+  totalVotes: number;
+  createdAt: string;
+  userVote: string | null;
+  options: { id: string; text: string; votes: number }[];
+}
 
 
 
@@ -64,6 +100,12 @@ export interface NewsPost {
   likes: number;
   comments: number;
   shares: number;
+  // Poll cards carry their poll inline (the feed page and the
+  // single-post answer) — PollWidget renders it with no fetch
+  poll?: NewsPoll | null;
+  // The body was cut to the summary length for a list page
+  // (GET /news?truncate=1); the article screen fetches it whole
+  truncated?: boolean;
 }
 
 

@@ -2,8 +2,10 @@
 //  [*] Tests — SnapPager: the scrolling cursor carousel
 //
 //  Pins the pager's whole contract: nothing renders before the
-//  container width lands, three offset pages render after it,
-//  a momentum stop on a side page reports its direction and
+//  container width lands, three offset pages render after it
+//  at the frame's own width AND height (react-native-web left
+//  them content-tall, so a day page never scrolled), a
+//  momentum stop on a side page reports its direction and
 //  snaps back to center, and a stop on the middle page reports
 //  nothing.
 // -----------------------------------------------------------
@@ -42,6 +44,15 @@ describe('SnapPager', () => {
     expect(view.getByText('page:-1')).toBeTruthy();
     expect(view.getByText('page:0')).toBeTruthy();
     expect(view.getByText('page:1')).toBeTruthy();
+  });
+
+  it('every page takes the frame\'s height as well as its width', async () => {
+    const view = await renderPager(jest.fn());
+    await layOut(view);
+    for (const offset of [-1, 0, 1]) {
+      const style = Object.assign({}, ...[view.getByTestId(`timetableuikit-snappage-${offset}`).props.style].flat());
+      expect(style).toMatchObject({ width: WIDTH, height: 600 });
+    }
   });
 
   it('settling on the right page reports +1, on the left -1, on the middle nothing', async () => {

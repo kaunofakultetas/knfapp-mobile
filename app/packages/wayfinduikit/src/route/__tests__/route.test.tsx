@@ -11,7 +11,10 @@
 //  per destination, Start and Close. RouteSheet: the counter,
 //  Back locked at the first step, Next / Done / End firing,
 //  the arrival face off the final step, the place and
-//  reassurance lines. YouAreHereBar: its faces and buttons.
+//  reassurance lines, a header row that wraps instead of
+//  overflowing a narrow phone. YouAreHereBar: its faces and
+//  buttons. The small text controls (End route, the steps
+//  fold) reach the 44 pt touch floor through their slop.
 // -----------------------------------------------------------
 
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -28,16 +31,19 @@ import RouteSheet from '../RouteSheet';
 import YouAreHereBar from '../YouAreHereBar';
 
 
-const wrap = (ui: ReactElement) => render(<WayfindUiKitProvider locale="lt">{ui}</WayfindUiKitProvider>);
-
-const flat = (el: { props: { style?: unknown } }) => StyleSheet.flatten(el.props.style) as Record<string, unknown>;
-
-
+// The departure step the faces are pinned on
 const depart: KitInstruction = { type: 'depart', distanceM: 40, towardsRoom: '114' };
+
+// A left turn towards the room
 const turnLeft: KitInstruction = { type: 'turn', direction: 'left', distanceM: 25, towardsRoom: '114' };
+
+// A stairs connector up a floor
 const stairsUp: KitInstruction = { type: 'connector', via: 'stairs', toLevelLabel: '2 aukštas', direction: 'up', distanceM: 12 };
+
+// An arrival, with the room's side
 const arriveLeft: KitInstruction = { type: 'arrive', roomName: '114', side: 'left' };
 
+// The route those steps make, two floors long
 const summary: KitRouteSummary = {
   distanceM: 47,
   etaSeconds: 40,
@@ -45,7 +51,76 @@ const summary: KitRouteSummary = {
   steps: [depart, turnLeft, stairsUp, arriveLeft],
 };
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// wrap
+// -----------------------------------------------------------
+//
+// Render a face under the Lithuanian catalog, spelled out
+// so a locale change elsewhere cannot move these specs.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
+
+const wrap = (ui: ReactElement) => render(<WayfindUiKitProvider locale="lt">{ui}</WayfindUiKitProvider>);
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// flat
+// -----------------------------------------------------------
+//
+// An element's style, flattened for reading.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
+
+const flat = (el: { props: { style?: unknown } }) => StyleSheet.flatten(el.props.style) as Record<string, unknown>;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// levelLabels
+// -----------------------------------------------------------
+//
+// The level ids' display labels, as a host would map them.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
+
 const levelLabels = (id: string) => ({ l1: '1 aukštas', l2: '2 aukštas' })[id] ?? id;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// buildState
+// -----------------------------------------------------------
+//
+// A walking state one step in, overridable per spec.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
 
 const buildState = (over: Partial<KitNavigationState> = {}): KitNavigationState => ({
   stepIndex: 1,
@@ -397,6 +472,40 @@ describe('RouteSheet', () => {
     const noStep = await wrap(<RouteSheet {...base} state={buildState({ step: null, arrived: true })} />);
     expect(noStep.getByText('Atvykote į tikslą')).toBeTruthy();
     expect(noStep.getByText('Atlikta')).toBeTruthy();
+  });
+});
+
+
+
+
+describe('touch floor and narrow screens', () => {
+
+  // A control's reachable height: its own box (padding plus a
+  // line of text, ~1.25 × the font size) plus the slop above
+  // and below it
+  const reach = (el: { props: { style?: unknown; hitSlop?: unknown } }, fontSize: number) => {
+    const style = flat(el);
+    const slop = el.props.hitSlop as { top?: number; bottom?: number } | number | undefined;
+    const vertical = typeof slop === 'number' ? 2 * slop : (slop?.top ?? 0) + (slop?.bottom ?? 0);
+    return 2 * Number(style.paddingVertical ?? 0) + fontSize * 1.25 + vertical;
+  };
+
+
+  it('lets the text-link controls reach the 44 pt floor without growing', async () => {
+    const sheet = await wrap(<RouteSheet onNext={() => {}} onBack={() => {}} onDone={() => {}} onEnd={() => {}} state={buildState()} />);
+    expect(reach(sheet.getByTestId('wayfinduikit-sheet-end'), 13)).toBeGreaterThanOrEqual(44);
+
+    const preview = await wrap(<RoutePreview roomName="114" summary={summary} levelLabels={levelLabels} onStart={() => {}} />);
+    expect(reach(preview.getByTestId('wayfinduikit-preview-steps'), 14)).toBeGreaterThanOrEqual(44);
+  });
+
+
+  it('lets the progress and remaining lines wrap onto two rows instead of overflowing', async () => {
+    const r = await wrap(<RouteSheet onNext={() => {}} onBack={() => {}} onDone={() => {}} state={buildState()} />);
+    const row = r.getByTestId('wayfinduikit-sheet-progress').parent as unknown as { props: { style?: unknown } };
+    expect(flat(row).flexWrap).toBe('wrap');
+    expect(flat(r.getByTestId('wayfinduikit-sheet-progress')).flexShrink).toBe(1);
+    expect(flat(r.getByTestId('wayfinduikit-sheet-remaining')).flexShrink).toBe(1);
   });
 });
 

@@ -10,13 +10,22 @@
 //  the base revision from the route params — awaited to its
 //  verdict: a conflict runs the overwrite/discard dialog
 //  (overwrite re-sends without a base, discard drops the op),
-//  and only a clean answer toasts success and goes back. Plus
-//  the gates: a node without a panorama or without links
-//  aligns nothing.
+//  and only a clean answer toasts success and goes back — a
+//  server out of reach says so and stays. That is the
+//  no-editor fallback: with the map editor mounted underneath
+//  the facing is handed to IT (editorHandoff) and nothing goes
+//  through this screen's outbox, and an editor whose node no
+//  longer carries the aligned photo declines — reported, never
+//  written around. Plus the gates (a node without a panorama or
+//  without links aligns nothing) and the steppers' spoken
+//  names.
 // -----------------------------------------------------------
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { act, fireEvent, render } from '@testing-library/react-native';
+
+import { registerNodeEditSink } from '@/services/wayfind/editorHandoff';
+import type { GraphNode } from '@knf/wayfindengine';
 
 import AlignScreen, { fold360 } from '@/app/(main)/map-editor/align';
 
@@ -37,6 +46,8 @@ jest.mock('@/services/features', () => {
 });
 
 jest.mock('@react-native-async-storage/async-storage', () => require('@react-native-async-storage/async-storage/jest/async-storage-mock'));
+// The conflict dialog's answer — overwrite, unless a spec says
+// discard
 const mockConfirm = jest.fn(async () => true);
 jest.mock('@/components/ui', () => {
   const { Pressable, Text, View } = require('react-native');
@@ -53,16 +64,20 @@ jest.mock('@/components/ui', () => {
     ),
   };
 });
-jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string, opts?: Record<string, unknown>) => (opts && 'name' in opts ? `${key}:${opts.name}` : key) }) }));
+jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string, opts?: Record<string, unknown>) => (opts && 'name' in opts ? `${key}:${opts.name}` : key), i18n: { language: 'lt' } }) }));
 jest.mock('@/hooks/useTheme', () => ({
   useTheme: () => ({ colors: { surface: '#fff', surfaceSoft: '#eee', ink: '#111', inkSoft: '#666', inkFaint: '#999', brand: '#7B003F', onBrand: '#fff', danger: '#C62828' }, scheme: 'light' }),
 }));
 jest.mock('@/context/AuthContext', () => ({ useAuth: () => ({ user: { id: 'a1', role: 'curator' }, hydrated: true }) }));
+// Every toast the screen raised, for the specs to read
 const mockToast = jest.fn();
 jest.mock('@/context/NetworkContext', () => ({ showToast: (...args: unknown[]) => mockToast(...args) }));
 jest.mock('@knf/dataengine', () => ({ useDataEngine: () => ({ onRestore: () => () => undefined, cache: { get: async () => null, set: async () => undefined } }) }));
 
+// The router's back, to see the screen leave
 const mockBack = jest.fn();
+
+// The route params the NodeSheet would mint, set per spec
 const mockParams: Record<string, string> = {};
 jest.mock('expo-router', () => ({
   useRouter: () => ({ back: mockBack, push: jest.fn() }),
@@ -76,6 +91,8 @@ jest.mock('@knf/wayfinduikit', () => {
   const { Text, View } = require('react-native');
   return {
     WayfindUiKitProvider: ({ children }: { children?: unknown }) => <View>{children as never}</View>,
+    // The app's kit host reads the stage colours off the kit's own theme
+    defaultTheme: { colors: { stageBg: '#000', stageInk: '#fff' } },
     PanoramaStage: ({ source, onYawChange }: { source: unknown; onYawChange?: (yaw: number) => void }) => {
       mockYawReport.fire = onYawChange ?? null;
       return <Text testID="stage-stub">{String(source)}</Text>;
@@ -84,6 +101,8 @@ jest.mock('@knf/wayfinduikit', () => {
 });
 
 type SentOp = { id: string; type?: string; kind?: string; entityId?: string; data?: Record<string, unknown>; baseRevision?: number };
+// The server's op endpoint: every batch applied at revision 9
+// unless a spec answers otherwise
 const mockPostOps = jest.fn(async (_b: string, ops: SentOp[]): Promise<{ revision: number; results: Record<string, unknown>[] }> => ({ revision: 9, results: ops.map((op) => ({ id: op.id, status: 'applied' })) }));
 jest.mock('@/services/api', () => ({
   ApiError: class ApiError extends Error {
@@ -106,19 +125,57 @@ jest.mock('@/services/wayfindTransport', () => ({
 }));
 
 
+// The node the NodeSheet hands over: a served whole-sphere photo
+// with a facing already set
+const NODE = { id: 'n-1', level: 'L1', x: 100, y: 200, kind: 'corridor', pano: '/api/wayfind/panoramas/h.jpg', panoYaw: 10, panoGeometry: { hfovDeg: 360, vfovDeg: 180 } };
+
+// Its two linked neighbours with their plan bearings — one named,
+// one known only by its id
+const NEIGHBOURS = [
+  { nodeId: 'n-b', name: 'Biblioteka', bearingDeg: 90 },
+  { nodeId: 'n-c', name: 'n-c', bearingDeg: 200 },
+];
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// settle
+// -----------------------------------------------------------
+//
+// One macrotask inside act — lets the outbox's drain and the
+// screen's effects land before a spec looks.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
+
 const settle = async () => {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 };
 
-const sentOps = (): SentOp[] => mockPostOps.mock.calls.flatMap(([, ops]) => ops);
 
-const NODE = { id: 'n-1', level: 'L1', x: 100, y: 200, kind: 'corridor', pano: '/api/wayfind/panoramas/h.jpg', panoYaw: 10, panoGeometry: { hfovDeg: 360, vfovDeg: 180 } };
-const NEIGHBOURS = [
-  { nodeId: 'n-b', name: 'Biblioteka', bearingDeg: 90 },
-  { nodeId: 'n-c', name: 'n-c', bearingDeg: 200 },
-];
+
+
+
+
+
+// -----------------------------------------------------------
+// sentOps
+// -----------------------------------------------------------
+//
+// Every op the mocked server saw, flattened across batches.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
+
+const sentOps = (): SentOp[] => mockPostOps.mock.calls.flatMap(([, ops]) => ops);
 
 
 describe('fold360', () => {
@@ -293,7 +350,9 @@ describe('AlignScreen', () => {
     const withoutPano = await render(<AlignScreen />);
     await settle();
     expect(withoutPano.getByText('mapEditor.align.noPano')).toBeTruthy();
-    withoutPano.unmount();
+    // Awaited: RNTL 14's unmount is async, and an unawaited one
+    // lands on whatever the NEXT test renders
+    await withoutPano.unmount();
 
     mockParams.node = JSON.stringify(NODE);
     mockParams.neighbours = JSON.stringify([]);
@@ -301,5 +360,77 @@ describe('AlignScreen', () => {
     await settle();
     expect(withoutLinks.getByText('mapEditor.align.noNeighbours')).toBeTruthy();
     expect(sentOps()).toHaveLength(0);
+  });
+
+
+  it('with the editor underneath, the facing is handed to it — nothing goes through this outbox', async () => {
+    const handed: [string, Record<string, unknown> | null][] = [];
+    const release = registerNodeEditSink((nodeId, edit) => {
+      // The editor's live node still carries the aligned photo
+      handed.push([nodeId, edit({ ...NODE, panoYaw: 300 } as unknown as GraphNode)]);
+      return 'applied';
+    });
+    try {
+      const r = await render(<AlignScreen />);
+      await settle();
+      await act(async () => {
+        mockYawReport.fire?.(45);
+      });
+      await act(async () => {
+        fireEvent.press(r.getByText('mapEditor.align.confirm'));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(handed).toEqual([['n-1', { panoYaw: 45, panoHeading: { source: 'aligned' } }]]);
+      expect(sentOps()).toHaveLength(0);
+      expect(mockToast).toHaveBeenCalledWith('success', 'mapEditor.align.saved');
+      expect(mockBack).toHaveBeenCalled();
+    } finally {
+      release();
+    }
+  });
+
+
+  it("an editor whose node carries another photo declines — reported, never written around", async () => {
+    const release = registerNodeEditSink((_nodeId, edit) => (edit({ ...NODE, pano: '/api/wayfind/panoramas/other.jpg' } as unknown as GraphNode) ? 'applied' : 'declined'));
+    try {
+      const r = await render(<AlignScreen />);
+      await settle();
+      await act(async () => {
+        fireEvent.press(r.getByText('mapEditor.align.confirm'));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(mockToast).toHaveBeenCalledWith('error', 'mapEditor.nodeChanged');
+      expect(sentOps()).toHaveLength(0);
+      expect(mockBack).not.toHaveBeenCalled();
+    } finally {
+      release();
+    }
+  });
+
+
+  it('with no editor and no server, the facing stays queued and the screen says so instead of claiming success', async () => {
+    mockPostOps.mockImplementationOnce(async () => {
+      throw new Error('offline');
+    });
+    const r = await render(<AlignScreen />);
+    await settle();
+    await act(async () => {
+      fireEvent.press(r.getByText('mapEditor.align.confirm'));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(mockToast).toHaveBeenCalledWith('info', 'mapEditor.savedOffline');
+    expect(mockToast).not.toHaveBeenCalledWith('success', 'mapEditor.align.saved');
+    expect(mockBack).not.toHaveBeenCalled();
+    const stored = JSON.parse((await AsyncStorage.getItem('wayfind-align:ops:knf')) ?? '[]') as { status: string }[];
+    expect(stored.map((entry) => entry.status)).toEqual(['queued']);
+  });
+
+
+  it('the fine-tune steppers carry their spoken names', async () => {
+    const r = await render(<AlignScreen />);
+    await settle();
+    expect(r.getByTestId('align-fine-minus').props.accessibilityLabel).toBe('mapEditor.align.fineMinus');
+    expect(r.getByTestId('align-fine-plus').props.accessibilityLabel).toBe('mapEditor.align.finePlus');
   });
 });

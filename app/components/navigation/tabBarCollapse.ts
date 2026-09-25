@@ -3,28 +3,42 @@
 //
 //  One module-level store for the floating tab chip's two
 //  states: EXPANDED (the full row) and COLLAPSED (the round
-//  active-tab button). Screens feed it scroll direction
-//  through useTabBarScroll — scrolling down folds the chip
-//  away, scrolling up (or landing near the top) brings it
-//  back — and the bar itself reads both faces of the same
-//  state: the reanimated shared value drives the morph on
-//  the UI thread, the plain boolean mirror drives pointer
-//  events and accessibility on the JS side. Every
-//  transition goes through setTabBarCollapsed, so the two
-//  can never disagree.
+//  faculty badge). Screens feed it scroll direction through
+//  useTabBarScroll — scrolling down folds the chip away,
+//  scrolling up (or landing near the top) brings it back —
+//  and the bar itself reads both faces of the same state: the
+//  reanimated shared value drives the morph on the UI thread,
+//  the plain boolean mirror drives pointer events and
+//  accessibility on the JS side. Every transition goes through
+//  setTabBarCollapsed, so the two can never disagree.
 //
 //  Module-level on purpose (no provider): the bar and the
 //  screens live in different subtrees of the tab navigator,
-//  and there is exactly one bar per app.
+//  and there is exactly one bar per app. Being global, the
+//  state survives navigation — so the bar re-expands itself
+//  whenever its focused route changes (a tab press, a drawer
+//  jump, a notification tap, a deep link alike), and the
+//  drawer expands it before every jump it makes.
+//
+//  The hold is the one latch with an owner question: the
+//  collapsed badge's press sets it (holdTabBarExpanded), and
+//  NOBODY else needs to release it — the next finger-down on
+//  any scrolling screen does (useTabBarScroll's
+//  onScrollBeginDrag). Until then the scroll's votes are
+//  muted, never the bar.
 //
 //  Split into:
 //
-//    tabBarCollapse        — the shared value (0..1)
-//    setTabBarCollapsed    — the one writer
-//    holdTabBarExpanded    — the button-press override
-//    useTabBarCollapsed    — the boolean mirror, subscribed
-//    useTabBarScroll       — a screen's scroll feeders
-//    TAB_BAR_CLEARANCE     — content padding under the chip
+//    TAB_BAR_CLEARANCE  — content padding under the chip
+//    tabBarCollapse     — the shared value (0..1)
+//    isTabBarCollapsed  — the plain read
+//    setTabBarCollapsed — the one writer
+//    holdTabBarExpanded — the button-press override
+//    releaseTabBarHold  — its release, on a new gesture
+//    subscribe          — useSyncExternalStore's subscriber
+//    snapshot           — useSyncExternalStore's reader
+//    useTabBarCollapsed — the boolean mirror, subscribed
+//    useTabBarScroll    — a screen's scroll feeders
 // -----------------------------------------------------------
 
 import { useCallback, useRef, useSyncExternalStore } from 'react';
@@ -32,61 +46,123 @@ import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
 import { makeMutable, withSpring, type SharedValue } from 'react-native-reanimated';
 
 
-// What the wired screens pad their content bottoms with so the
-// last row can scroll clear of the floating chip
-export const TAB_BAR_CLEARANCE = 96;
-
 // Same critically-damped family as the bar's own springs — the
 // chip glides between its two shapes, never bounces
 const COLLAPSE_SPRING = { damping: 22, stiffness: 220, mass: 0.9, overshootClamping: true };
 
-// Scroll grammar: this close to the top the chip is ALWAYS
-// expanded; past it, this much accumulated same-direction
-// travel flips the state (hysteresis — jitter never flaps it)
+// Scroll grammar, part one: this close to the top (points) the
+// chip is ALWAYS expanded
 const TOP_SLACK = 32;
-const FLIP_AFTER = 14;
 
+// Scroll grammar, part two: past TOP_SLACK, this much
+// accumulated same-direction travel (points) flips the state —
+// hysteresis, so a finger's jitter never flaps it
+const FLIP_AFTER = 14;
 
 // The jest reanimated mock's makeMutable is the identity — a
 // primitive cannot carry `.value`, so tests get a plain box
-// with the same shape
+// with the same shape (see tabBarCollapse below)
 const created: unknown = makeMutable(0);
+
+// Every useTabBarCollapsed subscription's notify callback —
+// setTabBarCollapsed pings each one after a real flip
+const listeners = new Set<() => void>();
+
+// The JS-side truth the boolean mirror reads; only
+// setTabBarCollapsed writes it
+let collapsedNow = false;
+
+// The button-press hold (see holdTabBarExpanded): while set,
+// scroll events track offsets but vote nothing
+let heldExpanded = false;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// TAB_BAR_CLEARANCE
+// -----------------------------------------------------------
+//
+// What the wired screens pad their content bottoms with (in
+// points) so the last row can scroll clear of the floating
+// chip.
+//
+// Used by:
+//   - app/(main)/tabs/messages.tsx, schedule.tsx, settings.tsx,
+//     id.tsx, assistant.tsx — list / scroll content padding
+// -----------------------------------------------------------
+
+export const TAB_BAR_CLEARANCE = 96;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// tabBarCollapse
+// -----------------------------------------------------------
+//
+// The UI-thread face of the state: 0 = expanded, 1 = collapsed,
+// springing between them. Read-only for everyone but
+// setTabBarCollapsed — a write elsewhere would desync it from
+// the boolean mirror.
+//
+// Used by:
+//   - components/navigation/TabBar.tsx — the chip's width,
+//     height, radius and the two faces' cross-fade
+//   - setTabBarCollapsed (below) — the one writer
+// -----------------------------------------------------------
+
 export const tabBarCollapse: SharedValue<number> =
   (created !== null && typeof created === 'object' ? created : { value: 0 }) as SharedValue<number>;
 
 
-let collapsedNow = false;
-const listeners = new Set<() => void>();
 
 
+
+
+
+// -----------------------------------------------------------
+// isTabBarCollapsed
+// -----------------------------------------------------------
+//
 // The plain read for non-React callers (and the tests, which
-// must not route state reads through a second React root)
+// must not route state reads through a second React root).
+//
+// Used by:
+//   - nothing in the app at the moment — __tests__/tabBar.test.tsx
+//     and __tests__/sidebar.test.tsx read the state through it
+// -----------------------------------------------------------
+
 export function isTabBarCollapsed(): boolean {
   return collapsedNow;
 }
 
 
-// The button-press OVERRIDE: while a fling's momentum is still
-// running, its downward move events keep voting "collapse" —
-// so a tap that just expanded the chip would be overruled a
-// frame later. The hold pins the chip expanded and takes the
-// scroll's vote away until that scroll is over: the next
-// finger-down (onScrollBeginDrag) is a NEW gesture and gets
-// its say back. Momentum that simply peters out ends the
-// story by itself — no events, nothing to suppress.
-let heldExpanded = false;
 
-export function holdTabBarExpanded(): void {
-  heldExpanded = true;
-  setTabBarCollapsed(false);
-}
 
-// The counterpart — onScrollBeginDrag calls it for every new
-// gesture; exported so the tests can reset between cases
-export function releaseTabBarHold(): void {
-  heldExpanded = false;
-}
 
+
+
+// -----------------------------------------------------------
+// setTabBarCollapsed
+// -----------------------------------------------------------
+//
+// The ONE writer: flips the boolean, springs the shared value
+// and pings every subscribed mirror — a no-op when the state
+// already matches, so repeated calls cost nothing.
+//
+// Used by:
+//   - components/navigation/TabBar.tsx — tab press and every
+//     change of the focused route
+//   - components/Sidebar.tsx — before every drawer jump
+//   - holdTabBarExpanded, useTabBarScroll (below)
+// -----------------------------------------------------------
 
 export function setTabBarCollapsed(next: boolean): void {
   if (collapsedNow === next) return;
@@ -96,13 +172,74 @@ export function setTabBarCollapsed(next: boolean): void {
 }
 
 
+
+
+
+
+
 // -----------------------------------------------------------
-// useTabBarCollapsed — the subscribed boolean mirror
+// holdTabBarExpanded
 // -----------------------------------------------------------
 //
+// The button-press OVERRIDE: while a fling's momentum is still
+// running, its downward move events keep voting "collapse" —
+// so a tap that just expanded the chip would be overruled a
+// frame later. The hold pins the chip expanded and takes the
+// scroll's vote away until that scroll is over: the next
+// finger-down (onScrollBeginDrag) is a NEW gesture and gets
+// its say back. Momentum that simply peters out ends the
+// story by itself — no events, nothing to suppress. The caller
+// never releases it; useTabBarScroll does.
+//
 // Used by:
-//   - TabBar — pointer events, accessibility, the collapsed
-//     button's visibility semantics
+//   - components/navigation/TabBar.tsx — the collapsed badge's
+//     press
+// -----------------------------------------------------------
+
+export function holdTabBarExpanded(): void {
+  heldExpanded = true;
+  setTabBarCollapsed(false);
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// releaseTabBarHold
+// -----------------------------------------------------------
+//
+// Lifts the hold — a new gesture speaks for itself again.
+// Leaves the collapsed state exactly as it is.
+//
+// Used by:
+//   - useTabBarScroll (below) — onScrollBeginDrag, every new
+//     gesture
+//   - __tests__/tabBar.test.tsx, __tests__/sidebar.test.tsx —
+//     the reset between cases
+// -----------------------------------------------------------
+
+export function releaseTabBarHold(): void {
+  heldExpanded = false;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// subscribe
+// -----------------------------------------------------------
+//
+// useSyncExternalStore's subscriber: registers one mirror's
+// notify callback and hands back its removal.
+//
+// Used by:
+//   - useTabBarCollapsed (below)
 // -----------------------------------------------------------
 
 const subscribe = (notify: () => void) => {
@@ -111,19 +248,65 @@ const subscribe = (notify: () => void) => {
     listeners.delete(notify);
   };
 };
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// snapshot
+// -----------------------------------------------------------
+//
+// useSyncExternalStore's reader — the current boolean, a
+// primitive, so React's snapshot comparison is exact.
+//
+// Used by:
+//   - useTabBarCollapsed (below) — client and server snapshot
+// -----------------------------------------------------------
+
 const snapshot = () => collapsedNow;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// useTabBarCollapsed
+// -----------------------------------------------------------
+//
+//   const collapsed = useTabBarCollapsed()   — re-renders on
+//                                              every flip
+//
+// The subscribed boolean mirror of the shared value: the JS
+// side's answer for pointer events and accessibility, which
+// the UI-thread value cannot drive.
+//
+// Used by:
+//   - components/navigation/TabBar.tsx — pointer events,
+//     accessibility, the collapsed button's visibility
+// -----------------------------------------------------------
 
 export function useTabBarCollapsed(): boolean {
   return useSyncExternalStore(subscribe, snapshot, snapshot);
 }
 
 
+
+
+
+
+
 // -----------------------------------------------------------
-// useTabBarScroll — the feeder a scrolling screen attaches
+// useTabBarScroll
 // -----------------------------------------------------------
 //
 //   const tabBarScroll = useTabBarScroll();
 //   <FlatList onScroll={tabBarScroll.onScroll}
+//             onScrollBeginDrag={tabBarScroll.onScrollBeginDrag}
 //             onScrollEndDrag={tabBarScroll.onScrollEndDrag}
 //             scrollEventThrottle={tabBarScroll.scrollEventThrottle} />
 //
@@ -146,8 +329,8 @@ export function useTabBarCollapsed(): boolean {
 // itself.
 //
 // Used by:
-//   - the scrolling tab screens (news, messages, schedule,
-//     settings, id)
+//   - app/(main)/tabs/news.tsx, messages.tsx, schedule.tsx,
+//     settings.tsx, id.tsx — each screen's scroll handlers
 // -----------------------------------------------------------
 
 export function useTabBarScroll(): {

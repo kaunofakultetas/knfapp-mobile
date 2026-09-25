@@ -12,7 +12,7 @@
 //    - hosts, next to their Composer
 // -----------------------------------------------------------
 
-import { Pressable, ScrollView, Text } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 
 import { useKitTheme } from '../provider';
 
@@ -90,16 +90,27 @@ export default function EmojiQuickRow({
           onPress={() => onPick(emoji)}
           accessibilityRole="button"
           accessibilityLabel={emoji}
-          style={({ pressed }) => ({
-            height: 44,
-            width: 44,
-            alignItems: 'center',
-            justifyContent: 'center',
-            borderRadius: 22,
-            backgroundColor: pressed ? colors.surfaceSoft : 'transparent',
-          })}
+          testID={`chatuikit-emoji-${emoji}`}
+          // Static layout style on purpose — NativeWind's JSX runtime
+          // drops a style FUNCTION on Pressable wholesale (the 44pt
+          // box, centring and radius vanished on device while jest
+          // rendered it fine); the pressed wash rides on the
+          // children-as-function below instead
+          style={{ height: 44, width: 44, borderRadius: 22 }}
         >
-          <Text style={{ fontSize: 24 }}>{emoji}</Text>
+          {({ pressed }) => (
+            <View
+              style={{
+                flex: 1,
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: 22,
+                backgroundColor: pressed ? colors.surfaceSoft : 'transparent',
+              }}
+            >
+              <Text style={{ fontSize: 24 }}>{emoji}</Text>
+            </View>
+          )}
         </Pressable>
       ))}
     </ScrollView>

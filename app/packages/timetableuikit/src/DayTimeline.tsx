@@ -21,6 +21,7 @@ import { ScrollView, Text, View, type LayoutChangeEvent } from 'react-native';
 
 import type { LessonFrame, PlacedLesson, TimeWindow, TimetableLesson } from './core/types';
 import DayColumn from './grid/DayColumn';
+import EmptyNotice from './grid/EmptyNotice';
 import HourAxis, { AXIS_WIDTH } from './grid/HourAxis';
 import { useNow, type NowPoint } from './hooks/useNow';
 import { usePagePan } from './hooks/usePagePan';
@@ -88,6 +89,9 @@ export interface DayTimelineProps {
   renderLesson?: (placed: PlacedLesson, frame: LessonFrame) => ReactNode;
   hourHeight?: number;
   skippedCount?: number;
+  // What an empty day says instead of labels.noLessons — a
+  // host that knows WHY it is empty ("not published yet")
+  emptyLabel?: string;
 }
 
 
@@ -104,6 +108,8 @@ export interface DayTimelineProps {
 // skipped notice, and one HourAxis + DayColumn pair inside
 // the vertical scroll; the grid mounts only after onLayout
 // delivers a width — the open-position effect waits on it.
+// An empty day pins its notice over the top of the grid
+// (EmptyNotice), where it is in view.
 //
 // Used by:
 //   - components/schedule/TimetableView.tsx — day mode
@@ -120,6 +126,7 @@ export default function DayTimeline({
   renderLesson,
   hourHeight = DEFAULT_HOUR_HEIGHT,
   skippedCount = 0,
+  emptyLabel,
 }: DayTimelineProps) {
 
   const { theme, labels } = useTimetableEnv();
@@ -199,16 +206,9 @@ export default function DayTimeline({
               onPressLesson={onPressLesson}
               renderLesson={renderLesson}
             />
-          </View>
-        ) : null}
 
-        {placed.length === 0 ? (
-          <Text
-            testID="timetableuikit-empty"
-            style={[theme.text.day, { color: theme.colors.inkFaint, textAlign: 'center', marginTop: 32 }]}
-          >
-            {labels.noLessons}
-          </Text>
+            {placed.length === 0 ? <EmptyNotice label={emptyLabel ?? labels.noLessons} /> : null}
+          </View>
         ) : null}
       </ScrollView>
 

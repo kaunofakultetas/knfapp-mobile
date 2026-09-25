@@ -233,14 +233,19 @@ export function useEditor<G extends GraphLike>(options: EditorOptions<G>): UseEd
 
   // The document, the history and the revisions live in refs
   // (a drag records dozens of moves between renders) and are
-  // mirrored into state once per action for the screen
-  const docRef = useRef<G>(normaliseDocument(options.document));
+  // mirrored into state once per action for the screen. The
+  // loaded document is normalised ONCE, in a lazy initialiser —
+  // as a plain useRef argument it was re-normalised (a walk of
+  // every edge) on every render of a drag, then thrown away
+  const [loaded] = useState(() => normaliseDocument(options.document));
+  const docRef = useRef<G>(loaded);
   const historyRef = useRef<History>(emptyHistory());
-  const revisionsRef = useRef<Record<string, number>>({ ...(options.revisions ?? {}) });
+  const [loadedRevisions] = useState(() => ({ ...(options.revisions ?? {}) }));
+  const revisionsRef = useRef<Record<string, number>>(loadedRevisions);
   const [revision, setRevision] = useState(options.revision ?? 0);
-  const [document, setDocument] = useState<G>(docRef.current);
+  const [document, setDocument] = useState<G>(loaded);
   const [selection, setSelection] = useState<Selection | null>(null);
-  const [shownLevel, setShownLevel] = useState<string | null>(docRef.current.levels[0]?.id ?? null);
+  const [shownLevel, setShownLevel] = useState<string | null>(loaded.levels[0]?.id ?? null);
   const [issues, setIssues] = useState<EditorIssue[]>([]);
   const [ignoredIssues, setIgnored] = useState<string[]>([]);
   const [tick, setTick] = useState(0);

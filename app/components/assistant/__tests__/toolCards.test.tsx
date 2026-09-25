@@ -8,7 +8,9 @@
 //  screenshot rule); the schedule summary composes group /
 //  range / date with dots and the query summary quotes the
 //  words — both answering '' for empty input so no stray
-//  line renders.
+//  line renders. Every line is set in the app's Raleway faces
+//  (the title semibold, summary and error regular), never the
+//  system font.
 // -----------------------------------------------------------
 
 import { render } from '@testing-library/react-native';
@@ -70,5 +72,16 @@ describe('the cards', () => {
     })}</>);
     expect(failed.getByText('Naujienos — nepavyko')).toBeTruthy();
     expect(failed.getByText('DJANGO_UNREACHABLE: Backend unreachable')).toBeTruthy();
+  });
+
+  it('sets every line in the app´s Raleway faces, with no synthesized weight', async () => {
+    const view = await render(<>{cards.searchNews({
+      toolName: 'searchNews', input: { query: 'stipendija' }, status: 'failed', errorText: 'HTTP 502',
+    })}</>);
+    const style = (text: string) => Object.assign({}, ...[view.getByText(text).props.style].flat());
+    expect(style('Naujienos — nepavyko')).toMatchObject({ fontFamily: 'Raleway-SemiBold' });
+    expect(style('Naujienos — nepavyko').fontWeight).toBeUndefined();
+    expect(style('„stipendija“')).toMatchObject({ fontFamily: 'Raleway-Regular' });
+    expect(style('HTTP 502')).toMatchObject({ fontFamily: 'Raleway-Regular' });
   });
 });

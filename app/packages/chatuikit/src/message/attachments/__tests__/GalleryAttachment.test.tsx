@@ -3,9 +3,11 @@
 //
 //  The tiled album: pair / hero-over-pair layouts, the "+N"
 //  wash past four photos, per-tile taps handing the index up,
-//  the spoken count, and the bubble rendering the grid for a
+//  the spoken count, the bubble rendering the grid for a
 //  multi-photo message while a lone photo keeps the classic
-//  full-bleed path.
+//  full-bleed path — and a tile whose photo will not load
+//  showing the labelled placeholder, not a blank square, and
+//  no longer opening the viewer (KNF-166).
 // -----------------------------------------------------------
 
 jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'));
@@ -20,7 +22,7 @@ jest.mock('react-native-gesture-handler', () => {
 });
 jest.mock('expo-haptics', () => ({ impactAsync: jest.fn(async () => {}), selectionAsync: jest.fn(async () => {}), ImpactFeedbackStyle: { Light: 'light', Medium: 'medium' } }));
 
-import { fireEvent, render } from '@testing-library/react-native';
+import { act, fireEvent, render } from '@testing-library/react-native';
 
 import type { KitMessage } from '../../../core/types';
 import { ChatUiKitProvider } from '../../../provider';
@@ -28,8 +30,35 @@ import { defaultLabels } from '../../../provider/labels';
 import MessageBubble from '../../MessageBubble';
 import GalleryAttachment from '../GalleryAttachment';
 
+
+// The kit's own English wording
 const labels = defaultLabels.en;
-const items = (n: number) => Array.from({ length: n }, (_, i) => ({ url: `/api/uploads/g${i}.jpg`, width: 800, height: 600 }));
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// items
+// -----------------------------------------------------------
+//
+// n stored gallery photos, 800×600 each.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
+
+function items(n: number) {
+  return Array.from({ length: n }, (_, i) => ({ url: `/api/uploads/g${i}.jpg`, width: 800, height: 600 }));
+}
+
+
+
+
+
+
 
 describe('GalleryAttachment', () => {
   it('tiles a pair, hands the tapped index up and speaks the count', async () => {
@@ -68,5 +97,26 @@ describe('GalleryAttachment', () => {
     // Unsent rows show the placeholder, never a grid
     const unsent = await render(<ChatUiKitProvider locale="en"><MessageBubble {...props} message={{ ...base, deleted: true }} /></ChatUiKitProvider>);
     expect(unsent.queryByTestId('chatuikit-gallery')).toBeNull();
+  });
+});
+
+
+describe('GalleryAttachment failed tiles', () => {
+  it('a tile that fails to load shows the placeholder and stops opening the viewer', async () => {
+    const onPressItem = jest.fn();
+    const { getByTestId } = await render(
+      <ChatUiKitProvider locale="en" resolveImageUrl={(p) => `https://host${p}`}>
+        <GalleryAttachment items={items(2)} labels={labels} onPressItem={onPressItem} />
+      </ChatUiKitProvider>,
+    );
+    await act(async () => getByTestId('chatuikit-gallery-image-1').props.onError?.({ nativeEvent: { error: '404' } }));
+    const tile = getByTestId('chatuikit-gallery-tile-1');
+    expect(tile.props.accessibilityLabel).toBe(labels.imageUnavailable);
+    expect(tile.props.accessibilityRole).toBe('image');
+    await fireEvent.press(tile);
+    expect(onPressItem).not.toHaveBeenCalled();
+    // The healthy neighbour still opens the viewer
+    await fireEvent.press(getByTestId('chatuikit-gallery-tile-0'));
+    expect(onPressItem).toHaveBeenCalledWith(0);
   });
 });

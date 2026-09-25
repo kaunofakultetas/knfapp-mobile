@@ -16,13 +16,82 @@
 //  "over" first wins, so a poll ending between refetches locks
 //  its UI without waiting for the server to notice.
 //
+//  Also the shape of the provider's poll store (PollEntry)
+//  and the two keys its seed rule compares.
+//
 //  Used by:
-//    - hooks/usePoll.ts — canVote gating
+//    - hooks/usePoll.ts — canVote gating, the store entries
+//    - provider/index.tsx — the env's `polls` store
 //    - @knf/socialuikit — option bars, leader bolding, the
 //      results-vs-choices switch
 // -----------------------------------------------------------
 
 import type { Poll, PollOption } from './types';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// PollEntry
+// -----------------------------------------------------------
+//
+// One poll in the provider's store — the newest known state
+// every usePoll on that id renders, so a card that remounts
+// (list windowing) or a second surface (the article screen
+// over the feed) shows the viewer's vote at once instead of
+// re-fetching or losing it. Per-field roles are inline; the
+// seed rule itself lives in hooks/usePoll.ts.
+//
+// Used by:
+//   - provider/index.tsx — the env's `polls` ShadowStore
+//   - hooks/usePoll.ts — every read and write
+//   - src/index.ts — the public surface hosts import from
+// -----------------------------------------------------------
+
+export interface PollEntry {
+  // The newest known state; absent while `gone`
+  poll?: Poll;
+  // The server answered "no poll here" (fetchPoll → null)
+  gone?: boolean;
+  // Written by the viewer's own vote — a host seed that
+  // disagrees with that choice predates the vote and is skipped
+  fromVote?: boolean;
+  // The last host seed weighed, by CONTENT (pollSeedKey) — the
+  // same answer is never adopted twice: a remounted card
+  // re-offers its old feed row, and a host mapping its row
+  // inline hands an equal object every render; only a row with
+  // different content is a new server answer
+  seedKey?: string;
+  // Write counter — a fetch that finds it moved on landing
+  // lost the race to something newer (a vote, a seed)
+  rev: number;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// pollChoiceKey
+// -----------------------------------------------------------
+//
+// The viewer's choice on a poll as one comparable string:
+// the voted option ids, sorted and joined ('' = no vote).
+// Two answers with different keys disagree about what the
+// viewer picked — the older one predates a vote.
+//
+// Used by:
+//   - hooks/usePoll.ts — the seed rule
+// -----------------------------------------------------------
+
+export function pollChoiceKey(poll: Poll): string {
+  return poll.options.filter((option) => option.votedByMe).map((option) => option.id).sort().join(',');
+}
 
 
 
@@ -138,4 +207,27 @@ export function isPollExpired(poll: Poll, now: Date): boolean {
 
 export function showPollResults(poll: Poll, revealed: boolean, now: Date): boolean {
   return poll.votedByMe || isPollExpired(poll, now) || revealed;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// pollSeedKey
+// -----------------------------------------------------------
+//
+// A host seed's whole content as one comparable string — a
+// poll is a handful of short options, so the plain JSON form
+// is cheap and exact. Equal content means the same server
+// answer, whatever the object identity.
+//
+// Used by:
+//   - hooks/usePoll.ts — the seed rule
+// -----------------------------------------------------------
+
+export function pollSeedKey(poll: Poll): string {
+  return JSON.stringify(poll);
 }

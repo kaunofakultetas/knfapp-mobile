@@ -30,7 +30,13 @@ jest.mock('react-i18next', () => ({
 }));
 jest.mock('@/components/news/PollWidget', () => () => null);
 jest.mock('@/components/ui', () => ({ Avatar: () => null }));
-jest.mock('@/services/format', () => ({ formatDate: () => '2026-09-01' }));
+// The card's date line (components/news/cardDate) reads the
+// stamp through parseIso and formats a today/yesterday time
+jest.mock('@/services/format', () => ({
+  formatDate: () => '2026-09-01',
+  formatTime: () => '10:00',
+  parseIso: (iso: string) => new Date(iso),
+}));
 jest.mock('expo-image', () => ({ Image: () => null }));
 
 import { render } from '@testing-library/react-native';
@@ -38,6 +44,7 @@ import { render } from '@testing-library/react-native';
 import NewsCard from '@/components/news/NewsCard';
 import type { SocialFeedPost } from '@/services/api/social';
 
+// One scraped faculty article in the wire shape the card takes
 const post = {
   id: 'p1',
   title: 'Fakulteto naujiena',

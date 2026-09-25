@@ -51,6 +51,9 @@ export interface TimetableColors {
   line: string;         // hour hairlines, column separators
   danger: string;       // conflict borders, the now line's urgency-free cousin is nowLine
   dangerSoft: string;   // conflict cell wash
+  dangerFill?: string;  // a red FILL under an onBrand label (the banner's "!"
+                        // disc) — danger is tuned as text and drops under
+                        // AA as a fill in dark schemes; falls back to danger
   nowLine: string;      // the current-minute line and dot
   shadow: string;       // shadowColor
 }
@@ -188,6 +191,7 @@ export const defaultTheme: TimetableTheme = {
     line: '#E5E7EB',
     danger: '#DC2626',
     dangerSoft: '#FEE2E2',
+    dangerFill: '#DC2626',
     nowLine: '#E11D48',
     shadow: '#000000',
   },

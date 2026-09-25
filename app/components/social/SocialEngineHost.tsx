@@ -51,11 +51,14 @@ const NOTICE_KEYS: Record<SocialNotice['code'], string> = {
 // SocialEngineHost (default export)
 // -----------------------------------------------------------
 //
-// The viewer identity is memoized off the auth user, so the
-// provider re-keys only on a real login/logout; notify maps
-// engine notice codes onto catalog toasts, and onRequireAuth
-// pushes the login screen carrying returnTo so the
-// interrupted tap's screen is where the user lands back.
+// The viewer identity is memoized off the auth user's FIELDS,
+// not the object: the foreground /me resync hands AuthContext
+// a fresh user object every time, and keying on it rebuilt the
+// engine's env — re-rendering every engine hook in the app —
+// for an unchanged viewer. notify maps engine notice codes
+// onto catalog toasts, and onRequireAuth pushes the login
+// screen carrying returnTo so the interrupted tap's screen is
+// where the user lands back.
 //
 // Used by:
 //   - app/(main)/_layout.tsx — wraps every signed-in screen
@@ -69,9 +72,12 @@ export default function SocialEngineHost({ children }: { children: ReactNode }) 
   const returnTo = useReturnHref();
 
 
+  const viewerId = user?.id ?? null;
+  const viewerName = user?.displayName ?? '';
+  const viewerAvatar = user?.avatarUrl ?? null;
   const currentUser = useMemo<SocialUser | null>(
-    () => (user ? { id: user.id, displayName: user.displayName, avatarUrl: user.avatarUrl ?? null } : null),
-    [user],
+    () => (viewerId ? { id: viewerId, displayName: viewerName, avatarUrl: viewerAvatar } : null),
+    [viewerId, viewerName, viewerAvatar],
   );
 
   const notify = useCallback(

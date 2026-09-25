@@ -51,10 +51,18 @@ export interface TimetableEntryBase {
   groupKey?: string;
   // Several groups taught at once (a merged teacher-view row)
   groupKeys?: string[];
+  // The subgroups of the group this entry is for ("1", "2");
+  // absent or empty = the whole group. Two entries naming
+  // DISJOINT subgroups never double-book one student
+  subgroupKeys?: string[];
   // Semester label — conflicts never cross terms
   termKey?: string;
-  // 'lecture' | 'seminar' | 'lab' | … — RESERVED, absent in
-  // today's data; a typed tint activates when it appears
+  // The canonical event kind — 'lecture' | 'practice' |
+  // 'seminar' | 'lab' | 'lecture_seminar' |
+  // 'lecture_practice' | 'exam' | 'retake' | 'assessment' |
+  // 'consultation' | 'other' (a type the source names that
+  // no adapter vocabulary knows); absent when the source
+  // names none. The kit badges the exam-like kinds
   kind?: string;
   // RESERVED week filters — no-ops while the data lacks them
   parity?: 'odd' | 'even' | null;

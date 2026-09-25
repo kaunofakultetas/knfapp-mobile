@@ -15,6 +15,12 @@
 //  whenever the signed-in account changes — a departing
 //  viewer's intents must never fire as the next account.
 //
+//  Two removals, on purpose: remove() purges by TARGET (the
+//  live lane's word after the wire answered), removeIfCurrent()
+//  drops one exact ENTRY (the drain settling what it listed —
+//  a newer intent parked under the same key meanwhile must
+//  survive it, KNF-121).
+//
 //  Split into:
 //
 //    PendingSocialTask     — the entry shapes
@@ -99,7 +105,17 @@ export interface SocialTaskQueue {
   list(): PendingSocialTask[];
   // Adds or REPLACES by target key, then persists
   add(task: PendingSocialTask): void;
+  // Purges whatever is stored for the task's TARGET — the live
+  // lane's "the wire answered, nothing parked may replay now"
   remove(task: PendingSocialTask): void;
+  // Drops THIS entry only if it is still the one stored for
+  // its target — the drain settles the object it listed, and a
+  // newer intent parked meanwhile under the same key survives
+  removeIfCurrent(task: PendingSocialTask): void;
+  // Whether this exact entry is still the one stored — a
+  // drain walking a snapshot skips an entry the live lane has
+  // purged or replaced since
+  isCurrent(task: PendingSocialTask): boolean;
   clear(): void;
   // Fires after every mutation; returns the unsubscribe
   subscribe(listener: () => void): () => void;
@@ -180,6 +196,18 @@ export function createSocialTaskQueue(storage: SocialStorage): SocialTaskQueue {
       persist();
       emit();
     },
+
+    removeIfCurrent(task) {
+      // Identity, not key: list() hands out the stored objects
+      // themselves, and add() always stores a fresh one
+      const key = socialTaskKey(task);
+      if (tasks.get(key) !== task) return;
+      tasks.delete(key);
+      persist();
+      emit();
+    },
+
+    isCurrent: (task) => tasks.get(socialTaskKey(task)) === task,
 
     clear() {
       if (tasks.size === 0) return;

@@ -3,38 +3,77 @@
 //
 //  The faculty timetable on REAL dates: a weekStart cursor
 //  (the ISO Monday of the visible week) under a quick tab bar
-//  (Mon–Fri, growing to the full week once a weekend day is
-//  in view) and header chevrons that CROSS week boundaries —
-//  stepping past Sunday lands on the next week's Monday,
-//  before Monday on the previous week's Sunday, and week mode
-//  steps whole weeks. The header always shows where the
-//  cursor is: the selected day's date under its name, or the
-//  ISO week number over the week's date range. The screen
-//  opens on today's week and re-follows the calendar on
+//  (Monday–Friday plus every weekend day the week's rows
+//  fill — a group with Saturday lectures gets its Saturday
+//  pill, KNF-174) and header chevrons that CROSS week
+//  boundaries — stepping past Sunday lands on the next week's
+//  Monday, before Monday on the previous week's Sunday, and
+//  week mode steps whole weeks. The header always shows where
+//  the cursor is, compactly enough that the screen's own
+//  title stays whole on a 320 pt phone: the selected day's
+//  name over its MM-DD in day modes, the ISO week number in
+//  week mode (the week's date range rides the strip below,
+//  which week mode leaves free of day tabs). While the cursor
+//  is anywhere but today, a Today button sits at the strip's
+//  end and snaps it home (KNF-175). The screen opens on
+//  today's week and re-follows the calendar on
 //  focus/foreground.
 //
 //  BOTH perspectives live off ONE dated fetch per (week,
 //  scope) — GET /schedule/events rows, ScheduleLesson plus
-//  date and lectureType — feeding all three view modes: the
-//  card list filters the week client-side by the selected
-//  day, the day timeline and week grid run the same rows
-//  through the engine pipeline. The scope is the selected
-//  group, or ?teacher= with the lecturer's exact display
-//  string — teacher rows arrive server-filtered, once per
-//  group under the SAME event id, so a lecture shared by
+//  date, lectureType and subgroups — feeding all three view
+//  modes: the card list filters the week client-side by the
+//  selected day, the day timeline and week grid run the same
+//  rows through the engine pipeline. The scope is the
+//  selected group, or ?teacher= with the lecturer's exact
+//  display string — teacher rows arrive server-filtered, once
+//  per group under the SAME event id, so a lecture shared by
 //  several groups merges by id into one card listing every
 //  group; double-bookings are washed via the engine's
 //  person-scope conflicts. An alternating slot (Monday one
 //  week, Tuesday the next) therefore shows only on its real
-//  dates — the folded weekly pattern that painted both
-//  phantom copies every week is gone. The semester picker is
-//  a TIME JUMP in both perspectives: a non-current term moves
-//  weekStart to that term's first Monday, the current term or
-//  "all" back to today's week. With no stored choice the
-//  CURRENT term is defaulted — today's own label when the
-//  server lists it (the next term's exam weeks arrive early
-//  and must not steal the default), the newest parsable label
-//  otherwise.
+//  dates. Every card opens the detail sheet, like a grid cell
+//  does; an exam (or a retake, an assessment, a
+//  consultation) wears its badge on the card, the cell and
+//  the sheet, and a split practical names its subgroup. On
+//  TODAY's list of a group or a teacher, the lecture under
+//  way says so and the next one counts down ("Po 25 min.")
+//  off the kit's minute clock.
+//
+//  With no group of their own choosing — a first visit, a
+//  fresh login — a student lands on the group their profile
+//  names (studyGroup, matched to the timetable's groups with
+//  case, spaces and hyphens folded: "isks 2" is ISKS-2), and
+//  follows it while their profile changes; a group (or "all
+//  groups") picked in the filter sheet is theirs and is never
+//  overridden. A different account on the phone starts
+//  fresh. The first fetch of a first visit waits for the
+//  group list instead of flashing every group's lectures. The
+//  schedule is also where a student SETS their group: picking
+//  one in the sheet that their profile does not name offers a
+//  "save as my group" tick, which writes the profile (the one
+//  source the ID card and the assistant read too) and merges
+//  the answer into the session; a guest's pick stays local.
+//
+//  The semester section of the filter sheet is NAVIGATION,
+//  and says so ("Pereiti į semestrą"): its checked row is the
+//  term of the week on screen (the scraper's own date rule,
+//  so it can never disagree with a card), and applying
+//  another term jumps to the week of that term's first REAL
+//  event — the dates GET /schedule/filters publishes per term
+//  — or, for today's term, back to today (KNF-037). Nothing
+//  rides the wire and nothing is persisted: only the group or
+//  teacher that actually narrows the fetch names itself in an
+//  empty day's hint (KNF-173). A week outside every published
+//  term reads "not published yet" instead of "no lectures".
+//
+//  That same group or teacher can be SUBSCRIBED to: a
+//  calendar button joins the filter row whenever one is
+//  applied (a guest's too) and opens CalendarSubscribeSheet —
+//  the timetable as an iCalendar feed in the phone's own
+//  calendar, kept current by the calendar app. It takes the
+//  place the old "1" count pill held, so the row still fits a
+//  320 pt phone.
 //
 //  Every load is sequence-guarded — rapid day tapping fires
 //  overlapping requests and only the newest may write. A
@@ -45,25 +84,32 @@
 //
 //  Conflict detection runs only while a group filter is
 //  active — under "all groups", parallel lectures overlap by
-//  design and flagging them would paint the list red.
+//  design and flagging them would paint the list red — and
+//  never pairs two disjoint subgroups of the group.
 //
-//  The timetable CHROME — day stepper and tabs, the view-mode
-//  segment, the conflict banner and the lesson card — comes
-//  from @knf/timetableuikit, themed through TimetableHost
-//  (which therefore wraps the WHOLE screen) with this app's
-//  Ionicons handed in; only the filter sheet and its bar stay
-//  app-built, since they encode the group/teacher/semester
-//  policy.
+//  The timetable CHROME — day stepper and tabs, the Today
+//  button, the view-mode segment, the conflict banner and the
+//  lesson card — comes from @knf/timetableuikit, themed
+//  through TimetableHost (which therefore wraps the WHOLE
+//  screen) with this app's Ionicons handed in; only the
+//  filter sheet and its bar stay app-built, since they encode
+//  the group/teacher/semester policy.
 //
 //  Split into (root component last):
 //
-//    currentTermKey  — today's 'YYYY-R/P' semester label
-//    termStartMonday — a term label → its first ISO Monday
+//    matchProfileGroup — a profile's studyGroup → a timetable group
+//    termStartMonday — a term label → its nominal first Monday
+//    termTarget      — a term label → the week/day a jump lands on
+//    clockOf         — a wire "HH:MM" through the one clock
+//    liveStatuses    — today's under-way / next-up rows
+//    withRowIds      — (event × group) row identity
 //    mergeEventRows  — shared-id rows → one row, groups joined
 //    Separator       — hoisted lesson-list separator
+//    LessonRow       — one tappable list card
 //    FilterBar       — active-filter summary, opens the modal
+//    CalendarButton  — the filter row's subscribe-in-calendar glyph
 //    FilterOption    — one radio row of the filter picker
-//    FilterModal     — perspective + group/teacher/semester picker
+//    FilterModal     — perspective + group/teacher + term jump
 //    ScheduleScreen  — the tab itself (default export)
 // -----------------------------------------------------------
 
@@ -75,22 +121,30 @@ import withFeature from '@/components/FeatureGate';
 import CachedBanner from '@/components/CachedBanner';
 
 // The timetable module: engine math + kit views, wired through
-// the host (theme/locale), the view pipeline and the tap sheet
-import LessonSheet from '@/components/schedule/LessonSheet';
+// the host (theme/locale/clock), the view pipeline, the tap
+// sheet and the human term names
+import CalendarSubscribeSheet from '@/components/schedule/CalendarSubscribeSheet';
+import LessonSheet, { type SheetLesson } from '@/components/schedule/LessonSheet';
 import TimetableHost from '@/components/schedule/TimetableHost';
 import TimetableView from '@/components/schedule/TimetableView';
+import { termName } from '@/components/schedule/terms';
 import {
   DAY_MS,
   conflictIds as engineConflictIds,
   dayIndexOf,
   forGroup,
+  formatMinutes,
   isoWeekNumber,
+  knfKind,
   mondayOf,
-  newestSemesterKey,
   normalizeKnf,
   parseISO,
+  parseTimeToMinutes,
+  termKeyOf,
   toISO,
+  toTimetableEntry,
   todayISO,
+  visibleDays as engineVisibleDays,
   type ConflictOptions,
   type KnfLesson,
   type TimetableEntry,
@@ -100,8 +154,11 @@ import {
   DayStepper,
   DayTabs,
   LessonCard,
+  TodayButton,
   ViewModeSwitch,
-  type TimetableLesson,
+  kindName,
+  useNow,
+  useTimetableLabels,
 } from '@knf/timetableuikit';
 
 // UI kit — chrome and the three data states
@@ -119,14 +176,18 @@ import { useScheduleConflicts } from '@/hooks/useScheduleConflicts';
 import {
   fetchScheduleEvents,
   fetchScheduleFilters,
+  updateProfile,
+  type ScheduleCalendarScope,
   type ScheduleEventRow,
   type ScheduleEventsResponse,
-  type ScheduleLesson,
+  type ScheduleTerm,
 } from '@/services/api';
 import { cacheKeyScheduleEvents, SCHEDULE_CACHE_MAX_AGE } from '@/services/cacheKeys';
 import { foldForSearch } from '@/services/format';
 
-// Failed silent refreshes toast instead of touching the list
+// Failed silent refreshes toast instead of touching the list;
+// the session names the student's own group
+import { useAuth } from '@/context/AuthContext';
 import { showToast } from '@/context/NetworkContext';
 
 // Filter choice persistence across launches
@@ -154,7 +215,8 @@ import useKeyboardVisible from '@/hooks/useKeyboardVisible';
 // SCHEDULE_PREFS_KEY
 // -----------------------------------------------------------
 //
-// AsyncStorage key for the persisted group/semester choice.
+// AsyncStorage key for the persisted group/teacher/view-mode
+// choice.
 //
 // Used by:
 //   - ScheduleScreen (below) — load/save of SchedulePrefs
@@ -163,37 +225,49 @@ import useKeyboardVisible from '@/hooks/useKeyboardVisible';
 
 export const SCHEDULE_PREFS_KEY = 'schedule_prefs';
 
-// The quick tab bar defaults to weekdays and grows to the full
-// week once a weekend day is in view; day numbers stay the
-// API's 0=Monday…6=Sunday range throughout
-const WEEKDAYS = [0, 1, 2, 3, 4];
-// The grown tab bar: every day, weekend included
-const FULL_WEEK = [0, 1, 2, 3, 4, 5, 6];
+// The strip under the filter bar — the day tabs' own height
+// (24 pt pills in 10 pt of padding), pinned so week mode,
+// which shows the week's dates there instead, keeps the
+// chrome steady across the mode switch. A plain number: the
+// NativeWind rem scale would make a min-h class 12% short
+const STRIP_HEIGHT = 44;
 
 // How the timetable renders and through whose eyes
 type ViewMode = 'list' | 'day' | 'week';
 type Perspective = 'group' | 'teacher';
 
-// Shape persisted under SCHEDULE_PREFS_KEY. semesterExplicit
-// records that the user picked a semester (or "all") THEMSELVES
-// — without it the newest semester is defaulted on launch
+// Shape persisted under SCHEDULE_PREFS_KEY. groupExplicit
+// records that the student picked the group (or "all groups")
+// in the sheet — without it the group follows their profile.
+// Older builds also wrote semester/semesterExplicit — read
+// past, never written: the semester is navigation now, the
+// week cursor its state
 interface SchedulePrefs {
   group: string | null;
-  semester: string | null;
-  semesterExplicit?: boolean;
+  groupExplicit?: boolean;
   viewMode?: ViewMode;
   perspective?: Perspective;
   teacher?: string | null;
 }
 
-// What the filter modal lifts on Apply — one object, so the
-// screen marks the semester explicit ONLY when it truly changed
+// A list card's live status: the lecture under way, or the
+// next one with its whole-minute countdown
+type LiveStatus = { live: true } | { live: false; startsIn: number };
+
+// How far ahead the next lecture counts down — beyond it the
+// countdown is noise, not help
+const NEXT_UP_WINDOW_MIN = 120;
+
+// What the filter modal lifts on Apply — one object; term is
+// the semester to JUMP to, set only when the user picked a
+// term other than the one on screen; saveAsMine asks for the
+// picked group to become the profile's
 interface FilterChoice {
   group: string | null;
-  semester: string | null;
-  semesterChanged: boolean;
+  term: string | null;
   perspective: Perspective;
   teacher: string | null;
+  saveAsMine: boolean;
 }
 
 
@@ -203,28 +277,25 @@ interface FilterChoice {
 
 
 // -----------------------------------------------------------
-// currentTermKey
+// matchProfileGroup
 // -----------------------------------------------------------
 //
-// Today's semester label by the sheets' naming: the label
-// year is the ACADEMIC year's first calendar year, so
-// August–December belong to that year's R (autumn) and
-// January–July to the PREVIOUS label year's P (spring —
-// '2026-P' runs in calendar 2027). This is the backend's own
-// rule (month >= 8 → {y}-R, else {y-1}-P, counted 1=January)
-// mirrored one to one — the default picked here and the label
-// the scraper stamps on a lecture must never disagree, and a
-// January or August special case would make them.
+// The timetable group a profile's free-text studyGroup names:
+// the exact string first, then a fold that ignores case,
+// diacritics, spaces and hyphens ("isks 2", "ISKS2" and
+// "ISKS-2" are one group). null for no profile group or one
+// the timetable does not list — a guess would put a student
+// on someone else's lectures.
 //
 // Used by:
-//   - ScheduleScreen (below) — the current-term default and
-//     the semester time-jump's "back to today" branch
+//   - ScheduleScreen (below) — the profile default
 // -----------------------------------------------------------
 
-function currentTermKey(now: Date = new Date()): string {
-  const year = now.getFullYear();
-  const month = now.getMonth() + 1; // 1=January, as the backend counts
-  return month >= 8 ? `${year}-R` : `${year - 1}-P`;
+function matchProfileGroup(profile: string | null | undefined, groups: readonly string[]): string | null {
+  const fold = (value: string) => foldForSearch(value).replace(/[^\p{L}\p{N}]/gu, '');
+  const wanted = fold(profile ?? '');
+  if (!wanted) return null;
+  return groups.find((group) => group === profile) ?? groups.find((group) => fold(group) === wanted) ?? null;
 }
 
 
@@ -237,14 +308,18 @@ function currentTermKey(now: Date = new Date()): string {
 // termStartMonday
 // -----------------------------------------------------------
 //
-// A 'YYYY-R/P' label → the ISO Monday its lectures start on:
-// the first Monday of September YYYY for autumn, of February
-// YYYY+1 for spring (the label year is the academic year's
-// first calendar year). A label outside that shape — a stray
-// sheet name — returns null and the time-jump stays put.
+// A 'YYYY-R/P' label → the ISO Monday its lectures nominally
+// start on: the first Monday of September YYYY for autumn, of
+// February YYYY+1 for spring (the label year is the academic
+// year's first calendar year). The FALLBACK of the semester
+// jump only — a server that dates its terms (termTarget)
+// always wins, since a term opening mid-week in August or a
+// January exam session lives nowhere near these Mondays. A
+// label outside that shape — a stray sheet name — returns
+// null and the jump stays put.
 //
 // Used by:
-//   - ScheduleScreen (below) — the semester time-jump
+//   - termTarget (below)
 // -----------------------------------------------------------
 
 function termStartMonday(label: string): string | null {
@@ -255,6 +330,113 @@ function termStartMonday(label: string): string | null {
   // the first Monday on or after the 1st
   const sinceMonday = (new Date(first).getUTCDay() + 6) % 7;
   return toISO(first + ((7 - sinceMonday) % 7) * DAY_MS);
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// termTarget
+// -----------------------------------------------------------
+//
+// Where the semester jump lands for a label: the week holding
+// the term's FIRST real event, on that event's weekday, when
+// the filters response dated the term — the 2026 autumn opens
+// on Tuesday 1 September, a week the nominal Monday skipped,
+// and the 2026 spring label holds only a January exam
+// session. Without server dates, termStartMonday's nominal
+// Monday. null when neither can place the label.
+//
+// Used by:
+//   - ScheduleScreen (below) — applyFilters' semester jump
+// -----------------------------------------------------------
+
+function termTarget(label: string, terms: readonly ScheduleTerm[]): { weekStart: string; day: number } | null {
+  const dated = terms.find((term) => term.semester === label);
+  if (dated && /^\d{4}-\d{2}-\d{2}$/.test(dated.from)) {
+    return { weekStart: mondayOf(dated.from), day: (new Date(parseISO(dated.from)).getUTCDay() + 6) % 7 };
+  }
+  const monday = termStartMonday(label);
+  return monday ? { weekStart: monday, day: 0 } : null;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// clockOf
+// -----------------------------------------------------------
+//
+// A wire "HH:MM" through the engine's formatMinutes — the one
+// clock the grid, the list and the detail sheet all print
+// (KNF-184). An unpadded "9:00" is padded first, exactly as
+// the adapter pads it on its way into the grid; a value the
+// strict parser still refuses is shown as it came rather than
+// hidden.
+//
+// Used by:
+//   - LessonRow (below) — the card's time range
+// -----------------------------------------------------------
+
+function clockOf(raw: string): string {
+  const trimmed = raw.trim();
+  const minutes = parseTimeToMinutes(/^\d:\d\d$/.test(trimmed) ? `0${trimmed}` : trimmed);
+  return minutes === null ? raw : formatMinutes(minutes);
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// liveStatuses
+// -----------------------------------------------------------
+//
+// Today's rows against the minute on the wall clock: every
+// row under way now is `live`; the earliest start still ahead
+// — every row sharing it — counts down, while it is within
+// NEXT_UP_WINDOW_MIN. Keyed by the caller's row key (the list
+// keys (event × group), the teacher's cards the event id); a
+// row whose times do not parse stays silent.
+//
+// Used by:
+//   - ScheduleScreen (below) — the list cards' status chips
+// -----------------------------------------------------------
+
+function liveStatuses(
+  rows: readonly ScheduleEventRow[],
+  nowMin: number,
+  keyOf: (row: ScheduleEventRow) => string,
+): Map<string, LiveStatus> {
+  const out = new Map<string, LiveStatus>();
+  const minutes = (raw: string) => parseTimeToMinutes(/^\d:\d\d$/.test(raw.trim()) ? `0${raw.trim()}` : raw);
+  let nextStart = Infinity;
+  let nextKeys: string[] = [];
+  for (const row of rows) {
+    const start = minutes(row.timeStart);
+    const end = minutes(row.timeEnd);
+    if (start === null || end === null) continue;
+    if (start <= nowMin && nowMin < end) {
+      out.set(keyOf(row), { live: true });
+    } else if (start > nowMin && start < nextStart) {
+      nextStart = start;
+      nextKeys = [keyOf(row)];
+    } else if (start === nextStart) {
+      nextKeys.push(keyOf(row));
+    }
+  }
+  if (nextStart - nowMin <= NEXT_UP_WINDOW_MIN) {
+    for (const key of nextKeys) out.set(key, { live: false, startsIn: nextStart - nowMin });
+  }
+  return out;
 }
 
 
@@ -345,13 +527,114 @@ const Separator = () => <View className="h-3" />;
 
 
 // -----------------------------------------------------------
+// LessonRow
+// -----------------------------------------------------------
+//
+// One list card, tappable like a grid cell: a press opens the
+// detail sheet (the card clips a long title at two lines and
+// a co-taught teacher line at one — the sheet holds the full
+// story). The wire row meets the kit card's NEUTRAL shape
+// here — the one mapping point where a ScheduleEventRow may
+// touch the kit — with the time through the one clock, the
+// kind and subgroups from the dated wire, and the group as
+// the footnote (the term is the same for every card of a
+// week; the sheet names it). The whole card is ONE screen-
+// reader element with a composed sentence, kind and clash
+// included. Rendered INSIDE TimetableHost, so the kit labels
+// it reads speak the app's language. The Pressable keeps a
+// plain style — its pressed dim rides the child render
+// function (a Pressable style function is dropped on device).
+//
+// Used by:
+//   - ScheduleScreen (below) — both perspectives' lists
+// -----------------------------------------------------------
+
+function LessonRow({
+  lesson,
+  conflict,
+  status,
+  onPress,
+}: {
+  lesson: ScheduleEventRow;
+  conflict: boolean;
+  // Today's under-way / next-up mark, when the screen ticks
+  status?: LiveStatus;
+  onPress: (lesson: ScheduleEventRow) => void;
+}) {
+
+  const { t } = useTranslation();
+  const { colors } = useTheme();
+  const labels = useTimetableLabels();
+
+
+  const kind = knfKind(lesson.lectureType);
+  const subgroups = lesson.subgroups ?? [];
+  const start = clockOf(lesson.timeStart);
+  const end = clockOf(lesson.timeEnd);
+  const statusLabel = status ? (status.live ? labels.inProgress : labels.startsIn(status.startsIn)) : null;
+  const sentence = [
+    statusLabel,
+    lesson.title,
+    kindName(labels, kind, lesson.lectureType),
+    `${start} – ${end}`,
+    lesson.room,
+    lesson.teacher,
+    lesson.group,
+    subgroups.length > 0 ? labels.subgroups(subgroups) : null,
+    conflict ? labels.conflict : null,
+  ]
+    .filter(Boolean)
+    .join(', ');
+
+
+  return (
+    <Pressable
+      onPress={() => onPress(lesson)}
+      accessibilityRole="button"
+      accessibilityLabel={sentence}
+      accessibilityHint={t('schedule.openDetailsHint')}
+    >
+      {({ pressed }) => (
+        <View style={{ opacity: pressed ? 0.85 : 1 }}>
+          <LessonCard
+            title={lesson.title}
+            person={lesson.teacher}
+            room={lesson.room}
+            timeStart={start}
+            timeEnd={end}
+            footnote={lesson.group}
+            kind={kind}
+            subgroups={subgroups}
+            conflict={conflict}
+            conflictIcon={<Ionicons name="alert-circle" size={14} color={colors.danger} />}
+            timeIcon={<Ionicons name="time-outline" size={14} color={conflict ? colors.danger : colors.brand} />}
+            status={statusLabel ? { label: statusLabel, live: !!status?.live } : undefined}
+          />
+        </View>
+      )}
+    </Pressable>
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // FilterBar
 // -----------------------------------------------------------
 //
-// One-row summary of the active choice — "IT-3 · 5" or a
-// teacher's name — with a count pill when any filter is set.
-// Tapping anywhere opens the FilterModal. The border and
-// ground live on the parent row it shares with ViewModeSwitch.
+// One-row summary of the active choice — the group or a
+// teacher's name. Tapping anywhere opens the FilterModal. The
+// border and ground live on the parent row it shares with
+// CalendarButton and ViewModeSwitch; with the calendar button
+// right behind it (`trailing`), its own right padding shrinks
+// to 4 pt — the glyph's box brings its own air — which keeps
+// a group label like "VDL-MRK-1" whole at 320 pt. The 44 pt
+// floor is a plain style number: NativeWind's native rem is
+// 14 px, so py-3 alone lands the row near 40 pt on a phone.
 //
 // Used by:
 //   - ScheduleScreen (below)
@@ -359,11 +642,12 @@ const Separator = () => <View className="h-3" />;
 
 function FilterBar({
   label,
-  activeCount,
+  trailing,
   onPress,
 }: {
   label: string;
-  activeCount: number;
+  // A CalendarButton follows in the row
+  trailing: boolean;
   onPress: () => void;
 }) {
 
@@ -376,7 +660,8 @@ function FilterBar({
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={t('schedule.filterTitle')}
-      className="flex-1 flex-row items-center justify-between px-md py-3 active:bg-surface-soft"
+      className="flex-1 flex-row items-center justify-between pl-md py-3 active:bg-surface-soft"
+      style={{ minHeight: 44, paddingRight: trailing ? 4 : 16 }}
     >
 
       <View className="flex-1 flex-row items-center">
@@ -385,12 +670,6 @@ function FilterBar({
           {label}
         </Text>
       </View>
-
-      {activeCount > 0 && (
-        <View className="ml-2 h-5 w-5 items-center justify-center rounded-full bg-brand">
-          <Text className="font-raleway-bold text-xs text-on-brand">{activeCount}</Text>
-        </View>
-      )}
 
       <View className="ml-2">
         <Ionicons name="chevron-down" size={16} color={colors.inkFaint} />
@@ -407,23 +686,69 @@ function FilterBar({
 
 
 // -----------------------------------------------------------
+// CalendarButton
+// -----------------------------------------------------------
+//
+// The filter row's calendar glyph, between the summary and
+// the view-mode segment — rendered only while a group or a
+// teacher is applied, the scopes a calendar feed exists for —
+// opening the subscription sheet. 40 pt wide with a 2 pt hit
+// slop each side and the row's 44 pt height, as plain style
+// numbers (NativeWind's native rem is 14 px); pressed
+// feedback rides an active: class, never a style function.
+//
+// Used by:
+//   - ScheduleScreen (below)
+// -----------------------------------------------------------
+
+function CalendarButton({ onPress }: { onPress: () => void }) {
+
+  const { t } = useTranslation();
+  const { colors } = useTheme();
+
+
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={t('schedule.subscribeAction')}
+      hitSlop={{ left: 2, right: 2 }}
+      className="items-center justify-center active:opacity-70"
+      style={{ width: 40, height: 44 }}
+      testID="schedule-calendar-button"
+    >
+      <Ionicons name="calendar-outline" size={20} color={colors.brand} />
+    </Pressable>
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // FilterOption
 // -----------------------------------------------------------
 //
 // One radio row of the picker: brand-soft wash + brand text
-// when selected. The 12pt vertical padding around base text
-// keeps the row at ≥44pt.
+// when selected, an optional quieter second line (a term's
+// dates). A 44 pt minimum height as a plain number — py-3 is
+// 10.5 px at NativeWind's native rem, short of the floor.
 //
 // Used by:
-//   - FilterModal (below) — "all" rows, groups, semesters
+//   - FilterModal (below) — "all" rows, groups, teachers, terms
 // -----------------------------------------------------------
 
 function FilterOption({
   label,
+  hint,
   selected,
   onPress,
 }: {
   label: string;
+  hint?: string;
   selected: boolean;
   onPress: () => void;
 }) {
@@ -432,12 +757,14 @@ function FilterOption({
       onPress={onPress}
       accessibilityRole="radio"
       accessibilityState={{ checked: selected }}
-      accessibilityLabel={label}
-      className={`mb-1 rounded-lg px-md py-3 ${selected ? 'bg-brand-soft' : ''}`}
+      accessibilityLabel={hint ? `${label}, ${hint}` : label}
+      className={`mb-1 justify-center rounded-lg px-md py-3 ${selected ? 'bg-brand-soft' : ''}`}
+      style={{ minHeight: 44 }}
     >
-      <Text className={selected ? 'font-raleway-bold text-base text-brand' : 'font-raleway text-base text-ink'}>
+      <Text className={selected ? 'font-raleway-bold text-base text-brand-text' : 'font-raleway text-base text-ink'}>
         {label}
       </Text>
+      {hint ? <Text className="mt-0.5 font-raleway text-xs text-ink-soft">{hint}</Text> : null}
     </Pressable>
   );
 }
@@ -454,16 +781,27 @@ function FilterOption({
 //
 // Bottom-sheet picker: a perspective segment (group timetable
 // or a teacher's), then the matching list — groups, or the
-// searchable teacher roster — with the semester handful in the
+// searchable teacher roster — with the term jump in the
 // footer of both. Taps edit a LOCAL draft and "Atlikta" lifts
 // everything in ONE FilterChoice — one schedule fetch per
 // visit instead of one behind the sheet for every candidate
-// tapped; "Valyti" clears the visible branch without closing,
-// and a scrim/back dismissal discards an unapplied draft.
-// The teacher roster is the filters response's `teachers`
-// list, fetched once at mount alongside groups and semesters
-// — the search folds both sides, so 'birz' finds
+// tapped; "Valyti" clears the group/teacher branch without
+// closing, and a scrim/back dismissal discards an unapplied
+// draft. The teacher roster is the filters response's
+// `teachers` list, fetched once at mount alongside groups and
+// terms — the search folds both sides, so 'birz' finds
 // 'Biržietienė'.
+//
+// The term section is titled as the jump it is: its rows are
+// the published terms in human words ("2026 m. ruduo") with
+// the dates they span, the checked one is the term of the
+// week on screen, and only a DIFFERENT pick rides the choice
+// as a jump.
+//
+// A signed-in student whose draft group is not the one their
+// profile names sees a "save as my group" tick above the
+// buttons — unticked, never a dialog; a guest (myGroup
+// undefined) never does.
 //
 // The sheet rides above the keyboard the proven way (see
 // new-chat's banner): a KeyboardAvoidingView at the MODAL
@@ -481,50 +819,56 @@ function FilterModal({
   visible,
   groups,
   semesters,
+  terms,
   teachers,
   selectedGroup,
-  selectedSemester,
+  visibleTerm,
   perspective,
   selectedTeacher,
+  myGroup,
   onApply,
   onClose,
 }: {
   visible: boolean;
   groups: string[];
   semesters: string[];
+  terms: readonly ScheduleTerm[];
   teachers: string[];
   selectedGroup: string | null;
-  selectedSemester: string | null;
+  // The term of the week on screen — the checked row
+  visibleTerm: string;
   perspective: Perspective;
   selectedTeacher: string | null;
+  // The profile's group as the timetable knows it — null for
+  // a student without one, undefined for a guest (no offer)
+  myGroup: string | null | undefined;
   onApply: (choice: FilterChoice) => void;
   onClose: () => void;
 }) {
 
   const { t } = useTranslation();
+  const { colors } = useTheme();
 
 
   // The draft of the choice while the sheet is open — re-seeded
   // from the applied values on every open, so a dismissal
   // without "Atlikta" leaves the screen's filters untouched
   const [draftGroup, setDraftGroup] = useState<string | null>(selectedGroup);
-  const [draftSemester, setDraftSemester] = useState<string | null>(selectedSemester);
+  const [draftTerm, setDraftTerm] = useState<string>(visibleTerm);
   const [draftPerspective, setDraftPerspective] = useState<Perspective>(perspective);
   const [draftTeacher, setDraftTeacher] = useState<string | null>(selectedTeacher);
   const [teacherQuery, setTeacherQuery] = useState('');
-  // Whether the user TOUCHED the semester rows this visit —
-  // Apply must not read the live prop, which the newest-
-  // semester default can move underneath an open sheet
-  const semesterTouchedRef = useRef(false);
+  // The "save as my group" tick — always starts unticked
+  const [saveAsMine, setSaveAsMine] = useState(false);
   useEffect(() => {
     if (visible) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- the sheet opening is the event: drafts re-seed from the live filters at that moment, never continuously
       setDraftGroup(selectedGroup);
-      setDraftSemester(selectedSemester);
+      setDraftTerm(visibleTerm);
       setDraftPerspective(perspective);
       setDraftTeacher(selectedTeacher);
       setTeacherQuery('');
-      semesterTouchedRef.current = false;
+      setSaveAsMine(false);
     }
     // Re-seed only on open — the applied values cannot change
     // while the sheet is up
@@ -535,6 +879,10 @@ function FilterModal({
   const teacherMode = draftPerspective === 'teacher';
   const keyboardUp = useKeyboardVisible();
 
+  // The offer: a signed-in student, a real group drafted, and
+  // not the one the profile already names
+  const offerSave = myGroup !== undefined && !teacherMode && draftGroup !== null && draftGroup !== myGroup;
+
   // Folded on both sides so 'birz' finds 'Biržietienė'
   const visibleTeachers = useMemo(() => {
     const query = foldForSearch(teacherQuery.trim());
@@ -542,23 +890,23 @@ function FilterModal({
     return teachers.filter((name) => foldForSearch(name).includes(query));
   }, [teachers, teacherQuery]);
 
-
-  // Every deliberate tap on a semester row — a label, "all",
-  // or the clear button — counts as the user's own choice
-  const pickSemester = (semester: string | null) => {
-    semesterTouchedRef.current = true;
-    setDraftSemester(semester);
+  // A term's dates, when the server published them
+  const spanOf = (label: string) => {
+    const term = terms.find((candidate) => candidate.semester === label);
+    return term ? `${term.from} – ${term.to}` : undefined;
   };
 
-  // Everything lifts in one object; semesterChanged marks the
-  // semester explicit only when the user actually touched it
+
+  // Everything lifts in one object; a term rides it only when
+  // it differs from the week on screen — re-picking where you
+  // already are is no jump
   const apply = () => {
     onApply({
       group: draftGroup,
-      semester: draftSemester,
-      semesterChanged: semesterTouchedRef.current,
+      term: draftTerm !== visibleTerm ? draftTerm : null,
       perspective: draftPerspective,
       teacher: draftPerspective === 'teacher' ? draftTeacher : null,
+      saveAsMine: offerSave && saveAsMine,
     });
     onClose();
   };
@@ -566,30 +914,25 @@ function FilterModal({
   const clearBranch = () => {
     if (teacherMode) setDraftTeacher(null);
     else setDraftGroup(null);
-    pickSemester(null);
   };
 
 
-  const semesterFooter = (
+  const semesterFooter = semesters.length > 0 ? (
     <>
       <Text className="mb-2 mt-lg font-raleway-bold text-xs uppercase tracking-widest text-ink-soft">
-        {t('schedule.semesterLabel')}
+        {t('schedule.jumpToSemester')}
       </Text>
-      <FilterOption
-        label={t('schedule.allSemesters')}
-        selected={draftSemester === null}
-        onPress={() => pickSemester(null)}
-      />
       {semesters.map((semester) => (
         <FilterOption
           key={semester}
-          label={semester}
-          selected={draftSemester === semester}
-          onPress={() => pickSemester(semester)}
+          label={termName(t, semester)}
+          hint={spanOf(semester)}
+          selected={draftTerm === semester}
+          onPress={() => setDraftTerm(semester)}
         />
       ))}
     </>
-  );
+  ) : null;
 
 
   return (
@@ -624,7 +967,8 @@ function FilterModal({
                     onPress={() => setDraftPerspective(candidate)}
                     accessibilityRole="tab"
                     accessibilityState={{ selected: active }}
-                    className={`flex-1 items-center rounded-lg py-3 ${active ? 'bg-surface' : ''}`}
+                    className={`flex-1 items-center justify-center rounded-lg py-3 ${active ? 'bg-surface' : ''}`}
+                    style={{ minHeight: 44 }}
                   >
                     <Text className={active ? 'font-raleway-bold text-sm text-brand-text' : 'font-raleway-medium text-sm text-ink-soft'}>
                       {t(candidate === 'group' ? 'schedule.groupLabel' : 'schedule.teacherLabel')}
@@ -692,6 +1036,31 @@ function FilterModal({
               ListFooterComponent={semesterFooter}
             />
 
+            {/* The one-tick offer to make the drafted group the
+                profile's — a className Pressable with active:
+                feedback only (a style function would drop the
+                classes on device) */}
+            {offerSave ? (
+              <Pressable
+                onPress={() => setSaveAsMine((on) => !on)}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: saveAsMine }}
+                accessibilityLabel={t('schedule.saveAsMyGroup')}
+                accessibilityHint={t('schedule.saveAsMyGroupHint')}
+                className="mx-lg mt-md flex-row items-center rounded-lg px-md py-3 active:bg-surface-soft"
+              >
+                <Ionicons
+                  name={saveAsMine ? 'checkbox' : 'square-outline'}
+                  size={22}
+                  color={saveAsMine ? colors.brand : colors.inkSoft}
+                />
+                <View className="ml-3 flex-1">
+                  <Text className="font-raleway-medium text-sm text-ink">{t('schedule.saveAsMyGroup')}</Text>
+                  <Text className="mt-0.5 font-raleway text-xs text-ink-soft">{t('schedule.saveAsMyGroupHint')}</Text>
+                </View>
+              </Pressable>
+            ) : null}
+
             <View className="flex-row gap-3 px-lg pb-xl pt-md">
               <View className="flex-1">
                 <Button title={t('schedule.clearFilters')} variant="outline" onPress={clearBranch} />
@@ -727,13 +1096,13 @@ function FilterModal({
 // the same scope refreshes silently instead of blanking a
 // filled view; a hop onto an already-fetched neighbour week
 // refreshes silently too, teacher hops included). Around it:
-// the weekStart cursor the chevrons and the semester
-// time-jump move, the persisted prefs round trip with the
-// current-term default and stale-choice validation, the
-// focus/foreground today re-check, and the derived body
-// branch table the render walks. With the teacher perspective
-// on but no teacher picked nothing fetches — the
-// pick-a-teacher prompt renders instead.
+// the weekStart cursor the chevrons, the Today button and the
+// semester jump move, the persisted prefs round trip with
+// stale-choice validation, the focus/foreground today
+// re-check, and the derived body branch table the render
+// walks. With the teacher perspective on but no teacher
+// picked nothing fetches — the pick-a-teacher prompt renders
+// instead.
 //
 // Used by:
 //   - expo-router — the /tabs/schedule tab
@@ -747,6 +1116,23 @@ function ScheduleScreen() {
   const tabBarScroll = useTabBarScroll();
   // JS-side colors for the icons handed into the kit chrome
   const { colors } = useTheme();
+
+  // The student's own group, and whose session this is —
+  // trusted only once the session restore has settled
+  const { user, hydrated, setUser } = useAuth();
+  const profileGroup = user?.studyGroup ?? null;
+  const accountId = hydrated ? (user?.id ?? null) : undefined;
+
+  // The profile save merges over the LATEST user, never the
+  // render closure that started it (see the ID card's save)
+  const userRef = useRef(user);
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
+
+  // One profile save at a time — a second Done tap while the
+  // first is in flight must not fire a duplicate PUT
+  const savingGroupRef = useRef(false);
 
 
   // Opens on today's tab — weekends included, now that the
@@ -765,8 +1151,13 @@ function ScheduleScreen() {
   const [teacher, setTeacher] = useState<string | null>(null);
 
 
-  // A tapped timetable cell opens the detail sheet
-  const [sheetLesson, setSheetLesson] = useState<TimetableLesson | null>(null);
+  // A tapped timetable cell or list card opens the detail sheet
+  const [sheetLesson, setSheetLesson] = useState<SheetLesson | null>(null);
+
+  // The calendar button opens the subscription sheet with the
+  // scope applied AT THAT MOMENT — captured, so nothing that
+  // moves the filter underneath can swap the sheet's feed
+  const [subscribeScope, setSubscribeScope] = useState<ScheduleCalendarScope | null>(null);
 
 
   // BOTH perspectives' dataset — ONE dated three-week window
@@ -784,22 +1175,24 @@ function ScheduleScreen() {
   // failed", and validation additionally trusts only NON-EMPTY
   // lists, so an empty catalogue can't wipe a stored choice.
   // teachers is the whole roster the filter modal searches —
-  // exact ?teacher= values, no dataset fetch behind it
+  // exact ?teacher= values, no dataset fetch behind it; terms
+  // date each published semester for the jump
   const [groups, setGroups] = useState<string[]>([]);
   const [semesters, setSemesters] = useState<string[]>([]);
+  const [terms, setTerms] = useState<ScheduleTerm[]>([]);
   const [teachers, setTeachers] = useState<string[]>([]);
   const [filtersFetched, setFiltersFetched] = useState(false);
+  // The filters request ended either way — the profile default
+  // stops waiting for a list that is not coming
+  const [filtersSettled, setFiltersSettled] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
-  const [selectedSemester, setSelectedSemester] = useState<string | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [prefsLoaded, setPrefsLoaded] = useState(false);
 
-
-  // True once the user (or their restored prefs) chose a
-  // semester — including "all". Until then the newest parsable
-  // semester is defaulted so stale semesters stay out of view.
-  // STATE, not a ref: the prefs persistence effect watches it
-  const [semesterExplicit, setSemesterExplicit] = useState(false);
+  // True once the student chose the group themselves (the
+  // sheet, or a stored choice) — until then it follows the
+  // profile. STATE, not a ref: the persistence effect writes it
+  const [groupExplicit, setGroupExplicit] = useState(false);
 
 
   // Only the newest request may write — rapid day taps fire
@@ -892,16 +1285,22 @@ function ScheduleScreen() {
 
   // Filter options fail silently — the modal simply offers
   // only the "all" rows (and an empty teacher roster) until
-  // the network-restore retry below
+  // the network-restore retry below. terms is optional on the
+  // wire: a response cached before the backend dated its
+  // terms reads as "no dates", and the jump falls back to the
+  // nominal Monday
   const loadFilters = useCallback(async () => {
     try {
       const resp = await fetchScheduleFilters();
       setGroups(resp.groups);
       setSemesters(resp.semesters);
+      setTerms(Array.isArray(resp.terms) ? resp.terms : []);
       setTeachers(resp.teachers);
       setFiltersFetched(true);
     } catch {
       // keep whatever we had
+    } finally {
+      setFiltersSettled(true);
     }
   }, []);
 
@@ -909,7 +1308,11 @@ function ScheduleScreen() {
   // Restore the persisted filter choice before the first fetch
   // — validating the shape instead of casting, so a corrupt or
   // foreign blob reads as "no filter" rather than poisoning
-  // state with non-strings
+  // state with non-strings. An older build's semester fields
+  // are read past: the semester is navigation now. A stored
+  // group counts as the student's own choice when the blob
+  // says so — or when an older build stored it, since those
+  // stored only a group the student picked
   useEffect(() => {
     void (async () => {
       try {
@@ -918,12 +1321,11 @@ function ScheduleScreen() {
           const parsed: unknown = JSON.parse(raw);
           if (parsed && typeof parsed === 'object') {
             const prefs = parsed as Partial<SchedulePrefs>;
-            if (typeof prefs.group === 'string' && prefs.group) setSelectedGroup(prefs.group);
-            if (typeof prefs.semester === 'string' && prefs.semester) setSelectedSemester(prefs.semester);
-            // Only the RECORDED flag makes a restored semester
-            // explicit — a stored auto-default must stay a
-            // default, or a semester rollover could never move it
-            if (prefs.semesterExplicit === true) setSemesterExplicit(true);
+            const storedGroup = typeof prefs.group === 'string' && prefs.group ? prefs.group : null;
+            if (storedGroup) setSelectedGroup(storedGroup);
+            if (prefs.groupExplicit === true || (prefs.groupExplicit === undefined && storedGroup)) {
+              setGroupExplicit(true);
+            }
             if (prefs.viewMode === 'list' || prefs.viewMode === 'day' || prefs.viewMode === 'week') {
               setViewMode(prefs.viewMode);
             }
@@ -960,14 +1362,13 @@ function ScheduleScreen() {
     if (!prefsLoaded) return;
     const prefs: SchedulePrefs = {
       group: selectedGroup,
-      semester: selectedSemester,
-      semesterExplicit,
+      groupExplicit,
       viewMode,
       perspective,
       teacher,
     };
     AsyncStorage.setItem(SCHEDULE_PREFS_KEY, JSON.stringify(prefs)).catch(() => {});
-  }, [prefsLoaded, selectedGroup, selectedSemester, semesterExplicit, viewMode, perspective, teacher]);
+  }, [prefsLoaded, selectedGroup, groupExplicit, viewMode, perspective, teacher]);
 
 
   // Persisted filters can outlive the server's lists (a group
@@ -980,33 +1381,43 @@ function ScheduleScreen() {
     if (groups.length > 0 && selectedGroup !== null && !groups.includes(selectedGroup)) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- the server catalog arriving is the event; a stale persisted choice is cleared once, in response
       setSelectedGroup(null);
+      // A vanished choice is no choice — the profile may speak
+      setGroupExplicit(false);
     }
-    if (semesters.length > 0 && selectedSemester !== null && !semesters.includes(selectedSemester)) {
-      // Clearing a stale semester also clears the explicit
-      // mark, so the newest-semester default below re-applies
-      setSemesterExplicit(false);
-      setSelectedSemester(null);
-    }
-  }, [prefsLoaded, filtersFetched, groups, semesters, selectedGroup, selectedSemester]);
+  }, [prefsLoaded, filtersFetched, groups, selectedGroup]);
 
 
-  // No stored semester choice: default to the CURRENT term —
-  // the backend also lists the NEXT term early (its exam
-  // weeks), so the newest label must not steal the default.
-  // Today's own label wins whenever the server lists it; only
-  // a list without it falls back to the newest parsable label
-  // (engine ranking: the label year is the academic year's
-  // first calendar year, so a spring label outranks its own
-  // autumn). "All semesters" stays an explicit opt-in through
-  // the filter modal.
+  // No group of the student's own choosing: the one their
+  // profile names, once the timetable's list can confirm it —
+  // and again whenever the profile changes. Never over a
+  // choice made in the sheet
   useEffect(() => {
-    if (!prefsLoaded || !filtersFetched) return;
-    if (semesterExplicit || selectedSemester !== null) return;
-    const current = currentTermKey();
-    const picked = semesters.includes(current) ? current : newestSemesterKey(semesters);
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- the semester list arriving is the event; the current-term default applies once, in response
-    if (picked) setSelectedSemester(picked);
-  }, [prefsLoaded, filtersFetched, semesters, selectedSemester, semesterExplicit]);
+    if (!prefsLoaded || !filtersFetched || groupExplicit) return;
+    const match = matchProfileGroup(profileGroup, groups);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the group list or the profile arriving is the event; the default follows it
+    if (match !== selectedGroup) setSelectedGroup(match);
+  }, [prefsLoaded, filtersFetched, groupExplicit, profileGroup, groups, selectedGroup]);
+
+
+  // A different account on this phone (a login, a logout, a
+  // switch) is a fresh visit: the previous student's picks
+  // must not follow the next one. The first trusted reading —
+  // the session restore settling — only records who is here
+  const accountRef = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (accountId === undefined) return;
+    if (accountRef.current === undefined || accountRef.current === accountId) {
+      accountRef.current = accountId;
+      return;
+    }
+    accountRef.current = accountId;
+    // The session changing hands is the event: the filters
+    // reset once, in response
+    setSelectedGroup(null);
+    setGroupExplicit(false);
+    setPerspective('group');
+    setTeacher(null);
+  }, [accountId]);
 
 
   // The fetch scope BOTH perspectives share: exactly one of
@@ -1020,6 +1431,23 @@ function ScheduleScreen() {
   const scopeTeacher = perspective === 'teacher' ? teacher : null;
   const teacherIdle = perspective === 'teacher' && teacher === null;
 
+  // The profile default and whether the fetch must wait for
+  // it. A first visit of a student with a profile group waits
+  // for the group list (one request, fired at mount) — "all
+  // groups" flashing up and being replaced a moment later is
+  // exactly the confusion the default fixes; a failed list
+  // ends the wait. Once the list is in, the fetch waits only
+  // while the default effect above has yet to APPLY what the
+  // list resolved (the list can land before the stored prefs
+  // do, in the same commit as the first fetch). A stored
+  // default — a later visit — never waits at all
+  const resolvedDefault = filtersFetched ? matchProfileGroup(profileGroup, groups) : undefined;
+  const defaultPending =
+    perspective === 'group' &&
+    !groupExplicit &&
+    !!profileGroup &&
+    (resolvedDefault === undefined ? selectedGroup === null && !filtersSettled : resolvedDefault !== selectedGroup);
+
 
   // (Re)load the dated week whenever the window or the scope
   // changes — gated on prefsLoaded so the persisted filter
@@ -1027,7 +1455,7 @@ function ScheduleScreen() {
   // fetch late. ONE fetch serves all three view modes of
   // whichever perspective is on.
   useEffect(() => {
-    if (!prefsLoaded || teacherIdle) return;
+    if (!prefsLoaded || teacherIdle || defaultPending) return;
     // A hop onto a week the fetched window ALREADY covers (same
     // scope, one week either side — a settled pager swipe, a day
     // step across the boundary, Today from next door) refreshes
@@ -1043,7 +1471,7 @@ function ScheduleScreen() {
       Math.abs(parseISO(weekStart) - parseISO(served.weekStart)) <= 7 * DAY_MS;
     const spinner = !adjacent && eventsKeyRef.current !== cacheKeyScheduleEvents(weekStart, scopeGroup, scopeTeacher);
     void loadEvents(weekStart, scopeGroup, scopeTeacher, spinner);
-  }, [prefsLoaded, teacherIdle, weekStart, scopeGroup, scopeTeacher, loadEvents]);
+  }, [prefsLoaded, teacherIdle, defaultPending, weekStart, scopeGroup, scopeTeacher, loadEvents]);
 
 
   // The fetched window holds THREE weeks — bucket the rows by
@@ -1140,7 +1568,7 @@ function ScheduleScreen() {
     const ids = engineConflictIds(datedNormalized.entries, { scope: 'person' });
     return shownWeekRows
       .filter((row) => row.dayOfWeek === selectedDay)
-      .map((row) => ({ conflict: ids.has(row.id), lesson: row as ScheduleLesson }));
+      .map((row) => ({ conflict: ids.has(row.id), lesson: row }));
   }, [viewMode, perspective, shownWeekRows, datedNormalized, selectedDay]);
 
 
@@ -1177,25 +1605,34 @@ function ScheduleScreen() {
   };
 
 
-  // Today's coordinates — the tab strip's outline marker and
-  // the now-line gate read them each render
-  const todayMonday = mondayOf(todayISO());
+  // Today's coordinates — the tab strip's outline marker, the
+  // now-line gate and the Today button read them each render
+  const todayDate = todayISO();
+  const todayMonday = mondayOf(todayDate);
   const todayIndex = dayIndexOf(new Date());
+
+
+  // Both cursors home to today — the Today button's press and
+  // the tab re-press gesture below. Fresh Date reads inside
+  // the handler, so a listener mounted before midnight still
+  // lands on the new day
+  const snapToToday = useCallback(() => {
+    setWeekStart(mondayOf(todayISO()));
+    setSelectedDay(dayIndexOf(new Date()));
+  }, []);
 
 
   // The news-feed gesture, adopted here: tapping the Schedule
   // tab WHILE ALREADY ON IT snaps both cursors back to today —
   // switching in from another tab keeps whatever week and day
-  // the user left. Fresh Date reads inside the handler, so a
-  // listener mounted before midnight still lands on the new day
+  // the user left (the Today button is the visible route)
   const navigation = useNavigation<BottomTabNavigationProp<ParamListBase>>();
   useEffect(() => {
     return navigation.addListener('tabPress', () => {
       if (!navigation.isFocused()) return;
-      setWeekStart(mondayOf(todayISO()));
-      setSelectedDay(dayIndexOf(new Date()));
+      snapToToday();
     });
-  }, [navigation]);
+  }, [navigation, snapToToday]);
 
 
   // The mount-time "today" must not fossilize: on focus and on
@@ -1221,31 +1658,54 @@ function ScheduleScreen() {
   }, [evaluateToday]);
 
 
-  // The modal lifts everything at once; a semester that truly
-  // moved — to a label or to "all" — is the user's own choice
-  // and must survive as such. In BOTH perspectives that choice
-  // is a TIME JUMP: a non-current term moves the window to its
-  // first Monday (and Monday's tab), the current term or "all"
-  // back to today's week — nothing rides the wire, the dates
-  // say it all.
+  // The modal lifts everything at once. A term that rides the
+  // choice is a TIME JUMP in both perspectives: today's term
+  // back to today, any other to the week of its first real
+  // event (termTarget) — nothing rides the wire, the dates say
+  // it all
   const applyFilters = (choice: FilterChoice) => {
-    if (choice.semesterChanged) {
-      setSemesterExplicit(true);
-      setSelectedSemester(choice.semester);
-      const todayMonday = mondayOf(todayISO());
+    if (choice.term) {
       const target =
-        choice.semester && choice.semester !== currentTermKey()
-          ? termStartMonday(choice.semester)
-          : todayMonday;
+        choice.term === termKeyOf(todayISO())
+          ? { weekStart: mondayOf(todayISO()), day: dayIndexOf(new Date()) }
+          : termTarget(choice.term, terms);
       // An unparsable label has no start date — stay put
       if (target) {
-        setWeekStart(target);
-        setSelectedDay(target === todayMonday ? dayIndexOf(new Date()) : 0);
+        setWeekStart(target.weekStart);
+        setSelectedDay(target.day);
       }
     }
+    // A group the student changed in the sheet is theirs from
+    // now on; leaving it untouched keeps the profile default
+    if (choice.group !== selectedGroup) setGroupExplicit(true);
     setSelectedGroup(choice.group);
     setPerspective(choice.perspective);
     setTeacher(choice.teacher);
+    if (choice.saveAsMine && choice.group) void saveMyGroup(choice.group);
+  };
+
+
+  // "Save as my group": the profile's study_group through the
+  // shared wrapper, the answer MERGED into the session user
+  // (the PUT omits fields the session carries — a replace
+  // would drop them). A failure toasts and changes nothing —
+  // the pick still filters the timetable locally
+  const saveMyGroup = async (group: string) => {
+    const owner = userRef.current;
+    if (!owner || savingGroupRef.current) return;
+    savingGroupRef.current = true;
+    try {
+      const updated = await updateProfile({ study_group: group });
+      const latest = userRef.current;
+      // Merged only into the SAME account's session — a logout
+      // landing mid-save must not resurrect the old user
+      if (latest && latest.id === owner.id) setUser({ ...latest, ...updated });
+      showToast('success', t('schedule.myGroupSaved'));
+    } catch {
+      showToast('error', t('schedule.myGroupSaveError'));
+    } finally {
+      savingGroupRef.current = false;
+    }
   };
 
 
@@ -1265,18 +1725,18 @@ function ScheduleScreen() {
   };
 
 
-  // "IT-3 · 5" (or the teacher's name) summary of the active
-  // choice; doubles as the empty-state hint so an over-filtered
-  // day explains itself
-  const activeFilterCount =
-    (perspective === 'teacher' ? (teacher ? 1 : 0) : selectedGroup ? 1 : 0) + (selectedSemester ? 1 : 0);
-  const filterSummary = (
-    perspective === 'teacher'
-      ? [teacher ?? t('schedule.pickTeacher'), selectedSemester]
-      : [selectedGroup ?? t('schedule.allGroups'), selectedSemester]
-  )
-    .filter(Boolean)
-    .join(' · ');
+  // The applied scope — the group or the teacher, the only
+  // choices that narrow the fetch: only they explain an empty
+  // day (the semester is navigation and filters nothing —
+  // KNF-173), tick today's list live, and have a calendar feed
+  // to follow — and the filter bar's summary naming them
+  const appliedScope: ScheduleCalendarScope | null = scopeGroup
+    ? { group: scopeGroup }
+    : scopeTeacher
+      ? { teacher: scopeTeacher }
+      : null;
+  const filterSummary =
+    perspective === 'teacher' ? (teacher ?? t('schedule.pickTeacher')) : (selectedGroup ?? t('schedule.allGroups'));
 
 
   // Which branch fills the body, and the dated states behind
@@ -1293,12 +1753,13 @@ function ScheduleScreen() {
     viewMode !== 'list' ? 0 : perspective === 'teacher' ? teacherDayCards.filter((card) => card.conflict).length : conflictIds.size;
 
 
-  // The header's proof of where the cursor is: day modes show
-  // the selected day's real date under its name, week mode
-  // the ISO week number over the Monday–Sunday range. The
-  // range trims to MM-DD except across New Year, where the
-  // trimmed form ("12-29 – 01-04") would hide which years the
-  // week straddles — those weeks keep the full dates
+  // The cursor's captions. Day modes date the selected day as
+  // MM-DD under its name, week mode names the ISO week — the
+  // header stays compact enough for the title to read whole
+  // at 320 pt. The week's full range rides the strip in week
+  // mode and the "not published" hint: it trims to MM-DD
+  // except across New Year, where the trimmed form ("12-29 –
+  // 01-04") would hide which years the week straddles
   const weekEnd = toISO(parseISO(weekStart) + 6 * DAY_MS);
   const selectedDateISO = toISO(parseISO(weekStart) + selectedDay * DAY_MS);
   const weekCaption = t('schedule.weekShort', { week: isoWeekNumber(weekStart) });
@@ -1307,16 +1768,60 @@ function ScheduleScreen() {
       ? `${weekStart.slice(5)} – ${weekEnd.slice(5)}`
       : `${weekStart} – ${weekEnd}`;
 
+  // Away from today — the whole week in week mode, the day in
+  // the day modes — the Today button shows
+  const displaced = viewMode === 'week' ? weekStart !== todayMonday : selectedDateISO !== todayDate;
+
+  // The term of the week on screen — the filter sheet's
+  // checked row, by the scraper's own date rule
+  const visibleTerm = termKeyOf(weekStart);
+
+
+  // Today's list of a group or a teacher ticks: the kit's
+  // clock re-renders the screen once a MINUTE, and only while
+  // the list shows today (switched on, it reads the wall clock
+  // at once — never a stale sample)
+  const showLive = viewMode === 'list' && selectedDateISO === todayDate && appliedScope !== null;
+  const clock = useNow({ enabled: showLive });
+  const nowMin = showLive ? clock.minutes : -1;
+  const liveByKey = useMemo(() => {
+    if (nowMin < 0) return new Map<string, LiveStatus>();
+    return perspective === 'teacher'
+      ? liveStatuses(teacherDayCards.map((card) => card.lesson), nowMin, (row) => row.id)
+      : liveStatuses(groupDayLessons, nowMin, (row) => `${row.id}:${row.group}`);
+  }, [nowMin, perspective, teacherDayCards, groupDayLessons]);
+
+
+  // The day tabs: Monday–Friday, every weekend day the shown
+  // week's rows fill (a group with Saturday lectures gets its
+  // Saturday pill before anyone lands there — KNF-174), and
+  // the selected day, so the active tab is never missing
+  const dayTabs = useMemo(() => {
+    const days = new Set([...engineVisibleDays(datedNormalized.entries), selectedDay]);
+    return [...days].sort((a, b) => a - b);
+  }, [datedNormalized, selectedDay]);
+
 
   // Whether the visible week lies OUTSIDE the published
-  // timetable altogether. The loaded three-week window is all
-  // the screen knows of the published range (the filters
-  // payload carries no dates), so a week wholly before the
-  // window's first dated row or after its last — or a window
-  // with no rows anywhere — reads as "not published", while a
-  // week with rows on either side of it (a break) keeps the
-  // plain "no lectures" copy. ISO dates compare as strings
+  // timetable altogether. With the terms the filters response
+  // dates, published means inside [the first term's first
+  // date, the last term's last date] — a group-less week
+  // inside it (a practice period, a group that only runs in
+  // autumn) is plain "no lectures". Without them (the filters
+  // never arrived, or an old cached copy) the loaded
+  // three-week window is all the screen knows: a week wholly
+  // before its first row or after its last — or a window with
+  // no rows anywhere — reads as "not published", while a week
+  // with rows on either side of it (a break) keeps the plain
+  // copy. ISO dates compare as strings
   const weekOutsidePublished = useMemo(() => {
+    // The week's Sunday, derived here from the one real input
+    const sunday = toISO(parseISO(weekStart) + 6 * DAY_MS);
+    if (terms.length > 0) {
+      const first = terms.reduce((min, term) => (term.from < min ? term.from : min), terms[0].from);
+      const last = terms.reduce((max, term) => (term.to > max ? term.to : max), terms[0].to);
+      return sunday < first || weekStart > last;
+    }
     const rows = events ?? [];
     if (rows.length === 0) return true;
     let first = rows[0].date;
@@ -1325,47 +1830,36 @@ function ScheduleScreen() {
       if (row.date < first) first = row.date;
       if (row.date > last) last = row.date;
     }
-    return weekEnd < first || weekStart > last;
-  }, [events, weekStart, weekEnd]);
+    return sunday < first || weekStart > last;
+  }, [terms, events, weekStart]);
 
 
-  // The wire row onto the kit card's NEUTRAL shape — the one
-  // mapping point where ScheduleLesson is allowed to touch the
-  // kit; stable renderItems so only changed cards re-render
-  const lessonCard = useCallback(
-    (lesson: ScheduleLesson, conflict: boolean) => (
-      <LessonCard
-        title={lesson.title}
-        person={lesson.teacher}
-        room={lesson.room}
-        timeStart={lesson.timeStart}
-        timeEnd={lesson.timeEnd}
-        footnote={`${lesson.group} · ${lesson.semester}`}
-        conflict={conflict}
-        conflictIcon={<Ionicons name="alert-circle" size={14} color={colors.danger} />}
-        timeIcon={
-          <Ionicons name="time-outline" size={14} color={conflict ? colors.danger : colors.brand} />
-        }
-      />
-    ),
-    [colors],
-  );
+  // A list card's press: the wire row through the same adapter
+  // the grid's entries came through, so the sheet reads one
+  // shape (kind, subgroups, raw teacher and room strings)
+  // whichever view it was opened from
+  const openRow = useCallback((row: ScheduleEventRow) => {
+    setSheetLesson(toTimetableEntry(row as unknown as KnfLesson));
+  }, []);
 
   const renderLesson = useCallback(
-    ({ item }: { item: ScheduleLesson }) => lessonCard(item, conflictIds.has(item.id)),
-    [lessonCard, conflictIds],
+    ({ item }: { item: ScheduleEventRow }) => (
+      <LessonRow
+        lesson={item}
+        conflict={conflictIds.has(item.id)}
+        status={liveByKey.get(`${item.id}:${item.group}`)}
+        onPress={openRow}
+      />
+    ),
+    [conflictIds, liveByKey, openRow],
   );
 
   const renderTeacherCard = useCallback(
-    ({ item }: { item: { conflict: boolean; lesson: ScheduleLesson } }) =>
-      lessonCard(item.lesson, item.conflict),
-    [lessonCard],
+    ({ item }: { item: { conflict: boolean; lesson: ScheduleEventRow } }) => (
+      <LessonRow lesson={item.lesson} conflict={item.conflict} status={liveByKey.get(item.lesson.id)} onPress={openRow} />
+    ),
+    [liveByKey, openRow],
   );
-
-
-  // The quick tabs grow to the full week while a weekend day
-  // is in view, so the active tab is never missing
-  const visibleDays = selectedDay > 4 ? FULL_WEEK : WEEKDAYS;
 
 
   // One definition serves all three scrollable branches — the
@@ -1374,6 +1868,19 @@ function ScheduleScreen() {
     <RefreshSpinner
       refreshing={refreshing}
       onRefresh={onRefresh}
+    />
+  );
+
+  // An empty day's two readings — outside the published
+  // timetable, or a day with nothing on it (the hint names
+  // the filter that narrowed it, when one did)
+  const emptyDay = weekOutsidePublished ? (
+    <EmptyState icon="calendar-clear-outline" title={t('schedule.weekNotPublished')} hint={weekRange} />
+  ) : (
+    <EmptyState
+      icon="calendar-outline"
+      title={t('schedule.noLectures')}
+      hint={appliedScope ? filterSummary : undefined}
     />
   );
 
@@ -1396,7 +1903,6 @@ function ScheduleScreen() {
             <DayStepper
               day={selectedDay}
               label={weekCaption}
-              subtitle={weekRange}
               onPrev={() => changeWeek(-1)}
               onNext={() => changeWeek(1)}
               prevAccessibilityLabel={t('schedule.prevWeek')}
@@ -1407,7 +1913,7 @@ function ScheduleScreen() {
           ) : (
             <DayStepper
               day={selectedDay}
-              subtitle={selectedDateISO}
+              subtitle={selectedDateISO.slice(5)}
               onPrev={() => changeDay(-1)}
               onNext={() => changeDay(1)}
               prevIcon={<Ionicons name="chevron-back" size={20} color={colors.onBrand} />}
@@ -1420,9 +1926,10 @@ function ScheduleScreen() {
       <View className="flex-row items-center border-b border-line bg-surface">
         <FilterBar
           label={filterSummary}
-          activeCount={activeFilterCount}
+          trailing={appliedScope !== null}
           onPress={() => setModalVisible(true)}
         />
+        {appliedScope ? <CalendarButton onPress={() => setSubscribeScope(appliedScope)} /> : null}
         <View className="mr-md">
           <ViewModeSwitch
             mode={viewMode}
@@ -1438,24 +1945,35 @@ function ScheduleScreen() {
         </View>
       </View>
 
-      {/* The day-tab strip: one unbroken white row under the
-          filter bar. Week mode keeps it in place — steady chrome
-          across the mode switch — just without the day tabs,
-          whose height the min-h pins while they are absent */}
-      <View className="min-h-9 flex-row items-center border-b border-line bg-surface">
+      {/* The strip: the day tabs in the day modes, the week's
+          dates in week mode — same height either way — with
+          the Today button at its end while the cursor is away
+          from today */}
+      <View className="flex-row items-center border-b border-line bg-surface" style={{ minHeight: STRIP_HEIGHT }}>
         {viewMode !== 'week' ? (
           <View className="flex-1">
             <DayTabs
-              days={visibleDays}
+              days={dayTabs}
               selectedDay={selectedDay}
               // A foreign week has no today column to outline
               today={weekStart === todayMonday ? todayIndex : undefined}
               onSelect={setSelectedDay}
+              bordered={false}
             />
           </View>
         ) : (
-          <View className="flex-1" />
+          <Text className="ml-md flex-1 font-raleway-medium text-sm text-ink-soft" numberOfLines={1}>
+            {weekRange}
+          </Text>
         )}
+        {displaced ? (
+          <View className="ml-2 mr-md">
+            <TodayButton
+              onPress={snapToToday}
+              icon={<Ionicons name="today-outline" size={14} color={colors.brandText} />}
+            />
+          </View>
+        ) : null}
       </View>
 
       {bodyCachedAt !== null && <CachedBanner cachedAt={bodyCachedAt} />}
@@ -1467,11 +1985,12 @@ function ScheduleScreen() {
       )}
 
       {/* Body — spinner, error with retry, then the active
-          path: the group card list exactly as it always was,
-          the teacher's card list, the pick-a-teacher prompt,
-          or the kit's timeline/grid; error and empty stay
-          distinct states, and an empty week outside the
-          published range is told apart from an empty day */}
+          path: the group card list, the teacher's card list,
+          the pick-a-group / pick-a-teacher prompts (each with
+          the button that opens the sheet), or the kit's
+          timeline/grid; error and empty stay distinct states,
+          and an empty week outside the published range is told
+          apart from an empty day */}
       {bodyLoading ? (
         <View className="flex-1 items-center justify-center">
           <LoadingSpinner />
@@ -1482,20 +2001,8 @@ function ScheduleScreen() {
         </ScrollView>
       ) : groupList ? (
         groupDayLessons.length === 0 ? (
-          // A week the timetable never covered names its dates
-          // instead of asserting an empty day — the plain copy
-          // is for a day with nothing on it inside a published
-          // range
           <ScrollView contentContainerStyle={{ flexGrow: 1 }} refreshControl={refreshControl}>
-            {weekOutsidePublished ? (
-              <EmptyState icon="calendar-clear-outline" title={t('schedule.weekNotPublished')} hint={weekRange} />
-            ) : (
-              <EmptyState
-                icon="calendar-outline"
-                title={t('schedule.noLectures')}
-                hint={activeFilterCount > 0 ? filterSummary : undefined}
-              />
-            )}
+            {emptyDay}
           </ScrollView>
         ) : (
           <FlatList
@@ -1516,20 +2023,24 @@ function ScheduleScreen() {
         )
       ) : perspective === 'group' && selectedGroup === null ? (
         <ScrollView contentContainerStyle={{ flexGrow: 1 }} refreshControl={refreshControl}>
-          <EmptyState icon="people-outline" title={t('schedule.pickGroup')} hint={t('schedule.filterTitle')} />
+          <EmptyState
+            icon="people-outline"
+            title={t('schedule.pickGroup')}
+            action={{ label: t('schedule.chooseGroupAction'), onPress: () => setModalVisible(true) }}
+          />
         </ScrollView>
       ) : perspective === 'teacher' && teacher === null ? (
         <ScrollView contentContainerStyle={{ flexGrow: 1 }} refreshControl={refreshControl}>
-          <EmptyState icon="person-outline" title={t('schedule.pickTeacher')} hint={t('schedule.filterTitle')} />
+          <EmptyState
+            icon="person-outline"
+            title={t('schedule.pickTeacher')}
+            action={{ label: t('schedule.chooseTeacherAction'), onPress: () => setModalVisible(true) }}
+          />
         </ScrollView>
       ) : viewMode === 'list' ? (
         teacherDayCards.length === 0 ? (
           <ScrollView contentContainerStyle={{ flexGrow: 1 }} refreshControl={refreshControl}>
-            {weekOutsidePublished ? (
-              <EmptyState icon="calendar-clear-outline" title={t('schedule.weekNotPublished')} hint={weekRange} />
-            ) : (
-              <EmptyState icon="calendar-outline" title={t('schedule.noLectures')} hint={filterSummary} />
-            )}
+            {emptyDay}
           </ScrollView>
         ) : (
           <FlatList
@@ -1557,6 +2068,7 @@ function ScheduleScreen() {
             // only owns "now" while it actually shows this week
             currentWeek={weekStart === todayMonday}
             weeks={neighbourWeeks}
+            emptyLabel={weekOutsidePublished ? t('schedule.weekNotPublished') : undefined}
             onChangeDay={changeDay}
             onChangeWeek={changeWeek}
             onPressLesson={setSheetLesson}
@@ -1568,16 +2080,20 @@ function ScheduleScreen() {
         visible={modalVisible}
         groups={groups}
         semesters={semesters}
+        terms={terms}
         teachers={teachers}
         selectedGroup={selectedGroup}
-        selectedSemester={selectedSemester}
+        visibleTerm={visibleTerm}
         perspective={perspective}
         selectedTeacher={teacher}
+        myGroup={user ? matchProfileGroup(profileGroup, groups) : undefined}
         onApply={applyFilters}
         onClose={() => setModalVisible(false)}
       />
 
       <LessonSheet lesson={sheetLesson} onClose={() => setSheetLesson(null)} />
+
+      <CalendarSubscribeSheet scope={subscribeScope} onClose={() => setSubscribeScope(null)} />
 
       </TimetableHost>
     </Screen>

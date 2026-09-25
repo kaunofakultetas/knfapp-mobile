@@ -19,6 +19,9 @@
 //    dayOfWeek  0 = Monday  → day
 //    group    "ISKS-1"      → groupKey
 //    semester "2025-R"      → termKey
+//    lectureType "Egzaminas"→ kind          (canonical code —
+//                             see knfKind)
+//    subgroups ["1"]        → subgroupKeys
 //
 //  One response is ONE PAGE: the schedule endpoints cap a
 //  call at 500 rows and an unfiltered query holds more across
@@ -41,6 +44,31 @@ import type { NormalizeResult, TimetableEntry } from '../../core/types';
 // teacher matches across rows whether or not a row lists
 // every title.
 const TITLE_RE = /^\p{Lu}\p{Ll}{0,9}\.$/u;
+
+// The VU timetable's event types ("Tipas: …") as canonical
+// kinds — matched on the diacritic-folded, lower-cased word
+// STEM, so "Egzaminas", "EGZAMINAS" and an inflected
+// "egzamino" agree. First match wins, so the two COMBINED
+// types the faculty uses ("Paskaitos ir seminarai",
+// "Paskaitos ir pratybos" — some 1 500 events) stand before
+// the single "paskait" they begin with; any other "X ir Y"
+// and any word no stem knows becomes 'other', never a guess
+const KIND_STEMS: readonly (readonly [string, string])[] = [
+  ['paskaitos ir seminar', 'lecture_seminar'],
+  ['paskaitos ir pratyb', 'lecture_practice'],
+  ['paskait', 'lecture'],
+  ['pratyb', 'practice'],
+  ['seminar', 'seminar'],
+  ['laborator', 'lab'],
+  ['egzamin', 'exam'],
+  ['perlaikym', 'retake'],
+  ['atsiskaitym', 'assessment'],
+  ['kolokvium', 'assessment'],
+  ['koliokvium', 'assessment'],
+  ['iskait', 'assessment'],
+  ['kontrolin', 'assessment'],
+  ['konsultacij', 'consultation'],
+];
 
 
 
@@ -70,7 +98,46 @@ export interface KnfLesson {
   dayOfWeek?: number;
   group?: string;
   semester?: string;
+  // The site's own type word ("Paskaita", "Egzaminas"); ''
+  // for rows stored before the scraper read types
+  lectureType?: string;
+  // "Pogrupiai" — [] or absent for the whole group
+  subgroups?: string[];
   [extra: string]: unknown;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// knfKind
+// -----------------------------------------------------------
+//
+// The feed's type word → the engine's canonical kind code
+// (see TimetableEntryBase.kind): undefined for a blank word,
+// 'other' for a word KIND_STEMS does not know — the raw word
+// still rides the entry as lectureType for a host to print.
+//
+// Used by:
+//   - toTimetableEntry (below)
+//   - app/(main)/tabs/schedule.tsx — the list cards' kind,
+//     straight off the wire rows
+// -----------------------------------------------------------
+
+export function knfKind(lectureType?: string): string | undefined {
+  const word = (lectureType ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .trim()
+    .toLowerCase();
+  if (!word) return undefined;
+  const match = KIND_STEMS.find(([stem]) => word.startsWith(stem));
+  // An unknown combination must not pass for its first half
+  if (match && (match[1].includes('_') || !/\sir\s/.test(word))) return match[1];
+  return 'other';
 }
 
 
@@ -170,13 +237,21 @@ const toMinutes = (value?: string): number => {
 // -----------------------------------------------------------
 //
 // One backend row → one candidate entry. Extra backend fields
-// ride along on the generic payload untouched.
+// ride along on the generic payload untouched. A subgroups
+// field that is not a list (an older wire, a drifted row)
+// reads as "the whole group" — never as a shape the gate
+// would have to skip the lesson for.
 //
 // Used by:
 //   - normalizeKnf (below)
+//   - app/(main)/tabs/schedule.tsx — a tapped list card's
+//     sheet lesson
 // -----------------------------------------------------------
 
 export function toTimetableEntry(lesson: KnfLesson): TimetableEntry<KnfLesson> {
+  const subgroups = Array.isArray(lesson.subgroups)
+    ? lesson.subgroups.filter((key): key is string => typeof key === 'string' && key.trim() !== '')
+    : [];
   return {
     ...lesson,
     id: String(lesson.id ?? ''),
@@ -188,6 +263,8 @@ export function toTimetableEntry(lesson: KnfLesson): TimetableEntry<KnfLesson> {
     location: splitList(lesson.room),
     groupKey: (lesson.group ?? '').trim() || undefined,
     termKey: (lesson.semester ?? '').trim() || undefined,
+    kind: knfKind(lesson.lectureType),
+    subgroupKeys: subgroups,
   };
 }
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased — 2026-09-25
+
+- `SyncEnv.clearUploads()` — empties the upload queue and nothing else.
+  A screen that owns its uploads (the guided capture's frames) calls it
+  on the way out; `clearAll()` also destroyed any op still queued, with
+  no record (KNF-112).
+
 ## 1.1.0 — 2026-09-01
 
 Capture frames ride the upload queue: a guided-capture session's

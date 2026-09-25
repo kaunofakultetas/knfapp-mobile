@@ -74,8 +74,24 @@ let cachedToken: string | null | undefined;
 // storage round trip (and run the migration exactly once)
 let tokenRead: Promise<StoredTokenRead> | null = null;
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// StoredTokenRead
+// -----------------------------------------------------------
+//
 // One token read's outcome: ok=false means the store threw —
-// the token may well still be there, it just could not be read
+// the token may well still be there, it just could not be
+// read (a keychain blip must not end the session).
+//
+// Used by:
+//   - readStoredToken (below) and its callers
+// -----------------------------------------------------------
+
 export interface StoredTokenRead {
   ok: boolean;
   token: string | null;

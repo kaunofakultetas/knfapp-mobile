@@ -115,11 +115,15 @@ function MenuButton() {
 
 export default function Header({ title, right, showMenu, inset }: HeaderProps) {
 
+  const { i18n } = useTranslation();
+
+
   const bar = (
     <View className="flex-row items-center px-lg" style={{ height: 56 }}>
       {showMenu !== false ? <MenuButton /> : null}
       <Text
         accessibilityRole="header"
+        accessibilityLanguage={i18n?.language}
         className="flex-1 font-raleway-bold text-xl text-on-brand"
         numberOfLines={1}
         // The bar is fixed at 56px chrome — cap the title's

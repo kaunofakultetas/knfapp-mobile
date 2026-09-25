@@ -28,7 +28,8 @@
     "web": {
       "bundler": "metro",
       "output": "single",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/favicon.png",
+      "lang": "lt"
     },
     "plugins": [
       "expo-router",
@@ -65,9 +66,25 @@
       ],
       "expo-font",
       "expo-localization",
-      "expo-secure-store",
+      [
+        "expo-secure-store",
+        {
+          "faceIDPermission": false
+        }
+      ],
       "expo-video",
-      "expo-audio",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Mikrofonas reikalingas balso žinutėms įrašyti."
+        }
+      ],
+      [
+        "expo-sensors",
+        {
+          "motionPermission": "Judesio jutikliai naudojami pastatų panoramoms fiksuoti žemėlapio redaktoriuje."
+        }
+      ],
       "expo-image",
       "expo-status-bar",
       "expo-asset"

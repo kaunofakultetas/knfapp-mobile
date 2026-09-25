@@ -5,14 +5,32 @@
 //  ops, validation runs after the quiet period through the
 //  injected validator, undo re-commits the inverse, remote
 //  changes bypass history, and acknowledge moves revisions.
+//  The loaded document is normalised once, not on every render
+//  a drag causes.
 // -----------------------------------------------------------
 
 import { act, renderHook } from '@testing-library/react-native';
 
+import * as documentModule from '../../core/document';
 import { HISTORY_CAP } from '../../core/history';
 import type { GraphLike } from '../../core/types';
 import { useEditor } from '../useEditor';
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// building
+// -----------------------------------------------------------
+//
+// The one-level building the hook edits.
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
 
 const building = (): GraphLike => ({
   version: 1,
@@ -24,7 +42,22 @@ const building = (): GraphLike => ({
   entranceNodeId: 'a',
 });
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// validate
+// -----------------------------------------------------------
+//
 // A validator that flags every node past x = 50
+//
+// Used by:
+//   - the specs below
+// -----------------------------------------------------------
+
 const validate = (graph: GraphLike) => graph.nodes.filter((node) => node.x > 50).map((node) => ({ severity: 'warning' as const, code: 'far', ref: node.id, message: `${node.id} is far` }));
 
 
@@ -172,4 +205,24 @@ describe('useEditor', () => {
     expect(result.current.state.shownLevel).toBe('L2');
     expect(result.current.state.canUndo).toBe(false);
   });
+
+
+  it('normalises the loaded document once, however often the screen re-renders', async () => {
+    const spy = jest.spyOn(documentModule, 'normaliseDocument');
+    try {
+      const { result, rerender } = await renderHook(() => useEditor({ document: building() }));
+      const first = spy.mock.calls.length;
+      expect(first).toBe(1);
+      for (let i = 0; i < 5; i += 1) {
+        await act(async () => {
+          result.current.actions.moveNode('a', i, 0);
+        });
+        await rerender({});
+      }
+      expect(spy.mock.calls.length).toBe(first);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });
+

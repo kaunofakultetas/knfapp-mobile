@@ -31,19 +31,95 @@ import { ChatUiKitProvider } from '../../provider';
 import MessageList from '../MessageList';
 
 
+// The anchor every row's stamp counts from
 const BASE = Date.UTC(2026, 7, 27, 10, 0, 0);
-const msg = (id: string, i: number): KitMessage => ({
-  id, senderId: 'u2', senderName: 'Ona', text: `m${i}`, createdAt: new Date(BASE + i * 1000).toISOString(),
-  isOwn: false, status: 'read', reactions: [],
-});
-const rows = (n: number) => buildTimeline(Array.from({ length: n }, (_, i) => msg(`m${i}`, n - i)), { today: 'Today', yesterday: 'Yesterday', locale: 'en' });
-const noop = () => {};
+// The list's required props, all inert
 const props = {
   typing: null, isGroup: false, showAvatars: true, intro: null, loadingOlder: false, hasMore: false, onLoadOlder: noop,
   revealedId: null, highlightedId: null, menuTargetId: null, canAct: () => true, canReply: () => true,
   onPressMessage: noop, onLongPressMessage: noop, onSwipeReply: noop, onPressQuote: noop, onPressImage: noop, onPressReactions: noop, onRetry: noop, onPressLink: noop,
 };
-const wrap = (ui: React.ReactElement) => render(<ChatUiKitProvider locale="en">{ui}</ChatUiKitProvider>);
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// msg
+// -----------------------------------------------------------
+//
+// A foreign row i seconds past BASE.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
+
+function msg(id: string, i: number): KitMessage {
+  return {
+    id, senderId: 'u2', senderName: 'Ona', text: `m${i}`, createdAt: new Date(BASE + i * 1000).toISOString(),
+    isOwn: false, status: 'read', reactions: [],
+  };
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// rows
+// -----------------------------------------------------------
+//
+// n rows as the timeline builds them, newest first.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
+
+function rows(n: number) {
+  return buildTimeline(Array.from({ length: n }, (_, i) => msg(`m${i}`, n - i)), { today: 'Today', yesterday: 'Yesterday', locale: 'en' });
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// noop
+// -----------------------------------------------------------
+//
+// The inert handler every required callback gets.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
+
+function noop() {}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// wrap
+// -----------------------------------------------------------
+//
+// Renders under the kit's provider, English.
+//
+// Used by:
+//   - the tests below
+// -----------------------------------------------------------
+
+function wrap(ui: React.ReactElement) {
+  return render(<ChatUiKitProvider locale="en">{ui}</ChatUiKitProvider>);
+}
 
 afterEach(() => jest.restoreAllMocks());
 
@@ -77,5 +153,62 @@ describe('MessageList upright under a screen reader', () => {
     const { getByTestId } = await wrap(<MessageList {...props} items={rows(2)} />);
     await act(async () => {});
     expect(getByTestId('chatuikit-message-list').props.inverted).toBe(true);
+  });
+});
+
+
+// KNF-097: the floating day pill names the TOPMOST visible row —
+// the highest index while inverted, the LOWEST while upright
+describe('MessageList floating day by orientation', () => {
+  const DAY = 86_400_000;
+  // Two rows from yesterday, two from today, newest first —
+  // anchored on LOCAL noon, so the day labels never flip with
+  // the hour the suite happens to run at
+  const noon = new Date();
+  noon.setHours(12, 0, 0, 0);
+  const at = (ms: number) => new Date(ms).toISOString();
+  const boundary = () =>
+    buildTimeline(
+      [
+        { ...msg('today-2', 0), createdAt: at(noon.getTime() + 60_000) },
+        { ...msg('today-1', 0), createdAt: at(noon.getTime()) },
+        { ...msg('yest-2', 0), createdAt: at(noon.getTime() - DAY + 60_000) },
+        { ...msg('yest-1', 0), createdAt: at(noon.getTime() - DAY) },
+      ],
+      { today: 'Today', yesterday: 'Yesterday', locale: 'en' },
+    );
+
+  const pillAfter = async (readerOn: boolean, visibleIds: string[]) => {
+    jest.spyOn(AccessibilityInfo, 'isScreenReaderEnabled').mockResolvedValue(readerOn);
+    const { Text } = require('react-native');
+    const pill: { label?: string } = {};
+    const FloatingDay = ({ label }: { label: string }) => {
+      pill.label = label;
+      return <Text>{label}</Text>;
+    };
+    const { getByTestId } = await render(
+      <ChatUiKitProvider locale="en" components={{ FloatingDay }}>
+        <MessageList {...props} items={boundary()} />
+      </ChatUiKitProvider>,
+    );
+    await act(async () => {});
+    const list = getByTestId('chatuikit-message-list');
+    const data = list.props.data as { type: string; message?: KitMessage }[];
+    const tokens = data
+      .map((item, index) => ({ item, index, key: String(index), isViewable: true }))
+      .filter((token) => token.item.type === 'message' && visibleIds.includes(token.item.message?.id ?? ''));
+    await act(async () => {
+      list.props.viewabilityConfigCallbackPairs[0].onViewableItemsChanged({ viewableItems: tokens, changed: tokens });
+    });
+    return pill.label;
+  };
+
+  it('upright, the pill names the top row (yesterday), not the bottom one', async () => {
+    // Viewport from yest-1 at the top down to today-1 at the bottom
+    expect(await pillAfter(true, ['yest-1', 'yest-2', 'today-1'])).toBe('Yesterday');
+  });
+
+  it('inverted, the highest index is still the top row', async () => {
+    expect(await pillAfter(false, ['yest-1', 'yest-2', 'today-1'])).toBe('Yesterday');
   });
 });

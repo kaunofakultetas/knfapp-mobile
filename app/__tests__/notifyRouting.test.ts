@@ -90,12 +90,47 @@ describe('chat_message / chat_mention', () => {
 
 
 describe('news / admin_announcement', () => {
+  // This case used to hand the news type a postId and pin that
+  // it was IGNORED — the tap opened the feed, not the post the
+  // push announced. The id is what a faculty post's push
+  // carries so the tap can open it; the case now pins that
+  // (below), and the plain feed routing without an id
   it.each(['news', 'admin_announcement'])('%s warm: navigate to the news tab', (type) => {
     const router = makeRouter();
 
-    expect(routeNotificationIntent(intent(type, { postId: 'n1' }), router as NotifyRouter)).toBe(true);
+    expect(routeNotificationIntent(intent(type), router as NotifyRouter)).toBe(true);
 
     expect(router.navigate).toHaveBeenCalledWith('/(main)/tabs/news');
+    expect(callCount(router)).toBe(1);
+  });
+
+  it('a faculty post names itself: warm — the feed, then that post on top', () => {
+    const router = makeRouter();
+
+    expect(routeNotificationIntent(intent('news', { postId: 'n1' }), router as NotifyRouter)).toBe(true);
+
+    expect(router.navigate).toHaveBeenCalledWith('/(main)/tabs/news');
+    expect(router.push).toHaveBeenCalledWith({ pathname: '/(main)/news-post', params: { postId: 'n1' } });
+    expect(callCount(router)).toBe(2);
+    expect(router.navigate.mock.invocationCallOrder[0]).toBeLessThan(router.push.mock.invocationCallOrder[0]);
+  });
+
+  it('a faculty post on a cold start: the feed REPLACES the gate, then the post on top', () => {
+    const router = makeRouter();
+
+    expect(routeNotificationIntent(intent('news', { postId: 'n1' }, true), router as NotifyRouter)).toBe(true);
+
+    expect(router.replace).toHaveBeenCalledWith('/(main)/tabs/news');
+    expect(router.push).toHaveBeenCalledWith({ pathname: '/(main)/news-post', params: { postId: 'n1' } });
+    expect(callCount(router)).toBe(2);
+  });
+
+  it('an admin announcement never opens a post, whatever its payload carries', () => {
+    const router = makeRouter();
+
+    expect(routeNotificationIntent(intent('admin_announcement', { postId: 'x' }), router as NotifyRouter)).toBe(true);
+
+    expect(router.push).not.toHaveBeenCalled();
     expect(callCount(router)).toBe(1);
   });
 

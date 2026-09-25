@@ -241,7 +241,9 @@ export default function QrScanner({ visible, onClose, onCodeScanned }: QrScanner
           >
             <Ionicons name="close" size={28} color={colors.onBrand} />
           </Pressable>
-          <Text className="text-on-brand text-lg font-raleway-bold">{t('register.scanQr')}</Text>
+          <Text accessibilityRole="header" className="text-on-brand text-lg font-raleway-bold">
+            {t('register.scanQr')}
+          </Text>
           {/* Spacer mirroring the close icon so the title stays centered */}
           <View className="w-7" />
         </View>

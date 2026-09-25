@@ -15,6 +15,14 @@
 //  storage round trip (and a hung storage read can no longer
 //  outlive the axios timeout).
 //
+//  A read that THROWS is kept apart from "nothing stored":
+//  readStoredToken answers { ok:false }, getStoredToken answers
+//  null, and neither caches the miss — a keychain blip costs
+//  one anonymous request, never the stored session. Only
+//  AuthContext's hydration needs the distinction: a record is
+//  declared partial (and cleared) only after a read that
+//  SUCCEEDED.
+//
 //  Migration: older builds kept { user, token } as one JSON
 //  blob under the AsyncStorage 'auth' key. The first read
 //  moves the token into SecureStore, the user under its own
@@ -27,6 +35,7 @@
 //    writeTokenToStore          — platform-branched raw write
 //    deleteTokenFromStore       — platform-branched raw delete
 //    migrateLegacySession       — one-time 'auth' blob split
+//    readStoredToken            — cached token read, outcome-aware
 //    getStoredToken             — cached token accessor
 //    getStoredUser              — persisted profile accessor
 //    setStoredSession           — persist a fresh login
@@ -63,7 +72,14 @@ let cachedToken: string | null | undefined;
 
 // Single-flight guard so concurrent first reads share one
 // storage round trip (and run the migration exactly once)
-let tokenRead: Promise<string | null> | null = null;
+let tokenRead: Promise<StoredTokenRead> | null = null;
+
+// One token read's outcome: ok=false means the store threw —
+// the token may well still be there, it just could not be read
+export interface StoredTokenRead {
+  ok: boolean;
+  token: string | null;
+}
 
 
 
@@ -80,7 +96,7 @@ let tokenRead: Promise<string | null> | null = null;
 // (localStorage) on web.
 //
 // Used by:
-//   - getStoredToken (below) — the first, uncached read
+//   - readStoredToken (below) — the first, uncached read
 // -----------------------------------------------------------
 
 async function readTokenFromStore(): Promise<string | null> {
@@ -156,7 +172,7 @@ async function deleteTokenFromStore(): Promise<void> {
 // found so the caller can serve the read that triggered it.
 //
 // Used by:
-//   - getStoredToken, getStoredUser (below)
+//   - readStoredToken, getStoredUser (below)
 // -----------------------------------------------------------
 
 async function migrateLegacySession(): Promise<{
@@ -192,22 +208,25 @@ async function migrateLegacySession(): Promise<{
 
 
 // -----------------------------------------------------------
-// getStoredToken
+// readStoredToken
 // -----------------------------------------------------------
 //
-// Resolves the session token or null for guests. After the
-// first call this is the in-memory cache — no storage I/O —
-// so per-request and per-connect reads are effectively free.
-// A failed read resolves null WITHOUT caching, so a transient
-// storage error only costs one anonymous request.
+// The one storage read behind every token accessor, with its
+// outcome: { ok:true, token } is what the store holds (null
+// for a guest), { ok:false, token:null } means the read THREW
+// — a locked or hiccuping keychain — and says nothing about
+// what is stored. After the first successful read this is the
+// in-memory cache, no storage I/O; a failure caches nothing,
+// so the next read tries the store again.
 //
 // Used by:
-//   - services/api/client.ts — request interceptor
-//   - services/socket.ts — connect-time auth
+//   - context/AuthContext.tsx — startup hydration (the only
+//     caller that must tell "nothing stored" from "unreadable")
+//   - getStoredToken (below)
 // -----------------------------------------------------------
 
-export function getStoredToken(): Promise<string | null> {
-  if (cachedToken !== undefined) return Promise.resolve(cachedToken);
+export function readStoredToken(): Promise<StoredTokenRead> {
+  if (cachedToken !== undefined) return Promise.resolve({ ok: true, token: cachedToken });
 
   if (!tokenRead) {
     tokenRead = (async () => {
@@ -215,15 +234,43 @@ export function getStoredToken(): Promise<string | null> {
         let token = await readTokenFromStore();
         if (!token) token = (await migrateLegacySession()).token;
         cachedToken = token ?? null;
-        return cachedToken;
+        return { ok: true, token: cachedToken };
       } catch {
-        return null;
+        return { ok: false, token: null };
       } finally {
         tokenRead = null;
       }
     })();
   }
   return tokenRead;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// getStoredToken
+// -----------------------------------------------------------
+//
+// Resolves the session token or null for guests. After the
+// first call this is the in-memory cache — no storage I/O —
+// so per-request and per-connect reads are effectively free.
+// A failed read resolves null WITHOUT caching, so a transient
+// storage error only costs one anonymous request (callers that
+// must know WHY it is null use readStoredToken).
+//
+// Used by:
+//   - services/api/client.ts — request interceptor
+//   - services/socket.ts — connect-time auth
+//   - context/AuthContext.tsx — the /me correlation reads
+// -----------------------------------------------------------
+
+export function getStoredToken(): Promise<string | null> {
+  if (cachedToken !== undefined) return Promise.resolve(cachedToken);
+  return readStoredToken().then((read) => read.token);
 }
 
 
@@ -266,17 +313,28 @@ export async function getStoredUser(): Promise<User | null> {
 //
 // Persists a fresh login/register (or a refreshed profile —
 // same token, new user). The cache is updated FIRST so the
-// api/socket layers see the token even if the storage write
-// then fails; a write failure still rejects so the caller
-// knows persistence did not land.
+// api/socket layers see the token without waiting on the
+// write; a token write that FAILS rolls the cache back to
+// what it held before and rejects, so a token the store never
+// took cannot keep answering requests and the socket as that
+// account. The caller owns the rest of the teardown —
+// AuthContext's establishSession clears the record and drops
+// the socket on this rejection — the rollback only closes the
+// window until it does.
 //
 // Used by:
 //   - context/AuthContext.tsx — establishSession, setUser
 // -----------------------------------------------------------
 
 export async function setStoredSession(token: string, user: User): Promise<void> {
+  const previous = cachedToken;
   cachedToken = token;
-  await writeTokenToStore(token);
+  try {
+    await writeTokenToStore(token);
+  } catch (err) {
+    cachedToken = previous;
+    throw err;
+  }
   await AsyncStorage.setItem(USER_KEY, JSON.stringify(user));
 
   try {

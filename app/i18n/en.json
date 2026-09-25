@@ -142,7 +142,9 @@
       "emailInvalid": "Enter a valid email address",
       "passwordRequired": "Password is required",
       "passwordMin": "Password must be at least 6 characters",
-      "passwordMismatch": "Passwords do not match"
+      "passwordMismatch": "Passwords do not match",
+      "usernameInvalid": "Username must be 3–32 characters: Latin letters, digits, dots, underscores or dashes",
+      "emailMax": "Email must be at most 254 characters"
     }
   },
   "messages": {
@@ -225,6 +227,7 @@
   "schedule": {
     "title": "Schedule",
     "noLectures": "No lectures",
+    "weekNotPublished": "No timetable published for this week yet",
     "filterTitle": "Filter schedule",
     "groupLabel": "Group",
     "semesterLabel": "Semester",
@@ -368,6 +371,7 @@
     "closeSearch": "Close search",
     "sendError": "Couldn't send the message",
     "sendTooLong": "The message is too long",
+    "sendQuoteGone": "The message you replied to no longer exists",
     "sendForbidden": "You can't send messages in this conversation",
     "sessionExpired": "Your session has expired — please log in again",
     "imageUploadError": "Couldn't upload the photo",
@@ -715,7 +719,18 @@
       "password_too_common": "This password is too common",
       "invite_invalid": "Invalid invitation code",
       "invite_expired": "This invitation code has expired",
-      "invite_exhausted": "This invitation code has been fully used"
+      "invite_exhausted": "This invitation code has been fully used",
+      "invalid_username": "Username must be 3–32 characters: Latin letters, digits, dots, underscores or dashes",
+      "invalid_email": "Invalid email address",
+      "no_file": "No file was selected",
+      "empty_file": "The file is empty",
+      "file_too_large": "The file is too large",
+      "bad_file_type": "This file type is not allowed",
+      "bad_file_content": "The file's content does not match its type",
+      "quota_exceeded": "Your account storage is full — delete some old photos",
+      "upload_not_owned": "That image is not one of your uploads",
+      "still_referenced": "The file is still used by a post, an avatar or a message",
+      "friend_request_cooldown": "This person declined your last request – try again later"
     },
     "http": {
       "400": "The request was rejected – please check your input",

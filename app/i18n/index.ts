@@ -10,8 +10,8 @@
 //  corrupt persisted language value ever activating.
 //
 //  escapeValue is off: React escapes on its own, and backend
-//  strings arrive already entity-decoded by the API client's
-//  response interceptor.
+//  strings arrive as raw JSON — nothing is escaped on output
+//  and the API client decodes nothing on the way in.
 // -----------------------------------------------------------
 
 // Intl.PluralRules polyfill — Hermes builds may ship without

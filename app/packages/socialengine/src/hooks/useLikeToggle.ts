@@ -24,10 +24,13 @@
 //    - success, last — the confirmed flag lands, pending drops
 //    - failure, newer intent queued — stay quiet; the final
 //      attempt tells the truth
-//    - failure, last — revert to the last server-CONFIRMED
-//      flag (none this session → the field clears and the base
-//      row wins), then requireAuth() for 401/403, else one
-//      'like_failed' notice
+//    - failure, last — a transport failure or a 5xx keeps the
+//      optimistic flag and queues the intent for the restore
+//      signal; a definitive refusal (every 4xx, 429 included)
+//      reverts to the last server-CONFIRMED flag (none this
+//      session → the field clears and the base row wins),
+//      purges any queued twin, then requireAuth() for 401/403,
+//      else one 'like_failed' notice
 //    - the store epoch moved (account switch) — touch nothing;
 //      the departing viewer's intent must not re-seed the
 //      fresh store
@@ -179,10 +182,11 @@ export function useLikeToggle(
               store.patch(post.id, { liked: store.get(post.id)?.confirmedLiked, pending: false });
               env.requireAuth();
             } else if (isRetryableError(err)) {
-              // Offline (or the server is down): the intent
-              // STANDS — the optimistic view stays and the final
-              // word joins the task queue, replayed on restore.
-              // No notice: a queued like is not a failure
+              // Offline (or the server is down — never a 4xx, a
+              // rate-limit 429 included): the intent STANDS — the
+              // optimistic view stays and the final word joins the
+              // task queue, replayed on restore. No notice: a
+              // queued like is not a failure
               env.taskQueue.add({ type: 'like', target: { type: targetType, id: post.id }, desired: d, at: new Date().toISOString() });
               store.patch(post.id, { pending: false });
             } else {

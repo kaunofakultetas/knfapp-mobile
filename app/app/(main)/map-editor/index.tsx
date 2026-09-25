@@ -25,10 +25,14 @@
 //  First run: a server without the building offers to create
 //  it from the bundled seed (the building row, then every seed
 //  entity as an op). A server out of reach offers the bundled
-//  seed to edit with the edits queued. Edits queued while
-//  offline are replayed to the server, not onto a later local
-//  reload — a phone restarted offline mid-session shows the
-//  last fetched draft until the queue has gone out.
+//  seed to edit with the edits queued — behind a confirmation,
+//  because the seed is not the server's draft: every edit made
+//  on it goes out stamped base 0 and comes back as a conflict
+//  against whatever the server holds, for the keep-mine /
+//  take-theirs row to settle. Edits queued while offline are
+//  replayed to the server, not onto a later local reload — a
+//  phone restarted offline mid-session shows the last fetched
+//  draft until the queue has gone out.
 //
 //  Editing the graph is the three packages together: the
 //  editor (document, history, validation), the sync (outbox,
@@ -47,6 +51,7 @@
 //    IssuesPanel      — the validator's findings
 //    ConflictRow      — one rejected op
 //    SyncLine         — the sync status counts
+//    PlanDrawing      — the level's SVG, or the parse-failure notice
 //    EditorBody       — the plan and the sheets
 //    MapEditorScreen  — gate, load, providers (default export)
 //    SeedSender       — the first-run bootstrap through the outbox
@@ -72,11 +77,12 @@ import { showToast } from '@/context/NetworkContext';
 import { usePlanXml } from '@/hooks/usePlanXml';
 import { useTheme } from '@/hooks/useTheme';
 import { ApiError } from '@/services/api';
+import { logError } from '@/services/log';
 import { KNF_BUILDING_ID, KNF_GRAPH } from '@/services/wayfind/seed';
 import { createBuilding, fetchDraft, wayfindTransport } from '@/services/wayfindTransport';
 import { useDataEngine } from '@knf/dataengine';
 import { parsePanoMetadata, type PanoMetadata } from '@knf/wayfindcapture';
-import { changesToOps, useEditor, type Change, type EditorActions, type EditorIssue, type EditorState } from '@knf/wayfindeditor';
+import { changesToOps, panoAttachPatch, useEditor, type Change, type EditorActions, type EditorIssue, type EditorState } from '@knf/wayfindeditor';
 import { bearingDeg, validateGraph, type BuildingGraph, type GraphEdge, type GraphNode, type NodeKind } from '@knf/wayfindengine';
 import { WayfindSyncProvider, useWayfindSync, type OutboxEntry, type UploadItem } from '@knf/wayfindsync';
 import { FloorPlan, FloorSwitcher, WayfindUiKitProvider, type PlanNode, type PlanRoom } from '@knf/wayfinduikit';
@@ -669,6 +675,56 @@ function SyncLine() {
 
 
 // -----------------------------------------------------------
+// PlanDrawing
+// -----------------------------------------------------------
+//
+// The level's SVG text drawn, or — when it does not parse — a
+// small notice in its place, so a broken plan reads as a
+// broken plan and not as an empty floor (the twin of the map
+// tab's PlanDrawing). SvgXml reports a parse failure from
+// INSIDE its own render (onError fires synchronously and it
+// returns `fallback`), so the failure is logged with the
+// plan's reference and the state flip is deferred past the
+// render; from then on the drawing is not mounted again for
+// that text, otherwise every re-render would re-parse and
+// re-log the same broken plan. A new text — an uploaded
+// replacement — gets a fresh attempt.
+//
+// Used by:
+//   - EditorBody (below) — the plan slot under the links
+// -----------------------------------------------------------
+
+function PlanDrawing({ xml, reference }: { xml: string; reference: string | null | undefined }) {
+
+  const { t } = useTranslation();
+  const [failedXml, setFailedXml] = useState<string | null>(null);
+
+
+  const onError = useCallback(
+    (error: Error) => {
+      logError('mapEditor.plan', error, reference ?? undefined);
+      setTimeout(() => setFailedXml(xml), 0);
+    },
+    [reference, xml],
+  );
+
+
+  const notice = (
+    <View style={{ flex: 1 }} className="items-center justify-center px-md" testID="editor-plan-failed">
+      <Text className="text-center font-raleway text-sm text-ink-soft">{t('common.error')}</Text>
+    </View>
+  );
+  if (failedXml === xml) return notice;
+  return <SvgXml xml={xml} width="100%" height="100%" onError={onError} fallback={notice} />;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // EditorBody
 // -----------------------------------------------------------
 //
@@ -713,6 +769,11 @@ function EditorBody({ draft }: { draft: Draft }) {
   // and a finished upload writes its stored url
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
+  // The document as it stands, for the upload landing below —
+  // it reads the node's current photo without re-running on
+  // every edit
+  const documentRef = useRef(state.document);
+  documentRef.current = state.document;
   // The live per-entity revisions, for the capture / align
   // route params: the loaded map, re-stamped by every drain the
   // same way acknowledge re-stamps the editor
@@ -739,17 +800,23 @@ function EditorBody({ draft }: { draft: Draft }) {
         importMeta.current.delete(item.id);
         // The server answers the coverage it stored; the XMP adds
         // what the server does not keep — the crop's centre and
-        // vertical offset — and the recorded compass heading
-        // becomes a panoHeading no admin alignment ever loses to
-        actionsRef.current.updateNode(item.target, {
-          pano: result.url,
-          panoGeometry: {
-            hfovDeg: result.hfovDeg,
-            vfovDeg: result.vfovDeg,
-            ...(meta?.geometry ? { centreYawDeg: meta.geometry.centreYawDeg, vOffsetDeg: meta.geometry.vOffsetDeg } : {}),
-          },
-          ...(meta?.headingDeg != null ? { panoHeading: { source: 'compass', rawDeg: meta.headingDeg } } : {}),
-        });
+        // vertical offset — and the compass heading it recorded.
+        // Whether the node's facing survives is the helper's one
+        // rule: a new photo clears it (the compass heading, else
+        // 'auto', is its provenance now), the same stored url
+        // keeps the alignment
+        const node = documentRef.current.nodes.find((n) => n.id === item.target) ?? null;
+        actionsRef.current.updateNode(
+          item.target,
+          panoAttachPatch(node, result.url, {
+            geometry: {
+              hfovDeg: result.hfovDeg,
+              vfovDeg: result.vfovDeg,
+              ...(meta?.geometry ? { centreYawDeg: meta.geometry.centreYawDeg, vOffsetDeg: meta.geometry.vOffsetDeg } : {}),
+            },
+            headingDeg: meta?.headingDeg ?? null,
+          }),
+        );
       } else {
         actionsRef.current.updateLevel(item.target, { plan: (item.result as { url: string }).url });
       }
@@ -1137,7 +1204,7 @@ function EditorBody({ draft }: { draft: Draft }) {
               level={level}
               plan={
                 <View style={{ flex: 1 }}>
-                  {xml ? <SvgXml xml={xml} width="100%" height="100%" /> : null}
+                  {xml ? <PlanDrawing xml={xml} reference={level.plan} /> : null}
                   <Svg viewBox={level.viewBox.join(' ')} width="100%" height="100%" style={{ position: 'absolute', left: 0, top: 0 }}>
                     {links.map((link) => (
                       <Line key={link.id} x1={link.a.x} y1={link.a.y} x2={link.b.x} y2={link.b.y} stroke={link.kind === 'hallway' ? colors.inkSoft : colors.brand} strokeWidth={4} strokeLinecap="round" strokeDasharray={link.kind === 'door' ? '8 8' : undefined} />
@@ -1248,8 +1315,11 @@ function EditorBody({ draft }: { draft: Draft }) {
 // -----------------------------------------------------------
 //
 // The gate (admin / curator), the draft load with its two
-// fallbacks (create from the seed; edit the seed offline), and
-// the providers the body needs.
+// fallbacks (create from the seed; edit the seed offline — an
+// offer the admin must accept first, since every edit on the
+// seed comes back from the server as a conflict to settle; a
+// declined offer is a dead end with a retry, nothing editable),
+// and the providers the body needs.
 //
 // Used by:
 //   - expo-router — the (main)/map-editor route
@@ -1266,12 +1336,21 @@ function MapEditorScreen() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [missing, setMissing] = useState(false);
   const [loading, setLoading] = useState(true);
+  // The offline seed was offered and turned down — no editor
+  // mounts until a retried load reaches the server or the offer
+  // is taken
+  const [declined, setDeclined] = useState(false);
   const [seedQueued, setSeedQueued] = useState<ReturnType<typeof seedOps> | null>(null);
+  // The seed offer's dialog runs inside load, whose identity
+  // must not follow the translator's — t rides in a ref
+  const tRef = useRef(t);
+  tRef.current = t;
 
 
   const load = useCallback(async () => {
     setLoading(true);
     setMissing(false);
+    setDeclined(false);
     try {
       const answer = await fetchDraft(KNF_BUILDING_ID);
       if (!answer) {
@@ -1280,6 +1359,16 @@ function MapEditorScreen() {
       }
       setDraft({ document: answer.document, revision: answer.revision, revisions: answer.revisions, offline: false });
     } catch {
+      // Out of reach: the bundled seed is offered, never handed
+      // over. It is not the server's draft — every edit made on
+      // it goes out stamped base 0 and comes back as a conflict
+      // against whatever the server holds — so the admin agrees
+      // to that before the first edit is possible
+      const ask = tRef.current;
+      if (!(await confirmAction({ title: ask('mapEditor.title'), message: ask('mapEditor.offlineSeed'), confirmLabel: ask('common.next'), cancelLabel: ask('common.cancel') }))) {
+        setDeclined(true);
+        return;
+      }
       setDraft({ document: KNF_GRAPH, revision: 0, revisions: {}, offline: true });
     } finally {
       setLoading(false);
@@ -1322,6 +1411,13 @@ function MapEditorScreen() {
     return (
       <Screen>
         <EmptyState icon="lock-closed-outline" title={t('mapEditor.noAccess')} />
+      </Screen>
+    );
+  }
+  if (declined) {
+    return (
+      <Screen>
+        <EmptyState icon="cloud-offline-outline" title={t('mapEditor.offlineSeed')} action={{ label: t('common.tryAgain'), onPress: () => void load() }} />
       </Screen>
     );
   }

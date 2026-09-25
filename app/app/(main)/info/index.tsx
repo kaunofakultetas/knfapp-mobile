@@ -18,8 +18,9 @@
 //
 //  Section arrays are read defensively — an older cached
 //  payload may omit whole sections, and an empty section is
-//  simply not rendered. Backend strings arrive already
-//  entity-decoded by the api client.
+//  simply not rendered. Backend strings arrive as raw JSON —
+//  nothing is escaped on output and nothing is decoded on the
+//  way in; React escapes at render.
 //
 //  Split into (root component last):
 //

@@ -13,7 +13,7 @@
 export { DAY_MINUTES, normalizeEntries, parseTimeToMinutes } from './core/normalize';
 export { compareEntries, placeDay } from './core/layout';
 export { deriveWindow } from './core/window';
-export { DAY_MS, buildWeek, dayIndexOf, isoWeekNumber, materializeWeek, mondayOf, parseISO, toISO, visibleDays } from './core/week';
+export { DAY_MS, buildWeek, dayIndexOf, isoWeekNumber, materializeWeek, mondayOf, parseISO, toISO, todayISO, visibleDays } from './core/week';
 export { annotateConflicts, conflictIds } from './core/conflicts';
 export { nowState } from './core/now';
 export { forGroup, forTeacher, listTeachers } from './core/perspective';

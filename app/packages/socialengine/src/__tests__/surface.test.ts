@@ -52,16 +52,19 @@ describe('@knf/socialengine surface', () => {
     }
   });
 
-  it('the retry judgement: network shapes, 5xx, 429 and status 0 heal; a definitive 4xx does not', () => {
+  it('the retry judgement: network shapes, 5xx and status 0 heal; a definitive 4xx — 429 included — does not', () => {
     const { isRetryableError } = engine;
     expect(isRetryableError(new TypeError('Network request failed'))).toBe(true);
     expect(isRetryableError({ status: 503 })).toBe(true);
     expect(isRetryableError({ httpStatus: 500 })).toBe(true);
-    expect(isRetryableError({ status: 429 })).toBe(true);
     expect(isRetryableError({ status: 0 })).toBe(true);
     expect(isRetryableError({ code: 'network' })).toBe(true);
     expect(isRetryableError({ code: 'timeout' })).toBe(true);
     expect(isRetryableError({ status: 400 })).toBe(false);
+    // The backend's 429s are a cooldown or a rate limit — replaying
+    // the same intent on every mount never heals either
+    expect(isRetryableError({ status: 429 })).toBe(false);
+    expect(isRetryableError({ status: 429, serverCode: 'friend_request_cooldown' })).toBe(false);
     // A plain Error carries no transport shape — definitive
     expect(isRetryableError(new Error('boom'))).toBe(false);
   });

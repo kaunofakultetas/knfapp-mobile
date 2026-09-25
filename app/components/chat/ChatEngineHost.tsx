@@ -30,6 +30,7 @@ import { DEFAULT_MAX_LENGTH } from '@knf/chatuikit/composer/Composer';
 const NOTICE_KEYS: Record<EngineNotice['code'], string> = {
   send_failed: 'chat.sendError',
   send_too_long: 'chat.sendTooLong',
+  send_quote_gone: 'chat.sendQuoteGone',
   send_forbidden: 'chat.sendForbidden',
   session_expired: 'chat.sessionExpired',
   timeout: 'toast.timeout',

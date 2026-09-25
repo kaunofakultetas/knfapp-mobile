@@ -80,6 +80,7 @@ import { KNF_BUILDING_ID } from '@/services/wayfind/seed';
 import { createCapture, finishCapture, getCapture, wayfindTransport, type CaptureStatusAnswer } from '@/services/wayfindTransport';
 import { createCaptureSession, createPoseTracker, planTargets, useCaptureSession, type CaptureSession, type PlanMode, type Pose, type PoseTracker, type TrackerSample, type Vec3 } from '@knf/wayfindcapture';
 import { useDataEngine } from '@knf/dataengine';
+import { panoAttachPatch } from '@knf/wayfindeditor';
 import { WayfindSyncProvider, useWayfindSync, type DrainReport, type SyncEnv } from '@knf/wayfindsync';
 import { CaptureHud, WayfindUiKitProvider } from '@knf/wayfinduikit';
 
@@ -625,17 +626,17 @@ function CaptureBody({ nodeId, nodeData, baseRevision }: { nodeId: string; nodeD
   // which plan direction it faces, so a panoYaw aligned on the
   // previous photo is cleared with it — panoHeading 'auto', an
   // honest machine guess — while re-assigning the unchanged
-  // photo keeps the alignment. Success (applied, or queued for
-  // an offline drain) toasts and leaves; a delivered write
-  // also clears this screen's queues — op delivered, frames
-  // consumed
+  // photo keeps the alignment: the editor package's
+  // panoAttachPatch is that rule, shared with the import path.
+  // Success (applied, or queued for an offline drain) toasts
+  // and leaves; a delivered write also clears this screen's
+  // queues — op delivered, frames consumed
   const assigningRef = useRef(false);
   const assign = useCallback(async () => {
     const pano = status?.pano;
     if (!pano || assigningRef.current) return;
     assigningRef.current = true;
     const opId = mintId('op');
-    const samePano = nodeData.pano === pano.url;
     sync.enqueueOps([
       {
         id: opId,
@@ -644,9 +645,7 @@ function CaptureBody({ nodeId, nodeData, baseRevision }: { nodeId: string; nodeD
         entityId: nodeId,
         data: {
           ...nodeData,
-          pano: pano.url,
-          panoGeometry: { hfovDeg: pano.hfovDeg, vfovDeg: pano.vfovDeg, centreYawDeg: pano.centreYawDeg ?? null },
-          ...(samePano ? {} : { panoYaw: null, panoHeading: { source: 'auto' } }),
+          ...panoAttachPatch(nodeData, pano.url, { geometry: { hfovDeg: pano.hfovDeg, vfovDeg: pano.vfovDeg, centreYawDeg: pano.centreYawDeg ?? null } }),
         },
         ...(baseRevision != null ? { baseRevision } : {}),
       },

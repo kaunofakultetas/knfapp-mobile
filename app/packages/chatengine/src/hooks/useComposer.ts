@@ -435,6 +435,17 @@ export function useComposer(
   const deliver = useCallback(
     async (tempId: string, body: string, imageUrl?: string, replyToId?: string, extra?: OutboxEntry['extra']) => {
       if (inFlightRef.current.has(tempId)) return;
+      // A body with nothing in it — no text, no stored image,
+      // no attachment, no gallery — is a parked media send whose
+      // upload never happened; the backend can only reject it,
+      // so the bubble stays failed under the upload notice
+      // instead of dying on a doomed request
+      if (!body && !imageUrl && !extra?.attachment && !extra?.gallery) {
+        clearAutoRetry(tempId);
+        setMessages((prev) => prev.map((m) => (m.id === tempId && m.status !== 'failed' ? { ...m, status: 'failed' } : m)));
+        notify({ level: 'error', code: 'upload_failed' });
+        return;
+      }
       inFlightRef.current.add(tempId);
       setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: 'sending' } : m)));
       try {

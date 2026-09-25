@@ -17,8 +17,10 @@
 //
 //  Error contract: reject with anything; the engine only
 //  distinguishes retryable-shaped failures (network, timeout,
-//  5xx, 429 — isRetryableError) from definitive refusals, and
-//  an httpStatus/status field of 401/403 marks the auth case.
+//  5xx — isRetryableError) from definitive refusals (every
+//  4xx, 429 included), an httpStatus/status field of 401/403
+//  marks the auth case, and a serverCode (or a bare `code`
+//  slug) lets one refusal carry its own sentence.
 //
 //  Used by:
 //    - provider/index.tsx — the env's `transport`
@@ -192,6 +194,10 @@ export type SocialNoticeCode =
   | 'vote_failed'
   | 'poll_load_failed'
   | 'relationship_failed'
+  // The backend refused a connect for a while — the other side
+  // declined the last request (friend_request_cooldown); a
+  // definitive refusal with its own sentence, not a retry
+  | 'cooldown'
   | 'block_failed'
   | 'report_failed'
   | 'notifications_failed'
@@ -233,19 +239,21 @@ export interface SocialNotice {
 // isRetryableError
 // -----------------------------------------------------------
 //
-// Whether a failure can heal on its own (network, timeout,
-// 5xx, 429 — worth retrying or queueing) or is a definitive
-// refusal. Reads the common shapes without depending on any
-// HTTP client: a `status` or `httpStatus` number, a `code` of
-// 'network'/'timeout', a TypeError from fetch. The hooks
-// themselves revert-and-notify on EVERY failure (there is no
-// offline replay here) — this judgement is exported for hosts
-// and adapters that queue their own retries.
+// Whether a failure can heal on its own — a real transport
+// failure (status 0, a `code` of 'network'/'timeout', a
+// TypeError from fetch) or a 5xx — and is worth queueing for
+// the restore signal, or is a definitive refusal. EVERY 4xx is
+// definitive, 429 included: the backend's 429s are a declined
+// request's cooldown or a rate limit, and neither heals by
+// replaying the same intent on every mount. Reads the common
+// shapes without depending on any HTTP client.
 //
 // Used by:
+//   - hooks/useLikeToggle.ts, hooks/useRelationship.ts — queue
+//     an offline intent vs revert-and-notify
+//   - provider/index.tsx — the drain: stop the walk vs drop
+//     the task
 //   - hosts and adapter authors, via the public surface
-//   - testing/socialContract.ts consumers reasoning about
-//     refusal shapes
 // -----------------------------------------------------------
 
 export function isRetryableError(err: unknown): boolean {
@@ -253,9 +261,45 @@ export function isRetryableError(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false;
   const e = err as { status?: unknown; httpStatus?: unknown; code?: unknown };
   const status = typeof e.status === 'number' ? e.status : typeof e.httpStatus === 'number' ? e.httpStatus : null;
-  if (status !== null) return status === 0 || status === 429 || status >= 500;
+  if (status !== null) return status === 0 || status >= 500;
   if (e.code === 'network' || e.code === 'timeout') return true;
   return false;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// relationshipFailureCode
+// -----------------------------------------------------------
+//
+// The notice a definitively refused relationship action
+// surfaces as: 'cooldown' when the backend's machine code says
+// the other side declined the last request
+// (friend_request_cooldown), the generic failure otherwise.
+// The slug is read from `serverCode` (the app's ApiError) or,
+// failing that, from a bare `code` that is not a transport
+// kind — the shape the fake transport and the adapter's own
+// refusals use.
+//
+// Used by:
+//   - hooks/useRelationship.ts — the definitive-refusal branch
+//   - provider/index.tsx — the drain's relationship replay
+// -----------------------------------------------------------
+
+const TRANSPORT_KINDS = new Set(['http', 'network', 'timeout', 'canceled']);
+
+export function relationshipFailureCode(err: unknown): SocialNoticeCode {
+  if (!err || typeof err !== 'object') return 'relationship_failed';
+  const e = err as { serverCode?: unknown; code?: unknown };
+  const slug =
+    typeof e.serverCode === 'string' ? e.serverCode
+    : typeof e.code === 'string' && !TRANSPORT_KINDS.has(e.code) ? e.code
+    : null;
+  return slug === 'friend_request_cooldown' ? 'cooldown' : 'relationship_failed';
 }
 
 

@@ -10,6 +10,12 @@
 //      profile → the face the kit draws
 //    - a connect tap reaches the transport and the confirmed
 //      standing settles the face
+//    - a 429 cooldown refusal reverts the face and surfaces
+//      the engine's cooldown notice — never a lasting
+//      "Requested"
+//    - an avatar upload refused for a full storage quota (413
+//      quota_exceeded) toasts the quota sentence — the screen
+//      keys on the machine code, never on the 413
 //    - block / unblock ride the plain API and flip the base
 //      (and drop the shadow) so the face follows
 //    - a refetched profile wins over a standing the engine
@@ -143,8 +149,12 @@ let mockProfile: Profile = baseProfile;
 const mockFetchProfile = jest.fn(async () => mockProfile);
 const mockBlockUser = jest.fn(async (_id: string) => {});
 const mockUnblockUser = jest.fn(async (_id: string) => {});
+const mockUploadImage = jest.fn(async (..._args: unknown[]) => ({ url: '' }));
+// The resolver's shape only — the real catalog resolution is
+// pinned by errorCatalog.test.ts
 jest.mock('@/services/api', () => ({
   ApiError: class ApiError extends Error {},
+  apiErrorKey: (err: { serverCode?: string }) => (err?.serverCode ? `errors.codes.${err.serverCode}` : 'errors.generic'),
   fetchUserProfile: () => mockFetchProfile(),
   fetchUserPosts: async () => ({ posts: [], hasMore: false }),
   blockUser: (id: string) => mockBlockUser(id),
@@ -152,14 +162,16 @@ jest.mock('@/services/api', () => ({
   reportTarget: jest.fn(async () => {}),
   deletePost: jest.fn(async () => {}),
   updateProfile: jest.fn(async () => ({})),
-  uploadImageApi: jest.fn(async () => ({ url: '' })),
+  uploadImageApi: (...args: unknown[]) => mockUploadImage(...args),
 }));
 
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import * as ImagePicker from 'expo-image-picker';
 
 import ProfileScreen from '@/app/(main)/profile/index';
+import { ApiError } from '@/services/api';
 
-import { SocialEngineProvider, fakeSocialTransport, type FakeSocialTransport } from '@knf/socialengine';
+import { SocialEngineProvider, fakeSocialTransport, type FakeSocialTransport, type SocialNotice } from '@knf/socialengine';
 import { SocialUiKitProvider } from '@knf/socialuikit';
 
 
@@ -167,6 +179,8 @@ const face = (action: string) => `socialuikit-connect-${action}`;
 
 let transport: FakeSocialTransport;
 const mockRequireAuth = jest.fn();
+// The engine's notices, as the host's SocialEngineHost would toast them
+let notices: SocialNotice[] = [];
 
 // RNTL 14 renders asynchronously — every caller awaits
 const renderScreen = () =>
@@ -175,6 +189,7 @@ const renderScreen = () =>
       transport={transport}
       currentUser={mockMe ? { id: mockMe.id, displayName: mockMe.displayName } : null}
       onRequireAuth={mockRequireAuth}
+      notify={(n) => notices.push(n)}
     >
       <SocialUiKitProvider locale="en">
         <ProfileScreen />
@@ -194,6 +209,7 @@ describe('ProfileScreen relationship wiring', () => {
     mockMe = { id: 'u1', displayName: 'Me' };
     mockProfile = baseProfile;
     mockFocus = null;
+    notices = [];
     transport = fakeSocialTransport();
   });
 
@@ -251,6 +267,27 @@ describe('ProfileScreen relationship wiring', () => {
     expect(mockShowToast).not.toHaveBeenCalled();
   });
 
+
+  it('a declined-request cooldown (429) reverts the face and names the cooldown, never a lasting "Requested"', async () => {
+    // The backend's answer for a week after the other side
+    // declined: 429 friend_request_cooldown. A definitive
+    // refusal — the connect face comes back and the engine's
+    // cooldown notice carries the sentence; nothing is queued
+    // to replay on the next mount
+    transport.fail('setRelationship', Object.assign(new Error('cooldown'), { status: 429, serverCode: 'friend_request_cooldown' }));
+    const screen = await renderScreen();
+    await waitFor(() => expect(screen.getByTestId(face('connect'))).toBeTruthy());
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(face('connect')));
+    });
+
+    await waitFor(() => expect(notices).toEqual([{ level: 'error', code: 'cooldown' }]));
+    await waitFor(() => expect(screen.getByTestId(face('connect'))).toBeTruthy());
+    expect(screen.queryByTestId(face('cancel'))).toBeNull();
+    expect(transport.calls).toEqual([{ method: 'setRelationship', args: ['u2', 'connect'] }]);
+    expect(mockRequireAuth).not.toHaveBeenCalled();
+  });
 
   it('confirms before a disconnect and drops it when the viewer declines', async () => {
     withProfile({ friendshipStatus: 'friends' });
@@ -316,6 +353,36 @@ describe('ProfileScreen relationship wiring', () => {
     expect(screen.queryByTestId(face('cancel'))).toBeNull();
   });
 
+
+  it('an avatar upload refused for a full storage quota (413 quota_exceeded) toasts the quota sentence, never "too large"', async () => {
+    mockUserId = undefined;
+    withProfile({ id: 'u1' });
+    (ImagePicker.launchImageLibraryAsync as jest.Mock).mockResolvedValueOnce({
+      canceled: false,
+      assets: [{ uri: 'file:///a.jpg', fileName: 'a.jpg', mimeType: 'image/jpeg', fileSize: 10 }],
+    });
+    // The backend's answer for a full quota: a 413 that carries
+    // its own machine code — the status alone used to read as
+    // "the file is too large" here. The mocked ApiError class
+    // stores no fields, hence the assign on top of the real
+    // constructor shape
+    mockUploadImage.mockRejectedValueOnce(
+      Object.assign(new ApiError('Storage quota exceeded', 413, 'http', undefined, 'quota_exceeded'), {
+        status: 413,
+        code: 'http',
+        serverCode: 'quota_exceeded',
+      }),
+    );
+    const screen = await renderScreen();
+    await waitFor(() => expect(screen.getByLabelText('id.changePhoto')).toBeTruthy());
+
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText('id.changePhoto'));
+    });
+
+    await waitFor(() => expect(mockShowToast).toHaveBeenCalledWith('error', 'errors.codes.quota_exceeded'));
+    expect(mockShowToast).not.toHaveBeenCalledWith('error', 'upload.tooLarge');
+  });
 
   it('shows a guest the connect button and routes the tap to login', async () => {
     mockMe = null;

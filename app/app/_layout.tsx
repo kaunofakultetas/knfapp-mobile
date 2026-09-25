@@ -13,7 +13,12 @@
 //  (not above the providers, where the old layout had it)
 //  because its spinner takes the scheme's on-brand tint,
 //  which needs AppProvider mounted. The native splash stays
-//  up over the gate and drops once fonts load or fail.
+//  up over the gate and drops once fonts load or fail — or
+//  the moment the root boundary catches a crash, since a
+//  render-time throw unwinds past the gate before its effect
+//  ever runs and would leave the crash screen under an opaque
+//  splash (the fallback drops it on mount too, for a re-crash
+//  after Try Again, which onError does not report).
 //
 //  StatusBar is hard-set to light: the top of every screen is
 //  the burgundy header or the brand splash, and in the dark
@@ -243,6 +248,12 @@ export default function RootLayout() {
       FallbackComponent={ErrorFallback}
       onReset={() => router.replace('/')}
       onError={(error, info) => {
+        // The font gate's hide never ran if the crash unwound
+        // past it — drop the native splash so the crash screen
+        // is visible at all, then log
+        SplashScreen.hideAsync().catch(() => {
+          // Already hidden — nothing left to cover
+        });
         logError('crash', error, info.componentStack ?? undefined);
       }}
     >

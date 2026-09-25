@@ -36,6 +36,7 @@ describe('@knf/wayfindeditor surface', () => {
         'issueId',
         'moveNode',
         'normaliseDocument',
+        'panoAttachPatch',
         'record',
         'recordClosing',
         'redo',

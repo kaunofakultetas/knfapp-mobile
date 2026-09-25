@@ -594,7 +594,7 @@ describe('CaptureScreen', () => {
   });
 
 
-  it('a conflicted assign surfaces the dialog; overwrite retries without a base and only then toasts', async () => {
+  it("a conflicted assign surfaces the dialog; overwrite retries stamped at the server's revision and only then toasts", async () => {
     mockGetCapture.mockResolvedValue(DONE_ANSWER);
     mockPostOps.mockImplementationOnce(async (_b: string, ops: SentOp[]) => ({
       revision: 12,
@@ -625,7 +625,8 @@ describe('CaptureScreen', () => {
     const ops = mockPostOps.mock.calls.flatMap(([, batch]) => batch);
     expect(ops).toHaveLength(2);
     expect(ops[1].id).toBe(`${ops[0].id}-again`);
-    expect(ops[1].baseRevision).toBeUndefined();
+    // Keep mine lands over exactly the copy the server showed
+    expect(ops[1].baseRevision).toBe(12);
     expect(mockToast).toHaveBeenCalledWith('success', 'mapEditor.capture.assigned');
     expect(mockBack).toHaveBeenCalled();
   });

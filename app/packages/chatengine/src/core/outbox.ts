@@ -148,7 +148,8 @@ export interface OutboxEntry {
 // The persisted queue back as a Map. Tolerant of both stored
 // shapes (record, or an entries array) and answers an empty
 // Map to anything unreadable; rows without a temp id are
-// dropped on the way in.
+// dropped on the way in. Every retry field survives the round
+// trip — the single asset AND a gallery's picked set.
 //
 // Used by:
 //   - readOutboxTemps (below)
@@ -173,6 +174,9 @@ export async function readOutbox(storage: KeyValueStorage, conversationId: strin
         imageUrl: typeof payload.imageUrl === 'string' && payload.imageUrl ? payload.imageUrl : undefined,
         replyToId: typeof payload.replyToId === 'string' ? payload.replyToId : undefined,
         asset: payload.asset && typeof payload.asset === 'object' && typeof payload.asset.uri === 'string' ? payload.asset : undefined,
+        // A parked gallery keeps its picked set — without it the
+        // redrive would post an empty body the backend rejects
+        assets: Array.isArray(payload.assets) ? payload.assets.filter((a) => a && typeof a === 'object' && typeof a.uri === 'string') : undefined,
         extra: payload.extra && typeof payload.extra === 'object' ? payload.extra : undefined,
         createdAt: typeof payload.createdAt === 'string' ? payload.createdAt : undefined,
       });

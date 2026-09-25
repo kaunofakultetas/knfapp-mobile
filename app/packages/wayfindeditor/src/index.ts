@@ -36,6 +36,7 @@ export {
   addNode,
   moveNode,
   updateNode,
+  panoAttachPatch,
   deleteNode,
   addEdge,
   updateEdge,
@@ -45,6 +46,7 @@ export {
   deleteRoom,
   setBuilding,
   type Edit,
+  type PanoAttach,
 } from './core/edits';
 
 // Checkpoint undo, pure — the closing variants name the

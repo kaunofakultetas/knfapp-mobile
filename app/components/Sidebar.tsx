@@ -58,6 +58,12 @@ import type { ThemeSetting } from '@/types';
 // UI kit
 import { Avatar } from '@/components/ui';
 
+// The floating tab bar's collapse signal — a jump from the
+// drawer must land with the bar shown, exactly as a tab press
+// does; a chip a scroll folded away would otherwise stay folded
+// on a screen that fires no scroll event of its own
+import { setTabBarCollapsed } from '@/components/navigation/tabBarCollapse';
+
 // Rendering, navigation and motion
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
@@ -622,9 +628,11 @@ export default function Sidebar() {
   // Close first, navigate after — the panel is already gliding
   // out while the new screen mounts. Opening a surface never
   // touches its pin; the tab bar keeps a focused-but-unpinned
-  // route visible on its own.
+  // route visible on its own. A fresh screen starts at its top
+  // — with the bar, so the chip is expanded before the jump.
   const navigate = (route: Href) => {
     close();
+    setTabBarCollapsed(false);
     router.navigate(route);
   };
 
@@ -636,8 +644,9 @@ export default function Sidebar() {
     tick();
     if (pinnedTabs.includes(key)) {
       // Unpinning the surface the reader is on would strand the
-      // bar with no selected tab — land on news first
-      if (pathname.endsWith(`/tabs/${key}`)) router.navigate('/(main)/tabs/news');
+      // bar with no selected tab — land on news first, through
+      // the same helper every drawer jump takes
+      if (pathname.endsWith(`/tabs/${key}`)) navigate('/(main)/tabs/news');
       setPinnedTabs(pinnedTabs.filter((k) => k !== key));
     } else {
       setPinnedTabs([...pinnedTabs, key]);

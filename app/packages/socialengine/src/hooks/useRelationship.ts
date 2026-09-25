@@ -23,10 +23,15 @@
 //    - success, last — the confirmed standing lands
 //    - failure, newer intent queued — stay quiet; the final
 //      attempt tells the truth
-//    - failure, last — revert to the last server-CONFIRMED
-//      standing (none this session → the field clears and the
-//      base wins), then requireAuth() for 401/403, else one
-//      'relationship_failed' notice
+//    - failure, last — a transport failure or a 5xx keeps the
+//      optimistic word and queues the intent for the restore
+//      signal; a definitive refusal (every 4xx, 429 included)
+//      reverts to the last server-CONFIRMED standing (none
+//      this session → the field clears and the base wins),
+//      purges any queued twin, then requireAuth() for 401/403,
+//      else ONE notice — 'cooldown' when the backend says the
+//      other side declined the last request, 'relationship_
+//      failed' otherwise
 //    - a replaced queued task (AbortError) never ran — nothing
 //      to undo; a settle from before an account switch (the
 //      store epoch moved) touches nothing
@@ -43,7 +48,7 @@ import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 
 import { mergeRelationship } from '../core/shadow';
 import { getToggleQueue } from '../core/toggleQueue';
-import { isAuthError, isRetryableError, type RelationshipAction } from '../core/transport';
+import { isAuthError, isRetryableError, relationshipFailureCode, type RelationshipAction } from '../core/transport';
 import type { RelationshipState } from '../core/types';
 import { useSocialEngine } from '../provider';
 
@@ -194,13 +199,17 @@ export function useRelationship(userId: string, base: RelationshipState): UseRel
               store.patch(userId, { relationship: store.get(userId)?.confirmedRelationship, pending: false });
               env.requireAuth();
             } else if (isRetryableError(err)) {
-              // Offline: the intent stands and replays on restore
+              // Offline (or the server is down — never a 4xx): the
+              // intent stands and replays on restore
               env.taskQueue.add({ type: 'relationship', userId, action: a as RelationshipAction, at: new Date().toISOString() });
               store.patch(userId, { pending: false });
             } else {
+              // A definitive refusal — a 429 cooldown or rate limit
+              // included: the button must not keep saying
+              // "Requested", and nothing may replay it later
               env.taskQueue.remove({ type: 'relationship', userId, action: a as RelationshipAction, at: '' });
               store.patch(userId, { relationship: store.get(userId)?.confirmedRelationship, pending: false });
-              env.notify({ level: 'error', code: 'relationship_failed' });
+              env.notify({ level: 'error', code: relationshipFailureCode(err) });
             }
           }
           throw err;

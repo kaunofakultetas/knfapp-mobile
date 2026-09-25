@@ -32,8 +32,15 @@
 //      from memory, then the stored copy, then the device only
 //      if permission is already granted; a failed DELETE keeps
 //      the stored token so the next detach can retry; the
-//      whole thing is time-boxed and waits for any in-flight
-//      register first, so the two can never interleave.
+//      whole thing runs under ONE timebox — the wait for an
+//      in-flight register included — so the two never
+//      interleave AND no DELETE can go out after the caller
+//      has moved on (at logout that caller revokes the bearer
+//      next, and a late DELETE would carry a dead one);
+//    - getRegisteredToken() answers the token this device
+//      holds — memory, then the stored copy, never the device
+//      — so a logout can send it in its own body and have the
+//      server drop the session and the push row together.
 //
 //  Used by:
 //    - engine.ts — register/detach/rotation/TTL reconcile
@@ -100,8 +107,9 @@ const FORCE_REASONS: ReadonlySet<RegisterReason> = new Set(['login', 'toggle']);
 // RegistrationMachine
 // -----------------------------------------------------------
 //
-// The machine's surface — the snapshot store, register() and
-// the logout-side detach().
+// The machine's surface — the snapshot store, register(), the
+// logout-side detach() and the prompt-free token read a logout
+// body carries.
 //
 // Used by:
 //   - createRegistrationMachine (below) — the return shape
@@ -112,6 +120,7 @@ export interface RegistrationMachine {
   store: MutableStore<RegistrationSnapshot>;
   register(reason: RegisterReason, deliveredToken?: string): Promise<RegisterResult>;
   detach(opts?: { authToken?: string }): Promise<void>;
+  getRegisteredToken(): Promise<string | null>;
 }
 
 
@@ -332,32 +341,65 @@ export function createRegistrationMachine(deps: {
     return run;
   };
 
+  // The token this device holds, without prompting: memory
+  // first, then the stored copy a previous run persisted. The
+  // logout caller sends it in the logout body, so ONE
+  // authenticated request drops the session and this device's
+  // push row together; detach's own chain continues past this
+  // to the device when permission is already granted
+  const knownToken = async (): Promise<string | null> => {
+    const held = store.get().token;
+    if (held) return held;
+    try {
+      return await storage.get(LEGACY_TOKEN_KEY);
+    } catch {
+      return null;
+    }
+  };
+
   const detach = async (opts?: { authToken?: string }): Promise<void> => {
+    // ONE deadline for the whole detach: the wait on an in-flight
+    // register(), the token chain and the DELETE all read it.
+    // The caller (logout) moves on when it fires — and revokes
+    // the bearer next — so nothing past it may still reach the
+    // wire: the register's own watchdog is 10 s, twice this box,
+    // and a DELETE issued after it would carry a dead bearer,
+    // 401, and leave the row pointing at a signed-out device
+    let expired = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<void>((resolve) => {
+      timer = setTimeout(() => {
+        expired = true;
+        resolve();
+      }, DETACH_TIMEBOX_MS);
+    });
+
     const work = (async () => {
-      // Never interleave with a registration in flight
-      if (inFlight) await inFlight.catch(() => undefined);
+      // Never interleave with a registration in flight — but
+      // wait for it only as long as the box allows
+      if (inFlight) await Promise.race([inFlight.catch(() => undefined), deadline]);
       generation += 1; // anything still running is superseded
       const detachGen = generation;
 
       // Token fallback chain: memory → stored copy → device,
-      // and the device only when it will not prompt
-      let token = store.get().token;
-      if (!token) {
-        try {
-          token = await storage.get(LEGACY_TOKEN_KEY);
-        } catch {
-          token = null;
-        }
-      }
-      if (!token && canDeliver() && device.supportsRemotePush()) {
-        try {
-          token = await device.getPushToken();
-        } catch {
-          token = null;
+      // and the device only when it will not prompt. Skipped
+      // outright once the box has expired
+      let token: string | null = null;
+      if (!expired) {
+        token = await knownToken();
+        if (!token && canDeliver() && device.supportsRemotePush()) {
+          try {
+            token = await device.getPushToken();
+          } catch {
+            token = null;
+          }
         }
       }
 
-      if (token) {
+      // The DELETE goes out only inside the box; a slow answer
+      // may still arrive after it (the caller does not wait),
+      // but nothing is ISSUED once the caller has moved on
+      if (token && !expired) {
         try {
           await transport.unregister({ token, authToken: opts?.authToken });
           // Only a CONFIRMED delete forgets the stored copy —
@@ -388,14 +430,9 @@ export function createRegistrationMachine(deps: {
 
     // Logout must never hang on the network — and the timer is
     // cleared when the work wins, leaving nothing ticking
-    await new Promise<void>((resolve) => {
-      const timer = setTimeout(resolve, DETACH_TIMEBOX_MS);
-      void work.finally(() => {
-        clearTimeout(timer);
-        resolve();
-      });
-    });
+    await Promise.race([work.catch(() => undefined), deadline]);
+    clearTimeout(timer);
   };
 
-  return { store, register, detach };
+  return { store, register, detach, getRegisteredToken: knownToken };
 }

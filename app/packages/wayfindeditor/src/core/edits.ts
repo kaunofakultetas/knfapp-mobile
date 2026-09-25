@@ -263,6 +263,51 @@ export function updateNode(doc: GraphLike, id: string, patch: Patch<NodeLike>): 
 
 
 // -----------------------------------------------------------
+// panoAttachPatch
+// -----------------------------------------------------------
+//
+// The node patch that attaches a stored panorama — the ONE
+// place that knows a new photo invalidates the facing. A
+// panoYaw is a property of the picture it was measured on,
+// so a different url clears it and stamps the heading's
+// provenance from what the new photo itself knows (its
+// recorded compass heading, else an honest 'auto'); the same
+// url keeps the alignment untouched — the server's url is
+// content-addressed, so the same bytes answer the same url
+// and re-attaching the identical picture changes nothing.
+// The geometry rides through as the caller measured it.
+//
+// Used by:
+//   - app/(main)/map-editor/index.tsx — the import upload's
+//     landing on the node
+//   - app/(main)/map-editor/capture.tsx — the capture's assign;
+//     both attach paths go through here so neither can forget
+//     the rule
+// -----------------------------------------------------------
+
+export interface PanoAttach {
+  // The stored coverage, as the caller measured it
+  geometry: Record<string, unknown>;
+  // The photo's own compass heading, when it recorded one
+  headingDeg?: number | null;
+}
+
+export function panoAttachPatch(node: { pano?: unknown } | null | undefined, url: string, meta: PanoAttach): Patch<NodeLike> {
+  const samePano = node?.pano === url;
+  return {
+    pano: url,
+    panoGeometry: meta.geometry,
+    ...(samePano ? {} : { panoYaw: null, panoHeading: meta.headingDeg != null ? { source: 'compass', rawDeg: meta.headingDeg } : { source: 'auto' } }),
+  };
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // deleteNode
 // -----------------------------------------------------------
 //

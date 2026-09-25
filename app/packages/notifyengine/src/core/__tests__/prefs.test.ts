@@ -2,9 +2,11 @@
 //  [*] Tests — the prefs machine, pinned to exact snapshots
 //
 //  Three truths under one store: refresh hydration from the
-//  server, rapid channel flips collapsing through the 300ms
-//  debounce into ONE merged PUT whose ANSWER becomes the
-//  confirmed state, the three-way merge that reverts only a
+//  server (taking the wire lock, so a flip made during the GET
+//  queues its PUT behind it instead of racing it), rapid
+//  channel flips collapsing through the 300ms debounce into
+//  ONE merged PUT whose ANSWER becomes the confirmed state,
+//  the three-way merge that reverts only a
 //  failed batch's keys while an in-flight flip keeps its
 //  optimistic value, the guarded channel union, the
 //  client-only master switch (hydrated from disk once, never
@@ -129,6 +131,53 @@ describe('refresh', () => {
 
     expect(machine.store.get().masterEnabled).toBe(true);
     expect(machine.store.get().syncState).toBe('fresh');
+  });
+
+  it('a channel flip made while the GET is on the wire queues its PUT BEHIND the GET — the older body never lands last', async () => {
+    const { transport, machine } = setup();
+    // A real server answers the GET from the state it had when
+    // the request ARRIVED; only the response is slow. Capturing
+    // the body at arrival is what makes the race reproducible
+    const order: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    transport.getChannels = async () => {
+      transport.calls.push({ method: 'getChannels', payload: null });
+      const body = { ...transport.channels };
+      order.push('GET arrived');
+      await gate;
+      order.push('GET answered');
+      return body;
+    };
+    const put = transport.putChannels;
+    transport.putChannels = async (patch) => {
+      order.push('PUT committed');
+      return put(patch);
+    };
+
+    // Pull-to-refresh on a slow link, then the switch flips OFF
+    const flight = machine.refresh();
+    await jest.advanceTimersByTimeAsync(0);
+    machine.setChannelEnabled('chat', false);
+    await jest.advanceTimersByTimeAsync(DEBOUNCE_MS);
+    // The debounce fired, but the PUT is waiting its turn
+    expect(order).toEqual(['GET arrived']);
+    expect(machine.store.get().channels.chat).toBe(false);
+
+    release();
+    await flight;
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(order).toEqual(['GET arrived', 'GET answered', 'PUT committed']);
+    expect(transport.channels.chat).toBe(false);
+    expect(machine.store.get()).toEqual({
+      masterEnabled: true,
+      channels: { news: true, chat: false, schedule: true, admin: true },
+      chatPreview: true,
+      syncState: 'fresh',
+    });
   });
 });
 

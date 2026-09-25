@@ -191,6 +191,9 @@ export const ASSISTANT_TOOL_SCHEMAS: Record<AssistantToolName, { input: JsonSche
             required: ['id', 'title', 'date', 'source'],
           },
         },
+        // The container's own words when nothing matched
+        // (optional — absent on a non-empty answer)
+        note: STRING,
       },
       required: ['posts'],
     },
@@ -398,6 +401,7 @@ export interface AssistantNewsPost {
 
 export interface SearchNewsOutput {
   posts: AssistantNewsPost[];
+  note?: string;
 }
 
 

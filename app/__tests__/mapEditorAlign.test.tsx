@@ -227,7 +227,7 @@ describe('AlignScreen', () => {
   });
 
 
-  it('a conflicted confirm surfaces the dialog; overwrite re-sends without a base and only then toasts', async () => {
+  it("a conflicted confirm surfaces the dialog; overwrite re-sends stamped at the server's revision and only then toasts", async () => {
     mockPostOps.mockImplementationOnce(async (_b: string, ops: SentOp[]) => ({
       revision: 12,
       results: ops.map((op) => ({ id: op.id, status: 'rejected', reason: 'conflict', current: { data: { x: 1 }, revision: 12, deleted: false } })),
@@ -253,7 +253,8 @@ describe('AlignScreen', () => {
     const ops = sentOps();
     expect(ops).toHaveLength(2);
     expect(ops[1].id).toBe(`${ops[0].id}-again`);
-    expect(ops[1].baseRevision).toBeUndefined();
+    // Keep mine lands over exactly the copy the server showed
+    expect(ops[1].baseRevision).toBe(12);
     expect((ops[1].data as { panoYaw: number }).panoYaw).toBe(45);
     expect(mockToast).toHaveBeenCalledWith('success', 'mapEditor.align.saved');
     expect(mockBack).toHaveBeenCalled();

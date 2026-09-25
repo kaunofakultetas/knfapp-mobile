@@ -358,8 +358,10 @@ function CreateInvitationForm({
 // -----------------------------------------------------------
 //
 // Everything above the code list: the stat tiles (admin only —
-// null while curators browse), the manage-users link, the
-// create toggle with its form, and the list's section title.
+// null while curators browse, and gated on the LIVE role too,
+// so numbers fetched as an admin never outlive the role), the
+// manage-users link, the create toggle with its form, and the
+// list's section title.
 //
 // Used by:
 //   - AdminScreen (below) — FlatList ListHeaderComponent
@@ -390,7 +392,7 @@ function DashboardHeader({
   return (
     <View className="px-md pt-md">
 
-      {stats && (
+      {isAdmin && stats && (
         <View className="flex-row flex-wrap gap-sm">
           <StatCard icon="people" label={t('admin.users')} value={stats.users} />
           <StatCard icon="newspaper" label={t('admin.posts')} value={stats.posts} />
@@ -754,6 +756,25 @@ export default function AdminScreen() {
     if (canView) void load(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canView]);
+
+
+  // The role can move under a mounted screen (AuthContext
+  // re-reads /me on every foreground), and canView above does
+  // not change between admin and curator: a demotion withdraws
+  // the admin-only stats at once — the backend refuses them to
+  // a curator, so nothing could ever refresh them — and a
+  // promotion fetches them, silently behind the codes already
+  // shown. The first load as an admin is the effect above's;
+  // hasData keeps this one from doubling it
+  useEffect(() => {
+    if (!isAdmin) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- the role drop is the event: the tiles leave with it
+      setStats(null);
+      return;
+    }
+    if (hasData.current) void load(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin]);
 
 
   // Back online: silent refetch behind shown data, full

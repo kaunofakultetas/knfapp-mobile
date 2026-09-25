@@ -146,7 +146,14 @@ export function isRetryable(err: unknown): boolean {
 // sendFailureCode
 // -----------------------------------------------------------
 //
-// The NoticeCode a definitively failed send surfaces as.
+// The NoticeCode a definitively failed send surfaces as. The
+// backend's machine code names the refusal (text_too_long,
+// quote_not_found); the status alone only says how it was
+// refused — a plain 400 is "could not send", NOT "too long":
+// the composer already clamps the length, and the backend
+// refuses many other things with 400 (an empty body, a quoted
+// message that vanished, …). 413 stays "too long" — an
+// oversize body is the one thing that status means here.
 //
 // Used by:
 //   - hooks/useComposer.ts — the send catch block
@@ -155,7 +162,9 @@ export function isRetryable(err: unknown): boolean {
 export function sendFailureCode(err: unknown): NoticeCode {
   const e = toTransportError(err);
   if (e.kind === 'http') {
-    if (e.status === 400 || e.status === 413) return 'send_too_long';
+    if (e.serverCode === 'text_too_long' || e.status === 413) return 'send_too_long';
+    if (e.serverCode === 'quote_not_found') return 'send_quote_gone';
+    if (e.status === 400) return 'send_failed';
     if (e.status === 401) return 'session_expired';
     if (e.status === 403) return 'send_forbidden';
   }

@@ -5,7 +5,9 @@
 //  the per-user toggle queue: every action's instant
 //  transition, the server's confirmed state winning over the
 //  guess (instant-connect answers 'connected' to 'connect'),
-//  revert-and-notify on refusal, the guest gate, the
+//  revert-and-notify on refusal (a 429 cooldown included —
+//  definitive, with its own notice, never queued), a 5xx
+//  queueing for the restore signal, the guest gate, the
 //  unsupported-transport gate and tap-spam coalescing. Imports
 //  stay off the barrel: sibling hooks it re-exports are built
 //  by other hands and may not exist yet.
@@ -14,6 +16,7 @@
 import { act, renderHook } from '@testing-library/react-native';
 import type { ReactNode } from 'react';
 
+import { memorySocialStorage } from '../../core/storage';
 import type { RelationshipAction, SocialNotice, SocialTransport } from '../../core/transport';
 import type { RelationshipState } from '../../core/types';
 import { SocialEngineProvider } from '../../provider';
@@ -76,12 +79,15 @@ async function mount(options: { base?: RelationshipState; guest?: boolean; trans
   const t = stubTransport();
   const notices: SocialNotice[] = [];
   const requireAuth = jest.fn();
+  // The offline task queue's store — dump() shows what was queued
+  const storage = memorySocialStorage();
   const wrapper = ({ children }: { children: ReactNode }) => (
     <SocialEngineProvider
       transport={options.transport ?? t.transport}
       currentUser={options.guest ? null : VIEWER}
       notify={(n) => notices.push(n)}
       onRequireAuth={requireAuth}
+      storage={storage}
     >
       {children}
     </SocialEngineProvider>
@@ -90,7 +96,8 @@ async function mount(options: { base?: RelationshipState; guest?: boolean; trans
     wrapper,
     initialProps: { base: options.base ?? 'none' },
   });
-  return { ...t, notices, requireAuth, hook };
+  const queued = () => JSON.parse(storage.dump()['social:tasks'] ?? '[]') as unknown[];
+  return { ...t, notices, requireAuth, hook, queued };
 }
 
 
@@ -249,6 +256,54 @@ describe('useRelationship', () => {
     expect(m.hook.result.current.state).toBe('none');
     expect(m.hook.result.current.pending).toBe(false);
     expect(m.notices).toEqual([{ level: 'error', code: 'relationship_failed' }]);
+  });
+
+  it('a 429 cooldown is definitive: the button reverts, nothing queues, and the notice names the cooldown', async () => {
+    // The other side declined the last request; the backend
+    // answers 429 friend_request_cooldown for a week. The button
+    // must not keep saying "Requested" and nothing may replay
+    const m = await mount({ base: 'none' });
+    await act(async () => m.hook.result.current.act('connect'));
+    expect(m.hook.result.current.state).toBe('outgoing');
+
+    await act(async () => {
+      m.pending[0].reject(Object.assign(new Error('cooldown'), { status: 429, serverCode: 'friend_request_cooldown' }));
+    });
+    await flush();
+
+    expect(m.hook.result.current.state).toBe('none');
+    expect(m.hook.result.current.pending).toBe(false);
+    expect(m.queued()).toEqual([]);
+    expect(m.notices).toEqual([{ level: 'error', code: 'cooldown' }]);
+    expect(m.requireAuth).not.toHaveBeenCalled();
+  });
+
+  it('a rate-limit 429 is definitive too, with the generic notice', async () => {
+    const m = await mount({ base: 'none' });
+    await act(async () => m.hook.result.current.act('connect'));
+    await act(async () => {
+      m.pending[0].reject(Object.assign(new Error('slow down'), { status: 429, serverCode: 'rate_limited' }));
+    });
+    await flush();
+
+    expect(m.hook.result.current.state).toBe('none');
+    expect(m.queued()).toEqual([]);
+    expect(m.notices).toEqual([{ level: 'error', code: 'relationship_failed' }]);
+  });
+
+  it('a 5xx keeps the optimistic word and queues the intent for the restore signal', async () => {
+    const m = await mount({ base: 'none' });
+    await act(async () => m.hook.result.current.act('connect'));
+    await act(async () => {
+      m.pending[0].reject(Object.assign(new Error('down'), { status: 503 }));
+    });
+    await flush();
+
+    expect(m.hook.result.current.state).toBe('outgoing');
+    expect(m.hook.result.current.pending).toBe(false);
+    expect(m.queued()).toHaveLength(1);
+    // A queued intent is not a failure — no toast
+    expect(m.notices).toEqual([]);
   });
 
   it('an auth refusal reverts and routes to requireAuth instead of a generic notice', async () => {

@@ -5,12 +5,18 @@
 //  second floor, the preview quotes the route, the walk climbs
 //  the stairs to the arrival card, and Done returns to the
 //  picker. Runs on the flat stage (no GL peers under jest).
+//  Plus the plan drawing's two guards: a plan text that does
+//  not parse shows a notice instead of an empty floor, and a
+//  fetched plan is cached under a versioned key.
 // -----------------------------------------------------------
 
-import { act, fireEvent, render } from '@testing-library/react-native';
+import { act, fireEvent, render, renderHook, waitFor } from '@testing-library/react-native';
 import type { ReactElement } from 'react';
 
 import MapScreen from '@/app/(main)/tabs/map';
+import { usePlanXml } from '@/hooks/usePlanXml';
+import { cacheKeyWayfindPlan } from '@/services/cacheKeys';
+import { logError } from '@/services/log';
 import { KNF_GRAPH } from '@/services/wayfind/seed';
 import { validateGraph } from '@knf/wayfindengine';
 
@@ -58,12 +64,31 @@ jest.mock('@/services/api', () => ({
   fetchBuildingGraph: jest.fn(async () => ({ kind: 'unchanged' })),
   fetchPlanXml: jest.fn(async () => '<svg/>'),
 }));
-jest.mock('@knf/dataengine', () => ({
-  useDataEngine: () => ({
-    cache: { get: async () => null, set: async () => undefined },
-    onRestore: () => () => undefined,
-  }),
-}));
+// One STABLE engine object, as the real provider hands out —
+// usePlanXml lists the cache among its effect deps, so a fresh
+// object per render would re-run the fetch forever
+const mockCacheGet = jest.fn(async () => null);
+const mockCacheSet = jest.fn(async () => undefined);
+const mockEngine = {
+  cache: { get: (...args: unknown[]) => mockCacheGet(...(args as [])), set: (...args: unknown[]) => mockCacheSet(...(args as [])) },
+  onRestore: () => () => undefined,
+};
+jest.mock('@knf/dataengine', () => ({ useDataEngine: () => mockEngine }));
+// The seed's levels carry no plan, so the drawing only mounts
+// when a test hands the screen a plan text of its own — the
+// real hook still runs underneath so the hook suite below
+// exercises it unmocked
+const mockPlanXml: { override: string | null } = { override: null };
+jest.mock('@/hooks/usePlanXml', () => {
+  const actual = jest.requireActual('@/hooks/usePlanXml');
+  return {
+    usePlanXml: (reference: string | null | undefined) => {
+      const real = actual.usePlanXml(reference);
+      return mockPlanXml.override ?? real;
+    },
+  };
+});
+jest.mock('@/services/log', () => ({ logError: jest.fn() }));
 
 
 type Rendered = Awaited<ReturnType<typeof render>>;
@@ -76,8 +101,42 @@ const layOutStage = async (r: Rendered) => {
 
 const wrap = (ui: ReactElement) => render(ui);
 
+// Search, pick the Gronsko room, start the walk, lay the stage
+// out, switch to the plan view and lay the plan's viewport out
+// — the kit draws nothing inside it until it knows its size
+const openPlanView = async (r: Rendered) => {
+  await act(async () => {
+    fireEvent.changeText(r.getByPlaceholderText('navigation.searchPlaceholder'), 'gronsk');
+  });
+  await act(async () => {
+    fireEvent.press(r.getByTestId('map-room-r-gronsko'));
+  });
+  await act(async () => {
+    fireEvent.press(r.getByTestId('wayfinduikit-preview-start'));
+  });
+  await layOutStage(r);
+  await act(async () => {
+    fireEvent.press(r.getByTestId('map-view-plan'));
+  });
+  await act(async () => {
+    (r.getByTestId('wayfinduikit-plan').props.onLayout as (e: unknown) => void)({ nativeEvent: { layout: { x: 0, y: 0, width: 400, height: 240 } } });
+  });
+};
+
+// What the old entity decode made of a plan: its '&lt;' became
+// a bare '<' mid-text, which no XML parser accepts
+const BROKEN_PLAN = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 600"><text>1 < 2</text></svg>';
+const GOOD_PLAN = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 600"><text>1 &lt; 2</text></svg>';
+
 
 describe('MapScreen', () => {
+  afterEach(() => {
+    mockPlanXml.override = null;
+    mockCacheGet.mockClear();
+    mockCacheSet.mockClear();
+    (logError as jest.Mock).mockClear();
+  });
+
 
   it('ships a seed graph the engine accepts', () => {
     expect(validateGraph(KNF_GRAPH).filter((issue) => issue.severity === 'error')).toEqual([]);
@@ -136,5 +195,57 @@ describe('MapScreen', () => {
       fireEvent.press(r.getByTestId('wayfinduikit-sheet-done'));
     });
     expect(r.getByText('navigation.whereTo')).toBeTruthy();
+  });
+
+
+  it('shows a notice and logs once when the plan text does not parse, and draws again when it does', async () => {
+    mockPlanXml.override = BROKEN_PLAN;
+    const r = await wrap(<MapScreen />);
+    await openPlanView(r);
+    expect(r.getByTestId('map-plan-failed')).toBeTruthy();
+    expect(r.getByText('common.error')).toBeTruthy();
+    expect(logError).toHaveBeenCalledTimes(1);
+    expect((logError as jest.Mock).mock.calls[0][0]).toBe('map.plan');
+
+    // The deferred state flip lands; a re-render of the stage
+    // (its height changes — the plan stays mounted) must not
+    // re-parse and re-log the same broken text
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      fireEvent(r.getByTestId('map-stage'), 'layout', { nativeEvent: { layout: { x: 0, y: 0, width: 400, height: 321 } } });
+    });
+    expect(r.getByTestId('map-plan-failed')).toBeTruthy();
+    expect(logError).toHaveBeenCalledTimes(1);
+
+    // A plan text that parses replaces the notice
+    mockPlanXml.override = GOOD_PLAN;
+    await act(async () => {
+      fireEvent(r.getByTestId('map-stage'), 'layout', { nativeEvent: { layout: { x: 0, y: 0, width: 400, height: 322 } } });
+    });
+    expect(r.queryByTestId('map-plan-failed')).toBeNull();
+    expect(logError).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+describe('usePlanXml', () => {
+  afterEach(() => {
+    mockCacheGet.mockClear();
+    mockCacheSet.mockClear();
+  });
+
+  // The key carries a version: copies cached before the API
+  // client stopped entity-decoding responses are corrupt, sit
+  // under a content hash with no TTL, and must never be read
+  // again — bypassed by the namespace, not by a sweep
+  it('reads and writes a fetched plan under a versioned cache key', async () => {
+    const reference = '/api/wayfind/plans/abc.svg';
+    const { result } = await renderHook(() => usePlanXml(reference));
+    await waitFor(() => expect(result.current).toBe('<svg/>'));
+    const key = `${cacheKeyWayfindPlan(reference)}:v2`;
+    expect(mockCacheGet).toHaveBeenCalledWith(key);
+    expect(mockCacheSet).toHaveBeenCalledWith(key, '<svg/>');
   });
 });

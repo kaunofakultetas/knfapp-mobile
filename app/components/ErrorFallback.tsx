@@ -15,6 +15,12 @@
 //  The translated message leads; the raw technical error text
 //  is shown small underneath so axios/JS internals never
 //  headline the screen.
+//
+//  It also drops the native splash on mount: a crash that
+//  unwinds before the font gate's hide ever ran would leave
+//  this screen under an opaque splash, and the boundary's
+//  onError — which drops it too — does not fire for a
+//  re-crash after Try Again.
 // -----------------------------------------------------------
 
 // Crash-boundary plumbing
@@ -32,6 +38,10 @@ import Constants from 'expo-constants';
 // The buffered failure trail rides along in the report mail
 import { getErrorLog } from '@/services/log';
 
+// The native splash this screen must never sit under
+import * as SplashScreen from 'expo-splash-screen';
+
+import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Appearance, Platform, Pressable, Text, View } from 'react-native';
 
@@ -135,6 +145,16 @@ function FallbackButton({
 export default function ErrorFallback({ error, resetErrorBoundary }: FallbackProps) {
 
   const { t } = useTranslation();
+
+
+  // Whatever crashed may have crashed before the font gate hid
+  // the native splash — every mount of this screen drops it,
+  // a re-crash after Try Again included
+  useEffect(() => {
+    SplashScreen.hideAsync().catch(() => {
+      // Already hidden — nothing left to cover
+    });
+  }, []);
 
 
   const detail = error instanceof Error ? error.message : null;

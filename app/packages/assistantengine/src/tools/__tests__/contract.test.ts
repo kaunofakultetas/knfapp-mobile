@@ -98,7 +98,7 @@ describe('the schema mirrors', () => {
     expect(input.properties.limit).toEqual({ type: 'integer' });
     expect(input.required).toBeUndefined();
 
-    expect(propertyNames(output)).toEqual(['posts']);
+    expect(propertyNames(output)).toEqual(['note', 'posts']);
     expect(output.required).toEqual(['posts']);
     const posts = output.properties.posts as { type: 'array'; items: { properties: Record<string, unknown>; required?: string[] } };
     expect(propertyNames(posts.items)).toEqual(['date', 'id', 'source', 'summary', 'title', 'url']);

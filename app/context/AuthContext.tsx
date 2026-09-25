@@ -17,13 +17,26 @@
 //  interceptor's emit and the local catch, so the first
 //  reporter wins and the rest no-op) and the app falls back
 //  to GUEST state with a single session-expired toast, never
-//  a forced login screen.
+//  a forced login screen. Every /me answer is fenced by a
+//  session generation — a counter bumped on each establish
+//  and teardown, captured before the await and compared after
+//  — so a slow /me from the previous account can never
+//  overwrite the current one, in state or on disk. And a
+//  stored-token read that THROWS hydrates as a guest for this
+//  run without touching storage: only a read that succeeded
+//  may declare the record partial and clear it (a keychain
+//  blip keeps the session, exactly like a /me transport
+//  failure does).
 //
 //  Both success paths (login AND register) persist first,
 //  then connect the chat socket and ask the notify engine to
 //  register the push token — the api and socket layers read
 //  the token per request, so persistence must land before
-//  either side-effect starts. Push is the engine's business
+//  either side-effect starts. A persist that FAILS is torn
+//  down (stored record, socket) before the failure surfaces:
+//  session.ts primes its token cache ahead of the keychain
+//  write, and a device that shows a failed sign-in must not
+//  keep requesting as that account. Push is the engine's business
 //  (services/notifyEngine): this provider only says WHEN
 //  (login, restore, logout) and never WHETHER — the engine
 //  owns the master switch and answers {ok:false, reason:
@@ -41,14 +54,18 @@
 //  translate it themselves. The reducer only resets the
 //  loading flag on failure.
 //
-//  logout() tears down locally FIRST (socket, session record,
-//  schedule prefs, caches, state) so the UI drops to guest
-//  immediately, then fires the server-side steps (engine
-//  detach, POST /logout) detached with the captured token
-//  and a short timeout — it can never throw, block, or leave
-//  the user stuck signed in. The cache purge matters: the
-//  conversations cache holds the user's private chat list and
-//  must not survive into the next session.
+//  logout() reads this device's push token off the engine,
+//  tears down locally (socket, session record, schedule
+//  prefs, caches, the departing account's chat drafts and
+//  outbox, state) so the UI drops to guest immediately,
+//  then fires the server-side steps detached with the captured
+//  token and a short timeout: POST /logout carrying that push
+//  token — one request that drops the session and this
+//  device's push row together — and only then the engine's
+//  detach for the local side. It can never throw, block, or
+//  leave the user stuck signed in. The cache purge matters:
+//  the conversations cache holds the user's private chat list
+//  and must not survive into the next session.
 //
 //  Split into:
 //
@@ -77,7 +94,9 @@ import {
   clearStoredSession,
   getStoredToken,
   getStoredUser,
+  readStoredToken,
   setStoredSession,
+  type StoredTokenRead,
 } from '@/services/session';
 
 // Session side-effects — realtime socket, push token, offline
@@ -332,13 +351,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 
   // Mount-only listeners (session-invalid, AppState) read live
-  // values through these refs
+  // values through these refs; the user id feeds clearSession's
+  // chat-storage wipe, which closes over nothing from state
   const loggingOutRef = useRef(false);
   const authenticatedRef = useRef(false);
+  const currentUserIdRef = useRef<string | null>(null);
+
+  // One number per session: bumped by every establish and
+  // teardown, captured by each /me caller before its await and
+  // compared after — an answer that outlives its session is
+  // dropped, in state AND in the persist, whatever it says
+  const sessionGenRef = useRef(0);
 
 
   useEffect(() => {
     authenticatedRef.current = state.isAuthenticated;
+    currentUserIdRef.current = state.user?.id ?? null;
   });
 
 
@@ -348,6 +376,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // the conversations cache is the record with a privacy
   // consequence, so it gets one retry too.
   const clearSession = useCallback(async (): Promise<void> => {
+    // The departing account's id goes FIRST: the LOGOUT dispatch
+    // below re-points the chat engine's scoped storage, and the
+    // wipe further down needs this namespace, not the guest's
+    const departingId = currentUserIdRef.current;
+    sessionGenRef.current += 1;
     disconnectSocket();
     // clearAll reports failure instead of throwing — one retry
     // for the wipe with a privacy consequence
@@ -377,6 +410,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await Notifications.dismissAllNotificationsAsync();
     } catch {
       // Displayed notifications linger — cosmetic only
+    }
+    // The chat engine keeps drafts, outbox and task queue under
+    // `u:<id>:` (its scoped storage adapter) and never deletes
+    // that namespace itself — a half-typed message or an unsent
+    // picked asset must not wait for a shared phone's next user
+    if (departingId) {
+      try {
+        const keys = await AsyncStorage.getAllKeys();
+        const mine = keys.filter((key) => key.startsWith(`u:${departingId}:`));
+        if (mine.length) await AsyncStorage.multiRemove(mine);
+      } catch {
+        // Best-effort — the sign-out never waits on this wipe
+      }
     }
     dispatch({ type: 'LOGOUT' });
     // Once more AFTER the wipe — an in-flight connect that raced
@@ -412,10 +458,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // can read the token, then flip state and kick off the
   // realtime side-effects (both best-effort)
   const establishSession = useCallback(async (user: User, token: string): Promise<void> => {
+    sessionGenRef.current += 1;
     // Cache keys are user-scoped — a failed wipe leaves stale
     // entries unread, never cross-account
     await cache.clearAll();
-    await setStoredSession(token, user);
+    try {
+      await setStoredSession(token, user);
+    } catch (err) {
+      // session.ts primes its token cache before the keychain
+      // write, so a failed persist would otherwise leave the
+      // api/socket layers answering as this account while the
+      // UI reports a failed sign-in — wipe the record and drop
+      // the socket first, so the device is genuinely signed
+      // out, then let the failure reach the screen
+      await clearStoredSession();
+      disconnectSocket();
+      throw err;
+    }
     dispatch({ type: 'LOGIN_SUCCESS', payload: { user, token } });
     // Drop any in-flight guest attempt first — the single-flight
     // connect would otherwise hand this session the OLD attempt's
@@ -441,13 +500,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Persist the fresh user into the stored session so student
   // fields survive restarts (best-effort — state is already
   // updated synchronously; the reducer drops the update when no
-  // session is live, so a late /me cannot resurrect a logout)
+  // session is live, so a late /me cannot resurrect a logout).
+  // The token read may straddle a session switch, so the persist
+  // is fenced by the generation too: the NEW session's token
+  // must never land on disk paired with this profile
   const setUser = useCallback((user: User): void => {
     dispatch({ type: 'SET_USER', payload: user });
     (async () => {
+      const gen = sessionGenRef.current;
       try {
         const token = await getStoredToken();
-        if (!token) return;
+        if (!token || gen !== sessionGenRef.current) return;
         await setStoredSession(token, user);
       } catch {
         // State already holds the fresh user — persistence is a bonus
@@ -459,20 +522,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Restore optimistically, flip `hydrated` after the LOCAL
   // read, then verify in the background — rejection policy in
   // the file header. A partial or malformed record is dropped
-  // instead of reaching LOGIN_SUCCESS.
+  // instead of reaching LOGIN_SUCCESS — but only when the token
+  // read SUCCEEDED: a keychain that threw says nothing about
+  // what it holds, and deleteItemAsync would take a still-valid
+  // token with it, so that run hydrates as a guest and leaves
+  // storage alone for the next start.
   useEffect(() => {
     (async () => {
-      let token: string | null = null;
+      let tokenRead: StoredTokenRead = { ok: false, token: null };
       let user: User | null = null;
 
       try {
-        [token, user] = await Promise.all([getStoredToken(), getStoredUser()]);
+        [tokenRead, user] = await Promise.all([readStoredToken(), getStoredUser()]);
       } catch {
-        // Unreadable record — treat as signed out
+        // Unreadable record — signed out for this run
       }
 
+      let token: string | null = tokenRead.token;
       if (!(typeof token === 'string' && token && isValidStoredUser(user))) {
-        if (token || user) clearStoredSession().catch(() => {});
+        if (tokenRead.ok && (token || user)) clearStoredSession().catch(() => {});
         token = null;
         user = null;
       }
@@ -485,8 +553,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setHydrated(true);
       if (!token || !user) return;
 
+      const gen = sessionGenRef.current;
       try {
         const freshUser = await fetchMe();
+        // A logout or a fresh login while /me was in flight owns
+        // the session now — this answer describes the old one
+        if (gen !== sessionGenRef.current) return;
         setUser(freshUser);
         connectSocket().catch(() => {});
 
@@ -539,11 +611,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       void (async () => {
         // Captured for the same correlation as hydration: only
         // the session that made the failing request may be torn
-        // down, never one signed in while it was in flight
+        // down, never one signed in while it was in flight — and
+        // only the session that asked may take the answer
+        const gen = sessionGenRef.current;
         const token = await getStoredToken();
         if (!token) return;
         try {
-          setUser(await fetchMe());
+          const freshUser = await fetchMe();
+          if (gen !== sessionGenRef.current) return;
+          setUser(freshUser);
         } catch (err) {
           if (isAuthRejection(err) && (await getStoredToken()) === token) {
             expireSession();
@@ -594,6 +670,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const token = state.token;
 
+    // This device's push token, read BEFORE the wipe (memory,
+    // then the engine's stored copy — never the OS prompt): it
+    // rides in the logout body so ONE authenticated request
+    // drops the session and this device's push row together
+    let pushToken: string | null = null;
+    try {
+      pushToken = await notifyEngine.getRegisteredToken();
+    } catch {
+      // Unknown token — the logout still drops the session
+    }
+
     try {
       await clearSession();
     } finally {
@@ -602,22 +689,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     // Detached: nothing below blocks the signed-out UI. The
-    // captured bearer rides along with the detach because the
-    // local wipe already emptied the api layer's token — without
-    // it the DELETE would go out unauthenticated and the server
-    // would keep pushing to a signed-out device. The engine
-    // awaits its own in-flight register() before deleting, so a
-    // login-time registration can never land after the detach.
+    // logout call goes FIRST, with the captured bearer (the
+    // local wipe already emptied the api layer's token) and the
+    // push token: the backend deletes the session and that push
+    // row in one transaction, so the device stops receiving this
+    // account's previews the moment the session dies. The
+    // engine's detach follows for the LOCAL side — its phase,
+    // the stored copy, the in-flight register it supersedes.
+    // Its own DELETE reaches the server after the bearer is
+    // dead and answers 401 (an unconfirmed delete, so the
+    // engine keeps the stored copy): harmless, the row is
+    // already gone, the interceptor ignores a 401 on a
+    // non-current bearer, and the next login's register('login')
+    // re-asserts the tuple unconditionally. The reverse order
+    // was the bug — detach resolves on its own timebox, and its
+    // DELETE could go out after logout had revoked the bearer.
     (async () => {
+      try {
+        if (token) await withTimeout(logoutApi(token, pushToken), 5000);
+      } catch {
+        // Server session lingers until token expiry — acceptable
+      }
       try {
         await withTimeout(notifyEngine.detach({ authToken: token ?? undefined }), 5000);
       } catch {
-        // Token stays registered server-side — harmless, expires
-      }
-      try {
-        if (token) await withTimeout(logoutApi(token), 5000);
-      } catch {
-        // Server session lingers until token expiry — acceptable
+        // The engine settles its own phase on its own timebox
       }
     })();
   }, [clearSession, state.token]);

@@ -387,6 +387,8 @@ export interface ChatTransport {
 export type NoticeCode =
   | 'send_failed'
   | 'send_too_long'
+  // The message the send quoted no longer exists
+  | 'send_quote_gone'
   | 'send_forbidden'
   | 'session_expired'
   | 'timeout'

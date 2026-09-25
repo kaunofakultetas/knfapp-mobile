@@ -3,15 +3,11 @@
 //
 //  The one axios instance every domain module (auth, news,
 //  chat…) sends its requests through, plus the error and URL
-//  plumbing they all share. Four things happen here and
+//  plumbing they all share. Three things happen here and
 //  nowhere else:
 //    - the Bearer token from services/session is attached to
 //      every request (requests go out anonymous when no
 //      session is stored — the app works logged-out);
-//    - every successful response is html-entity-decoded
-//      recursively — the backend html.escape()s every string
-//      it returns, URLs included, so screens must NEVER call
-//      decodeHtmlEntities themselves;
 //    - a 401 (or a 403 'Account deactivated') on an
 //      authenticated non-auth request emits sessionInvalid —
 //      once per burst — so AuthContext drops the dead session
@@ -31,14 +27,11 @@
 //    API_BASE_URL — env-configured backend base URL
 //    ApiErrorCode — 'http' | 'timeout' | 'network' | 'canceled'
 //    ApiError     — the only error type request() throws
-//    api          — the axios instance (token + decoding +
+//    api          — the axios instance (token +
 //                   session-invalidation emit)
 //    request      — unwrap .data, normalize every failure
 //    getUploadUrl — relative upload path → absolute URL
 // -----------------------------------------------------------
-
-// Entity decoding for the backend's escape-everything middleware
-import { decodeHtmlEntities } from '@/services/htmlDecode';
 
 // Every normalized failure leaves a diagnosable trace
 import { logError } from '@/services/log';
@@ -181,11 +174,14 @@ export class ApiError extends Error {
 //
 // The axios instance behind every request: 15 s default
 // timeout (uploads override it per call), Bearer token
-// injected from the persisted session, one response
-// interceptor that entity-decodes every string field of every
-// successful response, and its rejection half that emits
-// sessionInvalid on a dead-session status — see the file
-// header.
+// injected from the persisted session, and one response
+// interceptor whose rejection half emits sessionInvalid on a
+// dead-session status — see the file header. Successful
+// responses pass through UNTOUCHED: the backend sends raw
+// JSON (no escaping on output), so a literal '&amp;' a user
+// typed is content, and inside a plan SVG it is the only
+// legal spelling of '&' — rewriting either would corrupt it.
+// Rendering escapes; React Native Text never interprets HTML.
 //
 // Used by:
 //   - every services/api/* domain module
@@ -232,58 +228,17 @@ const SESSION_INVALID_WINDOW_MS = 2_000;
 
 
 // -----------------------------------------------------------
-// decodeDeep
-// -----------------------------------------------------------
-//
-// The backend html.escape()s EVERY string on output — URLs
-// included, so an '&' inside a query string arrives as
-// '&amp;' and breaks images/links unless decoded. Walk the
-// payload once here so no screen ever decodes by hand.
-// Untouched subtrees keep their ORIGINAL reference — the
-// common no-entities payload costs one scan and zero clones.
-//
-// Used by:
-//   - the response interceptor (below) — every success payload
-// -----------------------------------------------------------
-
-const decodeDeep = (value: unknown): unknown => {
-  if (typeof value === 'string') return decodeHtmlEntities(value);
-  if (Array.isArray(value)) {
-    let changed = false;
-    const next = value.map((entry) => {
-      const decoded = decodeDeep(entry);
-      if (decoded !== entry) changed = true;
-      return decoded;
-    });
-    return changed ? next : value;
-  }
-  if (value !== null && typeof value === 'object') {
-    let changed = false;
-    const entries = Object.entries(value as Record<string, unknown>).map(
-      ([key, entry]) => {
-        const decoded = decodeDeep(entry);
-        if (decoded !== entry) changed = true;
-        return [key, decoded] as [string, unknown];
-      },
-    );
-    return changed ? Object.fromEntries(entries) : value;
-  }
-  return value;
-};
-
-
-
-
-
-
-
-// -----------------------------------------------------------
 // isSessionDeath
 // -----------------------------------------------------------
 //
 // True for the statuses that prove the stored session is dead:
-// any 401, plus the account-deactivated 403 (generic 403s stay
-// untouched — curators legitimately get them on /admin/*).
+// any 401, plus the account-deactivated 403 — keyed on the
+// machine slug the envelope carries (`code:
+// 'account_deactivated'`), never on the English prose, which
+// the wire contract says clients must not read and which no
+// protected route is guaranteed to phrase the same way.
+// Generic 403s stay untouched — curators legitimately get
+// them on /admin/*.
 //
 // Used by:
 //   - the response interceptor (below) — the emit gate
@@ -292,8 +247,8 @@ const decodeDeep = (value: unknown): unknown => {
 const isSessionDeath = (status: number, body: unknown): boolean => {
   if (status === 401) return true;
   if (status !== 403) return false;
-  const error = (body as { error?: string } | undefined)?.error;
-  return typeof error === 'string' && error.includes('Account deactivated');
+  const code = (body as { code?: unknown } | undefined)?.code;
+  return code === 'account_deactivated';
 };
 
 
@@ -302,10 +257,7 @@ const isSessionDeath = (status: number, body: unknown): boolean => {
 let lastSessionInvalidAt = 0;
 
 api.interceptors.response.use(
-  (response) => {
-    response.data = decodeDeep(response.data);
-    return response;
-  },
+  undefined,
   async (error: unknown) => {
     if (error instanceof AxiosError && error.response) {
       const url = error.config?.url ?? '';
@@ -346,11 +298,9 @@ api.interceptors.response.use(
 // normalizeError
 // -----------------------------------------------------------
 //
-// Error bodies ship unescaped — the backend's escape-on-output
-// middleware only rewrites success responses — so the message
-// is kept verbatim (it is debugging text, never displayed;
-// screens translate via apiErrorKey). The body's stable "code"
-// slug rides along as serverCode.
+// The error body's message is kept verbatim — it is debugging
+// text, never displayed; screens translate via apiErrorKey.
+// The body's stable "code" slug rides along as serverCode.
 //
 // Used by:
 //   - request (below) — every failure

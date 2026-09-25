@@ -2,15 +2,15 @@
 //  [*] Tests — services/api/client
 //
 //  The contract every screen relies on: exactly one error
-//  type with a code, entity-decoded payloads, and upload
-//  paths resolved consistently.
+//  type with a code, payloads passed through untouched, and
+//  upload paths resolved consistently.
 // -----------------------------------------------------------
 
 jest.mock('@react-native-async-storage/async-storage', () =>
   require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
 );
 
-import { AxiosError, type AxiosResponse } from 'axios';
+import { AxiosError, type AxiosResponse, type InternalAxiosRequestConfig } from 'axios';
 
 import { api, ApiError, API_BASE_URL, getUploadUrl, request } from '@/services/api/client';
 
@@ -35,6 +35,12 @@ const httpFailure = (status: number, data: unknown) =>
     config: {} as never,
   } as AxiosResponse);
 
+// A 200 answered by a stand-in adapter, so the instance's
+// whole interceptor chain runs over the body — the only place
+// a rewrite could hide
+const answer = (data: unknown) => (config: InternalAxiosRequestConfig) =>
+  Promise.resolve({ data, status: 200, statusText: 'OK', headers: {}, config } as AxiosResponse);
+
 
 describe('getUploadUrl', () => {
   it('resolves relative upload paths under the API base', () => {
@@ -56,8 +62,7 @@ describe('request', () => {
   });
 
   it('normalizes http failures, keeping the backend message verbatim', async () => {
-    // Error bodies skip the escape-on-output middleware, so the
-    // message stays raw debugging text — screens translate via
+    // The message is raw debugging text — screens translate via
     // apiErrorKey and never render it
     const err = await failure(request(Promise.reject(httpFailure(404, { error: 'Not &amp; found', code: 'not_found' }))));
     expect(err).toBeInstanceOf(ApiError);
@@ -78,13 +83,22 @@ describe('request', () => {
 
 
 describe('response interceptor', () => {
-  it('entity-decodes every string in the payload, URLs included', () => {
-    const fulfilled = (api.interceptors.response as unknown as {
-      handlers: { fulfilled: (r: AxiosResponse) => AxiosResponse }[];
-    }).handlers[0].fulfilled;
-    const out = fulfilled({
-      data: { title: 'A &amp; B', imageUrl: '/api/u/x.jpg?a=1&amp;b=2', tags: ['&lt;x&gt;'], n: 3 },
-    } as AxiosResponse);
-    expect(out.data).toEqual({ title: 'A & B', imageUrl: '/api/u/x.jpg?a=1&b=2', tags: ['<x>'], n: 3 });
+  // The backend sends raw JSON — nothing is escaped on output —
+  // so an entity in a body is CONTENT the user typed and must
+  // reach the screen as typed; decoding it would rewrite the
+  // text, and the next edit would save the rewrite
+  it('passes a JSON payload holding entities through unchanged', async () => {
+    const body = { title: 'Teisė &amp; ekonomika', imageUrl: '/api/u/x.jpg?a=1&amp;b=2', tags: ['&lt;x&gt;'], n: 3 };
+    const out = await api.get('/news', { adapter: answer(body) });
+    expect(out.data).toEqual({ title: 'Teisė &amp; ekonomika', imageUrl: '/api/u/x.jpg?a=1&amp;b=2', tags: ['&lt;x&gt;'], n: 3 });
+    expect(out.data).toBe(body);
+  });
+
+  // A plan SVG rides the same instance as text: '&amp;' is the
+  // only legal '&' inside XML, and '&lt;' the only legal '<'
+  it('passes a raw SVG text body through byte for byte', async () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg"><text>1 &amp; 2 &lt; 3</text></svg>';
+    const out = await api.get('/wayfind/plans/abc.svg', { adapter: answer(svg), responseType: 'text', transformResponse: (data) => data });
+    expect(out.data).toBe(svg);
   });
 });

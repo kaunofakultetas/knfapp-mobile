@@ -161,17 +161,21 @@ export function ChatEngineProvider({
   // conversation id is the same id for whoever signs in on
   // this device — without the prefix, one account's failed
   // send resurfaced in the next account's chat as their own
-  // unsent message
+  // unsent message. Keyed on the account's ID, not the user
+  // object: the host re-creates that object on every session
+  // refresh (each foreground), and a new storage identity
+  // re-ran every room's first load
+  const currentUserId = currentUser?.id ?? null;
   const scopedStorage = useMemo<KeyValueStorage>(() => {
     const base = storage ?? fallbackStorage;
-    if (!currentUser) return base;
-    const prefix = `u:${currentUser.id}:`;
+    if (currentUserId === null) return base;
+    const prefix = `u:${currentUserId}:`;
     return {
       getItem: (key) => base.getItem(prefix + key),
       setItem: (key, value) => base.setItem(prefix + key, value),
       removeItem: (key) => base.removeItem(prefix + key),
     };
-  }, [storage, fallbackStorage, currentUser]);
+  }, [storage, fallbackStorage, currentUserId]);
 
   const value = useMemo<ChatEngineEnv>(
     () => ({

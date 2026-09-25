@@ -12,6 +12,12 @@
 //  Parity/weeks filters are RESERVED no-ops until the data
 //  carries them — the shape is ready, the behavior is inert.
 //
+//  ONE function reads the wall clock: todayISO, the local
+//  calendar date. Everything else is pure date arithmetic on
+//  strings and must stay UTC-only — feeding it Date.now()
+//  through toISO answers the UTC date, which east of UTC is
+//  still yesterday for the first hours of every day.
+//
 //  Used by:
 //    - hosts bucketing entries for the grid
 //    - app/(main)/tabs/schedule.tsx — the dated week window
@@ -134,6 +140,34 @@ export const parseISO = (date: string): number => {
 // -----------------------------------------------------------
 
 export const toISO = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// todayISO
+// -----------------------------------------------------------
+//
+// The LOCAL calendar date as 'YYYY-MM-DD' — the one place the
+// wall clock enters the dated edge. Never toISO(Date.now()):
+// that is the UTC date, and in Vilnius (UTC+2/+3) Monday's
+// first two or three hours still read as Sunday, opening the
+// timetable on LAST week marked "today". The answer is a plain
+// date string, so all the UTC arithmetic applies to it as is.
+//
+// Used by:
+//   - app/(main)/tabs/schedule.tsx — today's week cursor, the
+//     today marker, the tab re-press and day-rollover resets,
+//     the semester time-jump's "back to today"
+// -----------------------------------------------------------
+
+export function todayISO(now: Date = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
 
 
 

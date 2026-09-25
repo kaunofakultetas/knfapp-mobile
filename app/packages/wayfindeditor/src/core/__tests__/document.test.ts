@@ -8,7 +8,7 @@
 // -----------------------------------------------------------
 
 import { applyChanges, buildingFields, getEntity, invert, normaliseDocument } from '../document';
-import { addEdge, addNode, addRoom, deleteLevel, deleteNode, deleteRoom, moveNode, setBuilding, updateNode } from '../edits';
+import { addEdge, addNode, addRoom, deleteLevel, deleteNode, deleteRoom, moveNode, panoAttachPatch, setBuilding, updateNode } from '../edits';
 import { begin, beginClosing, coalesce, emptyHistory, end, endClosing, record, recordClosing, redo, undo, HISTORY_CAP } from '../history';
 import { changesToOps } from '../ops';
 import type { Change, GraphLike, NodeLike, Patch } from '../types';
@@ -98,6 +98,27 @@ describe('edits', () => {
     expect(updateNode(doc, 'zz', { x: 1 }).blocked?.reason).toBe('missing');
     expect(setBuilding(doc, { entranceNodeId: 'nope' }).blocked?.reason).toBe('missing');
     expect(addRoom(doc, { id: 'r1', name: 'dup', level: 'L1', nodeId: 'a' }).blocked?.reason).toBe('duplicate_id');
+  });
+
+  it('attaching a panorama: a new photo clears the facing (compass heading when the photo has one, else auto), the same url keeps it', () => {
+    const node: NodeLike = { id: 'a', level: 'L1', x: 0, y: 0, kind: 'entrance', pano: '/p/old.jpg', panoYaw: 90 };
+    const geometry = { hfovDeg: 360, vfovDeg: 180 };
+    // A different url: the yaw measured on the old picture is gone
+    // and the heading's provenance is the new picture's own
+    expect(panoAttachPatch(node, '/p/new.jpg', { geometry })).toEqual({ pano: '/p/new.jpg', panoGeometry: geometry, panoYaw: null, panoHeading: { source: 'auto' } });
+    expect(panoAttachPatch(node, '/p/new.jpg', { geometry, headingDeg: 33 })).toEqual({ pano: '/p/new.jpg', panoGeometry: geometry, panoYaw: null, panoHeading: { source: 'compass', rawDeg: 33 } });
+    // The same url (content-addressed: the same bytes) keeps the
+    // alignment and says nothing about the heading
+    expect(panoAttachPatch(node, '/p/old.jpg', { geometry, headingDeg: 33 })).toEqual({ pano: '/p/old.jpg', panoGeometry: geometry });
+    // No photo yet, or no node at all, is a new photo
+    const bare: NodeLike = { id: 'b', level: 'L1', x: 0, y: 0, kind: 'corridor' };
+    expect(panoAttachPatch(bare, '/p/new.jpg', { geometry })).toMatchObject({ panoYaw: null, panoHeading: { source: 'auto' } });
+    expect(panoAttachPatch(null, '/p/new.jpg', { geometry })).toMatchObject({ panoYaw: null, panoHeading: { source: 'auto' } });
+    // Through updateNode's merge the stale yaw is off the row, not
+    // merely shadowed
+    const doc = normaliseDocument<GraphLike>({ ...building(), nodes: [node] });
+    const edit = updateNode(doc, 'a', panoAttachPatch(node, '/p/new.jpg', { geometry }));
+    expect(edit.changes).toEqual([{ kind: 'node', id: 'a', before: node, after: { ...node, pano: '/p/new.jpg', panoGeometry: geometry, panoYaw: null, panoHeading: { source: 'auto' } } }]);
   });
 
   it('drops an id smuggled inside a patch — an update can never re-address an entity', () => {
@@ -212,6 +233,28 @@ describe('changesToOps', () => {
       { id: 'op3', type: 'delete', kind: 'edge', entityId: 'a--b', baseRevision: 3 },
       { id: 'op4', type: 'building', data: { entranceNodeId: 'b', northDeg: null } },
     ]);
+  });
+
+  it('an edit or delete of an entity the phone did not create, with no revision known, is stamped base 0 — never sent bare', () => {
+    const doc = normaliseDocument(building());
+    let n = 0;
+    // The offline seed: an empty revisions map under a full document
+    const ops = changesToOps(
+      [
+        { kind: 'node', id: 'b', before: doc.nodes[1], after: { ...doc.nodes[1], x: 3 } },
+        { kind: 'edge', id: 'a--b', before: doc.edges[0], after: null },
+        { kind: 'node', id: 'c', before: null, after: { id: 'c', level: 'L1', x: 1, y: 1, kind: 'corridor' } },
+      ],
+      {},
+      () => `op${++n}`,
+    );
+    expect(ops).toEqual([
+      { id: 'op1', type: 'upsert', kind: 'node', entityId: 'b', data: { level: 'L1', x: 3, y: 0, kind: 'corridor', roomId: 'r1' }, baseRevision: 0 },
+      { id: 'op2', type: 'delete', kind: 'edge', entityId: 'a--b', baseRevision: 0 },
+      // A create is still fresh and carries no base
+      { id: 'op3', type: 'upsert', kind: 'node', entityId: 'c', data: { level: 'L1', x: 1, y: 1, kind: 'corridor' }, fresh: true },
+    ]);
+    expect('baseRevision' in ops[2]).toBe(false);
   });
 
   it('an added entity the revisions map already knows is not fresh — it exists on the server', () => {

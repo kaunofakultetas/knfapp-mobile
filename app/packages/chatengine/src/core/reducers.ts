@@ -311,7 +311,11 @@ export function dedupePage(page: readonly ChatMessage[]): readonly ChatMessage[]
 // top; a temp whose send actually committed (its clientId
 // echoes in the page) is dropped, not shown beside its row;
 // outbox temps come back on top unless the page or the live
-// rows already cover them. `page` is newest-first.
+// rows already cover them. `page` is newest-first — and so is
+// the answer whatever `prev` held: a re-run first load over a
+// list that already paged back keeps that older history, but
+// BELOW the fresh head, not stacked on top of it. Temps pin to
+// the newest end; ties keep their order.
 //
 // Used by:
 //   - hooks/useConversation.ts — first load
@@ -331,7 +335,14 @@ export function mergeFirstPage(
   );
   const keptIds = new Set(kept.map((m) => m.id));
   const restored = outbox.filter((m) => !known.has(m.id) && !keptIds.has(m.id) && !committed.has(m.id));
-  return [...restored, ...kept, ...page];
+  const merged = [...restored, ...kept, ...page];
+  // Nothing older was held: the concatenation is already in
+  // order, and the common first load skips the sort entirely
+  if (kept.length === 0) return merged;
+  // Decorate–sort–undecorate, as the resync merge does
+  const decorated: [number, ChatMessage][] = merged.map((m) => [isTempId(m.id) ? Number.POSITIVE_INFINITY : stampMs(m.createdAt), m]);
+  decorated.sort((a, b) => (a[0] === b[0] ? 0 : b[0] - a[0]));
+  return decorated.map((entry) => entry[1]);
 }
 
 

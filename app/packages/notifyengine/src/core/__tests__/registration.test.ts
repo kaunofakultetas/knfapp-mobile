@@ -11,7 +11,10 @@
 //  tuple dedupe with TTL + force reasons + fail-open storage,
 //  rotation, and a detach that never throws, never prompts,
 //  never hangs — and walks its whole token chain down to the
-//  device. Every outcome is an exact shape.
+//  device, under ONE timebox that also bounds its wait on an
+//  in-flight register (so no DELETE can go out after the
+//  caller moved on). Plus the prompt-free token read a logout
+//  body carries. Every outcome is an exact shape.
 // -----------------------------------------------------------
 
 import { createRegistrationMachine, type RegistrationMachine } from '../registration';
@@ -580,6 +583,68 @@ describe('detach — outcomes', () => {
     expect(rig.storage.map.get(LEGACY_KEY)).toBe(TOKEN);
     expect(rig.storage.map.has(TUPLE_KEY)).toBe(true);
     expect(rig.transport.calls.map((c) => c.method)).toEqual(['register', 'unregister']);
+  });
+
+  it('a register hung on the wire past the timebox leaves NO DELETE behind once detach has settled', async () => {
+    // The logout shape: a 'login'/'toggle' register is slow on
+    // the wire, the user taps Log out within 5 s, and the caller
+    // revokes the bearer the moment detach resolves. The wait
+    // on the in-flight register used to be bounded only by its
+    // own 10 s watchdog — so the DELETE went out at t=10 s with
+    // a dead bearer, 401'd, and the stored copy was kept for a
+    // retry that never came
+    jest.useFakeTimers();
+    const rig = buildRig();
+    rig.transport.overrides.register = () => new Promise<never>(() => undefined);
+    void rig.machine.register('login');
+    await flushMicrotasks();
+    expect(rig.transport.calls.map((c) => c.method)).toEqual(['register']);
+
+    let settled = false;
+    const parked = rig.machine.detach({ authToken: 'session-jwt' });
+    void parked.then(() => {
+      settled = true;
+    });
+
+    await jest.advanceTimersByTimeAsync(5_000);
+    expect(settled).toBe(true);
+    // The hung attempt is superseded and the phase already
+    // reads detached — the caller's view and the machine agree
+    expect(rig.machine.store.get().phase).toBe('detached');
+
+    // The watchdog frees the in-flight wait at t=10 s; the
+    // caller has long moved on, so nothing may reach the wire
+    await jest.advanceTimersByTimeAsync(10_000);
+    await flushMicrotasks();
+    expect(rig.transport.calls.map((c) => c.method)).toEqual(['register']);
+    expect(rig.machine.store.get().phase).toBe('detached');
+  });
+});
+
+
+describe('getRegisteredToken — the logout-body read', () => {
+  it('answers memory first, then the stored copy, and never asks the device', async () => {
+    const empty = buildRig();
+    await expect(empty.machine.getRegisteredToken()).resolves.toBeNull();
+    expect(empty.device.calls).toEqual([]);
+
+    const STORED = 'ExponentPushToken[stored-00000001]';
+    const seeded = buildRig({ [LEGACY_KEY]: STORED });
+    await expect(seeded.machine.getRegisteredToken()).resolves.toBe(STORED);
+    expect(seeded.device.calls).toEqual([]);
+
+    const registered = buildRig();
+    await registered.machine.register('login');
+    await expect(registered.machine.getRegisteredToken()).resolves.toBe(TOKEN);
+    // The register's one acquire — the read itself added none
+    expect(registered.device.calls).toEqual([{ method: 'getPushToken', args: [] }]);
+    expect(registered.transport.calls.map((c) => c.method)).toEqual(['register']);
+  });
+
+  it('a failing storage read answers null instead of throwing', async () => {
+    const rig = buildRig({ [LEGACY_KEY]: TOKEN });
+    rig.storage.failing = true;
+    await expect(rig.machine.getRegisteredToken()).resolves.toBeNull();
   });
 });
 

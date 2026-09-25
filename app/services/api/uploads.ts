@@ -121,12 +121,13 @@ export const MAX_VIDEO_UPLOAD_BYTES = 50 * 1024 * 1024;
 // and breaks every upload.
 //
 // Oversize handling: when the caller passes asset.fileSize,
-// anything over MAX_UPLOAD_BYTES throws BEFORE the request;
-// the backend's own 'File too large' rejection is tagged the
-// same way — both surface as ApiError status 413 with
-// serverCode 'file_too_large', so screens can toast an
-// actionable size message (apiErrorKey) instead of a generic
-// failure.
+// anything over MAX_UPLOAD_BYTES throws BEFORE the request as
+// the same shape the backend answers an oversize body with —
+// ApiError status 400, serverCode 'file_too_large' — so
+// screens key ONE branch on the code. A 413 from the backend
+// is never about size: it is the account's storage quota
+// (serverCode 'quota_exceeded'), and it resolves through the
+// catalog like every other machine code.
 //
 // Used by:
 //   - app/(main)/tabs/id.tsx — avatar change
@@ -145,7 +146,7 @@ export async function uploadImageApi(
   // Preflight: refuse a known-oversized asset without spending
   // the user's data on a doomed upload
   if (typeof fileSize === 'number' && fileSize > MAX_UPLOAD_BYTES) {
-    throw new ApiError('File too large', 413, 'http', undefined, 'file_too_large');
+    throw new ApiError('File too large', 400, 'http', undefined, 'file_too_large');
   }
 
 
@@ -163,26 +164,12 @@ export async function uploadImageApi(
   }
 
 
-  try {
-    return await request(
-      api.post<UploadResponse>('/uploads', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 30_000, // images over mobile links outlive the 15 s default
-      }),
-    );
-  } catch (err) {
-    // Tag the backend's post-hoc size rejection like the
-    // preflight one, so callers handle a single shape
-    if (
-      err instanceof ApiError &&
-      err.code === 'http' &&
-      !err.serverCode &&
-      /too large/i.test(err.message)
-    ) {
-      throw new ApiError(err.message, err.status, 'http', err.data, 'file_too_large');
-    }
-    throw err;
-  }
+  return request(
+    api.post<UploadResponse>('/uploads', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 30_000, // images over mobile links outlive the 15 s default
+    }),
+  );
 }
 
 
@@ -201,7 +188,7 @@ export async function uploadImageApi(
 // A document or a video, posted as multipart with the `kind`
 // form field the backend branches on (stored as sent once the
 // bytes prove the type — no re-encode). Videos get the larger
-// cap and a longer timeout. Same oversize tagging as photos.
+// cap and a longer timeout. Same oversize preflight as photos.
 //
 // Used by:
 //   - hooks/chat/useChatComposer.ts — attachFile / attachMedia
@@ -214,7 +201,7 @@ export async function uploadFileApi(
 
   const cap = options.kind === 'video' ? MAX_VIDEO_UPLOAD_BYTES : MAX_UPLOAD_BYTES;
   if (typeof options.fileSize === 'number' && options.fileSize > cap) {
-    throw new ApiError('File too large', 413, 'http', undefined, 'file_too_large');
+    throw new ApiError('File too large', 400, 'http', undefined, 'file_too_large');
   }
 
 
@@ -232,22 +219,10 @@ export async function uploadFileApi(
   }
 
 
-  try {
-    return await request(
-      api.post<UploadResponse>('/uploads', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: options.kind === 'video' ? 120_000 : 45_000,
-      }),
-    );
-  } catch (err) {
-    if (
-      err instanceof ApiError &&
-      err.code === 'http' &&
-      !err.serverCode &&
-      /too large/i.test(err.message)
-    ) {
-      throw new ApiError(err.message, err.status, 'http', err.data, 'file_too_large');
-    }
-    throw err;
-  }
+  return request(
+    api.post<UploadResponse>('/uploads', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: options.kind === 'video' ? 120_000 : 45_000,
+    }),
+  );
 }

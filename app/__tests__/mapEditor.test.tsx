@@ -17,13 +17,22 @@
 //  and refuses a self-link; a placing tool makes the room
 //  polygons transparent to the finger; the '+' pill beside the
 //  floor switcher adds a level; a refused upload gets retry /
-//  remove and never hides a later stored url.
+//  remove and never hides a later stored url; a plan text
+//  that does not parse shows a notice instead of an empty
+//  floor. An imported photo keeps the node's facing only when
+//  it is the same stored url — a different one clears the yaw
+//  and stamps the heading's provenance. A server out of reach
+//  offers the bundled seed behind a confirmation (declined:
+//  nothing editable mounts); every edit on it goes out stamped
+//  base 0, draws the server's conflict, and keep-mine lands it
+//  at the revision the server showed.
 // -----------------------------------------------------------
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { act, fireEvent, render } from '@testing-library/react-native';
 
 import MapEditorScreen from '@/app/(main)/map-editor/index';
+import { logError } from '@/services/log';
 import { SyncRejected } from '@knf/wayfindsync';
 
 
@@ -77,7 +86,11 @@ jest.mock('@/context/AuthContext', () => ({ useAuth: () => ({ user: { id: 'a1', 
 const mockToast = jest.fn();
 jest.mock('@/context/NetworkContext', () => ({ showToast: (...args: unknown[]) => mockToast(...args) }));
 jest.mock('@knf/dataengine', () => ({ useDataEngine: () => ({ onRestore: () => () => undefined, cache: { get: async () => null, set: async () => undefined } }) }));
-jest.mock('@/hooks/usePlanXml', () => ({ usePlanXml: () => null }));
+// The seed's levels carry no plan; a test hands the editor a
+// plan text through this slot when the drawing is the subject
+const mockPlanXml: { value: string | null } = { value: null };
+jest.mock('@/hooks/usePlanXml', () => ({ usePlanXml: () => mockPlanXml.value }));
+jest.mock('@/services/log', () => ({ logError: jest.fn() }));
 jest.mock('expo-image-picker', () => ({ launchImageLibraryAsync: jest.fn(async () => ({ canceled: true })) }));
 jest.mock('expo-document-picker', () => ({ getDocumentAsync: jest.fn(async () => ({ canceled: true })) }));
 jest.mock('@/services/api', () => ({
@@ -93,7 +106,7 @@ jest.mock('@/services/api', () => ({
 // The op shape as the wire sees it, loose enough to filter by
 type SentOp = { id: string; type?: string; kind?: string; entityId?: string; data?: Record<string, unknown>; baseRevision?: number };
 
-const mockPostOps = jest.fn(async (_b: string, ops: SentOp[]) => ({ revision: 4, results: ops.map((op) => ({ id: op.id, status: 'applied' as const })) }));
+const mockPostOps = jest.fn(async (_b: string, ops: SentOp[]): Promise<{ revision: number; results: Record<string, unknown>[] }> => ({ revision: 4, results: ops.map((op) => ({ id: op.id, status: 'applied' as const })) }));
 const mockPublish = jest.fn(async () => ({ ok: true as const, revision: 4, etag: 'e', publishedAt: 'now' }));
 const mockUploadPanorama = jest.fn();
 jest.mock('@/services/wayfindTransport', () => ({
@@ -185,6 +198,8 @@ describe('MapEditorScreen', () => {
     mockPublish.mockClear();
     mockToast.mockClear();
     mockUploadPanorama.mockReset();
+    mockPlanXml.value = null;
+    (logError as jest.Mock).mockClear();
   });
 
   it('loads the draft, adds and links a node on the plan, undoes both, and publishes', async () => {
@@ -636,5 +651,143 @@ describe('MapEditorScreen', () => {
     await settle();
     expect(r.queryByTestId('editor-upload-failed')).toBeNull();
     expect(r.getByText('/api/wayfind/panoramas/h.jpg')).toBeTruthy();
+  });
+
+
+  it('importing a photo over an aligned node: the same stored url keeps the facing, a different one clears it and stamps the heading auto', async () => {
+    const picker = require('expo-image-picker') as { launchImageLibraryAsync: jest.Mock };
+    // n-stairs1 in the seed: pano 'pano:1.1.00', panoYaw 260, heading manual
+    picker.launchImageLibraryAsync.mockResolvedValueOnce({ canceled: false, assets: [{ uri: 'file:///p.jpg', fileName: 'p.jpg', mimeType: 'image/jpeg' }] });
+    picker.launchImageLibraryAsync.mockResolvedValueOnce({ canceled: false, assets: [{ uri: 'file:///q.jpg', fileName: 'q.jpg', mimeType: 'image/jpeg' }] });
+    mockUploadPanorama.mockResolvedValueOnce({ id: 'p0', url: 'pano:1.1.00', width: 4096, height: 2048, bytes: 5, hfovDeg: 360, vfovDeg: 180 });
+    mockUploadPanorama.mockResolvedValueOnce({ id: 'p1', url: '/api/wayfind/panoramas/new.jpg', width: 4096, height: 2048, bytes: 5, hfovDeg: 360, vfovDeg: 180 });
+
+    const r = await render(<MapEditorScreen />);
+    await settle();
+    await layOutPlan(r);
+    await act(async () => {
+      fireEvent.press(r.getByTestId('wayfinduikit-plan-node-n-stairs1'));
+    });
+    await act(async () => {
+      fireEvent.press(r.getByTestId('editor-node-more'));
+    });
+
+    // The identical picture — content-addressed, so the same url —
+    // keeps the alignment and its provenance
+    await act(async () => {
+      fireEvent.press(r.getByText('mapEditor.pickPanorama'));
+    });
+    await settle();
+    await settle();
+    let stairs = sentOps().filter((op) => op.entityId === 'n-stairs1');
+    expect(stairs).toHaveLength(1);
+    expect(stairs[0].data).toMatchObject({ pano: 'pano:1.1.00', panoYaw: 260, panoHeading: { source: 'manual' } });
+
+    // A different picture: the yaw measured on the old one is gone
+    // and the heading says where it stands — no compass in this
+    // file, so 'auto'
+    await act(async () => {
+      fireEvent.press(r.getByText('mapEditor.pickPanorama'));
+    });
+    await settle();
+    await settle();
+    stairs = sentOps().filter((op) => op.entityId === 'n-stairs1');
+    expect(stairs).toHaveLength(2);
+    expect(stairs[1].data).toMatchObject({ pano: '/api/wayfind/panoramas/new.jpg', panoYaw: null, panoHeading: { source: 'auto' } });
+    expect(r.getByText('/api/wayfind/panoramas/new.jpg')).toBeTruthy();
+  });
+
+  it('a server out of reach offers the seed behind a confirmation — declined, nothing editable mounts', async () => {
+    const transport = require('@/services/wayfindTransport') as { fetchDraft: jest.Mock };
+    const ui = require('@/components/ui') as { confirmAction: jest.Mock };
+    ui.confirmAction.mockClear();
+    transport.fetchDraft.mockRejectedValueOnce(new Error('offline'));
+    ui.confirmAction.mockResolvedValueOnce(false);
+
+    const r = await render(<MapEditorScreen />);
+    await settle();
+    expect(ui.confirmAction).toHaveBeenCalledTimes(1);
+    expect(ui.confirmAction).toHaveBeenCalledWith({ title: 'mapEditor.title', message: 'mapEditor.offlineSeed', confirmLabel: 'common.next', cancelLabel: 'common.cancel' });
+    // Declined: a dead end naming the situation — no plan, no tools,
+    // nothing for the outbox
+    expect(r.queryByTestId('editor-plan-area')).toBeNull();
+    expect(r.queryByTestId('editor-publish')).toBeNull();
+    expect(r.getByText('mapEditor.offlineSeed')).toBeTruthy();
+    expect(mockPostOps).not.toHaveBeenCalled();
+  });
+
+  it("accepted, the editor opens on the seed: every edit goes out stamped base 0, draws the server's conflict, and keep-mine lands it at the revision the server showed", async () => {
+    const transport = require('@/services/wayfindTransport') as { fetchDraft: jest.Mock };
+    const ui = require('@/components/ui') as { confirmAction: jest.Mock };
+    ui.confirmAction.mockClear();
+    transport.fetchDraft.mockRejectedValueOnce(new Error('offline'));
+    // The server holds the entity past the seed: the first post
+    // conflicts and hands the row back, the retry lands
+    mockPostOps.mockImplementationOnce(async (_b: string, ops: SentOp[]) => ({
+      revision: 5,
+      results: ops.map((op) => ({ id: op.id, status: 'rejected' as const, reason: 'conflict', current: { data: { level: 'L1', x: 840, y: 300, kind: 'stairs', landmark: 'Serverio' }, revision: 5, deleted: false } })),
+    }));
+
+    const r = await render(<MapEditorScreen />);
+    await settle();
+    // The offer was taken: the seed is the document, the strip says so
+    expect(ui.confirmAction).toHaveBeenCalledTimes(1);
+    expect(r.getByText('mapEditor.offlineSeed')).toBeTruthy();
+    await layOutPlan(r);
+    await act(async () => {
+      fireEvent.press(r.getByTestId('wayfinduikit-plan-node-n-stairs1'));
+    });
+    await act(async () => {
+      fireEvent.press(r.getByTestId('editor-node-more'));
+    });
+    await act(async () => {
+      fireEvent.press(r.getByTestId('editor-kind-door'));
+    });
+    await settle();
+    const first = sentOps();
+    expect(first).toHaveLength(1);
+    expect(first[0]).toMatchObject({ type: 'upsert', entityId: 'n-stairs1', baseRevision: 0, data: { kind: 'door' } });
+
+    // The conflict row shows; keep mine re-sends over exactly the
+    // copy the server showed, and the row is gone once it lands
+    expect(r.getByTestId(`editor-conflict-${first[0].id}`)).toBeTruthy();
+    await act(async () => {
+      fireEvent.press(r.getByTestId(`editor-keep-${first[0].id}`));
+    });
+    await settle();
+    const all = sentOps();
+    expect(all).toHaveLength(2);
+    expect(all[1]).toMatchObject({ id: `${first[0].id}-again`, entityId: 'n-stairs1', baseRevision: 5, data: { kind: 'door' } });
+    expect(r.queryByTestId(`editor-conflict-${first[0].id}`)).toBeNull();
+  });
+
+  it('shows a notice and logs once when the plan text does not parse, and draws a replacement', async () => {
+    // What the old entity decode made of a plan: its '&lt;'
+    // became a bare '<' mid-text, which no XML parser accepts
+    mockPlanXml.value = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 600"><text>1 < 2</text></svg>';
+    const r = await render(<MapEditorScreen />);
+    await settle();
+    await layOutPlan(r);
+    expect(r.getByTestId('editor-plan-failed')).toBeTruthy();
+    expect(r.getByText('common.error')).toBeTruthy();
+    expect(logError).toHaveBeenCalledTimes(1);
+    expect((logError as jest.Mock).mock.calls[0][0]).toBe('mapEditor.plan');
+
+    // The deferred state flip lands; a re-render (a tool
+    // change) must not re-parse and re-log the same text
+    await settle();
+    await act(async () => {
+      fireEvent.press(r.getByTestId('editor-tool-node'));
+    });
+    expect(r.getByTestId('editor-plan-failed')).toBeTruthy();
+    expect(logError).toHaveBeenCalledTimes(1);
+
+    // An uploaded replacement that parses takes the slot back
+    mockPlanXml.value = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 600"><text>1 &lt; 2</text></svg>';
+    await act(async () => {
+      fireEvent.press(r.getByTestId('editor-tool-select'));
+    });
+    expect(r.queryByTestId('editor-plan-failed')).toBeNull();
+    expect(logError).toHaveBeenCalledTimes(1);
   });
 });

@@ -6,8 +6,10 @@
 //  single-flight drains, the server's answers per op —
 //  duplicates split by what the logged op had been — per-batch
 //  revisions in the report, the learned-revision re-stamp,
-//  conflict resolution, and the upload ladder with an
-//  immediate first retry and a final rejection.
+//  the base-0 gate on a bare upsert, conflict resolution
+//  (keep mine stamped at the revision the server showed), and
+//  the upload ladder with an immediate first retry and a
+//  final rejection.
 // -----------------------------------------------------------
 
 import { createOutbox } from '../outbox';
@@ -78,13 +80,13 @@ describe('outbox', () => {
     expect(box.rejected().map((entry) => [entry.op.id, entry.reason, entry.current?.revision])).toEqual([['o3', 'conflict', 6]]);
     expect(box.pending()).toBe(0);
 
-    // Keep mine: sent again without the stale base revision and
-    // without the fresh mark — a deliberate overwrite
+    // Keep mine: sent again stamped with the revision the server
+    // showed as current — exactly that copy is overwritten — and
+    // without the fresh mark
     box.resolve('o3', 'keep-mine');
     expect(box.pending()).toBe(1);
     const retry = box.entries()[0].op;
-    expect(retry).toEqual({ id: 'o3-again', type: 'upsert', kind: 'node', entityId: 'c', data: { x: 1 } });
-    expect('baseRevision' in retry).toBe(false);
+    expect(retry).toEqual({ id: 'o3-again', type: 'upsert', kind: 'node', entityId: 'c', data: { x: 1 }, baseRevision: 6 });
     expect('fresh' in retry).toBe(false);
     box.resolve('nope', 'drop');
     box.enqueue([upsert('o9', 'd', 1)]);
@@ -114,11 +116,13 @@ describe('outbox', () => {
     box.enqueue([{ id: 'o1', type: 'upsert', kind: 'node', entityId: 'a', data: { x: 1 }, fresh: true }]);
     box.enqueue([{ id: 'o2', type: 'delete', kind: 'node', entityId: 'a' }]);
     expect(box.entries()).toEqual([]);
-    // An unstamped edit of an EXISTING entity (the offline-seed mode
-    // stamps nothing): the delete must survive as an overwrite delete
+    // An edit of an EXISTING entity that arrived unstamped (an
+    // editor-less writer with no revision known) was stamped base 0
+    // at the gate: the delete survives and keeps that base — a
+    // conflict for the server to draw, never an overwrite delete
     box.enqueue([upsert('o3', 'b', 1)]);
     box.enqueue([{ id: 'o4', type: 'delete', kind: 'node', entityId: 'b' }]);
-    expect(box.entries().map((entry) => entry.op)).toEqual([{ id: 'o4', type: 'delete', kind: 'node', entityId: 'b' }]);
+    expect(box.entries().map((entry) => entry.op)).toEqual([{ id: 'o4', type: 'delete', kind: 'node', entityId: 'b', baseRevision: 0 }]);
     // A stamped edit: the delete keeps the held base revision, not its own
     box.enqueue([upsert('o5', 'c', 1, 4)]);
     box.enqueue([{ id: 'o6', type: 'delete', kind: 'node', entityId: 'c', baseRevision: 9 }]);
@@ -149,24 +153,58 @@ describe('outbox', () => {
     expect(box.entries()).toEqual([]);
   });
 
-  it('lets a delete after keep-mine reach the server and keeps a later edit\'s stale base out of the retry', async () => {
+  it('lets a delete after keep-mine reach the server at the shown revision and keeps a later edit\'s stale base out of the retry', async () => {
     const box = createOutbox(memory(), 'k');
     await box.load();
     box.enqueue([upsert('o1', 'c', 1, 2)]);
     await box.drain(transportWith(async () => ({ revision: 6, results: [{ id: 'o1', status: 'rejected', reason: 'conflict', current: { data: { x: 99 }, revision: 6, deleted: false } }] })), 'knf');
     box.resolve('o1', 'keep-mine');
     // A later edit still stamped with the stale base coalesces in
-    // WITHOUT re-acquiring it — the retry stays an overwrite
+    // WITHOUT re-acquiring it — the retry stays at the revision the
+    // server showed
     box.enqueue([upsert('o2', 'c', 3, 2)]);
-    expect(box.entries().map((entry) => entry.op)).toEqual([{ id: 'o2', type: 'upsert', kind: 'node', entityId: 'c', data: { x: 3 } }]);
-    expect('baseRevision' in box.entries()[0].op).toBe(false);
-    // A delete now replaces the retry as an overwrite delete — it is
-    // NOT cancelled as an unsent new entity
+    expect(box.entries().map((entry) => entry.op)).toEqual([{ id: 'o2', type: 'upsert', kind: 'node', entityId: 'c', data: { x: 3 }, baseRevision: 6 }]);
+    // A delete now replaces the retry at that base — it is NOT
+    // cancelled as an unsent new entity
     box.enqueue([{ id: 'o3', type: 'delete', kind: 'node', entityId: 'c' }]);
     const posted: ServerOp[][] = [];
     await box.drain(transportWith(async (_b, ops) => { posted.push(ops.map((op) => ({ ...op }))); return { revision: 7, results: ops.map((op) => ({ id: op.id, status: 'applied' as const })) }; }), 'knf');
-    expect(posted).toEqual([[{ id: 'o3', type: 'delete', kind: 'node', entityId: 'c' }]]);
+    expect(posted).toEqual([[{ id: 'o3', type: 'delete', kind: 'node', entityId: 'c', baseRevision: 6 }]]);
     expect(box.entries()).toEqual([]);
+  });
+
+  it('stamps a bare upsert base 0 at the gate — a fresh create and a stamped edit pass untouched — and a keep-mine with no current row retries as it was', async () => {
+    const storage = memory();
+    const box = createOutbox(storage, 'k');
+    await box.load();
+    box.enqueue([upsert('o1', 'a', 1), { id: 'o2', type: 'upsert', kind: 'node', entityId: 'b', data: { x: 1 }, fresh: true }, upsert('o3', 'c', 1, 4)]);
+    expect(box.entries().map((entry) => entry.op)).toEqual([
+      { id: 'o1', type: 'upsert', kind: 'node', entityId: 'a', data: { x: 1 }, baseRevision: 0 },
+      { id: 'o2', type: 'upsert', kind: 'node', entityId: 'b', data: { x: 1 }, fresh: true },
+      { id: 'o3', type: 'upsert', kind: 'node', entityId: 'c', data: { x: 1 }, baseRevision: 4 },
+    ]);
+    // The stamp is what survives a kill and what goes on the wire
+    await flush();
+    expect((JSON.parse(storage.dump.k) as { op: ServerOp }[])[0].op.baseRevision).toBe(0);
+    const posted: ServerOp[][] = [];
+    await box.drain(transportWith(async (_b, ops) => {
+      posted.push(ops.map((op) => ({ ...op })));
+      return { revision: 2, results: [
+        { id: 'o1', status: 'rejected', reason: 'conflict', current: { data: { x: 9 }, revision: 2, deleted: false } },
+        { id: 'o2', status: 'rejected', reason: 'level must be a string' },
+        { id: 'o3', status: 'applied' },
+      ] };
+    }), 'knf');
+    expect(posted[0][0].baseRevision).toBe(0);
+    // Keep mine on the conflict: stamped at the revision the server
+    // showed; on the shape refusal, which showed no row: sent again
+    // as it was, still a fresh create
+    box.resolve('o1', 'keep-mine');
+    box.resolve('o2', 'keep-mine');
+    expect(box.entries().map((entry) => entry.op)).toEqual([
+      { id: 'o1-again', type: 'upsert', kind: 'node', entityId: 'a', data: { x: 1 }, baseRevision: 2 },
+      { id: 'o2-again', type: 'upsert', kind: 'node', entityId: 'b', data: { x: 1 }, fresh: true },
+    ]);
   });
 
   it('re-stamps a queued op whose entity an earlier round already applied, and reports per-batch revisions', async () => {

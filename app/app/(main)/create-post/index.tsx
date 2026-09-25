@@ -46,6 +46,7 @@ import LoginRequiredOverlay from '@/components/LoginRequiredOverlay';
 // The three publish steps
 import {
   ApiError,
+  apiErrorKey,
   createPollApi,
   createPost,
   fetchNewsPost,
@@ -397,11 +398,14 @@ function PollRetryPanel({ pollTitle, retrying, onRetry, onDiscard }: PollRetryPa
 // uploadErrorKey
 // -----------------------------------------------------------
 //
-// Maps the backend's known upload rejections (file too large,
-// type not allowed, content not a real image) plus the upload
-// timeout to their own translated messages instead of echoing
-// the English backend string; anything unrecognized falls
-// back to the generic upload error.
+// Maps the backend's upload rejections to translated messages
+// by their MACHINE CODE — never by status or prose: the three
+// this screen words itself (size, type, content), then any
+// other code the catalog knows (a full storage quota —
+// quota_exceeded, which the backend answers with a 413 that
+// used to read as "too large" here). The upload timeout has
+// its own line; anything unrecognized falls back to the
+// generic upload error.
 //
 // Used by:
 //   - CreatePostScreen (below) — step-1 failure toast
@@ -410,9 +414,13 @@ function PollRetryPanel({ pollTitle, retrying, onRetry, onDiscard }: PollRetryPa
 function uploadErrorKey(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.code === 'timeout') return 'createPost.imageUploadTimeout';
-    if (err.status === 413 || /too large/i.test(err.message)) return 'createPost.imageTooLarge';
-    if (/type not allowed/i.test(err.message)) return 'createPost.imageTypeNotAllowed';
-    if (/does not match/i.test(err.message)) return 'createPost.imageInvalidContent';
+    if (err.serverCode === 'file_too_large') return 'createPost.imageTooLarge';
+    if (err.serverCode === 'bad_file_type') return 'createPost.imageTypeNotAllowed';
+    if (err.serverCode === 'bad_file_content') return 'createPost.imageInvalidContent';
+    if (err.serverCode) {
+      const key = apiErrorKey(err);
+      if (key.startsWith('errors.codes.')) return key;
+    }
   }
   return 'createPost.imageUploadError';
 }

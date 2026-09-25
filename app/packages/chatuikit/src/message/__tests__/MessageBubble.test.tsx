@@ -4,7 +4,9 @@
 //  A custom kind renders through the host's MessageBody slot
 //  and the unsupported placeholder without it; an unknown kind
 //  renders the placeholder; the row's composed accessibility
-//  label and its actions; the portrait's tap.
+//  label and its actions; the portrait's tap; a document's
+//  stored path reaching the host's link opener resolved, from
+//  the card's tap and from the openFile action alike.
 // -----------------------------------------------------------
 
 jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'));
@@ -67,5 +69,37 @@ describe('MessageBubble kinds', () => {
     const { getByRole } = await wrap(<MessageBubble {...props} message={message} onPressAvatar={onPressAvatar} />);
     await fireEvent.press(getByRole('button', { name: 'Open profile, Ona' }));
     expect(onPressAvatar).toHaveBeenCalledWith(message);
+  });
+});
+
+
+describe('MessageBubble document card', () => {
+  // The kit env's resolver, as the host wires it: a stored
+  // upload path becomes an absolute URL
+  const resolveImageUrl = (path: string) => (path.startsWith('/') ? `https://api.test${path}` : path);
+  const document = base({ kind: 'file', text: '', file: { name: 'report.pdf', uri: '/api/uploads/report.pdf', size: 12_000, mimeType: 'application/pdf' } });
+
+  it('the card tap hands the host an absolute URL, never the bare upload path', async () => {
+    const onPressLink = jest.fn();
+    const { getByLabelText } = await render(
+      <ChatUiKitProvider locale="en" resolveImageUrl={resolveImageUrl}>
+        <MessageBubble {...props} message={document} onPressLink={onPressLink} />
+      </ChatUiKitProvider>,
+    );
+    await fireEvent.press(getByLabelText(/^File: report\.pdf/));
+    expect(onPressLink).toHaveBeenCalledWith('https://api.test/api/uploads/report.pdf');
+  });
+
+  it('the openFile accessibility action resolves the same way', async () => {
+    const onPressLink = jest.fn();
+    const { getByLabelText } = await render(
+      <ChatUiKitProvider locale="en" resolveImageUrl={resolveImageUrl}>
+        <MessageBubble {...props} message={document} onPressLink={onPressLink} />
+      </ChatUiKitProvider>,
+    );
+    const row = getByLabelText(/^Ona, /);
+    expect(row.props.accessibilityActions.map((a: { name: string }) => a.name)).toContain('openFile');
+    await fireEvent(row, 'accessibilityAction', { nativeEvent: { actionName: 'openFile' } });
+    expect(onPressLink).toHaveBeenCalledWith('https://api.test/api/uploads/report.pdf');
   });
 });

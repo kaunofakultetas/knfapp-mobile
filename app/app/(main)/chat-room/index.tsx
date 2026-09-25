@@ -104,7 +104,7 @@ import { confirmAction, EmptyState, ErrorState, LoadingSpinner } from '@/compone
 import { showToast, useNetwork } from '@/context/NetworkContext';
 
 // Search + presence endpoints and render-time helpers
-import { fetchConversations, fetchMemesApi, fetchOnlineStatus, getUploadUrl, pushMemeApi, reactToMessageApi, removeReactionApi, reportTarget, searchMessagesApi, type ApiMeme, type MessageSearchResult } from '@/services/api';
+import { apiErrorKey, fetchConversations, fetchMemesApi, fetchOnlineStatus, getUploadUrl, pushMemeApi, reactToMessageApi, removeReactionApi, reportTarget, searchMessagesApi, type ApiMeme, type MessageSearchResult } from '@/services/api';
 import { chatTransport } from '@/services/chatTransport';
 import { activeLocale, formatDateTime, formatRelativeAgo } from '@/services/format';
 
@@ -477,7 +477,7 @@ function MemeLibrary({
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: false, quality: 1 });
     if (result.canceled || !result.assets?.[0]) return;
     const asset = result.assets[0];
-    setPending({ uri: asset.uri, fileName: asset.fileName ?? undefined, mimeType: asset.mimeType ?? undefined });
+    setPending({ uri: asset.uri, fileName: asset.fileName ?? undefined, mimeType: asset.mimeType ?? undefined, fileSize: asset.fileSize ?? undefined });
   }, []);
   const confirm = useCallback(
     async (title: string, tags: string) => {
@@ -485,12 +485,15 @@ function MemeLibrary({
       if (!asset) return;
       setAdding(true);
       try {
-        const resp = await pushMemeApi(asset.uri, asset.fileName, asset.mimeType, title, tags);
+        const resp = await pushMemeApi(asset.uri, asset.fileName, asset.mimeType, title, tags, asset.fileSize);
         setItems((prev) => [resp.meme, ...prev]);
         setPending(null);
         showToast('success', t('chat.memeAdded'));
-      } catch {
-        showToast('error', t('common.error'));
+      } catch (err) {
+        // The backend's machine code (file_too_large, bad_file_type,
+        // …) or the local size preflight — worded by the catalog,
+        // never a bare "error"
+        showToast('error', t(apiErrorKey(err)));
       } finally {
         setAdding(false);
       }

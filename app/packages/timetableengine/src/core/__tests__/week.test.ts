@@ -3,11 +3,31 @@
 //
 //  Date math runs on UTC strings, so the EET DST Sundays in
 //  late March and late October — mid-semester — must come out
-//  as seven consecutive dates like any other week.
+//  as seven consecutive dates like any other week. The one
+//  wall-clock read, todayISO, answers the LOCAL date: east of
+//  UTC, late Sunday evening UTC is already Monday.
 // -----------------------------------------------------------
 
-import { dayIndexOf, buildWeek, isoWeekNumber, materializeWeek, mondayOf, visibleDays } from '../week';
+import { dayIndexOf, buildWeek, isoWeekNumber, materializeWeek, mondayOf, toISO, todayISO, visibleDays } from '../week';
 import type { TimetableEntry } from '../types';
+
+
+// The jest sandbox hands every test file a COPY of process.env,
+// so a plain `process.env.TZ = …` never reaches V8's clock. The
+// real process, reached through the main context, does — Node
+// re-reads TZ on every assignment — and it is restored after
+const realProcess = (): NodeJS.Process => (require('vm') as typeof import('vm')).runInThisContext('process') as NodeJS.Process;
+function withTimeZone(tz: string, run: () => void): void {
+  const real = realProcess();
+  const before = real.env.TZ;
+  real.env.TZ = tz;
+  try {
+    run();
+  } finally {
+    if (before === undefined) delete real.env.TZ;
+    else real.env.TZ = before;
+  }
+}
 
 const L = (id: string, day: number, extra: Partial<TimetableEntry> = {}): TimetableEntry => ({
   id, title: id, day, startMin: 540, endMin: 630, ...extra,
@@ -119,5 +139,33 @@ describe('the New Year seam', () => {
     expect(isoWeekNumber('2026-01-04')).toBe(1);  // Sunday closing it
     expect(isoWeekNumber('2026-12-28')).toBe(53); // 2026 runs 53 weeks
     expect(isoWeekNumber('2027-01-04')).toBe(1);  // the Monday after
+  });
+});
+
+
+describe('todayISO', () => {
+  // Sunday 2026-09-20 21:30 UTC — already Monday 00:30 in Vilnius
+  const lateSundayUtc = new Date(Date.UTC(2026, 8, 20, 21, 30));
+
+  it('answers the LOCAL calendar date — east of UTC it is already Monday while the UTC date says Sunday', () => {
+    withTimeZone('Europe/Vilnius', () => {
+      expect(todayISO(lateSundayUtc)).toBe('2026-09-21');
+      // The seam that put the screen on last week: the UTC date
+      expect(toISO(lateSundayUtc.getTime())).toBe('2026-09-20');
+      expect(mondayOf(todayISO(lateSundayUtc))).toBe('2026-09-21');
+    });
+  });
+
+  it('agrees with the UTC date under UTC', () => {
+    withTimeZone('UTC', () => {
+      expect(todayISO(lateSundayUtc)).toBe('2026-09-20');
+    });
+  });
+
+  it('zero-pads and defaults to now', () => {
+    withTimeZone('UTC', () => {
+      expect(todayISO(new Date(Date.UTC(2027, 0, 5, 12)))).toBe('2027-01-05');
+    });
+    expect(todayISO()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 });

@@ -307,6 +307,11 @@ function AssistantChat({
   };
 
 
+  // NO onFeedback on purpose: Tomas dropped the thumbs row
+  // from the app ("not needed", 2026-09) — the kit hides the
+  // pair without a callback. Do not wire it back for the
+  // admin's review list; that list reads ratings only if they
+  // exist, and their absence is the decision
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <AssistantThread

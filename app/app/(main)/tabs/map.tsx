@@ -31,6 +31,7 @@
 //    DestinationList — search field + grouped room list
 //    ViewToggle      — the photo / plan chips over the stage
 //    PhotoStage      — the panorama at the current node
+//    PlanDrawing     — the level's SVG, or the parse-failure notice
 //    PlanStage       — the floor plan with the route
 //    MapScreen       — the tab itself (default export)
 // -----------------------------------------------------------
@@ -47,6 +48,8 @@ import { EmptyState, Header, Screen } from '@/components/ui';
 import { usePlanXml } from '@/hooks/usePlanXml';
 // JS-side colors for icons, rows and the search field
 import { useTheme } from '@/hooks/useTheme';
+// A plan that will not parse leaves a diagnosable trace
+import { logError } from '@/services/log';
 // The bundled panoramas the seed's nodes point at
 import { BUNDLED_PANOS } from '@/services/wayfind/seed';
 // Screen primitives
@@ -469,6 +472,55 @@ function PhotoStage({
 
 
 // -----------------------------------------------------------
+// PlanDrawing
+// -----------------------------------------------------------
+//
+// The level's SVG text drawn, or — when it does not parse — a
+// small notice in its place, so a broken plan reads as a
+// broken plan and not as an empty floor. SvgXml reports a
+// parse failure from INSIDE its own render (onError fires
+// synchronously and it returns `fallback`), so the failure is
+// logged with the plan's reference and the state flip is
+// deferred past the render; from then on the drawing is not
+// mounted again for that text, otherwise every re-render
+// would re-parse and re-log the same broken plan. A new text
+// gets a fresh attempt.
+//
+// Used by:
+//   - PlanStage (below)
+// -----------------------------------------------------------
+
+function PlanDrawing({ xml, reference }: { xml: string; reference: string | null | undefined }) {
+
+  const { t } = useTranslation();
+  const [failedXml, setFailedXml] = useState<string | null>(null);
+
+
+  const onError = useCallback(
+    (error: Error) => {
+      logError('map.plan', error, reference ?? undefined);
+      setTimeout(() => setFailedXml(xml), 0);
+    },
+    [reference, xml],
+  );
+
+
+  const notice = (
+    <View style={{ flex: 1 }} className="items-center justify-center px-md" testID="map-plan-failed">
+      <Text className="text-center font-raleway text-sm text-ink-soft">{t('common.error')}</Text>
+    </View>
+  );
+  if (failedXml === xml) return notice;
+  return <SvgXml xml={xml} width="100%" height="100%" onError={onError} fallback={notice} />;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // PlanStage
 // -----------------------------------------------------------
 //
@@ -515,7 +567,7 @@ function PlanStage({
     <View style={{ height }}>
       <FloorPlan
         level={level}
-        plan={xml ? <SvgXml xml={xml} width="100%" height="100%" /> : null}
+        plan={xml ? <PlanDrawing xml={xml} reference={level.plan} /> : null}
         rooms={rooms}
         route={segment}
         start={summary.start}

@@ -15,6 +15,7 @@ import { act, fireEvent, render, renderHook } from '@testing-library/react-nativ
 import { Text } from 'react-native';
 import type { ReactNode } from 'react';
 
+import { memorySocialStorage } from '../../core/storage';
 import type { LikeResult, LikeTarget, SocialNotice, SocialTransport } from '../../core/transport';
 import { SocialEngineProvider } from '../../provider';
 import { useLikeToggle } from '../useLikeToggle';
@@ -73,12 +74,15 @@ async function mount(options: { guest?: boolean; post?: typeof POST } = {}) {
   const t = stubTransport();
   const notices: SocialNotice[] = [];
   const requireAuth = jest.fn();
+  // The offline task queue's store — dump() shows what was queued
+  const storage = memorySocialStorage();
   const wrapper = ({ children }: { children: ReactNode }) => (
     <SocialEngineProvider
       transport={t.transport}
       currentUser={options.guest ? null : VIEWER}
       notify={(n) => notices.push(n)}
       onRequireAuth={requireAuth}
+      storage={storage}
     >
       {children}
     </SocialEngineProvider>
@@ -87,7 +91,8 @@ async function mount(options: { guest?: boolean; post?: typeof POST } = {}) {
     wrapper,
     initialProps: { post: options.post ?? POST },
   });
-  return { ...t, notices, requireAuth, hook };
+  const queued = () => JSON.parse(storage.dump()['social:tasks'] ?? '[]') as unknown[];
+  return { ...t, notices, requireAuth, hook, queued };
 }
 
 // A minimal surface for the cross-surface test — two of these
@@ -163,6 +168,40 @@ describe('useLikeToggle', () => {
     expect(m.hook.result.current.pending).toBe(false);
     expect(m.notices).toEqual([{ level: 'error', code: 'like_failed' }]);
     expect(m.requireAuth).not.toHaveBeenCalled();
+  });
+
+  it('a 429 is a definitive refusal: the like reverts, notifies once and queues nothing', async () => {
+    // A rate limit never heals by replaying the same intent on
+    // every mount — it is not an offline like
+    const m = await mount();
+    await act(async () => m.hook.result.current.toggle());
+    expect(m.hook.result.current.liked).toBe(true);
+
+    await act(async () => {
+      m.pending[0].reject(Object.assign(new Error('slow down'), { status: 429, serverCode: 'rate_limited' }));
+    });
+    await flush();
+
+    expect(m.hook.result.current.liked).toBe(false);
+    expect(m.hook.result.current.likeCount).toBe(4);
+    expect(m.hook.result.current.pending).toBe(false);
+    expect(m.queued()).toEqual([]);
+    expect(m.notices).toEqual([{ level: 'error', code: 'like_failed' }]);
+  });
+
+  it('a 5xx keeps the optimistic like and queues it for the restore signal', async () => {
+    const m = await mount();
+    await act(async () => m.hook.result.current.toggle());
+    await act(async () => {
+      m.pending[0].reject(Object.assign(new Error('down'), { status: 503 }));
+    });
+    await flush();
+
+    expect(m.hook.result.current.liked).toBe(true);
+    expect(m.hook.result.current.likeCount).toBe(5);
+    expect(m.hook.result.current.pending).toBe(false);
+    expect(m.queued()).toHaveLength(1);
+    expect(m.notices).toEqual([]);
   });
 
   it('reverts and routes to requireAuth on an auth refusal', async () => {

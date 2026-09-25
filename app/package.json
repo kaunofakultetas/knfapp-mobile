@@ -8,7 +8,9 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "test": "jest"
+    "test": "jest",
+    "test:coverage": "jest --coverage --runInBand",
+    "test:integration": "ASSISTANT_WIRE_URL=${ASSISTANT_WIRE_URL:-http://knfapp-assistant:3000} jest services/__tests__/assistantWire.integration.test.ts"
   },
   "dependencies": {
     "@assistant-ui/ai-sdk": "0.0.4",
@@ -88,6 +90,7 @@
   "private": true,
   "jest": {
     "preset": "jest-expo",
+    "testTimeout": 20000,
     "transformIgnorePatterns": [
       "node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|native-base|react-native-svg|nativewind|react-native-css-interop|standard-navigation|@assistant-ui/.*|assistant-stream|assistant-cloud|ai/|@ai-sdk/.*|zod|nanoid|@standard-schema/.*|@workflow/.*|eventsource-parser|@vercel/oidc|pkce-challenge|@formatjs/.*)"
     ],
@@ -115,7 +118,11 @@
       "packages/notifyengine/src/**/*.{ts,tsx}",
       "packages/notifyuikit/src/**/*.{ts,tsx}",
       "packages/assistantengine/src/**/*.{ts,tsx}",
-      "packages/assistantuikit/src/**/*.{ts,tsx}"
+      "packages/assistantuikit/src/**/*.{ts,tsx}",
+      "packages/timetableengine/src/**/*.{ts,tsx}",
+      "packages/timetableuikit/src/**/*.{ts,tsx}",
+      "constants/**/*.{ts,tsx}",
+      "i18n/**/*.{ts,tsx}"
     ],
     "setupFilesAfterEnv": [
       "<rootDir>/jest.setup.worklets.js"

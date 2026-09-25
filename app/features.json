@@ -1,9 +1,9 @@
 {
   "news": true,
   "schedule": true,
-  "accounts": false,
-  "chat": false,
-  "social": false,
+  "accounts": true,
+  "chat": true,
+  "social": true,
   "assistant": true,
   "studentId": false,
   "map": false

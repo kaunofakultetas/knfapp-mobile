@@ -116,6 +116,10 @@ export interface NotifyEngine {
   readonly registration: StateStore<RegistrationSnapshot>;
   register(reason: RegisterReason): Promise<RegisterResult>;
   detach(opts?: { authToken?: string }): Promise<void>;
+  // This device's push token without touching the OS: memory,
+  // then the stored copy — what a logout sends in its body so
+  // the server drops the session and the push row together
+  getRegisteredToken(): Promise<string | null>;
 
   readonly prefs: StateStore<PrefsSnapshot>;
   setMasterEnabled(on: boolean): Promise<RegisterResult | void>;
@@ -281,6 +285,7 @@ export function createNotifyEngine(config: NotifyEngineConfig): NotifyEngine {
     registration: registration.store,
     register: (reason) => registration.register(reason),
     detach: (opts) => registration.detach(opts),
+    getRegisteredToken: () => registration.getRegisteredToken(),
 
     prefs: prefs.store,
     setMasterEnabled: async (on: boolean) => {

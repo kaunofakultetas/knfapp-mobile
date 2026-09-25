@@ -14,7 +14,8 @@
 //    registerApi            — create an account
 //    fetchMe                — verify the stored session
 //    validateInvitationCode — pre-check a code while typing
-//    logoutApi              — server session drop, best-effort
+//    logoutApi              — session + this device's push row
+//                             drop, best-effort
 //    deleteAccountApi       — password-confirmed erasure (GDPR)
 //    exportMyDataApi        — the caller's data as JSON (GDPR)
 // -----------------------------------------------------------
@@ -179,23 +180,31 @@ export const validateInvitationCode = (code: string) =>
 // logoutApi
 // -----------------------------------------------------------
 //
-// Fire-and-forget server-side session drop. Never throws —
-// local logout (token removal, cache clear) must proceed even
-// when the server is unreachable, and the short 5 s timeout
-// keeps an offline logout from hanging behind the 15 s
-// default. AuthContext calls this DETACHED after local
-// teardown, passing the token it captured first — by then the
-// stored session is gone, so the request interceptor has
-// nothing to attach and the explicit header is what
-// authenticates the call.
+// Fire-and-forget server-side session drop — and, when the
+// caller hands it this device's Expo push token, the drop of
+// that one push row in the SAME request: the backend deletes
+// the presented session and the owner-scoped pushToken row
+// inside one transaction, so the row cannot outlive the
+// session and no second, separately authenticated DELETE has
+// to race the bearer's revocation (the field sat unused in
+// the contract until the app started sending it). Never
+// throws — local logout (token removal, cache clear) must
+// proceed even when the server is unreachable, and the short
+// 5 s timeout keeps an offline logout from hanging behind the
+// 15 s default. AuthContext calls this DETACHED after local
+// teardown and FIRST in its server tail (the engine's detach
+// follows, for the local side), passing the token it
+// captured up front — by then the stored session is gone, so
+// the request interceptor has nothing to attach and the
+// explicit header is what authenticates the call.
 //
 // Used by:
 //   - context/AuthContext.tsx — logout()
 // -----------------------------------------------------------
 
-export async function logoutApi(token?: string | null): Promise<void> {
+export async function logoutApi(token?: string | null, pushToken?: string | null): Promise<void> {
   try {
-    await api.post('/auth/logout', undefined, {
+    await api.post('/auth/logout', pushToken ? { pushToken } : undefined, {
       timeout: 5_000,
       ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
     });

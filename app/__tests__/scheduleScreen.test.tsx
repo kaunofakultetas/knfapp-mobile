@@ -17,7 +17,12 @@
 //  teacher day cards merging shared-id rows, and the
 //  alternating-slot regression the dated wire exists for: a
 //  lecture that lives on next week's date never paints a
-//  phantom card into this week.
+//  phantom card into this week. Plus the clock seams: "today"
+//  is the LOCAL date (east of UTC, Monday's first hours must
+//  not open LAST week), the current-term label follows the
+//  backend's month rule in January and August too, and an
+//  empty week outside the published range is told apart from
+//  an empty day inside it.
 // -----------------------------------------------------------
 
 // This suite pins its module's BEHAVIOR, so the shipping
@@ -170,18 +175,17 @@ const fetchWindow = (weekStart: string) => [
   toISO(parseISO(weekStart) + 13 * DAY_MS),
 ];
 
-// Today's 'YYYY-R/P' term label (the screen's own rule: label
-// year = the academic year's first calendar year) and the
-// NEXT term's label, which the engine ranks NEWER — the pair
-// pins that the default follows today, not the ranking
-const currentTerm = (() => {
-  const now = new Date();
+// Today's 'YYYY-R/P' term label — the BACKEND's rule (month
+// >= 8 → {y}-R, else {y-1}-P, January counted 1), which the
+// screen mirrors — and the NEXT term's label, which the engine
+// ranks NEWER — the pair pins that the default follows today,
+// not the ranking
+const termKeyFor = (now: Date) => {
   const year = now.getFullYear();
-  const month = now.getMonth();
-  if (month >= 8) return `${year}-R`;
-  if (month === 0) return `${year - 1}-R`;
-  return `${year - 1}-P`;
-})();
+  const month = now.getMonth() + 1;
+  return month >= 8 ? `${year}-R` : `${year - 1}-P`;
+};
+const currentTerm = termKeyFor(new Date());
 const nextTerm = currentTerm.endsWith('-R')
   ? currentTerm.replace('-R', '-P')
   : `${Number(currentTerm.slice(0, 4)) + 1}-R`;
@@ -212,6 +216,35 @@ const flush = () =>
   act(async () => {
     for (let i = 0; i < 40; i++) await Promise.resolve();
   });
+
+// Only the clock is faked — timers stay real so RNTL's
+// pressability and the async flushes keep working
+const freezeClock = (now: number) =>
+  jest.useFakeTimers({
+    now,
+    doNotFake: [
+      'hrtime', 'nextTick', 'performance', 'queueMicrotask', 'requestAnimationFrame', 'cancelAnimationFrame',
+      'requestIdleCallback', 'cancelIdleCallback', 'setImmediate', 'clearImmediate', 'setInterval', 'clearInterval',
+      'setTimeout', 'clearTimeout',
+    ],
+  });
+
+// The jest sandbox hands every test file a COPY of process.env,
+// so a plain `process.env.TZ = …` never reaches V8's clock. The
+// real process, reached through the main context, does — Node
+// re-reads TZ on every assignment — and it is restored after
+const realProcess = (): NodeJS.Process => (require('vm') as typeof import('vm')).runInThisContext('process') as NodeJS.Process;
+async function withTimeZone(tz: string, run: () => Promise<void>): Promise<void> {
+  const real = realProcess();
+  const before = real.env.TZ;
+  real.env.TZ = tz;
+  try {
+    await run();
+  } finally {
+    if (before === undefined) delete real.env.TZ;
+    else real.env.TZ = before;
+  }
+}
 
 const cacheMock = () =>
   (globalThis as Record<string, unknown>).__cacheMock as { get: jest.Mock; set: jest.Mock };
@@ -508,5 +541,86 @@ describe('teacher perspective on the dated wire', () => {
     const view = await render(<ScheduleScreen />);
     await flush();
     expect(view.getAllByText('Tinklai')).toHaveLength(1);
+  });
+});
+
+
+describe('today is the LOCAL date', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it("east of UTC, Monday's first hours open THIS week's Monday — not last week's via the UTC date", async () => {
+    // Sunday 2026-09-20 21:30 UTC is Monday 2026-09-21 00:30 in
+    // Vilnius: the UTC date put the screen on the week of the
+    // 14th, marked "today"
+    await withTimeZone('Europe/Vilnius', async () => {
+      freezeClock(Date.UTC(2026, 8, 20, 21, 30));
+      mockFetchEvents.mockResolvedValue({ events: [] });
+      const view = await render(<ScheduleScreen />);
+      await flush();
+      expect(lastEventsCall()).toEqual([...fetchWindow('2026-09-21'), undefined]);
+      // The stepper dates the selected day: Monday the 21st
+      expect(view.getByText('2026-09-21')).toBeTruthy();
+      expect(view.queryByText('2026-09-14')).toBeNull();
+    });
+  });
+});
+
+
+describe('the current-term label mirrors the backend', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('January belongs to the SPRING of the previous label year, as the scraper stamps it', async () => {
+    freezeClock(Date.UTC(2027, 0, 12, 12));
+    mockFetchFilters.mockResolvedValue({ groups: ['ISKS-1'], semesters: ['2027-R', '2026-P', '2026-R'], teachers: [] });
+    await render(<ScheduleScreen />);
+    await flush();
+    expect(termKeyFor(new Date())).toBe('2026-P');
+    expect(lastPrefs()?.semester).toBe('2026-P');
+  });
+
+  it('August already belongs to the AUTUMN label of its own year', async () => {
+    freezeClock(Date.UTC(2026, 7, 20, 12));
+    mockFetchFilters.mockResolvedValue({ groups: ['ISKS-1'], semesters: ['2026-P', '2026-R', '2025-P'], teachers: [] });
+    await render(<ScheduleScreen />);
+    await flush();
+    expect(termKeyFor(new Date())).toBe('2026-R');
+    expect(lastPrefs()?.semester).toBe('2026-R');
+  });
+});
+
+
+describe('an empty week outside the published range', () => {
+  // The screen's own caption for the visible week
+  const weekRange = monday.slice(0, 4) === sunday.slice(0, 4) ? `${monday.slice(5)} – ${sunday.slice(5)}` : `${monday} – ${sunday}`;
+  const nextWeek = (id: string) => eventRow(id, { date: toISO(parseISO(monday) + 7 * DAY_MS) });
+  const prevWeek = (id: string) => eventRow(id, { date: toISO(parseISO(monday) - 7 * DAY_MS) });
+
+  it('a week before the first published lecture names its dates instead of asserting an empty day', async () => {
+    mockFetchEvents.mockResolvedValue({ events: [nextWeek('n')] });
+    const view = await render(<ScheduleScreen />);
+    await flush();
+    expect(view.getByText('empty:schedule.weekNotPublished')).toBeTruthy();
+    expect(view.getByText(`hint:${weekRange}`)).toBeTruthy();
+  });
+
+  it('a window with nothing published anywhere reads the same way', async () => {
+    mockFetchEvents.mockResolvedValue({ events: [] });
+    const view = await render(<ScheduleScreen />);
+    await flush();
+    expect(view.getByText('empty:schedule.weekNotPublished')).toBeTruthy();
+    expect(view.getByText(`hint:${weekRange}`)).toBeTruthy();
+  });
+
+  it('a break — lectures on both sides of the week — keeps the plain "no lectures" copy', async () => {
+    mockFetchEvents.mockResolvedValue({ events: [prevWeek('p'), nextWeek('n')] });
+    const view = await render(<ScheduleScreen />);
+    await flush();
+    expect(view.getByText('empty:schedule.noLectures')).toBeTruthy();
+    expect(view.queryByText(`hint:${weekRange}`)).toBeNull();
+    expect(view.getByText(`hint:schedule.allGroups · ${currentTerm}`)).toBeTruthy();
   });
 });

@@ -5,8 +5,13 @@
 //  in the handshake auth payload (NEVER the query string), one
 //  flight is shared, a token change rebuilds, a teardown that
 //  lands mid-establish wins, a refused handshake goes terminal
-//  'unauthorized' while transport errors stay retryable, and
-//  the registry isolates throwing subscribers.
+//  'unauthorized' while transport errors stay retryable and a
+//  'busy' refusal is retried by the adapter itself a beat
+//  later, a transport drop rides the manager's own reconnect
+//  loop while
+//  a cut the SERVER made (the one drop that loop never
+//  survives) is reopened by the adapter a beat later, and the
+//  registry isolates throwing subscribers.
 // -----------------------------------------------------------
 
 type Handler = (payload: unknown) => void;
@@ -27,6 +32,13 @@ interface FakeSocket {
 function mockMakeFakeSocket(): FakeSocket {
   const handlers: Record<string, Handler[]> = {};
   const managerHandlers: Record<string, (() => void)[]> = {};
+  // A cut the SERVER made ('io server disconnect') is the one
+  // drop socket.io-client never recovers from: it stops the
+  // manager's reconnection loop, so no manager event fires
+  // again until connect() reopens it. The latch keeps the
+  // fixture honest about that — a transport drop leaves it
+  // clear and the manager's events keep flowing
+  let managerDead = false;
   return {
     connected: false,
     disconnected: true,
@@ -34,7 +46,9 @@ function mockMakeFakeSocket(): FakeSocket {
       (handlers[event] ||= []).push(fn);
     }),
     emit: jest.fn(),
-    connect: jest.fn(),
+    connect: jest.fn(() => {
+      managerDead = false;
+    }),
     disconnect: jest.fn(),
     removeAllListeners: jest.fn(),
     io: {
@@ -43,8 +57,14 @@ function mockMakeFakeSocket(): FakeSocket {
       }),
       off: jest.fn(),
     },
-    fire: (event, payload) => handlers[event]?.forEach((fn) => fn(payload)),
-    fireManager: (event) => managerHandlers[event]?.forEach((fn) => fn()),
+    fire: (event, payload) => {
+      if (event === 'disconnect' && payload === 'io server disconnect') managerDead = true;
+      handlers[event]?.forEach((fn) => fn(payload));
+    },
+    fireManager: (event) => {
+      if (managerDead) return;
+      managerHandlers[event]?.forEach((fn) => fn());
+    },
   };
 }
 
@@ -174,7 +194,7 @@ describe('connectSocket', () => {
 
 
 describe('status machine', () => {
-  it('walks connect / disconnect / reconnect transitions', async () => {
+  it('walks connect / transport drop / reconnect transitions', async () => {
     mockTokens.standing = 'tok';
     const seen: string[] = [];
     const off = socketService.onSocketStatusChange((status) => seen.push(status));
@@ -182,14 +202,52 @@ describe('status machine', () => {
     await socketService.connectSocket();
     const { socket } = mockIoCalls[0];
     socket.fire('connect', undefined);
-    socket.fire('disconnect', undefined);
+    // A transport drop: the manager's own loop brings it back,
+    // the adapter has nothing to do
+    socket.fire('disconnect', 'transport close');
     socket.fireManager('reconnect_attempt');
     socket.fireManager('reconnect');
 
     expect(seen).toEqual(['connecting', 'connected', 'disconnected', 'reconnecting', 'connected']);
+    expect(socket.connect).not.toHaveBeenCalled();
     off();
-    socket.fire('disconnect', undefined);
+    socket.fire('disconnect', 'transport close');
     expect(seen).toHaveLength(5);
+  });
+
+  it('a server cut kills the manager loop — the adapter reopens the socket itself a beat later', async () => {
+    jest.useFakeTimers();
+    try {
+      mockTokens.standing = 'tok';
+      const seen: string[] = [];
+      socketService.onSocketStatusChange((status) => seen.push(status));
+
+      await socketService.connectSocket();
+      const { socket } = mockIoCalls[0];
+      socket.fire('connect', undefined);
+      socket.fire('disconnect', 'io server disconnect');
+      // The manager is dead: its reconnect events never come
+      socket.fireManager('reconnect_attempt');
+      socket.fireManager('reconnect');
+      expect(seen).toEqual(['connecting', 'connected', 'disconnected']);
+      expect(socket.connect).not.toHaveBeenCalled();
+
+      // ...until the adapter's own beat (1 s) reopens the SAME
+      // instance — same token, so no rebuild
+      await jest.advanceTimersByTimeAsync(999);
+      expect(socket.connect).not.toHaveBeenCalled();
+      await jest.advanceTimersByTimeAsync(1);
+      await Promise.resolve();
+      expect(socket.connect).toHaveBeenCalledTimes(1);
+      expect(mockIoCalls).toHaveLength(1);
+      expect(seen).toEqual(['connecting', 'connected', 'disconnected', 'connecting']);
+
+      // ...and the manager's events are heard again
+      socket.fireManager('reconnect');
+      expect(seen).toEqual(['connecting', 'connected', 'disconnected', 'connecting', 'connected']);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('classifies a server rejection as terminal unauthorized with a full teardown', async () => {
@@ -222,6 +280,34 @@ describe('status machine', () => {
     // Same token afterwards still reuses the same instance
     expect(await socketService.connectSocket()).toBe(instance);
     expect(mockIoCalls).toHaveLength(1);
+  });
+
+  it("a 'busy' refusal is retried by the adapter a beat later — the retryable face meanwhile, never 'unauthorized'", async () => {
+    jest.useFakeTimers();
+    const random = jest.spyOn(Math, 'random').mockReturnValue(0);
+    try {
+      mockTokens.standing = 'tok';
+      await socketService.connectSocket();
+      const { socket } = mockIoCalls[0];
+
+      socket.fire('connect_error', Object.assign(new Error('busy'), { data: undefined }));
+      expect(socketService.getSocketStatus()).toBe('disconnected');
+      expect(socket.disconnect).toHaveBeenCalled();
+
+      // The first pause is 1 s; a NEW instance for the same
+      // token knocks again after it, with no help from the host
+      await jest.advanceTimersByTimeAsync(999);
+      await Promise.resolve();
+      expect(mockIoCalls).toHaveLength(1);
+      await jest.advanceTimersByTimeAsync(1);
+      for (let i = 0; i < 5; i += 1) await Promise.resolve();
+      expect(mockIoCalls).toHaveLength(2);
+      expect(mockIoCalls[1].opts.auth).toEqual({ token: 'tok' });
+      expect(socketService.getSocketStatus()).toBe('connecting');
+    } finally {
+      random.mockRestore();
+      jest.useRealTimers();
+    }
   });
 });
 

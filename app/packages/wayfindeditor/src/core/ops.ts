@@ -7,11 +7,15 @@
 //  the payload), delete, or a building patch — each stamped
 //  with the revision the phone's copy of that entity came from
 //  (baseRevision), which is what the server's conflict check
-//  reads. A brand-new entity (created here, no revision known)
-//  carries no baseRevision and is marked fresh — the outbox
-//  reads fresh to know a later delete cancels the pair
-//  outright. The server ignores fields it does not know, so
-//  fresh costs nothing on the wire. Op ids come from the
+//  reads. An entity the phone did not create ALWAYS carries
+//  one: when no revision is known its copy is the bundled
+//  seed, revision 0, and saying so makes the server answer a
+//  conflict for the host to settle instead of taking the seed
+//  over whatever it holds. A brand-new entity (created here,
+//  no revision known) carries no baseRevision and is marked
+//  fresh — the outbox reads fresh to know a later delete
+//  cancels the pair outright, the server reads it as the one
+//  licence to write without a base. Op ids come from the
 //  caller so a replayed batch applies once.
 //
 //  Used by:
@@ -84,7 +88,8 @@ export const revisionKey = (kind: EntityKind, id: string): string => `${kind}:${
 //
 // One op per change, in order: upsert with the entity's data
 // (id stripped), delete, or a building patch — each stamped
-// with the baseRevision found under revisionKey, and marked
+// with the baseRevision found under revisionKey (0 when none
+// is known and the entity was not created here), and marked
 // fresh when created here with no revision known.
 //
 // Used by:
@@ -101,7 +106,10 @@ export function changesToOps(changes: readonly Change[], revisions: Readonly<Rec
       continue;
     }
     const base = revisions[revisionKey(change.kind, change.id)];
-    const stamp = typeof base === 'number' ? { baseRevision: base } : {};
+    // No revision known for an entity the phone did not create:
+    // the copy is the bundled seed's, base 0 — never bare, which
+    // the server would take as a licence to overwrite
+    const stamp = typeof base === 'number' ? { baseRevision: base } : change.before === null ? {} : { baseRevision: 0 };
     if (change.after === null) {
       ops.push({ id: nextId(), type: 'delete', kind: change.kind, entityId: change.id, ...stamp });
       continue;

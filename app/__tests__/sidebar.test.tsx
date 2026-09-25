@@ -5,7 +5,10 @@
 //  and assistive visibility must follow the isOpen flag, the
 //  pin toggles must write through setPinnedTabs (with the
 //  land-on-news escape when unpinning the active surface),
-//  and hard-pinned surfaces never offer a toggle at all.
+//  hard-pinned surfaces never offer a toggle at all, and every
+//  jump made from the drawer lands with the floating tab bar
+//  expanded — a chip a scroll folded away must not stay folded
+//  on the screen it lands on.
 // -----------------------------------------------------------
 
 // The drawer polls the activity badge through the social engine —
@@ -106,6 +109,7 @@ jest.mock('@/hooks/useTheme', () => ({
 import { act, fireEvent, render, renderHook } from '@testing-library/react-native';
 
 import Sidebar from '@/components/Sidebar';
+import { isTabBarCollapsed, releaseTabBarHold, setTabBarCollapsed } from '@/components/navigation/tabBarCollapse';
 
 
 // The pin Pressable calls e.stopPropagation() — fireEvent must
@@ -121,6 +125,10 @@ describe('Sidebar', () => {
     mockNavigate.mockClear();
     mockClose.mockClear();
     mockSetPinnedTabs.mockClear();
+    // The chip's state is a module-level singleton — every case
+    // starts with it expanded and unheld
+    releaseTabBarHold();
+    setTabBarCollapsed(false);
   });
 
   it('is untouchable and hidden from assistive tech while closed', async () => {
@@ -180,6 +188,30 @@ describe('Sidebar', () => {
     // First pin switch in section order is the assistant's
     await fireEvent.press(getAllByLabelText('menu.pinTab')[0], pressEvent);
     expect(mockSetPinnedTabs).toHaveBeenCalledWith(['news', 'messages', 'schedule', 'id', 'assistant']);
+  });
+
+  it('a section jump lands with the tab bar shown — the chip a scroll folded is expanded first', async () => {
+    // The reader scrolled the news feed down, folding the chip
+    setTabBarCollapsed(true);
+    const { getByLabelText } = await render(<Sidebar />);
+
+    await fireEvent.press(getByLabelText('tabs.settings'));
+
+    expect(mockClose).toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith('/(main)/tabs/settings');
+    expect(isTabBarCollapsed()).toBe(false);
+  });
+
+  it('the unpin escape to news expands the chip too', async () => {
+    mockPathname = '/(main)/tabs/schedule';
+    setTabBarCollapsed(true);
+    const { getAllByLabelText } = await render(<Sidebar />);
+
+    await fireEvent.press(getAllByLabelText('menu.unpinTab')[0], pressEvent);
+
+    expect(mockNavigate).toHaveBeenCalledWith('/(main)/tabs/news');
+    expect(mockSetPinnedTabs).toHaveBeenCalledWith(['news', 'messages', 'id']);
+    expect(isTabBarCollapsed()).toBe(false);
   });
 });
 

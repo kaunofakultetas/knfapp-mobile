@@ -5,10 +5,10 @@
 //  optimistic shadow and waits in the queue; the host's
 //  restore signal drains it with the viewer's FINAL intent,
 //  once per target. A healable replay failure keeps the rest
-//  waiting, a definitive one drops that task with one notice,
-//  a persisted queue replays on the next signed-in mount, and
-//  an account switch throws the departing viewer's intents
-//  away.
+//  waiting, a definitive one (a 429 included) drops that task
+//  with one notice and the walk goes on, a persisted queue
+//  replays on the next signed-in mount, and an account switch
+//  throws the departing viewer's intents away.
 // -----------------------------------------------------------
 
 import { act, fireEvent, render, renderHook } from '@testing-library/react-native';
@@ -28,8 +28,9 @@ const OFFLINE = () => Object.assign(new Error('offline'), { status: 0 });
 
 
 // setLiked scripted per call: 'offline' rejects retryable,
-// 'refuse' rejects definitively, a LikeResult resolves
-type Script = 'offline' | 'refuse' | LikeResult;
+// 'refuse' rejects definitively, 'limited' is the backend's
+// 429 (definitive too), a LikeResult resolves
+type Script = 'offline' | 'refuse' | 'limited' | LikeResult;
 
 function scriptedTransport(script: Script[]) {
   const calls: { target: LikeTarget; liked: boolean }[] = [];
@@ -39,6 +40,7 @@ function scriptedTransport(script: Script[]) {
       const step = script.shift();
       if (step === 'offline') throw OFFLINE();
       if (step === 'refuse') throw Object.assign(new Error('refused'), { status: 422 });
+      if (step === 'limited') throw Object.assign(new Error('slow down'), { status: 429, serverCode: 'rate_limited' });
       if (step) return step;
       throw new Error('script exhausted');
     },
@@ -176,6 +178,43 @@ describe('offline replay', () => {
     expect(m.hook.result.current.liked).toBe(false);
     expect(m.hook.result.current.likeCount).toBe(4);
     expect(m.notices).toEqual([{ level: 'error', code: 'like_failed' }]);
+  });
+
+  it('a poisoned task — a 429 on replay — is dropped and the walk goes on to the next one', async () => {
+    // Two posts liked offline; on restore the first replay is
+    // rate-limited. That task alone dies (revert + one notice);
+    // the second still replays and settles — it must never be
+    // held hostage by the first, and nothing may replay forever
+    const POST2 = { id: 'p2', likedByMe: false, likeCount: 1 };
+    const t = scriptedTransport(['offline', 'offline', 'limited', { liked: true, likeCount: 2 }]);
+    const bus = restoreBus();
+    const storage = memorySocialStorage();
+    const notices: SocialNotice[] = [];
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <SocialEngineProvider transport={t.transport} currentUser={VIEWER} notify={(n) => notices.push(n)} storage={storage} onNetworkRestore={bus.subscribe}>
+        {children}
+      </SocialEngineProvider>
+    );
+    const hook = await renderHook(() => ({ first: useLikeToggle(POST), second: useLikeToggle(POST2) }), { wrapper });
+    await flush();
+
+    await act(async () => hook.result.current.first.toggle());
+    await flush();
+    await act(async () => hook.result.current.second.toggle());
+    await flush();
+    expect(JSON.parse(storage.dump()['social:tasks'])).toHaveLength(2);
+
+    await act(async () => bus.fire());
+    await flush();
+
+    expect(t.calls).toHaveLength(4);
+    expect(t.calls[3]).toEqual({ target: { type: 'post', id: 'p2' }, liked: true });
+    expect(hook.result.current.first.liked).toBe(false);
+    expect(hook.result.current.first.likeCount).toBe(4);
+    expect(hook.result.current.second.liked).toBe(true);
+    expect(hook.result.current.second.likeCount).toBe(2);
+    expect(storage.dump()['social:tasks']).toBe('[]');
+    expect(notices).toEqual([{ level: 'error', code: 'like_failed' }]);
   });
 
   it('a persisted queue replays as soon as the next signed-in provider mounts', async () => {

@@ -143,7 +143,9 @@
       "emailInvalid": "Įveskite tinkamą el. pašto adresą",
       "passwordRequired": "Slaptažodis privalomas",
       "passwordMin": "Slaptažodis turi būti bent 6 simbolių",
-      "passwordMismatch": "Slaptažodžiai nesutampa"
+      "passwordMismatch": "Slaptažodžiai nesutampa",
+      "usernameInvalid": "Vartotojo vardą gali sudaryti tik 3–32 lotyniškos raidės, skaitmenys, taškai, pabraukimai ir brūkšneliai",
+      "emailMax": "El. pašto adresas negali viršyti 254 simbolių"
     }
   },
   "messages": {
@@ -228,6 +230,7 @@
   "schedule": {
     "title": "Tvarkaraštis",
     "noLectures": "Nėra paskaitų",
+    "weekNotPublished": "Šiai savaitei tvarkaraštis dar nepaskelbtas",
     "filterTitle": "Filtruoti tvarkaraštį",
     "groupLabel": "Grupė",
     "semesterLabel": "Semestras",
@@ -420,6 +423,7 @@
     "closeSearch": "Uždaryti paiešką",
     "sendError": "Nepavyko išsiųsti žinutės",
     "sendTooLong": "Žinutė per ilga",
+    "sendQuoteGone": "Žinutė, į kurią atsakėte, nebeegzistuoja",
     "sendForbidden": "Neturite teisės rašyti šiame pokalbyje",
     "sessionExpired": "Sesija baigėsi — prisijunkite iš naujo",
     "imageUploadError": "Nepavyko įkelti nuotraukos",
@@ -724,7 +728,18 @@
       "password_too_common": "Šis slaptažodis per daug įprastas",
       "invite_invalid": "Neteisingas pakvietimo kodas",
       "invite_expired": "Pakvietimo kodas nebegalioja",
-      "invite_exhausted": "Pakvietimo kodas jau išnaudotas"
+      "invite_exhausted": "Pakvietimo kodas jau išnaudotas",
+      "invalid_username": "Vartotojo vardą gali sudaryti tik 3–32 lotyniškos raidės, skaitmenys, taškai, pabraukimai ir brūkšneliai",
+      "invalid_email": "Neteisingas el. pašto adresas",
+      "no_file": "Failas nepasirinktas",
+      "empty_file": "Failas tuščias",
+      "file_too_large": "Failas per didelis",
+      "bad_file_type": "Toks failo tipas neleidžiamas",
+      "bad_file_content": "Failo turinys neatitinka jo tipo",
+      "quota_exceeded": "Jūsų paskyros saugyklos vieta baigėsi — ištrinkite senų nuotraukų",
+      "upload_not_owned": "Ši nuotrauka nėra vienas iš jūsų įkeltų failų",
+      "still_referenced": "Failas vis dar naudojamas įraše, profilio nuotraukoje ar žinutėje",
+      "friend_request_cooldown": "Šis žmogus atmetė jūsų ankstesnę užklausą – bandykite vėliau"
     },
     "http": {
       "400": "Užklausa nepriimta – patikrinkite įvestus duomenis",

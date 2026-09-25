@@ -10,8 +10,11 @@
 //    - a cold-start response is consumed EXACTLY once: the
 //      device copy is cleared after reading (the primitive
 //      happily re-returns it), and the response identifier is
-//      persisted so a remount or fast-refresh can never replay
-//      yesterday's navigation;
+//      persisted so a remount, a fast-refresh or a task the
+//      OS relaunched with the original notification Intent
+//      can never replay yesterday's navigation — the persisted
+//      ring is consulted on BOTH entry paths, the device read
+//      and the warm listener;
 //    - intents that arrive before the resolver exists (router
 //      not mounted yet) are BUFFERED, capped, and flushed in
 //      order the moment setResolver lands — never dropped;
@@ -216,7 +219,16 @@ export function createRoutingHub(deps: {
 
   const ingest = async (response: DeviceNotificationResponse, coldStart: boolean): Promise<void> => {
     if (seen.has(response.identifier)) return;
+    // Claimed for the session BEFORE the storage read, so two
+    // deliveries racing through here still emit one intent
     seen.add(response.identifier);
+    // The persisted ring is the guard that outlives the JS
+    // context: a launch tap replayed into a fresh process (an
+    // Android task relaunched from Recents re-fires the
+    // original Intent) arrives with an empty `seen` — the ring
+    // still remembers it, and it parks nothing for
+    // consumeInitial() to adopt a second time
+    if ((await readConsumed()).includes(response.identifier)) return;
     await markConsumed(response.identifier);
     deliver(response.identifier, toIntent(response, coldStart));
   };

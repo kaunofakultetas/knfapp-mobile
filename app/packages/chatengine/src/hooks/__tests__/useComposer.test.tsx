@@ -110,13 +110,16 @@ describe('useComposer', () => {
 
   it('a definitive 4xx keeps the bubble failed with a specific notice and out of the sweep', async () => {
     const h = await setup();
-    h.transport.fail('sendMessage', Object.assign(new Error('too long'), { status: 400, code: 'http' }));
+    // A bare 400 says only "refused" — never "too long" (the
+    // composer clamps the length itself); the machine code
+    // names the reason when the backend sends one
+    h.transport.fail('sendMessage', Object.assign(new Error('refused'), { status: 400, code: 'http' }));
     await act(async () => {
       h.result.current.composer.onChangeText('x');
       h.result.current.composer.sendMessage();
     });
     await waitFor(() => expect(h.result.current.messages[0]?.status).toBe('failed'));
-    expect(h.notices.map((n) => n.code)).toEqual(['send_too_long']);
+    expect(h.notices.map((n) => n.code)).toEqual(['send_failed']);
     await act(async () => {
       h.restore();
     });
@@ -125,6 +128,17 @@ describe('useComposer', () => {
       h.result.current.composer.discardMessage(h.result.current.messages[0].id);
     });
     expect(h.result.current.messages).toHaveLength(0);
+  });
+
+  it('a 400 whose machine code says the quoted message is gone surfaces as send_quote_gone', async () => {
+    const h = await setup();
+    h.transport.fail('sendMessage', Object.assign(new Error('quote gone'), { status: 400, code: 'http', serverCode: 'quote_not_found' }));
+    await act(async () => {
+      h.result.current.composer.onChangeText('x');
+      h.result.current.composer.sendMessage();
+    });
+    await waitFor(() => expect(h.result.current.messages[0]?.status).toBe('failed'));
+    expect(h.notices.map((n) => n.code)).toEqual(['send_quote_gone']);
   });
 
   it('a failed photo upload retried through the sweep re-uploads exactly once, then sends with the path and frame', async () => {

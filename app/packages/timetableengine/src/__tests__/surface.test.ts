@@ -36,6 +36,7 @@ describe('@knf/timetableengine surface', () => {
       'semesterRank',
       'toISO',
       'toTimetableEntry',
+      'todayISO',
       'visibleDays',
     ]);
   });

@@ -30,7 +30,9 @@ import { Button, Input } from '@/components/ui';
 // PendingMeme
 // -----------------------------------------------------------
 //
-// The picked-but-unnamed picture the sheet is shown for.
+// The picked-but-unnamed picture the sheet is shown for. The
+// byte size rides along (when the picker reports one) for the
+// push's size preflight.
 //
 // Used by:
 //   - MemePushSheet (below) — the asset prop
@@ -41,6 +43,7 @@ export interface PendingMeme {
   uri: string;
   fileName?: string;
   mimeType?: string;
+  fileSize?: number;
 }
 
 

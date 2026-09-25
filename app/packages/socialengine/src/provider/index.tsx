@@ -24,7 +24,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, type ReactNode }
 import { createShadowStore, type PostShadow, type ShadowStore, type UserShadow } from '../core/shadow';
 import { memorySocialStorage, type SocialStorage } from '../core/storage';
 import { createSocialTaskQueue, type SocialTaskQueue } from '../core/tasks';
-import { isAuthError, isRetryableError, type SocialNotice, type SocialTransport } from '../core/transport';
+import { isAuthError, isRetryableError, relationshipFailureCode, type SocialNotice, type SocialTransport } from '../core/transport';
 import type { SocialUser } from '../core/types';
 
 
@@ -152,11 +152,13 @@ export function SocialEngineProvider({
 
 
     // The drain: the viewer's FINAL intent per target, in the
-    // order the intents were made. A healable failure stops the
-    // walk and keeps the rest for the next signal; an auth
-    // refusal stops it through the login flow; a definitive
-    // refusal drops that one task, reverts its shadow to the
-    // confirmed anchor and says so once. An account switch mid-
+    // order the intents were made. A healable failure (the
+    // transport, a 5xx) stops the walk and keeps the rest for
+    // the next signal; an auth refusal stops it through the
+    // login flow; a definitive refusal (every 4xx, 429 included)
+    // drops THAT one task, reverts its shadow to the confirmed
+    // anchor, says so once and walks on — one poisoned intent
+    // must never hold the rest hostage. An account switch mid-
     // drain (the store epochs move, the queue is cleared) ends
     // the walk without touching the fresh stores
     const replayTasks = async (): Promise<void> => {
@@ -190,13 +192,14 @@ export function SocialEngineProvider({
               return;
             }
             if (isRetryableError(err)) return;
+            // Definitive: this task alone dies; the loop goes on
             queue.remove(task);
             if (task.type === 'like') {
               posts.patch(task.target.id, { liked: posts.get(task.target.id)?.confirmedLiked, pending: false });
               notifyOut({ level: 'error', code: 'like_failed' });
             } else {
               users.patch(task.userId, { relationship: users.get(task.userId)?.confirmedRelationship, pending: false });
-              notifyOut({ level: 'error', code: 'relationship_failed' });
+              notifyOut({ level: 'error', code: relationshipFailureCode(err) });
             }
           }
         }

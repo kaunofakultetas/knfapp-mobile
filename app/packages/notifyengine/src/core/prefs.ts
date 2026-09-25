@@ -182,9 +182,11 @@ export function createPrefsMachine(deps: {
   };
 
 
-  // One wire operation at a time: flushes chain, and refresh()
-  // waits its turn — a GET must not install pre-PUT truth while
-  // the PUT is still on the wire
+  // One wire operation at a time: flushes AND refreshes chain
+  // onto it, each taking the lock rather than merely waiting on
+  // it — a GET must not install pre-PUT truth while the PUT is
+  // on the wire, and a PUT must not slip out beside a GET whose
+  // older body would then land last and overwrite it
   let wireLock: Promise<void> = Promise.resolve();
 
   const flush = async (): Promise<void> => {
@@ -249,11 +251,10 @@ export function createPrefsMachine(deps: {
   // Server truth only: channels and the preview flag. The
   // master switch is never part of the write — the snapshot's
   // value at commit time IS the session's, and a copy taken
-  // before the GET would revert a toggle made during it
-  const refresh = async (): Promise<void> => {
-    // Wait out any PUT in flight — its answer is newer truth
-    // than whatever this GET is about to fetch
-    await wireLock.catch(() => undefined);
+  // before the GET would revert a toggle made during it. Runs
+  // under the wire lock (see refresh); never rejects, so the
+  // chain behind it always proceeds
+  const pull = async (): Promise<void> => {
     try {
       const [channels, chatPreview] = await Promise.all([transport.getChannels(), transport.getChatPreview()]);
       // Validate shape before trusting — a garbage body must
@@ -272,6 +273,17 @@ export function createPrefsMachine(deps: {
     } catch {
       store.set({ ...store.get(), syncState: 'error' });
     }
+  };
+
+  // TAKES the wire lock: a PUT already in flight answers first
+  // (its answer is newer truth than the GET's), and a flush the
+  // debounce schedules while this GET is out queues BEHIND it —
+  // so the GET's pre-PUT body can never land last and revert a
+  // flip the server has already committed
+  const refresh = (): Promise<void> => {
+    const turn = wireLock.then(pull);
+    wireLock = turn;
+    return turn;
   };
 
   const dispose = (): void => {

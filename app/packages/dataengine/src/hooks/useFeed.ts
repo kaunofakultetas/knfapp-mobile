@@ -519,49 +519,66 @@ export function useFeed<T>(
         const page = await fetchPageRef.current(nextPage, abortRef.current?.signal);
         if (seq !== seqRef.current) return;
 
-        // Functional update so a concurrent optimistic
-        // setItems is merged, not overwritten. Incoming rows
-        // already on screen are dropped — overlapping OFFSET
-        // windows would otherwise become duplicate list keys
-        // Computed OUTSIDE the state updater: React double-
-        // invokes updaters to surface impurity, and the gap
-        // branch is stateful — itemsRef is the synchronous
-        // source of truth every writer here maintains
+        // Incoming rows already on screen are dropped —
+        // overlapping OFFSET windows would otherwise become
+        // duplicate list keys. Two homes for the work:
+        //
+        //   - the dedupe and the splice run INSIDE the state
+        //     updater, against the list React is committing, so
+        //     an optimistic setItems queued in the same batch is
+        //     merged, not overwritten, and itemsRef moves with
+        //     the state in commit order — the discipline every
+        //     other writer here keeps;
+        //   - the paging bookkeeping (progressed, the hole's
+        //     fate) stays OUTSIDE it, judged from the
+        //     synchronous snapshot: React double-invokes
+        //     updaters to surface impurity, and setGap is state.
+        //     The committed list can differ from the snapshot
+        //     only by that concurrent mutation, which the
+        //     updater's own dedupe absorbs
         const idOf = resolveIdRef.current;
-        const previous = itemsRef.current;
-        const seen = new Set(previous.map(idOf));
-        const fresh = page.items.filter((item) => {
-          const key = idOf(item);
-          return key === '' || !seen.has(key);
-        });
-        const progressed = fresh.length > 0;
+        const dedupe = (against: T[]): T[] => {
+          const held = new Set(against.map(idOf));
+          return page.items.filter((item) => {
+            const key = idOf(item);
+            return key === '' || !held.has(key);
+          });
+        };
+        const snapshot = itemsRef.current;
+        const snapshotFresh = dedupe(snapshot);
+        const progressed = snapshotFresh.length > 0;
+        // The hole's coordinates, captured before setGap moves
+        // them — the updater below splices against THESE
+        const filling = gapAfterIdRef.current !== null;
+        const gapIndex = gapIndexRef.current;
 
-
-        let merged: T[];
-        if (gapAfterIdRef.current === null) {
-          // No hole: pages append at the tail as ever
-          merged = [...previous, ...fresh];
-        } else {
+        if (filling) {
           // Filling the hole: the page continues the FRESH
           // window, so its rows land AT the marker. The hole
           // closes when the page reaches rows the old tail
           // already holds (overlap = continuity re-proven) or
           // when the chain exhausts
-          const gapIndex = gapIndexRef.current;
-          const oldSection = new Set(previous.slice(gapIndex).map(idOf));
+          const oldSection = new Set(snapshot.slice(gapIndex).map(idOf));
           const reachedOld = page.items.some((item) => {
             const key = idOf(item);
             return key !== '' && oldSection.has(key);
           });
-          merged = [...previous.slice(0, gapIndex), ...fresh, ...previous.slice(gapIndex)];
-          if (reachedOld || !page.hasMore || fresh.length === 0) {
+          if (reachedOld || !page.hasMore || snapshotFresh.length === 0) {
             setGap(null, 0);
           } else {
-            setGap(idOf(fresh[fresh.length - 1]) || gapAfterIdRef.current, gapIndex + fresh.length);
+            setGap(idOf(snapshotFresh[snapshotFresh.length - 1]) || gapAfterIdRef.current, gapIndex + snapshotFresh.length);
           }
         }
-        itemsRef.current = merged;
-        setItemsState(merged);
+
+        setItemsState((previous) => {
+          const fresh = dedupe(previous);
+          // No hole: pages append at the tail as ever
+          const merged = filling
+            ? [...previous.slice(0, gapIndex), ...fresh, ...previous.slice(gapIndex)]
+            : [...previous, ...fresh];
+          itemsRef.current = merged;
+          return merged;
+        });
         pageRef.current = nextPage;
         // Stall guard: a page that deduped to NOTHING new ends
         // paging whatever hasMore claims — a backend that ignores

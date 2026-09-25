@@ -5,14 +5,19 @@
 //  Ops are appended in the order they were made and leave in
 //  that order, in batches, through a single-flight drain — a
 //  second drain while one runs is a no-op that the running
-//  drain's next round covers. Consecutive queued ops on one
-//  entity coalesce (the earlier upsert's data is replaced, its
-//  baseRevision — or its deliberate absence, an overwrite —
-//  kept; that is the revision the phone's copy came from), so
-//  a long offline session sends one op per entity, not one per
-//  finger move. A delete cancels a queued upsert only when that
-//  upsert is marked `fresh` (a create the server never heard
-//  of); any other queued op becomes the delete itself.
+//  drain's next round covers. No upsert enters bare: one that
+//  creates nothing (no `fresh` mark) and names no baseRevision
+//  would be a blind overwrite of the server's row, so it is
+//  stamped base 0 on the way in and the server answers a
+//  conflict the host settles instead. Consecutive queued ops
+//  on one entity coalesce (the earlier upsert's data is
+//  replaced, its baseRevision — absent only on a fresh create
+//  — and its fresh mark kept; that is the revision the phone's
+//  copy came from), so a long offline session sends one op per
+//  entity, not one per finger move. A delete cancels a queued
+//  upsert only when that upsert is marked `fresh` (a create
+//  the server never heard of); any other queued op becomes the
+//  delete itself.
 //
 //  The server answers per op: applied ops are dropped from the
 //  log with their batch's revision reported per entity, so the
@@ -20,13 +25,15 @@
 //  the logged op had been — `of: 'applied'` joins the applied
 //  report with the logged revision, `of: 'rejected'` marks the
 //  entry rejected; rejected ops stay, marked, until the host
-//  resolves them — retry without the base revision ("keep
-//  mine", the server's copy is overwritten) or drop ("take
-//  theirs", the host applies `current`). A transport failure
-//  leaves every op queued for the next drain. The revisions the
-//  answers teach are remembered per entity for the session and
-//  lift any stale stamp just before an op goes on the wire, so
-//  the phone cannot conflict with its own applied edits.
+//  resolves them — retry stamped with the revision the server
+//  showed as current ("keep mine": exactly that copy is
+//  overwritten, and a third edit landing meanwhile conflicts
+//  again) or drop ("take theirs", the host applies `current`).
+//  A transport failure leaves every op queued for the next
+//  drain. The revisions the answers teach are remembered per
+//  entity for the session and lift any stale stamp just before
+//  an op goes on the wire, so the phone cannot conflict with
+//  its own applied edits.
 //
 //  Persistence is fire-and-forget after every change, but only
 //  once load() has read the stored queue — an enqueue that
@@ -158,6 +165,30 @@ const entityKey = (op: ServerOp): string | null => (op.type === 'building' ? 'bu
 
 
 // -----------------------------------------------------------
+// stamped
+// -----------------------------------------------------------
+//
+// The gate before the log: an upsert that creates nothing
+// (no fresh mark) and names no base revision would be a
+// blind overwrite of the server's row — it leaves here
+// stamped base 0, so the server answers a conflict the host
+// settles instead. The editor never builds such an op; the
+// editor-less writers (a capture or align screen handed a
+// node whose revision nobody knew) can.
+//
+// Used by:
+//   - createOutbox (below) — enqueue, and the keep-mine retry
+// -----------------------------------------------------------
+
+const stamped = (op: ServerOp): ServerOp => (op.type === 'upsert' && op.fresh !== true && typeof op.baseRevision !== 'number' ? { ...op, baseRevision: 0 } : op);
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // createOutbox
 // -----------------------------------------------------------
 //
@@ -228,7 +259,8 @@ export function createOutbox(storage: SyncStorage, key: string, now: () => numbe
     rejected: () => entries.filter((entry) => entry.status === 'rejected'),
 
     enqueue(ops) {
-      for (const op of ops) {
+      for (const raw of ops) {
+        const op = stamped(raw);
         const target = entityKey(op);
         // Only a 'queued' entry coalesces — a 'sending' one is on the
         // wire and a 'rejected' one is the host's to resolve
@@ -240,8 +272,7 @@ export function createOutbox(storage: SyncStorage, key: string, now: () => numbe
             // never heard of) cancels both; anything else — an edit
             // of an existing entity, a keep-mine retry, an edit made
             // while the create is on the wire — becomes the delete
-            // itself, keeping the held op's baseRevision (or its
-            // absence: an overwrite delete the server takes as is)
+            // itself, keeping the held op's baseRevision
             if (held.fresh === true) {
               entries.splice(at, 1);
               continue;
@@ -252,9 +283,9 @@ export function createOutbox(storage: SyncStorage, key: string, now: () => numbe
             entries[at] = { ...entries[at], op: held.baseRevision === undefined ? deleteOp : { ...deleteOp, baseRevision: held.baseRevision } };
             continue;
           }
-          // The earlier op's base revision — or its deliberate
-          // absence, a keep-mine overwrite — and its fresh mark are
-          // the ones that matter; the later op brings the data
+          // The earlier op's base revision — absent only on a fresh
+          // create — and its fresh mark are the ones that matter;
+          // the later op brings the data
           const { baseRevision: _stale, fresh: _later, ...next } = op;
           void _stale;
           void _later;
@@ -345,12 +376,16 @@ export function createOutbox(storage: SyncStorage, key: string, now: () => numbe
       if (at < 0) return;
       if (how === 'drop') entries.splice(at, 1);
       else {
-        // A deliberate overwrite: no base for the server to check,
-        // and no fresh mark — the entity exists there now
-        const { baseRevision: _stale, fresh: _fresh, ...op } = entries[at].op;
-        void _stale;
-        void _fresh;
-        entries[at] = { op: { ...op, id: `${op.id}-again` }, status: 'queued', queuedAt: now() };
+        // Keep mine: the retry is stamped with the revision the
+        // server showed as current — exactly that copy is
+        // overwritten, and a third edit landing meanwhile draws
+        // a conflict again — and loses any fresh mark, the entity
+        // exists there now. A rejection that showed no row (a
+        // shape refusal) goes again as it was
+        const { baseRevision: stale, fresh, ...op } = entries[at].op;
+        const { current } = entries[at];
+        const retry = current ? { ...op, baseRevision: current.revision } : { ...op, ...(stale === undefined ? {} : { baseRevision: stale }), ...(fresh === undefined ? {} : { fresh }) };
+        entries[at] = { op: stamped({ ...retry, id: `${op.id}-again` }), status: 'queued', queuedAt: now() };
       }
       commit();
     },

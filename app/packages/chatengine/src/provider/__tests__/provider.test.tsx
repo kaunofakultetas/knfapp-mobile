@@ -1,5 +1,5 @@
 import React from 'react';
-import { renderHook } from '@testing-library/react-native';
+import { render, renderHook } from '@testing-library/react-native';
 
 import { ChatEngineProvider, useChatEngine } from '..';
 import { memoryStorage } from '../storage';
@@ -39,5 +39,30 @@ describe('per-account storage scoping', () => {
 
     // The underlying keys really are distinct rows
     expect(Object.keys(base.dump())).toEqual(['u:user-a:outbox:conv-1']);
+  });
+
+  it('keeps the scoped storage identity across a re-created user object with the same id', async () => {
+    // The host hands a NEW user object on every session refresh
+    // (each foreground); a fresh storage identity re-ran every
+    // room's first load and stacked the paged history on top
+    const base = memoryStorage();
+    const seen: unknown[] = [];
+    const Probe = () => {
+      seen.push(useChatEngine().storage);
+      return null;
+    };
+    const tree = (id: string) => (
+      <ChatEngineProvider transport={transport} currentUser={user(id)} storage={base}>
+        <Probe />
+      </ChatEngineProvider>
+    );
+    const view = await render(tree('user-a'));
+    await view.rerender(tree('user-a'));
+    expect(seen).toHaveLength(2);
+    expect(seen[1]).toBe(seen[0]);
+
+    // A different account still gets its own namespace
+    await view.rerender(tree('user-b'));
+    expect(seen[2]).not.toBe(seen[0]);
   });
 });

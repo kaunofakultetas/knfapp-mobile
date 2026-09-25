@@ -118,14 +118,26 @@ describe('session-death interceptor', () => {
     expect(mockEmit).not.toHaveBeenCalled();
   });
 
-  it('treats the account-deactivated 403 as session death, generic 403s not', async () => {
-    failWith(403, { error: 'Account deactivated' });
+  it('treats the account-deactivated 403 as session death by its slug, generic 403s not', async () => {
+    failWith(403, { error: 'Account deactivated', code: 'account_deactivated' });
     await fire('/news', 'live-token');
     expect(mockEmit).toHaveBeenCalledTimes(1);
+
+    // The slug alone decides — the prose is never read
+    jest.setSystemTime((clock += 3_000));
+    failWith(403, { error: 'Paskyra išjungta', code: 'account_deactivated' });
+    await fire('/news', 'live-token');
+    expect(mockEmit).toHaveBeenCalledTimes(2);
+
+    // ...and prose without the slug is just a 403
+    jest.setSystemTime((clock += 3_000));
+    failWith(403, { error: 'Account deactivated' });
+    await fire('/news', 'live-token');
+    expect(mockEmit).toHaveBeenCalledTimes(2);
 
     jest.setSystemTime((clock += 3_000));
     failWith(403, { error: 'Admin access required' });
     await fire('/admin/users', 'live-token');
-    expect(mockEmit).toHaveBeenCalledTimes(1);
+    expect(mockEmit).toHaveBeenCalledTimes(2);
   });
 });

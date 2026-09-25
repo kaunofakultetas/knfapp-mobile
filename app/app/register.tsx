@@ -92,6 +92,12 @@ const REASON_KEYS: Record<string, string> = {
   expired: 'register.codeExpired',
 };
 
+// The backend's account-field shape (users/api/auth_views.py
+// USERNAME_RE / EMAIL_MAX), mirrored so the form refuses what
+// the server would refuse — before the request, on the field
+const USERNAME_RE = /^[A-Za-z0-9._-]{3,32}$/;
+const EMAIL_MAX = 254;
+
 // Field values; keys double as the error-map keys. The
 // invitation code is NOT here — useInvitationCode owns that
 // field's value, verdict and error wholesale
@@ -131,20 +137,29 @@ interface CodeValidation {
 // timeout sentinels — the backend's English prose is never
 // shown.
 //
+// The 400 → "invalid invitation code" reading is a guess, and
+// it holds only for a CODE-LESS 400 while a code was on the
+// wire. A 400 carrying a machine code names its own field
+// through the catalog (invalid_username, invalid_email, …) or
+// falls to the generic 400 copy — it is never blamed on the
+// invitation code, least of all when none was typed.
+//
 // Used by:
 //   - RegisterScreen (below) — submit failures and
 //     code-validation errors
 // -----------------------------------------------------------
 
-function errorText(err: unknown, t: TFunction): string {
+function errorText(err: unknown, t: TFunction, codeSent = true): string {
 
-  return t(
-    apiErrorKey(err, {
-      400: 'register.invalidCode',
-      409: 'register.usernameTaken',
-      429: 'login.tooManyAttempts',
-    }),
-  );
+  const overrides: Record<number, string> = {
+    409: 'register.usernameTaken',
+    429: 'login.tooManyAttempts',
+  };
+  if (codeSent && err instanceof ApiError && err.status === 400 && !err.serverCode) {
+    overrides[400] = 'register.invalidCode';
+  }
+
+  return t(apiErrorKey(err, overrides));
 }
 
 
@@ -195,8 +210,10 @@ function errorHint(err: unknown, t: TFunction): string | undefined {
 // The code-less-400 guess is safe only while validate()
 // pre-empts every OTHER register 400 the backend can send
 // without a machine code (required fields, string shape,
-// password length, the 100-char display-name cap) — keep
-// them in lockstep.
+// the 100-char display-name cap) — keep them in lockstep. A
+// 400 that carries any OTHER machine code (invalid_username,
+// invalid_email, a password_* slug) is never the code's
+// problem: null here, and errorText resolves it.
 //
 // Used by:
 //   - RegisterScreen (below) — handleRegister's catch
@@ -418,10 +435,12 @@ function ModeIndicator({ invited }: { invited: boolean }) {
 //
 // The pure per-field checks for the five account fields — the
 // invitation code is judged by its own live verdict in the
-// hook below, not here. The display-name cap mirrors the
-// backend's 100-char limit: its rejection is a code-less 400
-// inviteErrorKey would misread as an invitation-code failure,
-// so it must never be reachable.
+// hook below, not here. The username shape and the e-mail cap
+// mirror the backend's USERNAME_RE / EMAIL_MAX so the refusal
+// lands on the field instead of a round trip; the display-
+// name cap mirrors the backend's 100-char limit: its rejection
+// is a code-less 400 inviteErrorKey would misread as an
+// invitation-code failure, so it must never be reachable.
 //
 // Used by:
 //   - RegisterScreen (below) — submit-time validation
@@ -430,14 +449,18 @@ function ModeIndicator({ invited }: { invited: boolean }) {
 function validateAccountFields(form: RegisterFields, t: TFunction): FieldErrors {
   const next: FieldErrors = {};
 
-  if (!form.username.trim()) next.username = t('register.errors.usernameRequired');
-  else if (form.username.trim().length < 3) next.username = t('register.errors.usernameMin');
+  const username = form.username.trim();
+  if (!username) next.username = t('register.errors.usernameRequired');
+  else if (username.length < 3) next.username = t('register.errors.usernameMin');
+  else if (!USERNAME_RE.test(username)) next.username = t('register.errors.usernameInvalid');
   if (!form.displayName.trim()) next.displayName = t('register.errors.displayNameRequired');
   else if (form.displayName.trim().length > 100) {
     next.displayName = t('register.errors.displayNameMax');
   }
-  if (!form.email.trim()) next.email = t('register.errors.emailRequired');
-  else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
+  const email = form.email.trim();
+  if (!email) next.email = t('register.errors.emailRequired');
+  else if (email.length > EMAIL_MAX) next.email = t('register.errors.emailMax');
+  else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     next.email = t('register.errors.emailInvalid');
   }
   if (!form.password) next.password = t('register.errors.passwordRequired');
@@ -844,9 +867,9 @@ function RegisterScreen() {
       }
 
       if (err instanceof ApiError && (err.code === 'network' || err.code === 'timeout')) {
-        showToast('error', errorText(err, t), errorHint(err, t));
+        showToast('error', errorText(err, t, Boolean(code)), errorHint(err, t));
       } else {
-        showToast('error', t('register.errorTitle'), errorText(err, t));
+        showToast('error', t('register.errorTitle'), errorText(err, t, Boolean(code)));
       }
 
       // Rate-limited: freeze the submit for a visible moment
@@ -933,6 +956,7 @@ function RegisterScreen() {
             value={form.username}
             onChangeText={(value) => updateField('username', value)}
             error={errors.username}
+            maxLength={32}
             autoCapitalize="none"
             autoCorrect={false}
             autoComplete="username"
@@ -962,6 +986,7 @@ function RegisterScreen() {
             value={form.email}
             onChangeText={(value) => updateField('email', value)}
             error={errors.email}
+            maxLength={254}
             keyboardType="email-address"
             autoCapitalize="none"
             autoCorrect={false}

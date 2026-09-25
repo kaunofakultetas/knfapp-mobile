@@ -90,6 +90,7 @@ import {
   normalizeKnf,
   parseISO,
   toISO,
+  todayISO,
   type ConflictOptions,
   type KnfLesson,
   type TimetableEntry,
@@ -207,9 +208,13 @@ interface FilterChoice {
 //
 // Today's semester label by the sheets' naming: the label
 // year is the ACADEMIC year's first calendar year, so
-// September–January belong to that year's R (autumn) and
-// February–August to the PREVIOUS label year's P (spring —
-// '2026-P' runs in calendar 2027).
+// August–December belong to that year's R (autumn) and
+// January–July to the PREVIOUS label year's P (spring —
+// '2026-P' runs in calendar 2027). This is the backend's own
+// rule (month >= 8 → {y}-R, else {y-1}-P, counted 1=January)
+// mirrored one to one — the default picked here and the label
+// the scraper stamps on a lecture must never disagree, and a
+// January or August special case would make them.
 //
 // Used by:
 //   - ScheduleScreen (below) — the current-term default and
@@ -218,10 +223,8 @@ interface FilterChoice {
 
 function currentTermKey(now: Date = new Date()): string {
   const year = now.getFullYear();
-  const month = now.getMonth(); // 0=January
-  if (month >= 8) return `${year}-R`;
-  if (month === 0) return `${year - 1}-R`;
-  return `${year - 1}-P`;
+  const month = now.getMonth() + 1; // 1=January, as the backend counts
+  return month >= 8 ? `${year}-R` : `${year - 1}-P`;
 }
 
 
@@ -752,7 +755,7 @@ function ScheduleScreen() {
 
   // The ISO Monday of the visible week — the dated fetch, the
   // header captions and the semester time-jump all move on it
-  const [weekStart, setWeekStart] = useState(() => mondayOf(toISO(Date.now())));
+  const [weekStart, setWeekStart] = useState(() => mondayOf(todayISO()));
 
 
   // How the timetable renders (persisted), and through whose
@@ -1176,7 +1179,7 @@ function ScheduleScreen() {
 
   // Today's coordinates — the tab strip's outline marker and
   // the now-line gate read them each render
-  const todayMonday = mondayOf(toISO(Date.now()));
+  const todayMonday = mondayOf(todayISO());
   const todayIndex = dayIndexOf(new Date());
 
 
@@ -1189,7 +1192,7 @@ function ScheduleScreen() {
   useEffect(() => {
     return navigation.addListener('tabPress', () => {
       if (!navigation.isFocused()) return;
-      setWeekStart(mondayOf(toISO(Date.now())));
+      setWeekStart(mondayOf(todayISO()));
       setSelectedDay(dayIndexOf(new Date()));
     });
   }, [navigation]);
@@ -1205,7 +1208,7 @@ function ScheduleScreen() {
     if (marker === dayMarkerRef.current) return;
     dayMarkerRef.current = marker;
     setSelectedDay(dayIndexOf(new Date()));
-    setWeekStart(mondayOf(toISO(Date.now())));
+    setWeekStart(mondayOf(todayISO()));
   }, []);
 
   useFocusEffect(evaluateToday);
@@ -1229,7 +1232,7 @@ function ScheduleScreen() {
     if (choice.semesterChanged) {
       setSemesterExplicit(true);
       setSelectedSemester(choice.semester);
-      const todayMonday = mondayOf(toISO(Date.now()));
+      const todayMonday = mondayOf(todayISO());
       const target =
         choice.semester && choice.semester !== currentTermKey()
           ? termStartMonday(choice.semester)
@@ -1303,6 +1306,27 @@ function ScheduleScreen() {
     weekStart.slice(0, 4) === weekEnd.slice(0, 4)
       ? `${weekStart.slice(5)} – ${weekEnd.slice(5)}`
       : `${weekStart} – ${weekEnd}`;
+
+
+  // Whether the visible week lies OUTSIDE the published
+  // timetable altogether. The loaded three-week window is all
+  // the screen knows of the published range (the filters
+  // payload carries no dates), so a week wholly before the
+  // window's first dated row or after its last — or a window
+  // with no rows anywhere — reads as "not published", while a
+  // week with rows on either side of it (a break) keeps the
+  // plain "no lectures" copy. ISO dates compare as strings
+  const weekOutsidePublished = useMemo(() => {
+    const rows = events ?? [];
+    if (rows.length === 0) return true;
+    let first = rows[0].date;
+    let last = rows[0].date;
+    for (const row of rows) {
+      if (row.date < first) first = row.date;
+      if (row.date > last) last = row.date;
+    }
+    return weekEnd < first || weekStart > last;
+  }, [events, weekStart, weekEnd]);
 
 
   // The wire row onto the kit card's NEUTRAL shape — the one
@@ -1446,7 +1470,8 @@ function ScheduleScreen() {
           path: the group card list exactly as it always was,
           the teacher's card list, the pick-a-teacher prompt,
           or the kit's timeline/grid; error and empty stay
-          distinct states */}
+          distinct states, and an empty week outside the
+          published range is told apart from an empty day */}
       {bodyLoading ? (
         <View className="flex-1 items-center justify-center">
           <LoadingSpinner />
@@ -1457,12 +1482,20 @@ function ScheduleScreen() {
         </ScrollView>
       ) : groupList ? (
         groupDayLessons.length === 0 ? (
+          // A week the timetable never covered names its dates
+          // instead of asserting an empty day — the plain copy
+          // is for a day with nothing on it inside a published
+          // range
           <ScrollView contentContainerStyle={{ flexGrow: 1 }} refreshControl={refreshControl}>
-            <EmptyState
-              icon="calendar-outline"
-              title={t('schedule.noLectures')}
-              hint={activeFilterCount > 0 ? filterSummary : undefined}
-            />
+            {weekOutsidePublished ? (
+              <EmptyState icon="calendar-clear-outline" title={t('schedule.weekNotPublished')} hint={weekRange} />
+            ) : (
+              <EmptyState
+                icon="calendar-outline"
+                title={t('schedule.noLectures')}
+                hint={activeFilterCount > 0 ? filterSummary : undefined}
+              />
+            )}
           </ScrollView>
         ) : (
           <FlatList
@@ -1492,7 +1525,11 @@ function ScheduleScreen() {
       ) : viewMode === 'list' ? (
         teacherDayCards.length === 0 ? (
           <ScrollView contentContainerStyle={{ flexGrow: 1 }} refreshControl={refreshControl}>
-            <EmptyState icon="calendar-outline" title={t('schedule.noLectures')} hint={filterSummary} />
+            {weekOutsidePublished ? (
+              <EmptyState icon="calendar-clear-outline" title={t('schedule.weekNotPublished')} hint={weekRange} />
+            ) : (
+              <EmptyState icon="calendar-outline" title={t('schedule.noLectures')} hint={filterSummary} />
+            )}
           </ScrollView>
         ) : (
           <FlatList

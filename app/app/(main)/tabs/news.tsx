@@ -15,16 +15,19 @@
 //
 //  The list is the social kit's FeedList over the data
 //  engine's useFeed: paging, the pull spinner, the row error
-//  boundaries, the timeline hole (a merge refresh after a
-//  long absence that shares nothing with the held rows shows
-//  a tap-to-fill row where the hole is — useFeed's gapAfterId,
-//  filled by its loadMore) and the "N new posts" pill, counted
-//  by useFeedFreshness peeking page 1 of the SAME feed the
-//  chips show once a minute while the tab is focused. The
-//  collapsible header needs reanimated's native scroll
-//  listener on the list's scroll view, which the kit's plain
-//  FlatList cannot take by itself — HeaderScrollView (below)
-//  is the bridge, handed in through renderScrollComponent.
+//  boundaries and the "N new posts" pill, counted by
+//  useFeedFreshness peeking page 1 of the SAME feed the chips
+//  show once a minute while the tab is focused. Every refresh
+//  REPLACES the list: both /news and /social/feed are ranked
+//  by engagement, not by date, so the engine's merge strategy
+//  (which folds a fresh page 1 in as "newer") would promote an
+//  old post that climbed the ranking to the top and jam the
+//  pill on — the merge and its timeline hole stay reserved for
+//  a newest-first source. The collapsible header needs
+//  reanimated's native scroll listener on the list's scroll
+//  view, which the kit's plain FlatList cannot take by itself
+//  — HeaderScrollView (below) is the bridge, handed in through
+//  renderScrollComponent.
 //
 //  Likes are the social engine's: every row layers
 //  useLikeToggle over its feed item, so the optimistic flip,
@@ -612,14 +615,13 @@ function NewsTab() {
 
   // Only the unfiltered 'all' feed caches, under a key scoped
   // to the viewing account (see file header); auth state is a
-  // dep so both feeds reload right after signing in or out
+  // dep so both feeds reload right after signing in or out.
+  // No merge mode: on these ranked sources the network-restore
+  // refresh replaces the list like every other refresh here
   const feed = useFeed<FeedPost>(fetchPage, {
     cacheKey: selection === '' ? cacheKeyNews(user?.id ?? 'guest') : undefined,
     cacheMaxAge: NEWS_CACHE_MAX_AGE,
     deps: [selection, isAuthenticated],
-    // Newest-first feed: a background refresh folds new posts
-    // in at the top and never truncates the pages already read
-    silentRefreshMode: 'merge',
   });
 
 
@@ -676,12 +678,11 @@ function NewsTab() {
 
   // Re-focus refresh picks up what happened elsewhere (a fresh
   // create-post, likes from the article screen); the mount
-  // load already covers the first focus. It MERGES rather than
-  // replaces: coming back from a post 60 rows deep must land
-  // on that post, not on a recent one — a replace shrank the
-  // list to one page and the offset clamped onto whatever was
-  // left. The opened post's own re-fetch runs after the merge
-  // so the mutation fence cannot drop the merge's response
+  // load already covers the first focus. It REPLACES the list:
+  // on a ranked source a merge treats every re-ranked old post
+  // as new (file header), so the deeper pages are given up and
+  // re-paged instead. The opened post's own re-fetch runs after
+  // the refresh so the mutation fence cannot drop its response
   const firstFocusRef = useRef(true);
   useFocusEffect(
     useCallback(() => {
@@ -691,7 +692,7 @@ function NewsTab() {
       }
       const opened = lastOpenedRef.current;
       lastOpenedRef.current = null;
-      void refreshRef.current('merge').then(() => {
+      void refreshRef.current().then(() => {
         if (!opened) return;
         fetchNewsPost(opened)
           .then((fresh) => {
@@ -812,10 +813,10 @@ function NewsTab() {
   };
 
 
-  // The pill: fold the waiting posts in at the top and bring
-  // the header back with them
+  // The pill: reload the ranked head with the waiting posts
+  // on it and bring the header back with them
   const showNewPosts = () => {
-    void feed.refresh('merge');
+    void feed.refresh();
     freshness.clear();
     scrollRef.current?.scrollTo({ y: 0, animated: true });
     header.reveal();
@@ -939,10 +940,9 @@ function NewsTab() {
           flatListProps={{
             renderScrollComponent,
             scrollEventThrottle: 16,
-            // A merge refresh may prepend new posts above the
-            // reader: keep the first visible row anchored so the
-            // viewport never moves under them (the new rows wait
-            // above, one scroll-up away)
+            // A refresh may re-rank rows above the reader: keep
+            // the first visible row anchored so the viewport
+            // never moves under them
             maintainVisibleContentPosition: { minIndexForVisible: 0 },
           }}
         />

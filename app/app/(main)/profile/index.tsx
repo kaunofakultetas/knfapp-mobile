@@ -74,6 +74,7 @@ import { ConnectButton, type ConnectAction } from '@knf/socialuikit';
 // Backend calls and the normalized error shape
 import {
   ApiError,
+  apiErrorKey,
   deletePost,
   fetchUserPosts,
   fetchUserProfile,
@@ -395,8 +396,9 @@ function ProfileHeader({
 //
 // One post preview card: title, a 3-line body, like/comment
 // counts and a delete action on the own profile. Title and
-// body arrive already entity-decoded — the api client decodes
-// every response centrally. The Card is accessible={false} so
+// body arrive as the raw text the author typed — the backend
+// escapes nothing on output and the api client decodes nothing;
+// React escapes at render. The Card is accessible={false} so
 // screen readers reach the inner targets one by one: the text
 // block is the dedicated open-post button and the trash keeps
 // its own stop — grouped, the delete never surfaced at all.
@@ -489,12 +491,14 @@ const PostRow = memo(function PostRow({
 // avatarErrorKey
 // -----------------------------------------------------------
 //
-// Maps the backend's known upload rejections (file too large,
-// type not allowed, content not a real image) plus the upload
-// timeout to their own translated messages instead of echoing
-// the English backend string; anything unrecognized — the
-// profile PUT included — falls back to the generic avatar
-// error.
+// Maps the backend's upload rejections to translated messages
+// by their MACHINE CODE — never by status or prose: the three
+// this screen words itself (size, type, content), then any
+// other code the catalog knows (a full storage quota —
+// quota_exceeded, which the backend answers with a 413 that
+// used to read as "too large" here). The upload timeout has
+// its own line; anything unrecognized — the profile PUT
+// included — falls back to the generic avatar error.
 //
 // Used by:
 //   - ProfileScreen (below) — avatar-change failure toast
@@ -503,9 +507,13 @@ const PostRow = memo(function PostRow({
 function avatarErrorKey(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.code === 'timeout') return 'upload.timeout';
-    if (err.status === 413 || err.serverCode === 'file_too_large') return 'upload.tooLarge';
-    if (/type not allowed/i.test(err.message)) return 'upload.typeNotAllowed';
-    if (/does not match/i.test(err.message)) return 'upload.invalidContent';
+    if (err.serverCode === 'file_too_large') return 'upload.tooLarge';
+    if (err.serverCode === 'bad_file_type') return 'upload.typeNotAllowed';
+    if (err.serverCode === 'bad_file_content') return 'upload.invalidContent';
+    if (err.serverCode) {
+      const key = apiErrorKey(err);
+      if (key.startsWith('errors.codes.')) return key;
+    }
   }
   return 'profile.avatarError';
 }

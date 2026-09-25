@@ -34,6 +34,7 @@ const NOTICE_KEYS: Record<SocialNotice['code'], string> = {
   vote_failed: 'news.pollVoteError',
   poll_load_failed: 'social.pollLoadError',
   relationship_failed: 'profile.actionError',
+  cooldown: 'errors.codes.friend_request_cooldown',
   block_failed: 'profile.actionError',
   report_failed: 'profile.actionError',
   notifications_failed: 'social.activityError',

@@ -4,7 +4,9 @@
 //  Every scenario asserts the full RouteIntent shape and exact
 //  call counts: warm ingest, the consume-exactly-once cold
 //  path (device copy cleared, identifier persisted so a hub
-//  rebuilt over the same storage never replays), the pre-
+//  rebuilt over the same storage never replays — on the warm
+//  listener's path too, which is where a relaunched task
+//  re-fires the launch tap), the pre-
 //  resolver buffer with its order and cap, the launch tap that
 //  reached the warm listener first and is adopted as the cold
 //  start while no resolver exists, action-id mapping, throwing
@@ -342,6 +344,48 @@ describe('cold-start consume', () => {
     const secondBoot = createRoutingHub({ storage, ...makeSlot(fixtureChatMessage) });
     await expect(secondBoot.consumeInitial()).resolves.toBeNull();
     expect(JSON.parse(storage.map.get(CONSUMED_KEY) as string)).toContain('resp-chat-1');
+  });
+
+  it('a NEW hub over the same storage never re-adopts the launch tap the previous process routed through the warm listener', async () => {
+    // The production cold start: the launch tap reaches the warm
+    // listener before the router mounts, parks, and is adopted.
+    // Android relaunching the task from Recents re-fires the
+    // same notification Intent into a fresh JS context — empty
+    // session set, same storage, same sticky device copy
+    const storage = createMemoryStorage();
+    const boot = () => createRoutingHub({ storage, ...makeSlot(fixtureChatMessage) });
+
+    const firstProcess = boot();
+    await firstProcess.ingest(fixtureChatMessage, false);
+    await expect(firstProcess.consumeInitial()).resolves.toMatchObject({ coldStart: true, type: 'chat_message' });
+
+    const secondProcess = boot();
+    await secondProcess.ingest(fixtureChatMessage, false);
+    await expect(secondProcess.consumeInitial()).resolves.toBeNull();
+    // Nothing parked for the resolver either — the tap is spent
+    const flushed: RouteIntent[] = [];
+    secondProcess.setResolver((intent) => flushed.push(intent));
+    expect(flushed).toEqual([]);
+  });
+
+  it('a warm tap whose identifier the persisted ring remembers is dropped, resolver or not', async () => {
+    const storage = createMemoryStorage();
+    const { hub: earlier } = makeHub(makeSlot(null), storage);
+    earlier.setResolver(() => undefined);
+    await earlier.ingest(fixtureResponse('news', { postId: 'n1' }, 'ring-1'), false);
+
+    const { hub: later } = makeHub(makeSlot(null), storage);
+    const resolved: RouteIntent[] = [];
+    const heard: RouteIntent[] = [];
+    later.setResolver((intent) => resolved.push(intent));
+    later.onIntent((intent) => heard.push(intent));
+    await later.ingest(fixtureResponse('news', { postId: 'n1' }, 'ring-1'), false);
+
+    expect(resolved).toEqual([]);
+    expect(heard).toEqual([]);
+    // A genuinely new tap still routes
+    await later.ingest(fixtureResponse('news', { postId: 'n2' }, 'ring-2'), false);
+    expect(resolved.map((intent) => intent.data.postId)).toEqual(['n2']);
   });
 });
 

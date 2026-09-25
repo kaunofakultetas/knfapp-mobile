@@ -10,24 +10,44 @@
 //  event drops the app to guest state. Plus the push handoff
 //  to the notify engine: register('login') after a login,
 //  register('restore') only once /me has verified a restored
-//  session, nothing when /me fails, and a detach carrying the
-//  captured bearer on logout. The two register answers the
+//  session, nothing when /me fails, and on logout the server
+//  call carrying this device's push token (read off the engine
+//  BEFORE the wipe) ahead of the engine's detach with the
+//  captured bearer. The two register answers the
 //  provider acts on are pinned both ways — a 'permission'
 //  refusal raises the OS prompt exactly once while the OS can
 //  still be asked and never otherwise, a 'disabled' restore
 //  retries the detach — and every session drop (logout and
-//  expiry alike) clears the displayed notifications.
+//  expiry alike) clears the displayed notifications. Then the
+//  session-lifecycle fences: a /me answer that outlives its
+//  session (a logout + login while it was in flight, on a cold
+//  start or a foreground) never overwrites the current user in
+//  state or on disk; a stored-token read that THROWS keeps the
+//  stored session and hydrates as a guest, while a genuine
+//  missing token beside a profile still clears the record;
+//  every session drop wipes the departing account's chat
+//  namespace and nothing else; and a persist that fails during
+//  login leaves the device genuinely signed out.
 // -----------------------------------------------------------
 
 import type { PermissionSnapshot, RegisterResult } from '@knf/notifyengine';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { act, renderHook, waitFor } from '@testing-library/react-native';
 import { dismissAllNotificationsAsync } from 'expo-notifications';
+import { AppState } from 'react-native';
 
 import { showToast } from '@/context/NetworkContext';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
-import { ApiError, fetchMe, loginApi } from '@/services/api';
+import { ApiError, fetchMe, loginApi, logoutApi } from '@/services/api';
 import { notifyEngine } from '@/services/notifyEngine';
-import { clearStoredSession, getStoredToken, getStoredUser } from '@/services/session';
+import {
+  clearStoredSession,
+  getStoredToken,
+  getStoredUser,
+  readStoredToken,
+  setStoredSession,
+} from '@/services/session';
+import { connectSocket } from '@/services/socket';
 import type { User } from '@/types';
 
 
@@ -62,7 +82,9 @@ jest.mock('@/services/api', () => {
     fetchMe: jest.fn(async () => ({})),
     loginApi: jest.fn(),
     registerApi: jest.fn(),
-    logoutApi: jest.fn(async (token: string) => { mockLog.push(`logoutApi:${token}`); }),
+    logoutApi: jest.fn(async (token: string, pushToken?: string | null) => {
+      mockLog.push(`logoutApi:${token}:${pushToken ?? 'none'}`);
+    }),
   };
 });
 jest.mock('@/services/api/session-events', () => ({
@@ -73,6 +95,7 @@ jest.mock('@/services/api/session-events', () => ({
 }));
 jest.mock('@/services/session', () => ({
   getStoredToken: jest.fn(async () => null),
+  readStoredToken: jest.fn(async () => ({ ok: true, token: null })),
   getStoredUser: jest.fn(async () => null),
   setStoredSession: jest.fn(async () => {}),
   clearStoredSession: jest.fn(async () => { mockLog.push('clearStoredSession'); }),
@@ -101,6 +124,10 @@ jest.mock('@/services/notifyEngine', () => {
       return { ok: true, tokenId: 'stub' };
     }),
     detach: jest.fn(async () => { mockLog.push('detach'); }),
+    getRegisteredToken: jest.fn(async () => {
+      mockLog.push('getRegisteredToken');
+      return 'ExponentPushToken[this-device]';
+    }),
   };
   return { notifyEngine: stub, readyNotifyEngine: async () => stub };
 });
@@ -128,7 +155,56 @@ const renderAuth = () => renderHook(() => useAuth(), { wrapper: AuthProvider });
 
 const seedStoredSession = () => {
   (getStoredToken as jest.Mock).mockResolvedValue('tok');
+  (readStoredToken as jest.Mock).mockResolvedValue({ ok: true, token: 'tok' });
   (getStoredUser as jest.Mock).mockResolvedValue(user);
+};
+
+// A second account for the session-switch scenarios
+const other: User = {
+  id: 'u2',
+  username: 'ona',
+  email: 'ona@knf.vu.lt',
+  displayName: 'Ona',
+  role: 'student',
+};
+
+// A /me the test answers by hand — the in-flight window every
+// generation fence is about
+const heldFetchMe = (): ((fresh: User) => void) => {
+  let deliver: (fresh: User) => void = () => undefined;
+  (fetchMe as jest.Mock).mockImplementationOnce(
+    () =>
+      new Promise<User>((resolve) => {
+        deliver = resolve;
+      }),
+  );
+  return (fresh) => deliver(fresh);
+};
+
+// logout's detached server calls carry 5 s timeout guards —
+// fake timers keep them from holding the process open
+const logoutUnderFakeTimers = async (logout: () => Promise<void>) => {
+  jest.useFakeTimers();
+  try {
+    await act(async () => {
+      await logout();
+    });
+  } finally {
+    jest.useRealTimers();
+  }
+};
+
+// The switch every fence is tested against: sign the first
+// account out, sign the second in, and forget the persists so
+// far so only what lands AFTER the switch is asserted
+const switchToOther = async (auth: { logout: () => Promise<void>; login: (u: string, p: string) => Promise<void> }) => {
+  await logoutUnderFakeTimers(auth.logout);
+  (loginApi as jest.Mock).mockResolvedValue({ user: other, token: 'tok-2' });
+  (getStoredToken as jest.Mock).mockResolvedValue('tok-2');
+  await act(async () => {
+    await auth.login('ona', 'slaptazodis');
+  });
+  (setStoredSession as jest.Mock).mockClear();
 };
 
 const seedLogin = () => {
@@ -152,10 +228,12 @@ const answerNextRegister = (result: RegisterResult) => {
 
 
 describe('AuthProvider', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     jest.clearAllMocks();
     mockLog.length = 0;
+    await AsyncStorage.clear();
     (getStoredToken as jest.Mock).mockResolvedValue(null);
+    (readStoredToken as jest.Mock).mockResolvedValue({ ok: true, token: null });
     (getStoredUser as jest.Mock).mockResolvedValue(null);
     (fetchMe as jest.Mock).mockResolvedValue(user);
     seedPermission(granted);
@@ -239,12 +317,23 @@ describe('AuthProvider', () => {
       // before any server-side call, and the server call still holds
       // the token the local wipe just destroyed
       await act(async () => {});
-      expect(mockLog).toContain('logoutApi:tok');
+      const logoutCall = 'logoutApi:tok:ExponentPushToken[this-device]';
+      expect(mockLog).toContain(logoutCall);
       expect(mockLog.indexOf('cacheClearAll')).toBeLessThan(mockLog.indexOf('clearStoredSession'));
-      expect(mockLog.indexOf('clearStoredSession')).toBeLessThan(mockLog.indexOf('detach'));
-      expect(mockLog.indexOf('detach')).toBeLessThan(mockLog.indexOf('logoutApi:tok'));
+      expect(mockLog.indexOf('clearStoredSession')).toBeLessThan(mockLog.indexOf(logoutCall));
       expect(mockLog.indexOf('disconnectSocket')).toBeLessThan(mockLog.indexOf('clearStoredSession'));
       expect(dismissAllNotificationsAsync).toHaveBeenCalledTimes(1);
+
+      // This device's push token is read off the engine BEFORE the
+      // wipe and rides in the logout body — one authenticated
+      // request drops the session and the push row together
+      expect(mockLog.indexOf('getRegisteredToken')).toBeLessThan(mockLog.indexOf('clearStoredSession'));
+      expect(logoutApi).toHaveBeenCalledWith('tok', 'ExponentPushToken[this-device]');
+
+      // The logout call goes FIRST; the engine's detach follows
+      // for the local side. The reverse order let the detach's
+      // DELETE go out after the bearer had been revoked
+      expect(mockLog.indexOf(logoutCall)).toBeLessThan(mockLog.indexOf('detach'));
 
       // The local wipe already emptied the api layer's token, so
       // the detach must carry the captured bearer itself
@@ -254,7 +343,28 @@ describe('AuthProvider', () => {
       // the phone's next user must not inherit the map to the
       // previous one's assistant chats
       expect(mockLog.indexOf('clearGuestRegistry')).toBeGreaterThanOrEqual(0);
-      expect(mockLog.indexOf('clearGuestRegistry')).toBeLessThan(mockLog.indexOf('detach'));
+      expect(mockLog.indexOf('clearGuestRegistry')).toBeLessThan(mockLog.indexOf(logoutCall));
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+
+  it('a logout with no known push token still drops the session', async () => {
+    seedStoredSession();
+    (notifyEngine.getRegisteredToken as jest.Mock).mockResolvedValueOnce(null);
+    const { result } = await renderAuth();
+    await waitFor(() => expect(result.current.isAuthenticated).toBe(true));
+
+    jest.useFakeTimers();
+    try {
+      await act(async () => {
+        await result.current.logout();
+      });
+      await act(async () => {});
+      expect(result.current.isAuthenticated).toBe(false);
+      expect(logoutApi).toHaveBeenCalledWith('tok', null);
+      expect(notifyEngine.detach).toHaveBeenCalledWith({ authToken: 'tok' });
     } finally {
       jest.useRealTimers();
     }
@@ -401,6 +511,166 @@ describe('AuthProvider', () => {
     expect(notifyEngine.detach).toHaveBeenCalledWith();
     // Push off is a choice, not a missing permission — no prompt
     expect(notifyEngine.requestPermission).not.toHaveBeenCalled();
+  });
+
+
+  it('drops a cold-start /me that lands after a logout and a login as another account', async () => {
+    seedStoredSession();
+    const deliver = heldFetchMe();
+    const { result } = await renderAuth();
+    await waitFor(() => expect(result.current.isAuthenticated).toBe(true));
+    await waitFor(() => expect(fetchMe).toHaveBeenCalledTimes(1));
+
+    await switchToOther(result.current);
+    expect(result.current.user?.id).toBe('u2');
+
+    // The first account's /me answers now — it describes a
+    // session that is gone, whatever profile it carries
+    await act(async () => {
+      deliver({ ...user, displayName: 'Stale Jonas' });
+    });
+    await act(async () => {});
+    expect(result.current.user).toEqual(other);
+    // ...and nothing paired the NEW token with the OLD profile
+    expect(setStoredSession).not.toHaveBeenCalled();
+    // The stale verification also registers nothing as a restore
+    expect(notifyEngine.register).not.toHaveBeenCalledWith('restore');
+  });
+
+
+  it('drops a foreground /me that lands after a logout and a login as another account', async () => {
+    seedStoredSession();
+    const { result } = await renderAuth();
+    await waitFor(() => expect(result.current.isAuthenticated).toBe(true));
+    await waitFor(() => expect(fetchMe).toHaveBeenCalledTimes(1));
+
+    // The provider's foreground listener, off the preset's
+    // AppState mock (calls are cleared per test, so the last
+    // registration is this provider's)
+    const appStateCb = (AppState.addEventListener as jest.Mock).mock.calls.at(-1)?.[1] as
+      | ((status: string) => void)
+      | undefined;
+    expect(appStateCb).toBeDefined();
+
+    // The foreground check goes out and hangs
+    const deliver = heldFetchMe();
+    await act(async () => {
+      appStateCb?.('active');
+    });
+    await waitFor(() => expect(fetchMe).toHaveBeenCalledTimes(2));
+
+    await switchToOther(result.current);
+    expect(result.current.user?.id).toBe('u2');
+
+    await act(async () => {
+      deliver({ ...user, displayName: 'Stale Jonas' });
+    });
+    await act(async () => {});
+    expect(result.current.user).toEqual(other);
+    expect(setStoredSession).not.toHaveBeenCalled();
+  });
+
+
+  it('keeps the stored session when the token read throws, and restores it on the next start', async () => {
+    // The keychain threw beside a valid stored profile — a blip,
+    // not a partial record
+    (readStoredToken as jest.Mock).mockResolvedValue({ ok: false, token: null });
+    (getStoredUser as jest.Mock).mockResolvedValue(user);
+    const first = await renderAuth();
+    await waitFor(() => expect(first.result.current.hydrated).toBe(true));
+    expect(first.result.current.isAuthenticated).toBe(false);
+    expect(fetchMe).not.toHaveBeenCalled();
+    expect(clearStoredSession).not.toHaveBeenCalled();
+    await first.unmount();
+
+    // Next start, the keychain answers — the session is back
+    seedStoredSession();
+    const second = await renderAuth();
+    await waitFor(() => expect(second.result.current.isAuthenticated).toBe(true));
+    expect(clearStoredSession).not.toHaveBeenCalled();
+  });
+
+
+  it('still clears a stored profile whose token is genuinely missing', async () => {
+    (readStoredToken as jest.Mock).mockResolvedValue({ ok: true, token: null });
+    (getStoredUser as jest.Mock).mockResolvedValue(user);
+    const { result } = await renderAuth();
+
+    await waitFor(() => expect(result.current.hydrated).toBe(true));
+    expect(result.current.isAuthenticated).toBe(false);
+    expect(fetchMe).not.toHaveBeenCalled();
+    expect(clearStoredSession).toHaveBeenCalled();
+  });
+
+
+  it('a logout wipes the departing account\'s chat namespace and nothing else', async () => {
+    seedStoredSession();
+    // The chat engine's scoped keys for this account, another
+    // account's, and an app-level key
+    await AsyncStorage.multiSet([
+      ['u:u1:draft:c1', 'half-typed'],
+      ['u:u1:draftreply:c1', 'm9'],
+      ['u:u1:outbox:c1', '[{"id":"m10"}]'],
+      ['u:u1:tasks:c1', '[{"kind":"send"}]'],
+      ['u:u2:draft:c1', 'other account'],
+      ['onboarded', '1'],
+    ]);
+    const { result } = await renderAuth();
+    await waitFor(() => expect(result.current.isAuthenticated).toBe(true));
+
+    await logoutUnderFakeTimers(result.current.logout);
+    expect(result.current.isAuthenticated).toBe(false);
+
+    const keys = await AsyncStorage.getAllKeys();
+    expect(keys.filter((key) => key.startsWith('u:u1:'))).toEqual([]);
+    expect(await AsyncStorage.getItem('u:u2:draft:c1')).toBe('other account');
+    expect(await AsyncStorage.getItem('onboarded')).toBe('1');
+  });
+
+
+  it('a session expiry wipes the departing account\'s chat namespace too', async () => {
+    seedStoredSession();
+    await AsyncStorage.multiSet([
+      ['u:u1:draft:c1', 'half-typed'],
+      ['u:u2:draft:c1', 'other account'],
+    ]);
+    const { result } = await renderAuth();
+    await waitFor(() => expect(result.current.isAuthenticated).toBe(true));
+
+    await act(async () => {
+      mockSessionInvalid.fire();
+    });
+    await waitFor(() => expect(result.current.isAuthenticated).toBe(false));
+    await waitFor(async () => expect(await AsyncStorage.getItem('u:u1:draft:c1')).toBeNull());
+    expect(await AsyncStorage.getItem('u:u2:draft:c1')).toBe('other account');
+  });
+
+
+  it('a failed session persist during login leaves the device signed out', async () => {
+    seedLogin();
+    (setStoredSession as jest.Mock).mockRejectedValueOnce(new Error('keychain write failed'));
+    const { result } = await renderAuth();
+    await waitFor(() => expect(result.current.hydrated).toBe(true));
+    mockLog.length = 0;
+
+    let failure: unknown = null;
+    await act(async () => {
+      try {
+        await result.current.login('jonas', 'slaptazodis');
+      } catch (err) {
+        failure = err;
+      }
+    });
+    expect(failure).toEqual(new Error('keychain write failed'));
+    expect(result.current.isAuthenticated).toBe(false);
+    expect(result.current.loading).toBe(false);
+
+    // The half-written record is gone and the socket never came
+    // up as this account — a genuinely signed-out device
+    expect(clearStoredSession).toHaveBeenCalledTimes(1);
+    expect(mockLog).toContain('disconnectSocket');
+    expect(connectSocket).not.toHaveBeenCalled();
+    expect(notifyEngine.register).not.toHaveBeenCalled();
   });
 
 });

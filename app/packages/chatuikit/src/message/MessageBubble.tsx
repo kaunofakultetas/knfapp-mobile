@@ -146,6 +146,31 @@ const haptic = (kind: 'light' | 'medium' | 'select') => {
 
 
 // -----------------------------------------------------------
+// fileHref
+// -----------------------------------------------------------
+//
+// A document's stored path (a relative upload path) resolved
+// through the host, exactly as the photo, video and audio
+// attachments resolve theirs — a bare '/api/uploads/…' handed
+// to the host's link opener has no scheme and can never open.
+// An absolute uri passes through untouched.
+//
+// Used by:
+//   - BubbleBody (below) — the document card's tap
+//   - MessageBubbleInner (below) — the openFile accessibility
+//     action
+// -----------------------------------------------------------
+
+const fileHref = (uri: string, resolveImageUrl: (path: string) => string | null): string =>
+  uri.startsWith('/') ? resolveImageUrl(uri) ?? uri : uri;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // bubbleRadii
 // -----------------------------------------------------------
 //
@@ -426,7 +451,7 @@ export function BubbleBody({
         </>
       ) : file ? (
         <>
-          <FileCard file={file} own={brandBubble} labels={labels} onPress={onPressLink ? () => onPressLink(file.uri) : undefined} onLongPress={onLongPress} />
+          <FileCard file={file} own={brandBubble} labels={labels} onPress={onPressLink ? () => onPressLink(fileHref(file.uri, resolveImageUrl)) : undefined} onLongPress={onLongPress} />
           {caption}
         </>
       ) : (
@@ -785,7 +810,7 @@ function MessageBubbleInner({
     else if (name === 'jumpToQuoted') onPressQuote(message);
     else if (name === 'openPhoto') onPressImage(message);
     else if (name === 'openVideo') onPressVideo?.(message);
-    else if (name === 'openFile' && message.file) onPressLink(message.file.uri);
+    else if (name === 'openFile' && message.file) onPressLink(fileHref(message.file.uri, resolveImageUrl));
     else if (name === 'retry') onRetry(message);
     else if (name.startsWith('openLink:')) {
       const link = links[Number(name.slice('openLink:'.length))];

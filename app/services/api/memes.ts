@@ -7,13 +7,19 @@
 //  that is an ordinary chat message whose imageUrl carries the
 //  library path (the engine's sendStoredImage).
 //
+//  Split into:
+//
+//    ApiMeme / MemesResponse — the wire shapes
+//    MAX_MEME_GIF_BYTES / MAX_MEME_IMAGE_BYTES — the size caps
+//    fetchMemesApi / pushMemeApi / deleteMemeApi — the calls
+//
 //  Used by:
 //    - app/(main)/chat-room/index.tsx — the composer's GIF tab
 // -----------------------------------------------------------
 
 import { Platform } from 'react-native';
 
-import { api, request } from '@/services/api/client';
+import { ApiError, api, request } from '@/services/api/client';
 
 
 
@@ -75,6 +81,32 @@ export interface MemesResponse {
 
 
 // -----------------------------------------------------------
+// MAX_MEME_GIF_BYTES / MAX_MEME_IMAGE_BYTES
+// -----------------------------------------------------------
+//
+// The backend's caps (memes/api/views.py: GIF_MAX_BYTES 8 MB
+// for an animation kept as sent, IMAGE_MAX_BYTES 5 MB for a
+// static picture), mirrored so an oversize pick is refused
+// before the bytes leave the phone. The GIF cap is held at
+// 6 MB for now: the ingress caps /api/memes bodies at 6 MB,
+// so a 6–8 MB GIF dies there with no machine code — the local
+// check must match what actually gets through. Lift it to
+// 8 MB once the ingress carries the backend's ceiling.
+//
+// Used by:
+//   - pushMemeApi (below) — the preflight
+// -----------------------------------------------------------
+
+export const MAX_MEME_GIF_BYTES = 6 * 1024 * 1024;
+export const MAX_MEME_IMAGE_BYTES = 5 * 1024 * 1024;
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // fetchMemesApi
 // -----------------------------------------------------------
 //
@@ -100,13 +132,34 @@ export const fetchMemesApi = (q: string, offset = 0) =>
 //
 // The push: multipart like every upload; native takes the RN
 // file object shape, web materializes the picked URI as a Blob.
+// When the caller passes the picker's fileSize, an oversize
+// pick throws BEFORE the request as the same shape the backend
+// refuses one with — ApiError 400, serverCode 'file_too_large'
+// — so the screen's apiErrorKey branch words both alike.
 //
 // Used by:
 //   - app/(main)/chat-room/index.tsx — the GIF tab's add flow
 // -----------------------------------------------------------
 
-export async function pushMemeApi(uri: string, filename?: string, mimeType?: string, title?: string, tags?: string): Promise<{ meme: ApiMeme }> {
+export async function pushMemeApi(
+  uri: string,
+  filename?: string,
+  mimeType?: string,
+  title?: string,
+  tags?: string,
+  fileSize?: number,
+): Promise<{ meme: ApiMeme }> {
   const name = filename || uri.split('/').pop() || 'memas.gif';
+
+  // Preflight: the GIF cap for an animation, the image cap for
+  // everything else — judged the way the backend does, by what
+  // the file claims to be
+  const isGif = (mimeType || '').toLowerCase() === 'image/gif' || /\.gif$/i.test(name);
+  const cap = isGif ? MAX_MEME_GIF_BYTES : MAX_MEME_IMAGE_BYTES;
+  if (typeof fileSize === 'number' && fileSize > cap) {
+    throw new ApiError('File too large', 400, 'http', undefined, 'file_too_large');
+  }
+
   const formData = new FormData();
   if (Platform.OS === 'web') {
     const blob = await (await fetch(uri)).blob();

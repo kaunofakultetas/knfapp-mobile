@@ -94,6 +94,16 @@ describe('@knf/chatengine surface', () => {
     expect(engine.sendFailureCode(new Error('boom'))).toBe('send_failed');
   });
 
+  it('a send refusal is named by its machine code; a bare 400 is only "failed", never "too long"', () => {
+    const { sendFailureCode, TransportError } = engine;
+    expect(sendFailureCode(new TransportError('x', 'http', 400, 'text_too_long'))).toBe('send_too_long');
+    expect(sendFailureCode(new TransportError('x', 'http', 400, 'quote_not_found'))).toBe('send_quote_gone');
+    expect(sendFailureCode(new TransportError('x', 'http', 400))).toBe('send_failed');
+    // The composer already clamps the length — a 400 with some
+    // other code (an empty body, …) is not a length problem either
+    expect(sendFailureCode(new TransportError('x', 'http', 400, 'empty_message'))).toBe('send_failed');
+  });
+
   it('the retry policy: transport failures, 5xx and 429 heal; a 4xx does not', () => {
     const { isRetryable, TransportError, toTransportError } = engine;
     expect(isRetryable(new TransportError('x', 'network'))).toBe(true);

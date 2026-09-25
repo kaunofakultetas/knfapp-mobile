@@ -7,10 +7,14 @@
 //  bumps the count immediately — unless it belongs to the
 //  conversation on screen (hooks/chat/activeConversation),
 //  which the room is marking read as it lands — then a
-//  debounced server re-count (500 ms) reconciles bursts. App
-//  foregrounding, network restore and socket reconnects
-//  re-fetch too, so the badge never depends on live events
-//  alone.
+//  debounced server re-count (500 ms) reconciles bursts. A
+//  message for the open room gets no bump but IS reconciled,
+//  on a slower clock (2 s, past the room's own mark-read
+//  window): a reader scrolled up in that room never marks it
+//  read, and the badge would otherwise freeze under the
+//  server's count. App foregrounding, network restore and
+//  socket reconnects re-fetch too, so the badge never depends
+//  on live events alone.
 //
 //  Correctness notes:
 //    - every fetch carries a sequence number, so a slow
@@ -51,6 +55,17 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 // Revalidation when the app returns to the foreground
 import { AppState } from 'react-native';
+
+
+// A socket burst settles this long before ONE server re-count
+const RECONCILE_MS = 500;
+
+// A message for the room on screen re-counts on this slower
+// clock — longer than the room's READ_DEBOUNCE_MS (1.5 s in
+// chatengine's useConversation), so the server's number lands
+// AFTER the room's mark-read committed when it was going to,
+// and is right when it never was (the reader scrolled up)
+const ACTIVE_ROOM_RECONCILE_MS = 2_000;
 
 
 
@@ -127,13 +142,15 @@ export function useUnreadCount(): {
 
     // Debounced server re-count: socket bursts collapse into a
     // single request, so a run of optimistic increments settles
-    // on the server's number instead of drifting
-    const scheduleReconcile = () => {
+    // on the server's number instead of drifting. The delay is
+    // the caller's — the open room's messages ask for the slow
+    // clock (see ACTIVE_ROOM_RECONCILE_MS)
+    const scheduleReconcile = (delayMs: number = RECONCILE_MS) => {
       if (reconcileTimer) clearTimeout(reconcileTimer);
       reconcileTimer = setTimeout(() => {
         reconcileTimer = null;
         void refresh();
-      }, 500);
+      }, delayMs);
     };
 
     void (async () => {
@@ -150,13 +167,18 @@ export function useUnreadCount(): {
         // Own outgoing messages echo back over the socket and
         // are never unread
         if (message.senderId === userId) return;
-        // Neither is a message for the room being read — and
-        // no reconcile either: the room's mark-read flush is
-        // slower than the debounce, so a re-count now would
-        // flash the message as unread; the messages_read
-        // receipt below re-counts AFTER the server has
-        // committed the read
-        if (message.conversationId === getActiveConversation()) return;
+        // Neither is a message for the room being read — no
+        // bump, and no re-count on the fast clock: the room's
+        // mark-read flush is slower than the debounce, so a
+        // re-count now would flash the message as unread. It
+        // is reconciled on the slow clock instead — the room
+        // only marks read while pinned to the newest end, and
+        // a reader scrolled up emits no messages_read receipt
+        // for the self-heal below to run on
+        if (message.conversationId === getActiveConversation()) {
+          scheduleReconcile(ACTIVE_ROOM_RECONCILE_MS);
+          return;
+        }
         setCount((previous) => previous + 1);
         scheduleReconcile();
       });

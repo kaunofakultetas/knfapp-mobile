@@ -105,6 +105,16 @@ describe('mergeFirstPage', () => {
     const outbox = [temp(9, { status: 'failed' }), temp(3, { status: 'failed' })];
     expect(ids(mergeFirstPage(prev, page, outbox, 'c1'))).toEqual([`${TEMP_ID_PREFIX}9`, `${TEMP_ID_PREFIX}3`, 'live', 's2', 's1']);
   });
+
+  it('a re-run first load over paged-back history keeps the older rows BELOW the fresh head, newest-first, no duplicates', () => {
+    // The list already paged back (old2, old1 are older than
+    // the page); a fresh head lands with one new row on top
+    const prev = [msg({ id: 's5', createdAt: iso(5) }), msg({ id: 's4', createdAt: iso(4) }), msg({ id: 'old2', createdAt: iso(2) }), msg({ id: 'old1', createdAt: iso(1) })];
+    const page = [msg({ id: 's6', createdAt: iso(6), isOwn: false }), msg({ id: 's5', createdAt: iso(5) }), msg({ id: 's4', createdAt: iso(4) })];
+    const merged = mergeFirstPage(prev, page, [temp(7, { status: 'failed' })], 'c1');
+    expect(ids(merged)).toEqual([`${TEMP_ID_PREFIX}7`, 's6', 's5', 's4', 'old2', 'old1']);
+    expect(new Set(ids(merged)).size).toBe(merged.length);
+  });
 });
 
 

@@ -5,8 +5,10 @@
 //  load-more dedupe and hasMore gate, replace vs merge refresh
 //  (the reader-keeps-place semantics precisely), the offline
 //  fallback, the wipe fence on the deferred cache write, the
-//  mutation fence against stale silent refreshes, and the
-//  abort-on-supersede transport contract.
+//  mutation fence against stale silent refreshes, the
+//  load-more commit that folds in an optimistic setItems
+//  sharing its batch, and the abort-on-supersede transport
+//  contract.
 // -----------------------------------------------------------
 
 import { act, renderHook, waitFor } from '@testing-library/react-native';
@@ -540,5 +542,44 @@ describe('useFeed', () => {
     await flushInteractions();
     const kept = JSON.parse(storage.dump()['cache:feed:test']).data as Row[];
     expect(kept.map((item) => item.id)).toEqual(['a', 'b']);
+  });
+
+  it('loadMore folds in an optimistic setItems queued in the same batch — and the mirror stays in step for the next page', async () => {
+    const { calls, fetchPage } = deferredFetch();
+    const { wrapper } = harness();
+    const { result } = await renderHook(() => useFeed<Row>(fetchPage), { wrapper });
+    await flush();
+    await act(async () => {
+      calls[0].resolve({ items: [row('a'), row('b'), row('c')], hasMore: true });
+    });
+    await waitFor(() => expect(result.current.items).toHaveLength(3));
+
+    await act(async () => {
+      result.current.loadMore();
+    });
+    await waitFor(() => expect(calls).toHaveLength(2));
+
+    // A delete dispatched from a promise continuation (a 404 on
+    // focus-return, a confirmed delete) lands in the very batch
+    // page 2 commits in — the appended page must be built on
+    // the mutated list, not on a pre-mutation snapshot
+    await act(async () => {
+      result.current.setItems((items) => items.filter((item) => item.id !== 'b'));
+      calls[1].resolve({ items: [row('d'), row('e')], hasMore: true });
+    });
+    await flush();
+    expect(result.current.items.map((item) => item.id)).toEqual(['a', 'c', 'd', 'e']);
+
+    // The synchronous mirror moved with the commit: a clean
+    // page 3 appends to what is on screen and drops nothing
+    await act(async () => {
+      result.current.loadMore();
+    });
+    await waitFor(() => expect(calls).toHaveLength(3));
+    await act(async () => {
+      calls[2].resolve({ items: [row('f'), row('g')], hasMore: false });
+    });
+    await flush();
+    expect(result.current.items.map((item) => item.id)).toEqual(['a', 'c', 'd', 'e', 'f', 'g']);
   });
 });

@@ -13,8 +13,11 @@
 //  suggestion chip sends its prompt; the header's history
 //  button pushes the threads screen; a ?thread param loads
 //  the stored transcript and the runtime replays it with
-//  no send at all. Chrome (Screen/Header/theme/i18n) is
-//  mocked the way the schedule suite mocks it — pinned by
+//  no send at all; a settled answer carries NO thumbs row —
+//  the owner dropped answer feedback from the app, so the
+//  host hands the kit no onFeedback. Chrome
+//  (Screen/Header/theme/i18n) is mocked the way the schedule
+//  suite mocks it — pinned by
 //  their own suites; the threads service and session are
 //  mocked because their storage does not exist in jest.
 // -----------------------------------------------------------
@@ -261,6 +264,20 @@ describe('the assistant screen on the wire', () => {
     expect(view.queryByText('searchHandbook')).toBeNull();
     expect(view.getByTestId('assistantuikit-source-0')).toBeTruthy();
     expect(serverHolder.current!.calls).toHaveLength(0);
+  });
+
+  it('a settled answer carries NO thumbs row: the host passes no onFeedback by the owner\'s decision', async () => {
+    serverHolder.current!.script(textReply(['Rytoj 9:00.']));
+    const view = await render(<AssistantScreen />);
+
+    await fireEvent.changeText(view.getByTestId('assistantuikit-composer-input'), 'Kada?');
+    await fireEvent.press(view.getByTestId('assistantuikit-composer-send'));
+    await settled(view, 'Rytoj 9:00.');
+
+    // The kit renders the pair only when handed a callback —
+    // and the tab deliberately hands none
+    expect(view.queryByLabelText('assistant.feedbackDown')).toBeNull();
+    expect(view.queryByLabelText('assistant.feedbackUp')).toBeNull();
   });
 
   it('failures branch by CODE: a 429 reads as the quota message, not "check your connection"', async () => {

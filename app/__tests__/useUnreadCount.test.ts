@@ -3,9 +3,11 @@
 //
 //  The badge rules: server count on login, hard 0 on logout
 //  (a slow in-flight response must not resurrect it), +1 for
-//  another sender's message except in the room being read,
-//  never for own echoes, and a debounced server reconcile
-//  after socket traffic.
+//  another sender's message except in the room being read
+//  (which reconciles on a slower clock instead, past the
+//  room's mark-read window — a reader scrolled up never marks
+//  it read), never for own echoes, and a debounced server
+//  reconcile after socket traffic.
 // -----------------------------------------------------------
 
 const mockAuth = { isAuthenticated: true, user: { id: 'me' } as { id: string } | null };
@@ -208,5 +210,44 @@ describe('useUnreadCount', () => {
       mockSocket.status?.('connected');
     });
     expect(mockFetchCount).toHaveBeenCalledTimes(1);
+  });
+
+  it("reconciles a message for the room being read once the room's mark-read window has passed", async () => {
+    jest.useFakeTimers();
+    try {
+      const { result } = await renderHook(() => useUnreadCount());
+      await settle();
+      mockFetchCount.mockClear();
+
+      // The reader is scrolled up in conv-open: the room claims
+      // it on focus, but never marks the new message read — so
+      // no messages_read receipt will ever drive the self-heal
+      setActiveConversation('conv-open');
+      let serverUnread = 0;
+      mockFetchCount.mockImplementation(async () => ({ unreadCount: serverUnread }));
+      await act(async () => {
+        mockSocket.newMessage?.({ senderId: 'friend', conversationId: 'conv-open' });
+      });
+      serverUnread = 1;
+
+      // No optimistic bump — the room may well be reading it —
+      // and no re-count inside the room's own mark-read window
+      expect(result.current.count).toBe(0);
+      await act(async () => {
+        jest.advanceTimersByTime(1_500);
+      });
+      expect(mockFetchCount).not.toHaveBeenCalled();
+
+      // Past it, the server's number lands
+      await act(async () => {
+        jest.advanceTimersByTime(500);
+      });
+      expect(mockFetchCount).toHaveBeenCalledTimes(1);
+      await act(async () => {});
+      expect(result.current.count).toBe(1);
+      clearActiveConversation('conv-open');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
